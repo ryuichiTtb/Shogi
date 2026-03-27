@@ -1,11 +1,18 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 const globalForClaude = globalThis as unknown as {
-  claude: Anthropic | undefined;
+  claude: Anthropic | null | undefined;
 };
 
-export const claude =
-  globalForClaude.claude ??
-  new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+function createClaudeClient(): Anthropic | null {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey || apiKey.startsWith("sk-ant-...")) return null;
+  return new Anthropic({ apiKey });
+}
+
+export const claude: Anthropic | null =
+  globalForClaude.claude !== undefined
+    ? globalForClaude.claude
+    : createClaudeClient();
 
 if (process.env.NODE_ENV !== "production") globalForClaude.claude = claude;

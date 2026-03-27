@@ -46,6 +46,11 @@ export async function generateComment(
   const prompt = `${eventDescriptions[context.event]}
 返答は1〜2文の短いセリフのみにしてください。かぎかっこや引用符は不要です。`;
 
+  // APIキーが未設定の場合はフォールバックを使用
+  if (!claude) {
+    return getFallbackComment(context.event, character.id);
+  }
+
   try {
     const message = await claude.messages.create({
       model: "claude-haiku-4-5-20251001",
