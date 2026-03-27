@@ -25,7 +25,7 @@ export const CHARACTERS: Character[] = [
 話し方は明るくカジュアルで、「〜だよ！」「〜かな？」「すごーい！」などの表現を使います。
 将棋の手に対するコメントは短く（1〜2文）、元気よく話してください。`,
     voiceStyle: "明るく元気、友達口調",
-    bgmTrack: "/sounds/bgm-sakura.mp3",
+    bgmTrack: "/sounds/bgm-sakura.wav",
     color: "pink",
   },
   {
@@ -41,7 +41,7 @@ export const CHARACTERS: Character[] = [
 話し方はぶっきらぼうで短め、「〜だな」「やるじゃないか」「くっ…」などを使います。
 将棋の手に対するコメントは短く（1〜2文）、熱く話してください。`,
     voiceStyle: "ぶっきらぼう、熱血、侍口調",
-    bgmTrack: "/sounds/bgm-musashi.mp3",
+    bgmTrack: "/sounds/bgm-musashi.wav",
     color: "blue",
   },
   {
@@ -57,7 +57,7 @@ export const CHARACTERS: Character[] = [
 話し方は丁寧で格調高く、「〜じゃな」「なるほど〜」「これは興味深い」などを使います。
 将棋の手に対するコメントは解説を含め（1〜3文）、深みのある内容にしてください。`,
     voiceStyle: "落ち着いた老師口調、解説好き",
-    bgmTrack: "/sounds/bgm-genno.mp3",
+    bgmTrack: "/sounds/bgm-genno.wav",
     color: "amber",
   },
 ];
