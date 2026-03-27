@@ -3,7 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { createInitialGameState, serializeGameState, deserializeGameState } from "@/lib/shogi/board";
-import { STANDARD_VARIANT, getVariantById } from "@/lib/shogi/variants/index";
+import { getVariantById } from "@/lib/shogi/variants/index";
 import type { Difficulty, GameConfig, GameState, Move, Player } from "@/lib/shogi/types";
 
 const DEFAULT_PLAYER_ID = "default-player";
@@ -29,8 +29,9 @@ export async function createGame(
   const variant = getVariantById(variantId);
   const initialState = createInitialGameState(variant);
 
-  const gameConfig: GameConfig = {
-    variant,
+  // variant（関数を含む）はシリアライズ不可なのでIDのみ保存
+  const serializableConfig = {
+    variantId,
     difficulty,
     playerColor,
     characterId,
@@ -47,7 +48,7 @@ export async function createGame(
       characterId,
       status: "active",
       boardState: serializeGameState(initialState),
-      gameConfig: gameConfig as object,
+      gameConfig: serializableConfig,
     },
   });
 
@@ -67,10 +68,27 @@ export async function getGame(gameId: string) {
 
   if (!game) return null;
 
+  const stored = game.gameConfig as {
+    variantId: string;
+    difficulty: Difficulty;
+    playerColor: Player;
+    characterId: string;
+    soundEnabled: boolean;
+    commentaryEnabled: boolean;
+  };
+  const gameConfig: GameConfig = {
+    variant: getVariantById(stored.variantId ?? game.variantId),
+    difficulty: stored.difficulty ?? (game.difficulty as Difficulty),
+    playerColor: stored.playerColor ?? (game.playerColor as Player),
+    characterId: stored.characterId ?? game.characterId,
+    soundEnabled: stored.soundEnabled ?? true,
+    commentaryEnabled: stored.commentaryEnabled ?? true,
+  };
+
   return {
     ...game,
     boardState: deserializeGameState(game.boardState),
-    gameConfig: game.gameConfig as unknown as GameConfig,
+    gameConfig,
   };
 }
 

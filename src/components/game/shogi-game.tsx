@@ -16,18 +16,36 @@ import { getCharacterById } from "@/data/characters";
 import { gameResultText } from "@/lib/shogi/notation";
 import { isInCheck } from "@/lib/shogi/moves";
 import { STANDARD_VARIANT } from "@/lib/shogi/variants/standard";
-import type { GameConfig, GameState } from "@/lib/shogi/types";
+import { getVariantById } from "@/lib/shogi/variants/index";
+import type { GameConfig, GameState, Difficulty, Player } from "@/lib/shogi/types";
 import type { CommentaryEvent } from "@/app/actions/commentary";
 import Link from "next/link";
+
+// Server→Client props に関数を含められないため、シリアライズ可能な型を定義
+interface SerializableGameConfig {
+  variantId: string;
+  difficulty: Difficulty;
+  playerColor: Player;
+  characterId: string;
+  soundEnabled: boolean;
+  commentaryEnabled: boolean;
+}
 
 interface ShogiGameProps {
   initialGameState: GameState;
   gameId: string;
-  gameConfig: GameConfig;
+  gameConfig: SerializableGameConfig;
 }
 
-export function ShogiGame({ initialGameState, gameId, gameConfig }: ShogiGameProps) {
+export function ShogiGame({ initialGameState, gameId, gameConfig: serializableConfig }: ShogiGameProps) {
   const [commentEvent, setCommentEvent] = useState<CommentaryEvent | null>(null);
+
+  // クライアント側でバリアントを復元（関数を含むため props では渡せない）
+  const gameConfig: GameConfig = {
+    ...serializableConfig,
+    variant: getVariantById(serializableConfig.variantId),
+  };
+
   const character = getCharacterById(gameConfig.characterId);
   const { playSfx, toggleMute, isMuted } = useSound(
     gameConfig.soundEnabled ? character.bgmTrack : undefined
