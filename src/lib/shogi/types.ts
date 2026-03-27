@@ -1,0 +1,23 @@
+// 型定義の再エクスポート（利便性のため）
+export type {
+  Player,
+  CorePieceType,
+  PromotedPieceType,
+  PieceType,
+  Piece,
+  Position,
+  Board,
+  Hand,
+  MovePattern,
+  SpecialAbility,
+  PieceDefinition,
+  TimeControl,
+  TimeControlType,
+  RuleOverrides,
+  RuleVariant,
+  GameConfig,
+  Difficulty,
+  Move,
+  GameStatus,
+  GameState,
+} from "./variants/types";

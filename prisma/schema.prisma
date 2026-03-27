@@ -1,0 +1,58 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String       @id @default(cuid())
+  name      String       @default("Player")
+  createdAt DateTime     @default(now())
+  games     Game[]
+  stats     PlayerStats?
+}
+
+model Game {
+  id          String     @id @default(cuid())
+  playerId    String
+  player      User       @relation(fields: [playerId], references: [id])
+  playerColor String     // "sente" | "gote"
+  difficulty  String     // "beginner" | "intermediate" | "advanced"
+  variantId   String     @default("standard")
+  characterId String     @default("sakura")
+  status      String     // "active" | "checkmate" | "resign" | "repetition" | "impasse" | "timeout"
+  winner      String?    // "sente" | "gote" | "draw" | null
+  boardState  Json
+  gameConfig  Json
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  moves       GameMove[]
+}
+
+model GameMove {
+  id        String   @id @default(cuid())
+  gameId    String
+  game      Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  moveNum   Int
+  player    String
+  moveData  Json
+  notation  String
+  comment   String?
+  createdAt DateTime @default(now())
+
+  @@unique([gameId, moveNum])
+  @@index([gameId])
+}
+
+model PlayerStats {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+  rating Int    @default(1500)
+  wins   Int    @default(0)
+  losses Int    @default(0)
+  draws  Int    @default(0)
+}

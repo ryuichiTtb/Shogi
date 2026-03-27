@@ -1,0 +1,198 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { useShogiGame } from "@/hooks/use-shogi-game";
+import { useSound } from "@/hooks/use-sound";
+import { ShogiBoard } from "./shogi-board";
+import { CapturedPieces } from "./captured-pieces";
+import { MoveHistory } from "./move-history";
+import { GameControls } from "./game-controls";
+import { PromotionDialog } from "./promotion-dialog";
+import { CharacterPanel } from "@/components/character/character-panel";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { getCharacterById } from "@/data/characters";
+import { gameResultText } from "@/lib/shogi/notation";
+import { isInCheck } from "@/lib/shogi/moves";
+import { STANDARD_VARIANT } from "@/lib/shogi/variants/standard";
+import type { GameConfig, GameState } from "@/lib/shogi/types";
+import type { CommentaryEvent } from "@/app/actions/commentary";
+import Link from "next/link";
+
+interface ShogiGameProps {
+  initialGameState: GameState;
+  gameId: string;
+  gameConfig: GameConfig;
+}
+
+export function ShogiGame({ initialGameState, gameId, gameConfig }: ShogiGameProps) {
+  const [commentEvent, setCommentEvent] = useState<CommentaryEvent | null>(null);
+  const character = getCharacterById(gameConfig.characterId);
+  const { playSfx, toggleMute, isMuted } = useSound(
+    gameConfig.soundEnabled ? character.bgmTrack : undefined
+  );
+
+  const handleComment = useCallback((event: string) => {
+    setCommentEvent(event as CommentaryEvent);
+    setTimeout(() => setCommentEvent(null), 100);
+  }, []);
+
+  const {
+    gameState,
+    selectedSquare,
+    selectedHandPiece,
+    legalMoves,
+    isAiThinking,
+    promotionPendingMove,
+    selectSquare,
+    selectHandPiece,
+    confirmPromotion,
+    resign,
+    undo,
+  } = useShogiGame({
+    initialState: initialGameState,
+    gameId,
+    gameConfig,
+    onComment: handleComment,
+  });
+
+  const playerColor = gameConfig.playerColor;
+  const aiColor = playerColor === "sente" ? "gote" : "sente";
+  const isPlayerTurn = gameState.currentPlayer === playerColor;
+  const isGameActive = gameState.status === "active";
+  const inCheck = isGameActive && isInCheck(gameState, gameState.currentPlayer, STANDARD_VARIANT);
+
+  // サウンドエフェクト
+  useEffect(() => {
+    const lastMove = gameState.moveHistory[gameState.moveHistory.length - 1];
+    if (!lastMove) return;
+
+    if (lastMove.captured) {
+      playSfx("piece_capture");
+    } else if (lastMove.type === "drop") {
+      playSfx("piece_drop");
+    } else if (lastMove.promote) {
+      playSfx("piece_promote");
+    } else {
+      playSfx("piece_move");
+    }
+
+    if (inCheck) playSfx("check");
+    if (!isGameActive) playSfx("game_over");
+  }, [gameState.moveCount]);
+
+  // ゲーム開始時のコメント
+  useEffect(() => {
+    setTimeout(() => handleComment("game_start"), 800);
+  }, []);
+
+  return (
+    <div className="flex flex-col lg:flex-row gap-4 w-full max-w-5xl mx-auto p-4">
+      {/* メインエリア */}
+      <div className="flex flex-col gap-3 flex-1">
+        {/* ステータスバー */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Badge variant={isPlayerTurn ? "default" : "secondary"}>
+              {isPlayerTurn ? "あなたの番" : "相手の番"}
+            </Badge>
+            {inCheck && (
+              <Badge variant="destructive" className="animate-pulse">
+                王手！
+              </Badge>
+            )}
+          </div>
+          <span className="text-sm text-muted-foreground">
+            {gameState.moveCount}手目
+          </span>
+        </div>
+
+        {/* 後手（AI）の持ち駒 */}
+        <CapturedPieces
+          hand={gameState.hand}
+          player={aiColor}
+          isCurrentPlayer={gameState.currentPlayer === aiColor && isGameActive}
+          selectedHandPiece={null}
+          onPieceClick={() => {}}
+          label={character.name}
+        />
+
+        {/* 将棋盤 */}
+        <ShogiBoard
+          board={gameState.board}
+          currentPlayer={gameState.currentPlayer}
+          playerColor={playerColor}
+          selectedSquare={selectedSquare}
+          legalMoves={legalMoves}
+          isAiThinking={isAiThinking}
+          onSquareClick={selectSquare}
+        />
+
+        {/* 先手（プレイヤー）の持ち駒 */}
+        <CapturedPieces
+          hand={gameState.hand}
+          player={playerColor}
+          isCurrentPlayer={isPlayerTurn && isGameActive}
+          selectedHandPiece={selectedHandPiece}
+          onPieceClick={selectHandPiece}
+          label="あなた"
+        />
+
+        {/* ゲームコントロール */}
+        <GameControls
+          onResign={resign}
+          onUndo={undo}
+          isMuted={isMuted}
+          onToggleMute={toggleMute}
+          canUndo={gameState.moveHistory.length >= 2}
+          gameActive={isGameActive}
+        />
+      </div>
+
+      {/* サイドパネル */}
+      <div className="flex flex-col gap-3 w-full lg:w-56">
+        {/* キャラクターパネル */}
+        <Card className="p-3">
+          <CharacterPanel
+            character={character}
+            commentEvent={commentEvent}
+            isAiThinking={isAiThinking}
+          />
+        </Card>
+
+        {/* 棋譜 */}
+        <Card className="p-3 flex-1 min-h-48">
+          <MoveHistory moves={gameState.moveHistory} />
+        </Card>
+
+        {/* ゲーム終了 */}
+        {!isGameActive && (
+          <Card className="p-3 text-center border-2 border-primary/20 bg-primary/5">
+            <p className="text-sm font-bold mb-2">
+              {gameResultText(gameState.status, gameState.winner)}
+            </p>
+            <div className="flex gap-2 justify-center">
+              <Link href="/">
+                <Button size="sm" variant="outline">
+                  ホームへ
+                </Button>
+              </Link>
+              <Link href={`/?replay=${gameId}`}>
+                <Button size="sm">
+                  もう一局
+                </Button>
+              </Link>
+            </div>
+          </Card>
+        )}
+      </div>
+
+      {/* 成りダイアログ */}
+      <PromotionDialog
+        move={promotionPendingMove}
+        onConfirm={confirmPromotion}
+      />
+    </div>
+  );
+}
