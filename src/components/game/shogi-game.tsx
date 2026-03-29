@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useShogiGame } from "@/hooks/use-shogi-game";
 import { useSound } from "@/hooks/use-sound";
 import { ShogiBoard } from "./shogi-board";
@@ -44,6 +44,9 @@ interface ShogiGameProps {
 export function ShogiGame({ initialGameState, gameId, gameConfig: serializableConfig }: ShogiGameProps) {
   const [commentEvent, setCommentEvent] = useState<CommentaryEvent | null>(null);
   const [overlayEvent, setOverlayEvent] = useState<{ event: OverlayEvent; key: number } | null>(null);
+  const boardRef = useRef<HTMLDivElement>(null);
+  // 持ち駒の駒をクリックした直後にdocumentリスナーがdeselect()を呼ばないようにするフラグ
+  const handPieceClickedRef = useRef(false);
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
@@ -144,9 +147,28 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
     setTimeout(() => handleComment("game_start"), 500);
   }, [isReady]);
 
+  // document全体のクリックで選択解除
+  // 盤面グリッド内クリックと持ち駒の駒クリック直後はスキップ
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (boardRef.current?.contains(e.target as Node)) return;
+      if (handPieceClickedRef.current) {
+        handPieceClickedRef.current = false;
+        return;
+      }
+      deselect();
+    };
+    document.addEventListener("click", handleClick);
+    return () => document.removeEventListener("click", handleClick);
+  }, [deselect]);
+
+  const handleSelectHandPiece = useCallback((pieceType: string) => {
+    handPieceClickedRef.current = true;
+    selectHandPiece(pieceType);
+  }, [selectHandPiece]);
 
   return (
-    <div className="flex flex-col lg:flex-row gap-4 w-full max-w-5xl mx-auto p-4" onClick={deselect}>
+    <div className="flex flex-col lg:flex-row gap-4 w-full max-w-5xl mx-auto p-4">
       {/* メインエリア */}
       <div className="flex flex-col gap-3 flex-1">
         {/* ステータスバー */}
@@ -179,6 +201,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
         {/* 将棋盤 */}
         <div className="relative">
           <ShogiBoard
+            ref={boardRef}
             board={gameState.board}
             currentPlayer={gameState.currentPlayer}
             playerColor={playerColor}
@@ -198,7 +221,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
           player={playerColor}
           isCurrentPlayer={isPlayerTurn && isGameActive}
           selectedHandPiece={selectedHandPiece}
-          onPieceClick={selectHandPiece}
+          onPieceClick={handleSelectHandPiece}
           label="あなた"
         />
 

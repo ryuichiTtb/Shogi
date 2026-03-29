@@ -49,7 +49,7 @@ export function CapturedPieces({
           sortedPieces.map(({ type, count }) => (
             <button
               key={type}
-              onClick={(e) => { if (isCurrentPlayer) { e.stopPropagation(); onPieceClick(type); } }}
+              onClick={() => isCurrentPlayer && onPieceClick(type)}
               disabled={!isCurrentPlayer}
               className={cn(
                 "relative flex items-center justify-center",
