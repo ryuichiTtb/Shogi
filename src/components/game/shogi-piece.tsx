@@ -12,6 +12,9 @@ interface ShogiPieceProps {
   onClick?: () => void;
 }
 
+// 将棋駒の五角形クリップパス（先端が尖った形）
+const PIECE_CLIP = "polygon(50% 0%, 96% 22%, 100% 100%, 0% 100%, 4% 22%)";
+
 // 駒の漢字を取得
 function getPieceKanji(type: string): string {
   const def = PIECE_DEF_MAP.get(type);
@@ -34,36 +37,50 @@ export function ShogiPiece({
   const promoted = isPromoted(piece.type);
   const isGote = piece.owner === "gote";
 
+  // 枠線・内側の色を状態に応じて切り替え
+  const borderColor = isInCheck
+    ? "bg-red-500"
+    : isSelected
+    ? "bg-blue-500"
+    : "bg-amber-600";
+
+  const innerColor = isInCheck
+    ? "bg-red-100"
+    : isSelected
+    ? "bg-blue-100"
+    : "bg-amber-100 hover:bg-amber-200";
+
   return (
     <div
       onClick={onClick}
+      style={{ clipPath: PIECE_CLIP }}
       className={cn(
         "relative flex items-center justify-center cursor-pointer select-none transition-all duration-150",
-        isSmall ? "w-8 h-8 text-sm" : "w-full h-full text-base",
-        // 将棋駒の五角形（先端が尖った形）
-        "[clip-path:polygon(50%_0%,96%_22%,100%_100%,0%_100%,4%_22%)]",
-        "bg-amber-100",
-        "[filter:drop-shadow(0_0_1px_rgb(180_83_9))]",
-        // ホバー
-        "hover:bg-amber-200",
-        // 選択中
-        isSelected && "bg-blue-200 [filter:drop-shadow(0_0_2px_rgb(59_130_246))]",
-        // 成り駒は赤文字
-        promoted && "text-red-700",
-        // 王手中の王
-        isInCheck && "bg-red-200 text-red-600 [filter:drop-shadow(0_0_2px_rgb(220_38_38))]",
+        isSmall ? "w-8 h-8" : "w-full h-full",
         // 後手は180度回転
         isGote && "rotate-180",
+        // 枠線の色（外側）
+        borderColor,
       )}
     >
-      <span
+      {/* 駒の内側（枠線を残して1.5px内側に配置） */}
+      <div
+        style={{ clipPath: PIECE_CLIP }}
         className={cn(
-          "font-bold leading-none font-[family-name:var(--font-yuji-boku)]",
-          isSmall ? "text-xs" : "text-sm md:text-base"
+          "absolute inset-[1.5px] flex items-center justify-center transition-colors duration-150",
+          innerColor,
         )}
       >
-        {kanji}
-      </span>
+        <span
+          className={cn(
+            "font-bold leading-none font-[family-name:var(--font-yuji-boku)]",
+            isSmall ? "text-xs" : "text-sm md:text-base",
+            promoted ? "text-red-700" : isInCheck ? "text-red-700" : "text-gray-900",
+          )}
+        >
+          {kanji}
+        </span>
+      </div>
     </div>
   );
 }
