@@ -16,6 +16,7 @@ const yujiBoku = Yuji_Boku({
   variable: "--font-yuji-boku",
   subsets: ["latin"],
   weight: "400",
+  display: "block",
 });
 
 export const metadata: Metadata = {
