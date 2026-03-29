@@ -30,7 +30,7 @@ const OVERLAY_CONFIG: Record<OverlayEvent, OverlayConfig> = {
     fadeIn: 100,
     hold: 1000,
     fadeOut: 500,
-    className: "text-red-300",
+    className: "text-white",
   },
   resign: {
     text: "投了",
@@ -44,7 +44,7 @@ const OVERLAY_CONFIG: Record<OverlayEvent, OverlayConfig> = {
     fadeIn: 1000,
     hold: 0,
     fadeOut: 0,
-    className: "text-red-300",
+    className: "text-white",
   },
 };
 
