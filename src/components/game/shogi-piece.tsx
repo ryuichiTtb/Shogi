@@ -116,7 +116,7 @@ export function ShogiPiece({
           <span
             className={cn(
               "leading-none font-[family-name:var(--font-yuji-boku)]",
-              isSmall ? "text-xs" : "text-sm md:text-base",
+              isSmall ? "text-xs" : "text-base md:text-lg",
               isBoldFont ? "font-bold" : "font-normal",
               promoted ? "text-red-700" : isInCheck ? "text-red-700" : "text-gray-900",
             )}
