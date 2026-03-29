@@ -8,6 +8,8 @@ import { CapturedPieces } from "./captured-pieces";
 import { MoveHistory } from "./move-history";
 import { GameControls } from "./game-controls";
 import { PromotionDialog } from "./promotion-dialog";
+import { BoardOverlay } from "./board-overlay";
+import type { OverlayEvent } from "./board-overlay";
 import { CharacterPanel } from "@/components/character/character-panel";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -39,6 +41,7 @@ interface ShogiGameProps {
 
 export function ShogiGame({ initialGameState, gameId, gameConfig: serializableConfig }: ShogiGameProps) {
   const [commentEvent, setCommentEvent] = useState<CommentaryEvent | null>(null);
+  const [overlayEvent, setOverlayEvent] = useState<{ event: OverlayEvent; key: number } | null>(null);
 
   // クライアント側でバリアントを復元（関数を含むため props では渡せない）
   const gameConfig: GameConfig = {
@@ -97,10 +100,14 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
       playSfx("piece_move");
     }
 
-    if (inCheck) playSfx("check");
+    if (inCheck) {
+      playSfx("check");
+      setOverlayEvent({ event: "check", key: Date.now() });
+    }
     // 詰みは手を指した後なので1秒遅延
     if (gameState.status === "checkmate") {
       setTimeout(() => playSfx("game_over"), 1000);
+      setTimeout(() => setOverlayEvent({ event: "checkmate", key: Date.now() }), 1000);
     }
   }, [gameState.moveCount]);
 
@@ -108,6 +115,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
   useEffect(() => {
     if (gameState.status === "resign") {
       playSfx("game_over");
+      setOverlayEvent({ event: "resign", key: Date.now() });
     }
   }, [gameState.status]);
 
@@ -115,6 +123,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
   useEffect(() => {
     if (!isReady) return;
     playSfx("game_start");
+    setOverlayEvent({ event: "game_start", key: Date.now() });
     setTimeout(() => handleComment("game_start"), 500);
   }, [isReady]);
 
@@ -150,17 +159,20 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
         />
 
         {/* 将棋盤 */}
-        <ShogiBoard
-          board={gameState.board}
-          currentPlayer={gameState.currentPlayer}
-          playerColor={playerColor}
-          selectedSquare={selectedSquare}
-          legalMoves={legalMoves}
-          lastMove={gameState.moveHistory[gameState.moveHistory.length - 1] ?? null}
-          isAiThinking={isAiThinking}
-          inCheck={inCheck}
-          onSquareClick={selectSquare}
-        />
+        <div className="relative">
+          <ShogiBoard
+            board={gameState.board}
+            currentPlayer={gameState.currentPlayer}
+            playerColor={playerColor}
+            selectedSquare={selectedSquare}
+            legalMoves={legalMoves}
+            lastMove={gameState.moveHistory[gameState.moveHistory.length - 1] ?? null}
+            isAiThinking={isAiThinking}
+            inCheck={inCheck}
+            onSquareClick={selectSquare}
+          />
+          <BoardOverlay key={overlayEvent?.key} event={overlayEvent?.event ?? null} />
+        </div>
 
         {/* 先手（プレイヤー）の持ち駒 */}
         <CapturedPieces
