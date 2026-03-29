@@ -31,9 +31,9 @@ const BOLD_FONT_PIECES = new Set([
   "promoted_rook", "promoted_bishop",
 ]);
 
-// 盤上サイズ: 小（歩・香・桂）、中（銀・金）、大（飛・角・王・成り駒）
-const SMALL_PIECES = new Set(["pawn", "lance", "knight"]);
-const MEDIUM_PIECES = new Set(["silver", "gold"]);
+// 盤上サイズ: 元の駒種で判定（成り駒は成る前の駒サイズを引き継ぐ）
+const SMALL_PIECES = new Set(["pawn", "lance", "knight", "promoted_pawn", "promoted_lance", "promoted_knight"]);
+const MEDIUM_PIECES = new Set(["silver", "gold", "promoted_silver"]);
 
 // 駒の漢字を取得
 function getPieceKanji(type: string): string {
