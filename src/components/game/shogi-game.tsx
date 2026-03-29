@@ -86,10 +86,11 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
     const lastMove = gameState.moveHistory[gameState.moveHistory.length - 1];
     if (!lastMove) return;
 
-    if (lastMove.captured) {
-      playSfx("piece_capture");
-    } else if (lastMove.type === "drop") {
+    if (lastMove.type === "drop") {
       playSfx("piece_drop");
+    } else if (lastMove.captured) {
+      playSfx("piece_capture");
+      if (lastMove.promote) playSfx("piece_promote");
     } else if (lastMove.promote) {
       playSfx("piece_promote");
     } else {
