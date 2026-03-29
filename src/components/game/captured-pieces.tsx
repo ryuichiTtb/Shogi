@@ -37,7 +37,7 @@ export function CapturedPieces({
   return (
     <div
       className={cn(
-        "p-2 rounded-lg border min-h-12",
+        "p-2 rounded-lg border h-20 overflow-hidden",
         isCurrentPlayer ? "border-primary bg-primary/5" : "border-border bg-muted/30"
       )}
     >

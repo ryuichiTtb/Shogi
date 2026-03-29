@@ -178,16 +178,14 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
         </div>
 
         {/* 後手（AI）の持ち駒 */}
-        <div className="h-20">
-          <CapturedPieces
-            hand={gameState.hand}
-            player={aiColor}
-            isCurrentPlayer={gameState.currentPlayer === aiColor && isGameActive}
-            selectedHandPiece={null}
-            onPieceClick={() => {}}
-            label={character.name}
-          />
-        </div>
+        <CapturedPieces
+          hand={gameState.hand}
+          player={aiColor}
+          isCurrentPlayer={gameState.currentPlayer === aiColor && isGameActive}
+          selectedHandPiece={null}
+          onPieceClick={() => {}}
+          label={character.name}
+        />
 
         {/* 将棋盤 */}
         <div className="relative">
@@ -206,16 +204,14 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
         </div>
 
         {/* 先手（プレイヤー）の持ち駒 */}
-        <div className="h-20">
-          <CapturedPieces
-            hand={gameState.hand}
-            player={playerColor}
-            isCurrentPlayer={isPlayerTurn && isGameActive}
-            selectedHandPiece={selectedHandPiece}
-            onPieceClick={selectHandPiece}
-            label="あなた"
-          />
-        </div>
+        <CapturedPieces
+          hand={gameState.hand}
+          player={playerColor}
+          isCurrentPlayer={isPlayerTurn && isGameActive}
+          selectedHandPiece={selectedHandPiece}
+          onPieceClick={selectHandPiece}
+          label="あなた"
+        />
 
         {/* ゲームコントロール */}
         <GameControls
@@ -240,7 +236,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
         </Card>
 
         {/* 棋譜 */}
-        <Card className="p-3 h-64">
+        <Card className="p-3 h-64 flex flex-col">
           <MoveHistory moves={gameState.moveHistory} />
         </Card>
 
