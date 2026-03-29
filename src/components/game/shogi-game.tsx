@@ -70,6 +70,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
     selectSquare,
     selectHandPiece,
     confirmPromotion,
+    cancelPromotion,
     resign,
     undo,
     deselect,
@@ -250,6 +251,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
       <PromotionDialog
         move={promotionPendingMove}
         onConfirm={confirmPromotion}
+        onCancel={cancelPromotion}
       />
     </div>
   );

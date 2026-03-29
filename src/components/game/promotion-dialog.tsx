@@ -6,16 +6,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { PIECE_DEF_MAP } from "@/lib/shogi/variants/standard";
 import type { Move } from "@/lib/shogi/types";
 
 interface PromotionDialogProps {
   move: Move | null;
   onConfirm: (promote: boolean) => void;
+  onCancel: () => void;
 }
 
-export function PromotionDialog({ move, onConfirm }: PromotionDialogProps) {
+export function PromotionDialog({ move, onConfirm, onCancel }: PromotionDialogProps) {
   if (!move) return null;
 
   const def = PIECE_DEF_MAP.get(move.piece);
@@ -23,7 +23,7 @@ export function PromotionDialog({ move, onConfirm }: PromotionDialogProps) {
   const promotedDef = promotedType ? PIECE_DEF_MAP.get(promotedType) : null;
 
   return (
-    <Dialog open={!!move} onOpenChange={() => {}}>
+    <Dialog open={!!move} onOpenChange={(open) => { if (!open) onCancel(); }}>
       <DialogContent className="max-w-xs">
         <DialogHeader>
           <DialogTitle>成りますか？</DialogTitle>
