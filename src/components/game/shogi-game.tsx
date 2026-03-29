@@ -41,8 +41,7 @@ interface ShogiGameProps {
   gameConfig: SerializableGameConfig;
 }
 
-function shouldPlayThrowSfx(move: Move): boolean {
-  if (move.type === "drop") return true;
+function shouldPlayJumpSfx(move: Move): boolean {
   if (move.type !== "move" || !move.from) return false;
   if (move.piece === "knight") return true;
 
@@ -116,12 +115,11 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
     const lastMove = gameState.moveHistory[gameState.moveHistory.length - 1];
     if (!lastMove) return;
 
-    if (shouldPlayThrowSfx(lastMove)) {
-      playSfx("piece_throw");
-    }
-
     if (lastMove.type === "drop") {
       playSfx("piece_drop");
+      playSfx("piece_throw");
+    } else if (shouldPlayJumpSfx(lastMove)) {
+      playSfx("piece_jump");
     } else if (lastMove.captured) {
       playSfx("piece_capture");
       if (lastMove.promote) playSfx("piece_promote");
