@@ -47,7 +47,7 @@ export function CapturedPieces({
               onClick={(e) => { if (isCurrentPlayer) { e.stopPropagation(); onPieceClick(type); } }}
               disabled={!isCurrentPlayer}
               className={cn(
-                "relative w-9 h-9 rounded-sm",
+                "relative w-9 h-9 rounded-sm flex items-center justify-center",
                 isCurrentPlayer && "cursor-pointer",
                 !isCurrentPlayer && "cursor-default opacity-80",
                 selectedHandPiece === type && isCurrentPlayer && "ring-2 ring-blue-500",
