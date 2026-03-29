@@ -50,6 +50,7 @@ const OVERLAY_CONFIG: Record<OverlayEvent, OverlayConfig> = {
 
 export function BoardOverlay({ event }: BoardOverlayProps) {
   const [opacity, setOpacity] = useState(0);
+  const [transitionDuration, setTransitionDuration] = useState(0);
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
@@ -57,20 +58,26 @@ export function BoardOverlay({ event }: BoardOverlayProps) {
 
     const config = OVERLAY_CONFIG[event];
     setOpacity(0);
+    setTransitionDuration(0);
     setVisible(true);
 
-    // フェードイン
-    const t1 = setTimeout(() => setOpacity(1), 10);
+    // フェードイン（transitionをfadeIn時間にセットしてから opacity 1 へ）
+    const t1 = setTimeout(() => {
+      setTransitionDuration(config.fadeIn);
+      setOpacity(1);
+    }, 10);
 
     if (config.fadeOut > 0) {
-      // フェードアウトあり: ホールド後にフェードアウト
-      const t2 = setTimeout(() => setOpacity(0), config.fadeIn + config.hold);
+      // ホールド後にフェードアウト
+      const t2 = setTimeout(() => {
+        setTransitionDuration(config.fadeOut);
+        setOpacity(0);
+      }, config.fadeIn + config.hold);
       const t3 = setTimeout(() => setVisible(false), config.fadeIn + config.hold + config.fadeOut);
       return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
-    } else {
-      // フェードアウトなし: そのまま表示
-      return () => { clearTimeout(t1); };
     }
+
+    return () => { clearTimeout(t1); };
   }, [event]);
 
   if (!visible || !event) return null;
@@ -80,7 +87,7 @@ export function BoardOverlay({ event }: BoardOverlayProps) {
   return (
     <div
       className="absolute inset-0 flex items-center justify-center pointer-events-none z-10"
-      style={{ transition: `opacity ${event && opacity === 0 ? OVERLAY_CONFIG[event].fadeIn : OVERLAY_CONFIG[event].fadeOut}ms ease`, opacity }}
+      style={{ transition: `opacity ${transitionDuration}ms ease`, opacity }}
     >
       <div className={cn(
         "bg-black/60 rounded-xl px-8 py-4",
