@@ -19,9 +19,9 @@ type HowlConstructor = new (options: {
 }) => HowlInstance;
 
 const SFX_FILES: Record<string, string> = {
-  piece_move: "/sounds/piece-move.wav",
-  piece_capture: "/sounds/piece-capture.wav",
-  piece_promote: "/sounds/piece-promote.wav",
+  piece_move: "/sounds/piece-move.mp3",
+  piece_capture: "/sounds/piece-capture.mp3",
+  piece_promote: "/sounds/piece-promote.mp3",
   piece_drop: "/sounds/piece-drop.wav",
   check: "/sounds/check.wav",
   game_over: "/sounds/game-over.wav",
