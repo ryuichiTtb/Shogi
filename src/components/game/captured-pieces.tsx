@@ -1,8 +1,8 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { PIECE_DEF_MAP } from "@/lib/shogi/variants/standard";
 import type { Hand, Player } from "@/lib/shogi/types";
+import { ShogiPiece } from "./shogi-piece";
 
 interface CapturedPiecesProps {
   hand: Hand;
@@ -11,11 +11,6 @@ interface CapturedPiecesProps {
   selectedHandPiece: string | null;
   onPieceClick: (pieceType: string) => void;
   label: string;
-}
-
-function getPieceKanji(type: string): string {
-  const def = PIECE_DEF_MAP.get(type);
-  return def?.kanji ?? type.slice(0, 1);
 }
 
 // 手駒の表示順
@@ -52,20 +47,19 @@ export function CapturedPieces({
               onClick={(e) => { if (isCurrentPlayer) { e.stopPropagation(); onPieceClick(type); } }}
               disabled={!isCurrentPlayer}
               className={cn(
-                "relative flex items-center justify-center",
-                "w-9 h-9 rounded-sm border",
-                "bg-amber-100 border-amber-400 text-gray-900",
-                "text-sm font-bold leading-none",
-                "transition-all duration-100",
-                isCurrentPlayer && "hover:bg-amber-200 cursor-pointer",
+                "relative w-9 h-9 rounded-sm flex items-center justify-center",
+                isCurrentPlayer && "cursor-pointer",
                 !isCurrentPlayer && "cursor-default opacity-80",
-                selectedHandPiece === type && isCurrentPlayer && "ring-2 ring-blue-500 bg-blue-100",
-                // 後手の持ち駒は表示を逆にしない（UIの見やすさのため）
+                selectedHandPiece === type && isCurrentPlayer && "ring-2 ring-blue-500",
               )}
             >
-              <span>{getPieceKanji(type)}</span>
+              <ShogiPiece
+                piece={{ type, owner: player }}
+                isSmall
+                isSelected={selectedHandPiece === type && isCurrentPlayer}
+              />
               {count > 1 && (
-                <span className="absolute bottom-0 right-0.5 text-xs text-muted-foreground leading-none">
+                <span className="absolute bottom-0 right-0.5 text-xs text-muted-foreground leading-none z-10">
                   {count}
                 </span>
               )}
