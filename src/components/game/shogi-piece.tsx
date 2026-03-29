@@ -38,24 +38,22 @@ export function ShogiPiece({
     <div
       onClick={onClick}
       className={cn(
-        "relative flex items-center justify-center rounded-sm cursor-pointer select-none transition-all duration-150",
+        "relative flex items-center justify-center cursor-pointer select-none transition-all duration-150",
         isSmall ? "w-8 h-8 text-sm" : "w-full h-full text-base",
-        // 駒の形（五角形風）
-        "bg-amber-100 border border-amber-400",
-        // 先手・後手で色分け
-        piece.owner === "sente"
-          ? "text-gray-900 hover:bg-amber-200"
-          : "text-gray-900 hover:bg-amber-200",
+        // 将棋駒の五角形（先端が尖った形）
+        "[clip-path:polygon(50%_0%,96%_22%,100%_100%,0%_100%,4%_22%)]",
+        "bg-amber-100",
+        "[filter:drop-shadow(0_0_1px_rgb(180_83_9))]",
+        // ホバー
+        "hover:bg-amber-200",
         // 選択中
-        isSelected && "ring-2 ring-blue-500 bg-blue-100",
+        isSelected && "bg-blue-200 [filter:drop-shadow(0_0_2px_rgb(59_130_246))]",
         // 成り駒は赤文字
         promoted && "text-red-700",
-        // 王手中の王は赤文字・太枠
-        isInCheck && "text-red-600 border-red-500 border-2",
+        // 王手中の王
+        isInCheck && "bg-red-200 text-red-600 [filter:drop-shadow(0_0_2px_rgb(220_38_38))]",
         // 後手は180度回転
         isGote && "rotate-180",
-        // 影
-        "shadow-sm hover:shadow"
       )}
     >
       <span
