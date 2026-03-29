@@ -79,7 +79,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
   const aiColor = playerColor === "sente" ? "gote" : "sente";
   const isPlayerTurn = gameState.currentPlayer === playerColor;
   const isGameActive = gameState.status === "active";
-  const inCheck = isGameActive && isInCheck(gameState, gameState.currentPlayer, STANDARD_VARIANT);
+  const inCheck = (isGameActive || gameState.status === "checkmate") && isInCheck(gameState, gameState.currentPlayer, STANDARD_VARIANT);
 
   // サウンドエフェクト
   useEffect(() => {
@@ -156,7 +156,9 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
           playerColor={playerColor}
           selectedSquare={selectedSquare}
           legalMoves={legalMoves}
+          lastMove={gameState.moveHistory[gameState.moveHistory.length - 1] ?? null}
           isAiThinking={isAiThinking}
+          inCheck={inCheck}
           onSquareClick={selectSquare}
         />
 
