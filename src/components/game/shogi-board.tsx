@@ -142,6 +142,7 @@ export function ShogiBoard({
                         piece={piece}
                         isSelected={isSelected}
                         isInCheck={isKingInCheck}
+                        playerColor={playerColor}
                       />
                     </div>
                   )}
