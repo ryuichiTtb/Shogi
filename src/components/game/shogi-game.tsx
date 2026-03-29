@@ -97,11 +97,12 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
     }
 
     if (inCheck) playSfx("check");
-    if (!isGameActive) playSfx("game_over");
+    if (!isGameActive) setTimeout(() => playSfx("game_over"), 1000);
   }, [gameState.moveCount]);
 
-  // ゲーム開始時のコメント
+  // ゲーム開始時のコメント・サウンド
   useEffect(() => {
+    playSfx("game_start");
     setTimeout(() => handleComment("game_start"), 800);
   }, []);
 

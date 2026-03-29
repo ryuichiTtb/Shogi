@@ -24,7 +24,8 @@ const SFX_FILES: Record<string, string> = {
   piece_promote: "/sounds/piece-promote.mp3",
   piece_drop: "/sounds/piece-drop.mp3",
   check: "/sounds/check.mp3",
-  game_over: "/sounds/game-over.wav",
+  game_over: "/sounds/game-over.mp3",
+  game_start: "/sounds/game-start.mp3",
 };
 
 export function useSound(bgmTrack?: string) {
