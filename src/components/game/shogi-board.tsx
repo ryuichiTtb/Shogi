@@ -1,5 +1,6 @@
 "use client";
 
+import { forwardRef } from "react";
 import { cn } from "@/lib/utils";
 import { ShogiPiece } from "./shogi-piece";
 import type { Board, Move, Player, Position } from "@/lib/shogi/types";
@@ -21,7 +22,7 @@ const FILE_LABELS = ["9", "8", "7", "6", "5", "4", "3", "2", "1"];
 // 行ラベル（段）
 const RANK_LABELS = ["一", "二", "三", "四", "五", "六", "七", "八", "九"];
 
-export function ShogiBoard({
+export const ShogiBoard = forwardRef<HTMLDivElement, ShogiBoardProps>(function ShogiBoard({
   board,
   currentPlayer,
   playerColor,
@@ -31,7 +32,7 @@ export function ShogiBoard({
   isAiThinking,
   inCheck,
   onSquareClick,
-}: ShogiBoardProps) {
+}, ref) {
   const legalMoveSet = new Set(
     legalMoves.map((m) => `${m.to.row}-${m.to.col}`)
   );
@@ -74,6 +75,7 @@ export function ShogiBoard({
 
         {/* 盤面グリッド */}
         <div
+          ref={ref}
           className={cn(
             "grid border-2 border-amber-800",
             "relative"
@@ -146,4 +148,4 @@ export function ShogiBoard({
 
     </div>
   );
-}
+});

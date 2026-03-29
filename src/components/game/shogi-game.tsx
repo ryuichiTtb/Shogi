@@ -171,8 +171,9 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
         />
 
         {/* 将棋盤 */}
-        <div className="relative" ref={boardRef}>
+        <div className="relative">
           <ShogiBoard
+            ref={boardRef}
             board={gameState.board}
             currentPlayer={gameState.currentPlayer}
             playerColor={playerColor}
