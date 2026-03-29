@@ -203,7 +203,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
           onUndo={undo}
           isMuted={isMuted}
           onToggleMute={toggleMute}
-          canUndo={gameState.moveHistory.length >= 2}
+          canUndo={gameState.moveHistory.length >= 2 && isPlayerTurn && !isAiThinking}
           gameActive={isGameActive}
         />
       </div>
