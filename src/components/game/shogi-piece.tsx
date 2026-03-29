@@ -31,6 +31,10 @@ const BOLD_FONT_PIECES = new Set([
   "promoted_rook", "promoted_bishop",
 ]);
 
+// 盤上サイズ: 小（歩・香・桂）、中（銀・金）、大（飛・角・王・成り駒）
+const SMALL_PIECES = new Set(["pawn", "lance", "knight"]);
+const MEDIUM_PIECES = new Set(["silver", "gold"]);
+
 // 駒の漢字を取得
 function getPieceKanji(type: string): string {
   const def = PIECE_DEF_MAP.get(type);
@@ -72,41 +76,54 @@ export function ShogiPiece({
   // strokeWidth の半分が外側にはみ出すため viewBox に 3px のマージンを確保
   const strokeWidth = isThickBorder ? 4 : 1.5;
 
+  // isSmall（持ち駒・ダイアログ用）の場合は固定サイズ、盤上は駒種別サイズ
+  const sizeClass = isSmall
+    ? "w-8 h-8"
+    : SMALL_PIECES.has(piece.type)
+      ? "w-[78%] h-[78%]"
+      : MEDIUM_PIECES.has(piece.type)
+        ? "w-[88%] h-[88%]"
+        : "w-full h-full";
+
   return (
     <div
       onClick={onClick}
       className={cn(
         "relative cursor-pointer select-none transition-all duration-150",
-        isSmall ? "w-8 h-8" : "w-full h-full",
+        // isSmall は絶対サイズ、盤上は親コンテナ内でセンタリング
+        isSmall ? sizeClass : "w-full h-full flex items-center justify-center",
         isGote && "rotate-180",
       )}
     >
-      {/* SVG で五角形を描画（stroke が辺に沿って均一な枠線になる） */}
-      <svg
-        viewBox="-3 -3 106 106"
-        className="absolute inset-0 w-full h-full hover:brightness-90 transition-all duration-150"
-      >
-        <polygon
-          points={POLYGON_POINTS}
-          fill={fillColor}
-          stroke={borderColor}
-          strokeWidth={strokeWidth}
-          strokeLinejoin="round"
-        />
-      </svg>
-
-      {/* 駒の文字（SVG の上に絶対配置） */}
-      <div className="absolute inset-0 flex items-center justify-center">
-        <span
-          className={cn(
-            "leading-none font-[family-name:var(--font-yuji-boku)]",
-            isSmall ? "text-xs" : "text-sm md:text-base",
-            isBoldFont ? "font-bold" : "font-normal",
-            promoted ? "text-red-700" : isInCheck ? "text-red-700" : "text-gray-900",
-          )}
+      {/* 盤上サイズ調整用のラッパー（isSmall 時は不要） */}
+      <div className={cn("relative", isSmall ? "w-full h-full" : sizeClass)}>
+        {/* SVG で五角形を描画（stroke が辺に沿って均一な枠線になる） */}
+        <svg
+          viewBox="-3 -3 106 106"
+          className="absolute inset-0 w-full h-full hover:brightness-90 transition-all duration-150"
         >
-          {kanji}
-        </span>
+          <polygon
+            points={POLYGON_POINTS}
+            fill={fillColor}
+            stroke={borderColor}
+            strokeWidth={strokeWidth}
+            strokeLinejoin="round"
+          />
+        </svg>
+
+        {/* 駒の文字（SVG の上に絶対配置） */}
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span
+            className={cn(
+              "leading-none font-[family-name:var(--font-yuji-boku)]",
+              isSmall ? "text-xs" : "text-sm md:text-base",
+              isBoldFont ? "font-bold" : "font-normal",
+              promoted ? "text-red-700" : isInCheck ? "text-red-700" : "text-gray-900",
+            )}
+          >
+            {kanji}
+          </span>
+        </div>
       </div>
     </div>
   );
