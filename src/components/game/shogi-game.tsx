@@ -97,7 +97,13 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
     }
 
     if (inCheck) playSfx("check");
-    if (!isGameActive) setTimeout(() => playSfx("game_over"), 1000);
+    if (!isGameActive) {
+      if (gameState.status === "checkmate") {
+        setTimeout(() => playSfx("game_over"), 1000);
+      } else {
+        playSfx("game_over");
+      }
+    }
   }, [gameState.moveCount]);
 
   // ゲーム開始時のコメント・サウンド
