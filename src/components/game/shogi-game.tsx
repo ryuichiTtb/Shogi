@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useShogiGame } from "@/hooks/use-shogi-game";
 import { useSound } from "@/hooks/use-sound";
 import { ShogiBoard } from "./shogi-board";
@@ -21,7 +21,9 @@ import { STANDARD_VARIANT } from "@/lib/shogi/variants/standard";
 import { getVariantById } from "@/lib/shogi/variants/index";
 import type { GameConfig, GameState, Difficulty, Player } from "@/lib/shogi/types";
 import type { CommentaryEvent } from "@/app/actions/commentary";
+import { createGame } from "@/app/actions/game";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 // Server→Client props に関数を含められないため、シリアライズ可能な型を定義
 interface SerializableGameConfig {
@@ -43,6 +45,8 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
   const [commentEvent, setCommentEvent] = useState<CommentaryEvent | null>(null);
   const [overlayEvent, setOverlayEvent] = useState<{ event: OverlayEvent; key: number } | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
 
   // クライアント側でバリアントを復元（関数を含むため props では渡せない）
   const gameConfig: GameConfig = {
@@ -54,6 +58,17 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
   const { playSfx, toggleMute, isMuted, isReady } = useSound(
     gameConfig.soundEnabled ? character.bgmTrack : undefined
   );
+
+  const handlePlayAgain = useCallback(() => {
+    startTransition(async () => {
+      const newGameId = await createGame(
+        gameConfig.difficulty,
+        gameConfig.playerColor,
+        gameConfig.characterId
+      );
+      router.push(`/game/${newGameId}`);
+    });
+  }, [gameConfig.difficulty, gameConfig.playerColor, gameConfig.characterId, router]);
 
   const handleComment = useCallback((event: string) => {
     setCommentEvent(event as CommentaryEvent);
@@ -236,11 +251,9 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
                   ホームへ
                 </Button>
               </Link>
-              <Link href={`/?replay=${gameId}`}>
-                <Button size="sm">
-                  もう一局
-                </Button>
-              </Link>
+              <Button size="sm" onClick={handlePlayAgain} disabled={isPending}>
+                {isPending ? "準備中..." : "もう一局"}
+              </Button>
             </div>
           </Card>
         )}
