@@ -7,6 +7,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { PIECE_DEF_MAP } from "@/lib/shogi/variants/standard";
+import { ShogiPiece } from "./shogi-piece";
 import type { Move } from "@/lib/shogi/types";
 
 interface PromotionDialogProps {
@@ -20,7 +21,6 @@ export function PromotionDialog({ move, onConfirm, onCancel }: PromotionDialogPr
 
   const def = PIECE_DEF_MAP.get(move.piece);
   const promotedType = def?.promotesTo;
-  const promotedDef = promotedType ? PIECE_DEF_MAP.get(promotedType) : null;
 
   return (
     <Dialog open={!!move} onOpenChange={(open) => { if (!open) onCancel(); }}>
@@ -35,10 +35,12 @@ export function PromotionDialog({ move, onConfirm, onCancel }: PromotionDialogPr
             onClick={() => onConfirm(true)}
             className="flex flex-col items-center gap-2 p-4 rounded-lg border border-amber-400 bg-amber-50 hover:bg-amber-100 transition-colors cursor-pointer"
           >
-            <div className="w-14 h-14 flex items-center justify-center rounded bg-amber-100 border border-amber-400">
-              <span className="text-2xl font-bold text-red-700">
-                {promotedDef?.kanji ?? "成"}
-              </span>
+            <div className="w-14 h-14">
+              {promotedType ? (
+                <ShogiPiece piece={{ type: promotedType, owner: move.player }} />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-2xl font-bold text-red-700">成</div>
+              )}
             </div>
             <span className="text-sm font-medium">成る</span>
           </button>
@@ -48,10 +50,8 @@ export function PromotionDialog({ move, onConfirm, onCancel }: PromotionDialogPr
             onClick={() => onConfirm(false)}
             className="flex flex-col items-center gap-2 p-4 rounded-lg border border-amber-400 bg-amber-50 hover:bg-amber-100 transition-colors cursor-pointer"
           >
-            <div className="w-14 h-14 flex items-center justify-center rounded bg-amber-100 border border-amber-400">
-              <span className="text-2xl font-bold text-gray-900">
-                {def?.kanji ?? move.piece}
-              </span>
+            <div className="w-14 h-14">
+              <ShogiPiece piece={{ type: move.piece, owner: move.player }} />
             </div>
             <span className="text-sm font-medium">成らない</span>
           </button>
