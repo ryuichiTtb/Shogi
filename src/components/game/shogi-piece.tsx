@@ -8,6 +8,7 @@ interface ShogiPieceProps {
   piece: Piece;
   isSelected?: boolean;
   isSmall?: boolean;
+  isInCheck?: boolean;
   onClick?: () => void;
 }
 
@@ -26,6 +27,7 @@ export function ShogiPiece({
   piece,
   isSelected = false,
   isSmall = false,
+  isInCheck = false,
   onClick,
 }: ShogiPieceProps) {
   const kanji = getPieceKanji(piece.type);
@@ -48,6 +50,8 @@ export function ShogiPiece({
         isSelected && "ring-2 ring-blue-500 bg-blue-100",
         // 成り駒は赤文字
         promoted && "text-red-700",
+        // 王手中の王は赤文字・太枠
+        isInCheck && "text-red-600 border-red-500 border-2",
         // 後手は180度回転
         isGote && "rotate-180",
         // 影

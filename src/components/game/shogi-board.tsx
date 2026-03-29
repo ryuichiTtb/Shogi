@@ -12,6 +12,7 @@ interface ShogiBoardProps {
   legalMoves: Move[];
   lastMove: Move | null;
   isAiThinking: boolean;
+  inCheck: boolean;
   onSquareClick: (pos: Position) => void;
 }
 
@@ -28,6 +29,7 @@ export function ShogiBoard({
   legalMoves,
   lastMove,
   isAiThinking,
+  inCheck,
   onSquareClick,
 }: ShogiBoardProps) {
   const legalMoveSet = new Set(
@@ -85,9 +87,11 @@ export function ShogiBoard({
                 selectedSquare?.row === rowIdx &&
                 selectedSquare?.col === colIdx;
               const isLegalTarget = legalMoveSet.has(`${rowIdx}-${colIdx}`);
-              const isLastRank =
-                rowIdx === board.length - 1 && colIdx === row.length - 1;
               const isLastMoveSq = isLastMoveSquare(rowIdx, colIdx);
+              const isKingInCheck =
+                inCheck &&
+                piece?.type === "king" &&
+                piece.owner === currentPlayer;
 
               return (
                 <div
@@ -100,6 +104,8 @@ export function ShogiBoard({
                     "bg-amber-50",
                     // 直前の手（移動前・移動後）
                     isLastMoveSq && !isSelected && "bg-emerald-200",
+                    // 王手中の王
+                    isKingInCheck && "bg-red-300",
                     // 選択マス
                     isSelected && "bg-blue-200",
                     // 合法手ハイライト
@@ -124,6 +130,7 @@ export function ShogiBoard({
                       <ShogiPiece
                         piece={piece}
                         isSelected={isSelected}
+                        isInCheck={isKingInCheck}
                       />
                     </div>
                   )}

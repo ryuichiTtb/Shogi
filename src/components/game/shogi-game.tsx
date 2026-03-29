@@ -158,6 +158,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
           legalMoves={legalMoves}
           lastMove={gameState.moveHistory[gameState.moveHistory.length - 1] ?? null}
           isAiThinking={isAiThinking}
+          inCheck={inCheck}
           onSquareClick={selectSquare}
         />
 
