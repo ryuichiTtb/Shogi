@@ -117,7 +117,6 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
 
     if (lastMove.type === "drop") {
       playSfx("piece_drop");
-      playSfx("piece_throw");
     } else if (shouldPlayJumpSfx(lastMove)) {
       playSfx("piece_jump");
     } else if (lastMove.captured) {
