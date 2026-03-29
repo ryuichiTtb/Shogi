@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useShogiGame } from "@/hooks/use-shogi-game";
 import { useSound } from "@/hooks/use-sound";
 import { ShogiBoard } from "./shogi-board";
@@ -42,6 +42,7 @@ interface ShogiGameProps {
 export function ShogiGame({ initialGameState, gameId, gameConfig: serializableConfig }: ShogiGameProps) {
   const [commentEvent, setCommentEvent] = useState<CommentaryEvent | null>(null);
   const [overlayEvent, setOverlayEvent] = useState<{ event: OverlayEvent; key: number } | null>(null);
+  const boardRef = useRef<HTMLDivElement>(null);
 
   // クライアント側でバリアントを復元（関数を含むため props では渡せない）
   const gameConfig: GameConfig = {
@@ -71,6 +72,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
     confirmPromotion,
     resign,
     undo,
+    deselect,
   } = useShogiGame({
     initialState: initialGameState,
     gameId,
@@ -127,6 +129,16 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
     setTimeout(() => handleComment("game_start"), 500);
   }, [isReady]);
 
+  // document全体のクリックで選択解除（盤面内クリックは除外）
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (boardRef.current && boardRef.current.contains(e.target as Node)) return;
+      deselect();
+    };
+    document.addEventListener("click", handleClick);
+    return () => document.removeEventListener("click", handleClick);
+  }, [deselect]);
+
   return (
     <div className="flex flex-col lg:flex-row gap-4 w-full max-w-5xl mx-auto p-4">
       {/* メインエリア */}
@@ -161,6 +173,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
         {/* 将棋盤 */}
         <div className="relative">
           <ShogiBoard
+            ref={boardRef}
             board={gameState.board}
             currentPlayer={gameState.currentPlayer}
             playerColor={playerColor}

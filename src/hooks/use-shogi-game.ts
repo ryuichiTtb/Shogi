@@ -411,6 +411,10 @@ export function useShogiGame({
     dispatch({ type: "UNDO" });
   }, [state.gameState.moveHistory.length]);
 
+  const deselect = useCallback(() => {
+    dispatch({ type: "DESELECT" });
+  }, []);
+
   return {
     gameState: state.gameState,
     selectedSquare: state.selectedSquare,
@@ -423,5 +427,6 @@ export function useShogiGame({
     confirmPromotion,
     resign,
     undo,
+    deselect,
   };
 }
