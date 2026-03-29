@@ -195,7 +195,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
         </Card>
 
         {/* 棋譜 */}
-        <Card className="p-3 flex-1 min-h-48 max-h-[50vh] overflow-hidden">
+        <Card className="p-3 flex-1 min-h-48">
           <MoveHistory moves={gameState.moveHistory} />
         </Card>
 

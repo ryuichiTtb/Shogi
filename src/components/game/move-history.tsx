@@ -21,7 +21,7 @@ export function MoveHistory({ moves }: MoveHistoryProps) {
   return (
     <div className="flex flex-col h-full">
       <div className="text-sm font-medium text-muted-foreground mb-1">棋譜</div>
-      <ScrollArea className="flex-1 border rounded-md bg-muted/30">
+      <ScrollArea className="max-h-[45vh] border rounded-md bg-muted/30">
         <div className="p-2 space-y-0.5">
           {moves.length === 0 ? (
             <p className="text-xs text-muted-foreground p-2">棋譜はまだありません</p>
