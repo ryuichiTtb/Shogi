@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { PIECE_DEF_MAP } from "@/lib/shogi/variants/standard";
-import type { Piece } from "@/lib/shogi/types";
+import type { Piece, Player } from "@/lib/shogi/types";
 
 interface ShogiPieceProps {
   piece: Piece;
@@ -10,6 +10,7 @@ interface ShogiPieceProps {
   isSmall?: boolean;
   isLarge?: boolean;
   isInCheck?: boolean;
+  playerColor?: Player;
   onClick?: () => void;
 }
 
@@ -64,11 +65,13 @@ export function ShogiPiece({
   isSmall = false,
   isLarge = false,
   isInCheck = false,
+  playerColor,
   onClick,
 }: ShogiPieceProps) {
   const kanji = getPieceKanji(piece.type);
   const promoted = isPromoted(piece.type);
-  const isGote = piece.owner === "gote";
+  // playerColor が渡された場合は「相手の駒を回転」、未指定時は後手駒を回転（後方互換）
+  const isGote = playerColor ? piece.owner !== playerColor : piece.owner === "gote";
   const colors = getPieceColors(piece.type);
   const isThickBorder = THICK_BORDER_PIECES.has(piece.type);
   const isBoldFont = BOLD_FONT_PIECES.has(piece.type);

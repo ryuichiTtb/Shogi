@@ -181,6 +181,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
         <CapturedPieces
           hand={gameState.hand}
           player={aiColor}
+          playerColor={playerColor}
           isCurrentPlayer={gameState.currentPlayer === aiColor && isGameActive}
           selectedHandPiece={null}
           onPieceClick={() => {}}
@@ -207,6 +208,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
         <CapturedPieces
           hand={gameState.hand}
           player={playerColor}
+          playerColor={playerColor}
           isCurrentPlayer={isPlayerTurn && isGameActive}
           selectedHandPiece={selectedHandPiece}
           onPieceClick={selectHandPiece}
@@ -263,6 +265,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
       {/* 成りダイアログ */}
       <PromotionDialog
         move={promotionPendingMove}
+        playerColor={playerColor}
         onConfirm={confirmPromotion}
         onCancel={cancelPromotion}
       />

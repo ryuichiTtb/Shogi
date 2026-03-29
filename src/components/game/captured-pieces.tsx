@@ -7,6 +7,7 @@ import { ShogiPiece } from "./shogi-piece";
 interface CapturedPiecesProps {
   hand: Hand;
   player: Player;
+  playerColor: Player;
   isCurrentPlayer: boolean;
   selectedHandPiece: string | null;
   onPieceClick: (pieceType: string) => void;
@@ -19,6 +20,7 @@ const HAND_PIECE_ORDER = ["rook", "bishop", "gold", "silver", "knight", "lance",
 export function CapturedPieces({
   hand,
   player,
+  playerColor,
   isCurrentPlayer,
   selectedHandPiece,
   onPieceClick,
@@ -57,6 +59,7 @@ export function CapturedPieces({
                 piece={{ type, owner: player }}
                 isSmall
                 isSelected={selectedHandPiece === type && isCurrentPlayer}
+                playerColor={playerColor}
               />
               {count > 1 && (
                 <span className="absolute bottom-0 right-0.5 text-xs text-muted-foreground leading-none z-10">
