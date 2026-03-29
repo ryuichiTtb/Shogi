@@ -111,7 +111,7 @@ export const ShogiBoard = forwardRef<HTMLDivElement, ShogiBoardProps>(function S
                     // 選択マス
                     isSelected && "bg-blue-200",
                     // 合法手ハイライト
-                    isLegalTarget && !piece && "bg-green-200/70",
+                    isLegalTarget && !piece && "bg-blue-200/70",
                     isLegalTarget && piece && "bg-red-200/70",
                     // プレイヤーのターンでない・AI思考中は操作不可
                     (!isPlayerTurn || isAiThinking) && "cursor-not-allowed",
@@ -122,7 +122,7 @@ export const ShogiBoard = forwardRef<HTMLDivElement, ShogiBoardProps>(function S
                   {/* 合法手ドット（空きマス） */}
                   {isLegalTarget && !piece && (
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                      <div className="w-3 h-3 rounded-full bg-green-500/50" />
+                      <div className="w-3 h-3 rounded-full bg-blue-500/50" />
                     </div>
                   )}
 

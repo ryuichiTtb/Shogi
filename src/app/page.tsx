@@ -18,20 +18,29 @@ const DIFFICULTY_INFO: Record<Difficulty, { label: string; description: string; 
   advanced: { label: "上級", description: "強い相手に挑みたい方に", color: "bg-red-100 text-red-800 border-red-200" },
 };
 
+type ColorOption = Player | "random";
+
 export default function Home() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty>("beginner");
-  const [selectedColor, setSelectedColor] = useState<Player>("sente");
+  const [selectedColor, setSelectedColor] = useState<ColorOption>("sente");
 
   const selectedCharacter = CHARACTERS.find((c) => c.difficulty === selectedDifficulty)!;
 
   async function handleStart() {
     setIsLoading(true);
     try {
+      const color: Player =
+        selectedColor === "random"
+          ? Math.random() < 0.5
+            ? "sente"
+            : "gote"
+          : selectedColor;
+
       const gameId = await createGame(
         selectedDifficulty,
-        selectedColor,
+        color,
         selectedCharacter.id
       );
       router.push(`/game/${gameId}`);
@@ -40,6 +49,12 @@ export default function Home() {
       setIsLoading(false);
     }
   }
+
+  const colorOptions: { value: ColorOption; icon: string; label: string; desc: string }[] = [
+    { value: "sente", icon: "▲", label: "先手（下手）", desc: "先に指す" },
+    { value: "gote",  icon: "△", label: "後手（上手）", desc: "後から指す" },
+    { value: "random", icon: "🎲", label: "ランダム", desc: "どちらかをランダムで決定" },
+  ];
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-amber-50 to-background">
@@ -104,26 +119,22 @@ export default function Home() {
             <CardTitle className="text-base">手番を選ぶ</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 gap-3">
-              {(["sente", "gote"] as Player[]).map((color) => (
+            <div className="grid grid-cols-3 gap-3">
+              {colorOptions.map(({ value, icon, label, desc }) => (
                 <button
-                  key={color}
-                  onClick={() => setSelectedColor(color)}
+                  key={value}
+                  onClick={() => setSelectedColor(value)}
                   className={cn(
                     "p-4 rounded-xl border-2 text-center transition-all cursor-pointer",
                     "hover:shadow-md",
-                    selectedColor === color
+                    selectedColor === value
                       ? "border-primary bg-primary/5"
                       : "border-border hover:border-primary/40"
                   )}
                 >
-                  <div className="text-2xl mb-1">{color === "sente" ? "▲" : "△"}</div>
-                  <div className="font-medium text-sm">
-                    {color === "sente" ? "先手（下手）" : "後手（上手）"}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {color === "sente" ? "先に指す" : "後から指す"}
-                  </div>
+                  <div className="text-2xl mb-1">{icon}</div>
+                  <div className="font-medium text-sm">{label}</div>
+                  <div className="text-xs text-muted-foreground">{desc}</div>
                 </button>
               ))}
             </div>

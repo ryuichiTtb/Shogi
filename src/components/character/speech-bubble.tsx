@@ -50,7 +50,7 @@ export function SpeechBubble({ text, isVisible, className }: SpeechBubbleProps) 
         className
       )}
     >
-      <p className="text-gray-800 min-h-4">{displayText}</p>
+      <p className="text-gray-800 min-h-4 line-clamp-3">{displayText}</p>
     </div>
   );
 }

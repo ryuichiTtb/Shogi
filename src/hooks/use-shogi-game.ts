@@ -36,6 +36,7 @@ type GameAction =
   | { type: "SET_AI_THINKING"; thinking: boolean }
   | { type: "SHOW_PROMOTION_DIALOG"; move: Move }
   | { type: "CONFIRM_PROMOTION"; promote: boolean }
+  | { type: "CANCEL_PROMOTION" }
   | { type: "RESIGN" }
   | { type: "UNDO" };
 
@@ -192,6 +193,14 @@ function shogiReducer(state: ShogiGameState, action: GameAction): ShogiGameState
         legalMoves: [],
       };
     }
+
+    case "CANCEL_PROMOTION":
+      return {
+        ...state,
+        promotionPendingMove: null,
+        selectedSquare: null,
+        legalMoves: [],
+      };
 
     case "RESIGN": {
       const winner: Player = state.gameState.currentPlayer === "sente" ? "gote" : "sente";
@@ -415,6 +424,10 @@ export function useShogiGame({
     dispatch({ type: "DESELECT" });
   }, []);
 
+  const cancelPromotion = useCallback(() => {
+    dispatch({ type: "CANCEL_PROMOTION" });
+  }, []);
+
   return {
     gameState: state.gameState,
     selectedSquare: state.selectedSquare,
@@ -425,6 +438,7 @@ export function useShogiGame({
     selectSquare,
     selectHandPiece,
     confirmPromotion,
+    cancelPromotion,
     resign,
     undo,
     deselect,
