@@ -10,6 +10,7 @@ interface ShogiBoardProps {
   playerColor: Player;
   selectedSquare: Position | null;
   legalMoves: Move[];
+  lastMove: Move | null;
   isAiThinking: boolean;
   onSquareClick: (pos: Position) => void;
 }
@@ -25,12 +26,20 @@ export function ShogiBoard({
   playerColor,
   selectedSquare,
   legalMoves,
+  lastMove,
   isAiThinking,
   onSquareClick,
 }: ShogiBoardProps) {
   const legalMoveSet = new Set(
     legalMoves.map((m) => `${m.to.row}-${m.to.col}`)
   );
+
+  const isLastMoveSquare = (row: number, col: number) => {
+    if (!lastMove) return false;
+    const matchTo = lastMove.to.row === row && lastMove.to.col === col;
+    const matchFrom = lastMove.from && lastMove.from.row === row && lastMove.from.col === col;
+    return matchTo || matchFrom;
+  };
 
   const isPlayerTurn = currentPlayer === playerColor;
 
@@ -78,6 +87,7 @@ export function ShogiBoard({
               const isLegalTarget = legalMoveSet.has(`${rowIdx}-${colIdx}`);
               const isLastRank =
                 rowIdx === board.length - 1 && colIdx === row.length - 1;
+              const isLastMoveSq = isLastMoveSquare(rowIdx, colIdx);
 
               return (
                 <div
@@ -86,8 +96,10 @@ export function ShogiBoard({
                   className={cn(
                     "w-10 h-10 border border-amber-700/60 relative flex items-center justify-center",
                     "cursor-pointer transition-colors duration-100",
-                    // 交互に少し異なる背景
+                    // 通常背景
                     "bg-amber-50",
+                    // 直前の手（移動前・移動後）
+                    isLastMoveSq && !isSelected && "bg-yellow-200",
                     // 選択マス
                     isSelected && "bg-blue-200",
                     // 合法手ハイライト
