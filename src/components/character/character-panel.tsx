@@ -84,10 +84,33 @@ export function CharacterPanel({
 
       {/* 吹き出し */}
       <div className="relative min-h-8">
-        <SpeechBubble
-          text={currentComment}
-          isVisible={isCommentVisible}
-        />
+        {isAiThinking ? (
+          <div
+            className={cn(
+              "relative bg-white border-2 border-gray-300 rounded-xl px-3 py-2",
+              "shadow-md text-sm max-w-48",
+              "before:content-[''] before:absolute before:top-4 before:-left-3",
+              "before:border-8 before:border-transparent before:border-r-gray-300",
+              "after:content-[''] after:absolute after:top-4 after:-left-2",
+              "after:border-8 after:border-transparent after:border-r-white"
+            )}
+          >
+            <div className="flex items-center gap-1.5">
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-bounce"
+                  style={{ animationDelay: `${i * 0.15}s` }}
+                />
+              ))}
+            </div>
+          </div>
+        ) : (
+          <SpeechBubble
+            text={currentComment}
+            isVisible={isCommentVisible}
+          />
+        )}
       </div>
     </div>
   );
