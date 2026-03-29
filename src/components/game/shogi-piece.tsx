@@ -12,8 +12,8 @@ interface ShogiPieceProps {
   onClick?: () => void;
 }
 
-// 将棋駒の五角形クリップパス（先端が尖った形）
-const PIECE_CLIP = "polygon(50% 0%, 96% 22%, 100% 100%, 0% 100%, 4% 22%)";
+// 五角形の頂点座標（viewBox 0 0 100 100 基準）
+const POLYGON_POINTS = "50,0 96,22 100,100 0,100 4,22";
 
 // 大駒（飛・角）とその成り駒
 const MAJOR_PIECES = new Set(["rook", "bishop", "promoted_rook", "promoted_bishop"]);
@@ -67,30 +67,36 @@ export function ShogiPiece({
   const isThickBorder = THICK_BORDER_PIECES.has(piece.type);
   const isBoldFont = BOLD_FONT_PIECES.has(piece.type);
 
-  const borderBg = isInCheck ? "#ef4444" : isSelected ? "#3b82f6" : colors.border;
-  const innerBg  = isInCheck ? "#fee2e2" : isSelected ? "#dbeafe" : colors.inner;
-
-  // 枠線の太さ: 太め=2.5px、細め=1px
-  const insetClass = isThickBorder ? "inset-[2.5px]" : "inset-[1px]";
+  const borderColor = isInCheck ? "#ef4444" : isSelected ? "#3b82f6" : colors.border;
+  const fillColor   = isInCheck ? "#fee2e2" : isSelected ? "#dbeafe" : colors.inner;
+  // strokeWidth の半分が外側にはみ出すため viewBox に 3px のマージンを確保
+  const strokeWidth = isThickBorder ? 4 : 1.5;
 
   return (
     <div
       onClick={onClick}
-      style={{ clipPath: PIECE_CLIP, backgroundColor: borderBg }}
       className={cn(
-        "relative flex items-center justify-center cursor-pointer select-none transition-all duration-150",
+        "relative cursor-pointer select-none transition-all duration-150",
         isSmall ? "w-8 h-8" : "w-full h-full",
         isGote && "rotate-180",
       )}
     >
-      {/* 駒の内側（枠線をinsetで表現） */}
-      <div
-        style={{ clipPath: PIECE_CLIP, backgroundColor: innerBg }}
-        className={cn(
-          "absolute flex items-center justify-center hover:brightness-90 transition-all duration-150",
-          insetClass,
-        )}
+      {/* SVG で五角形を描画（stroke が辺に沿って均一な枠線になる） */}
+      <svg
+        viewBox="-3 -3 106 106"
+        className="absolute inset-0 w-full h-full hover:brightness-90 transition-all duration-150"
       >
+        <polygon
+          points={POLYGON_POINTS}
+          fill={fillColor}
+          stroke={borderColor}
+          strokeWidth={strokeWidth}
+          strokeLinejoin="round"
+        />
+      </svg>
+
+      {/* 駒の文字（SVG の上に絶対配置） */}
+      <div className="absolute inset-0 flex items-center justify-center">
         <span
           className={cn(
             "leading-none font-[family-name:var(--font-yuji-boku)]",
