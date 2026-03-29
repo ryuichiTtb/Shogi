@@ -19,7 +19,7 @@ import { gameResultText } from "@/lib/shogi/notation";
 import { isInCheck } from "@/lib/shogi/moves";
 import { STANDARD_VARIANT } from "@/lib/shogi/variants/standard";
 import { getVariantById } from "@/lib/shogi/variants/index";
-import type { GameConfig, GameState, Difficulty, Player } from "@/lib/shogi/types";
+import type { GameConfig, GameState, Difficulty, Move, Player } from "@/lib/shogi/types";
 import type { CommentaryEvent } from "@/app/actions/commentary";
 import { createGame } from "@/app/actions/game";
 import Link from "next/link";
@@ -39,6 +39,16 @@ interface ShogiGameProps {
   initialGameState: GameState;
   gameId: string;
   gameConfig: SerializableGameConfig;
+}
+
+function shouldPlayThrowSfx(move: Move): boolean {
+  if (move.type === "drop") return true;
+  if (move.type !== "move" || !move.from) return false;
+  if (move.piece === "knight") return true;
+
+  const rowDiff = Math.abs(move.to.row - move.from.row);
+  const colDiff = Math.abs(move.to.col - move.from.col);
+  return Math.max(rowDiff, colDiff) >= 2;
 }
 
 export function ShogiGame({ initialGameState, gameId, gameConfig: serializableConfig }: ShogiGameProps) {
@@ -105,6 +115,10 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
   useEffect(() => {
     const lastMove = gameState.moveHistory[gameState.moveHistory.length - 1];
     if (!lastMove) return;
+
+    if (shouldPlayThrowSfx(lastMove)) {
+      playSfx("piece_throw");
+    }
 
     if (lastMove.type === "drop") {
       playSfx("piece_drop");

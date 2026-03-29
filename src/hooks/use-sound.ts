@@ -23,6 +23,7 @@ const SFX_FILES: Record<string, string> = {
   piece_capture: "/sounds/piece-capture.mp3",
   piece_promote: "/sounds/piece-promote.mp3",
   piece_drop: "/sounds/piece-drop.mp3",
+  piece_throw: "/sounds/throw.mp3",
   check: "/sounds/check.mp3",
   game_over: "/sounds/game-over.mp3",
   game_start: "/sounds/game-start.mp3",
