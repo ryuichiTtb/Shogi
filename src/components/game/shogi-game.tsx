@@ -47,7 +47,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
   };
 
   const character = getCharacterById(gameConfig.characterId);
-  const { playSfx, toggleMute, isMuted } = useSound(
+  const { playSfx, toggleMute, isMuted, isReady } = useSound(
     gameConfig.soundEnabled ? character.bgmTrack : undefined
   );
 
@@ -110,11 +110,12 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
     }
   }, [gameState.status]);
 
-  // ゲーム開始時のコメント・サウンド（Howler初期化待ちのため遅延）
+  // ゲーム開始時のコメント・サウンド（Howler初期化完了後に再生）
   useEffect(() => {
-    setTimeout(() => playSfx("game_start"), 300);
-    setTimeout(() => handleComment("game_start"), 800);
-  }, []);
+    if (!isReady) return;
+    playSfx("game_start");
+    setTimeout(() => handleComment("game_start"), 500);
+  }, [isReady]);
 
   return (
     <div className="flex flex-col lg:flex-row gap-4 w-full max-w-5xl mx-auto p-4">

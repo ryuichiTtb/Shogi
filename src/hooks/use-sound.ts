@@ -30,6 +30,7 @@ const SFX_FILES: Record<string, string> = {
 
 export function useSound(bgmTrack?: string) {
   const [isMuted, setIsMuted] = useState(false);
+  const [isReady, setIsReady] = useState(false);
   const bgmRef = useRef<HowlInstance | null>(null);
   const sfxCacheRef = useRef<Map<string, HowlInstance>>(new Map());
   const HowlRef = useRef<HowlConstructor | null>(null);
@@ -38,6 +39,7 @@ export function useSound(bgmTrack?: string) {
   useEffect(() => {
     import("howler").then(({ Howl }) => {
       HowlRef.current = Howl as unknown as HowlConstructor;
+      setIsReady(true);
     });
 
     return () => {
@@ -96,5 +98,5 @@ export function useSound(bgmTrack?: string) {
     });
   }, []);
 
-  return { playSfx, toggleMute, isMuted };
+  return { playSfx, toggleMute, isMuted, isReady };
 }
