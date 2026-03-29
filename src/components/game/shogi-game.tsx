@@ -250,6 +250,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
       <PromotionDialog
         move={promotionPendingMove}
         onConfirm={confirmPromotion}
+        onCancel={() => {}}
       />
     </div>
   );
