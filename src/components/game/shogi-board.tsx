@@ -126,7 +126,7 @@ export function ShogiBoard({
 
                   {/* 駒 */}
                   {piece && (
-                    <div className="absolute inset-0.5">
+                    <div className="absolute inset-0">
                       <ShogiPiece
                         piece={piece}
                         isSelected={isSelected}
