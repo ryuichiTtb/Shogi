@@ -99,7 +99,7 @@ export function ShogiBoard({
                     // 通常背景
                     "bg-amber-50",
                     // 直前の手（移動前・移動後）
-                    isLastMoveSq && !isSelected && "bg-yellow-200",
+                    isLastMoveSq && !isSelected && "bg-emerald-200",
                     // 選択マス
                     isSelected && "bg-blue-200",
                     // 合法手ハイライト
