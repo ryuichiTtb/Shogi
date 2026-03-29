@@ -45,7 +45,8 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
   const [commentEvent, setCommentEvent] = useState<CommentaryEvent | null>(null);
   const [overlayEvent, setOverlayEvent] = useState<{ event: OverlayEvent; key: number } | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
-  const gameAreaRef = useRef<HTMLDivElement>(null);
+  const capturedPiecesAiRef = useRef<HTMLDivElement>(null);
+  const capturedPiecesPlayerRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
@@ -146,10 +147,14 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
     setTimeout(() => handleComment("game_start"), 500);
   }, [isReady]);
 
-  // document全体のクリックで選択解除（ゲームエリア内クリックは除外）
+  // document全体のクリックで選択解除
+  // 盤面グリッド内・持ち駒エリアのクリックは除外（それぞれ独自のハンドラで処理）
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
-      if (gameAreaRef.current && gameAreaRef.current.contains(e.target as Node)) return;
+      const target = e.target as Node;
+      if (boardRef.current?.contains(target)) return;
+      if (capturedPiecesAiRef.current?.contains(target)) return;
+      if (capturedPiecesPlayerRef.current?.contains(target)) return;
       deselect();
     };
     document.addEventListener("click", handleClick);
@@ -158,8 +163,8 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
 
   return (
     <div className="flex flex-col lg:flex-row gap-4 w-full max-w-5xl mx-auto p-4">
-      {/* メインエリア（持ち駒・盤面・コントロール含む） */}
-      <div ref={gameAreaRef} className="flex flex-col gap-3 flex-1">
+      {/* メインエリア */}
+      <div className="flex flex-col gap-3 flex-1">
         {/* ステータスバー */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -178,14 +183,16 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
         </div>
 
         {/* 後手（AI）の持ち駒 */}
-        <CapturedPieces
-          hand={gameState.hand}
-          player={aiColor}
-          isCurrentPlayer={gameState.currentPlayer === aiColor && isGameActive}
-          selectedHandPiece={null}
-          onPieceClick={() => {}}
-          label={character.name}
-        />
+        <div ref={capturedPiecesAiRef}>
+          <CapturedPieces
+            hand={gameState.hand}
+            player={aiColor}
+            isCurrentPlayer={gameState.currentPlayer === aiColor && isGameActive}
+            selectedHandPiece={null}
+            onPieceClick={() => {}}
+            label={character.name}
+          />
+        </div>
 
         {/* 将棋盤 */}
         <div className="relative">
@@ -205,14 +212,16 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
         </div>
 
         {/* 先手（プレイヤー）の持ち駒 */}
-        <CapturedPieces
-          hand={gameState.hand}
-          player={playerColor}
-          isCurrentPlayer={isPlayerTurn && isGameActive}
-          selectedHandPiece={selectedHandPiece}
-          onPieceClick={selectHandPiece}
-          label="あなた"
-        />
+        <div ref={capturedPiecesPlayerRef}>
+          <CapturedPieces
+            hand={gameState.hand}
+            player={playerColor}
+            isCurrentPlayer={isPlayerTurn && isGameActive}
+            selectedHandPiece={selectedHandPiece}
+            onPieceClick={selectHandPiece}
+            label="あなた"
+          />
+        </div>
 
         {/* ゲームコントロール */}
         <GameControls
