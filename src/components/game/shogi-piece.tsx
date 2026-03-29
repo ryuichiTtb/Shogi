@@ -74,7 +74,7 @@ export function ShogiPiece({
   const borderColor = isInCheck ? "#ef4444" : isSelected ? "#3b82f6" : colors.border;
   const fillColor   = isInCheck ? "#fee2e2" : isSelected ? "#dbeafe" : colors.inner;
   // strokeWidth の半分が外側にはみ出すため viewBox に 3px のマージンを確保
-  const strokeWidth = isThickBorder ? 4 : 1.5;
+  const strokeWidth = 1.5;
 
   // isSmall（持ち駒・ダイアログ用）の場合は固定サイズ、盤上は駒種別サイズ
   const sizeClass = isSmall
