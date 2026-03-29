@@ -29,6 +29,7 @@ import { saveMove, updateGameStatus } from "@/app/actions/game";
 
 type GameAction =
   | { type: "SELECT_SQUARE"; pos: Position }
+  | { type: "DESELECT" }
   | { type: "SELECT_HAND_PIECE"; pieceType: string }
   | { type: "MAKE_MOVE"; move: Move }
   | { type: "SET_STATE"; state: GameState }
@@ -49,6 +50,9 @@ interface ShogiGameState {
 
 function shogiReducer(state: ShogiGameState, action: GameAction): ShogiGameState {
   switch (action.type) {
+    case "DESELECT":
+      return { ...state, selectedSquare: null, selectedHandPiece: null, legalMoves: [] };
+
     case "SELECT_SQUARE": {
       const { pos } = action;
       const { gameState, selectedSquare, selectedHandPiece, legalMoves } = state;
@@ -332,6 +336,12 @@ export function useShogiGame({
         makePlayerMove(dropMove);
       }
       dispatch({ type: "SELECT_SQUARE", pos });
+      return;
+    }
+
+    // 選択中の駒を再クリック → 選択解除
+    if (selectedSquare?.row === pos.row && selectedSquare?.col === pos.col) {
+      dispatch({ type: "DESELECT" });
       return;
     }
 
