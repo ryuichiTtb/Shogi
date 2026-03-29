@@ -71,6 +71,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
     confirmPromotion,
     resign,
     undo,
+    deselect,
   } = useShogiGame({
     initialState: initialGameState,
     gameId,
@@ -129,8 +130,8 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
 
   return (
     <div className="flex flex-col lg:flex-row gap-4 w-full max-w-5xl mx-auto p-4">
-      {/* メインエリア */}
-      <div className="flex flex-col gap-3 flex-1">
+      {/* メインエリア（盤面外クリックで選択解除） */}
+      <div className="flex flex-col gap-3 flex-1" onClick={deselect}>
         {/* ステータスバー */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -158,8 +159,8 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
           label={character.name}
         />
 
-        {/* 将棋盤 */}
-        <div className="relative">
+        {/* 将棋盤（クリック伝播を止めて盤面外判定と分離） */}
+        <div className="relative" onClick={(e) => e.stopPropagation()}>
           <ShogiBoard
             board={gameState.board}
             currentPlayer={gameState.currentPlayer}
