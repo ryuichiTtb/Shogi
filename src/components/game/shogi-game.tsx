@@ -19,7 +19,7 @@ import { gameResultText } from "@/lib/shogi/notation";
 import { isInCheck } from "@/lib/shogi/moves";
 import { STANDARD_VARIANT } from "@/lib/shogi/variants/standard";
 import { getVariantById } from "@/lib/shogi/variants/index";
-import type { GameConfig, GameState, Difficulty, Player } from "@/lib/shogi/types";
+import type { GameConfig, GameState, Difficulty, Move, Player } from "@/lib/shogi/types";
 import type { CommentaryEvent } from "@/app/actions/commentary";
 import { createGame } from "@/app/actions/game";
 import Link from "next/link";
@@ -39,6 +39,15 @@ interface ShogiGameProps {
   initialGameState: GameState;
   gameId: string;
   gameConfig: SerializableGameConfig;
+}
+
+function shouldPlayJumpSfx(move: Move): boolean {
+  if (move.type !== "move" || !move.from) return false;
+  if (move.piece === "knight") return true;
+
+  const rowDiff = Math.abs(move.to.row - move.from.row);
+  const colDiff = Math.abs(move.to.col - move.from.col);
+  return Math.max(rowDiff, colDiff) >= 2;
 }
 
 export function ShogiGame({ initialGameState, gameId, gameConfig: serializableConfig }: ShogiGameProps) {
@@ -108,6 +117,8 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
 
     if (lastMove.type === "drop") {
       playSfx("piece_drop");
+    } else if (shouldPlayJumpSfx(lastMove)) {
+      playSfx("piece_jump");
     } else if (lastMove.captured) {
       playSfx("piece_capture");
       if (lastMove.promote) playSfx("piece_promote");

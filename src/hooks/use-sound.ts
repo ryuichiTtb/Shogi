@@ -20,6 +20,7 @@ type HowlConstructor = new (options: {
 
 const SFX_FILES: Record<string, string> = {
   piece_move: "/sounds/piece-move.mp3",
+  piece_jump: "/sounds/jump.mp3",
   piece_capture: "/sounds/piece-capture.mp3",
   piece_promote: "/sounds/piece-promote.mp3",
   piece_drop: "/sounds/piece-drop.mp3",
