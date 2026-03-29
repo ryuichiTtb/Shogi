@@ -45,6 +45,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
   const [commentEvent, setCommentEvent] = useState<CommentaryEvent | null>(null);
   const [overlayEvent, setOverlayEvent] = useState<{ event: OverlayEvent; key: number } | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
+  const gameAreaRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
@@ -85,6 +86,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
     selectSquare,
     selectHandPiece,
     confirmPromotion,
+    cancelPromotion,
     resign,
     undo,
     deselect,
@@ -144,10 +146,10 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
     setTimeout(() => handleComment("game_start"), 500);
   }, [isReady]);
 
-  // document全体のクリックで選択解除（盤面内クリックは除外）
+  // document全体のクリックで選択解除（ゲームエリア内クリックは除外）
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
-      if (boardRef.current && boardRef.current.contains(e.target as Node)) return;
+      if (gameAreaRef.current && gameAreaRef.current.contains(e.target as Node)) return;
       deselect();
     };
     document.addEventListener("click", handleClick);
@@ -156,8 +158,8 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
 
   return (
     <div className="flex flex-col lg:flex-row gap-4 w-full max-w-5xl mx-auto p-4">
-      {/* メインエリア */}
-      <div className="flex flex-col gap-3 flex-1">
+      {/* メインエリア（持ち駒・盤面・コントロール含む） */}
+      <div ref={gameAreaRef} className="flex flex-col gap-3 flex-1">
         {/* ステータスバー */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -218,7 +220,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
           onUndo={undo}
           isMuted={isMuted}
           onToggleMute={toggleMute}
-          canUndo={gameState.moveHistory.length >= 2}
+          canUndo={gameState.moveHistory.length >= 2 && isPlayerTurn && !isAiThinking}
           gameActive={isGameActive}
         />
       </div>
@@ -263,6 +265,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
       <PromotionDialog
         move={promotionPendingMove}
         onConfirm={confirmPromotion}
+        onCancel={cancelPromotion}
       />
     </div>
   );

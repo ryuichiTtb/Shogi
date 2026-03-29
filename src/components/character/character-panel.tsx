@@ -82,8 +82,8 @@ export function CharacterPanel({
         <p className="text-xs text-muted-foreground">{character.title}</p>
       </div>
 
-      {/* 吹き出し */}
-      <div className="relative min-h-8">
+      {/* 吹き出し（3行分の高さで固定） */}
+      <div className="relative h-20 flex items-start w-full">
         {isAiThinking ? (
           <div
             className={cn(

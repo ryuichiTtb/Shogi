@@ -35,10 +35,17 @@ export function useSound(bgmTrack?: string) {
   const sfxCacheRef = useRef<Map<string, HowlInstance>>(new Map());
   const HowlRef = useRef<HowlConstructor | null>(null);
 
-  // Howlをクライアントサイドのみでロード
+  // Howlをクライアントサイドのみでロード（全SFXを事前ロードして同時再生のズレを防ぐ）
   useEffect(() => {
     import("howler").then(({ Howl }) => {
-      HowlRef.current = Howl as unknown as HowlConstructor;
+      const HowlCtor = Howl as unknown as HowlConstructor;
+      HowlRef.current = HowlCtor;
+
+      // 全SFXを事前生成してキャッシュ（初回再生時のロード遅延をなくす）
+      Object.entries(SFX_FILES).forEach(([key, src]) => {
+        sfxCacheRef.current.set(key, new HowlCtor({ src: [src], volume: 0.7 }));
+      });
+
       setIsReady(true);
     });
 
