@@ -15,6 +15,8 @@ interface ShogiPieceProps {
 // 将棋駒の五角形クリップパス（先端が尖った形）
 const PIECE_CLIP = "polygon(50% 0%, 96% 22%, 100% 100%, 0% 100%, 4% 22%)";
 
+const MAJOR_PIECES = new Set(["rook", "bishop", "promoted_rook", "promoted_bishop"]);
+
 // 駒の漢字を取得
 function getPieceKanji(type: string): string {
   const def = PIECE_DEF_MAP.get(type);
@@ -24,6 +26,17 @@ function getPieceKanji(type: string): string {
 // 成り駒か判定
 function isPromoted(type: string): boolean {
   return type.startsWith("promoted_");
+}
+
+// 駒種別の色設定（枠色・内側色）
+function getPieceColors(type: string): { border: string; inner: string } {
+  if (type === "king") {
+    return { border: "#5c3a1e", inner: "#d4a96a" }; // Eパターン: ダーク木材
+  }
+  if (MAJOR_PIECES.has(type)) {
+    return { border: "#7a5c1e", inner: "#e8c87a" }; // Cパターン: 黄土色
+  }
+  return { border: "#8b5e3c", inner: "#f5deb3" };   // Aパターン: 木目ナチュラル
 }
 
 export function ShogiPiece({
@@ -36,40 +49,25 @@ export function ShogiPiece({
   const kanji = getPieceKanji(piece.type);
   const promoted = isPromoted(piece.type);
   const isGote = piece.owner === "gote";
+  const colors = getPieceColors(piece.type);
 
-  // 枠線・内側の色を状態に応じて切り替え
-  const borderColor = isInCheck
-    ? "bg-red-500"
-    : isSelected
-    ? "bg-blue-500"
-    : "bg-[#5c3a1e]";
-
-  const innerColor = isInCheck
-    ? "bg-red-100"
-    : isSelected
-    ? "bg-blue-100"
-    : "bg-[#d4a96a] hover:bg-[#c4956a]";
+  const borderBg = isInCheck ? "#ef4444" : isSelected ? "#3b82f6" : colors.border;
+  const innerBg  = isInCheck ? "#fee2e2" : isSelected ? "#dbeafe" : colors.inner;
 
   return (
     <div
       onClick={onClick}
-      style={{ clipPath: PIECE_CLIP }}
+      style={{ clipPath: PIECE_CLIP, backgroundColor: borderBg }}
       className={cn(
         "relative flex items-center justify-center cursor-pointer select-none transition-all duration-150",
         isSmall ? "w-8 h-8" : "w-full h-full",
-        // 後手は180度回転
         isGote && "rotate-180",
-        // 枠線の色（外側）
-        borderColor,
       )}
     >
-      {/* 駒の内側（枠線を残して1.5px内側に配置） */}
+      {/* 駒の内側（1.5px内側で枠線を表現、ホバーでやや暗く） */}
       <div
-        style={{ clipPath: PIECE_CLIP }}
-        className={cn(
-          "absolute inset-[1.5px] flex items-center justify-center transition-colors duration-150",
-          innerColor,
-        )}
+        style={{ clipPath: PIECE_CLIP, backgroundColor: innerBg }}
+        className="absolute inset-[1.5px] flex items-center justify-center hover:brightness-90 transition-all duration-150"
       >
         <span
           className={cn(
