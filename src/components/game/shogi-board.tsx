@@ -139,6 +139,9 @@ export function ShogiBoard({
             })
           )}
         </div>
+
+        {/* 右側スペーサー（段ラベルと同幅で盤面を中央に揃える） */}
+        <div className="w-6" />
       </div>
 
     </div>
