@@ -122,21 +122,6 @@ export function ShogiBoard({
         </div>
       </div>
 
-      {/* AI思考中インジケータ */}
-      {isAiThinking && (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
-          <div className="flex gap-1">
-            {[0, 1, 2].map((i) => (
-              <div
-                key={i}
-                className="w-1.5 h-1.5 rounded-full bg-primary animate-bounce"
-                style={{ animationDelay: `${i * 0.15}s` }}
-              />
-            ))}
-          </div>
-          <span>思考中...</span>
-        </div>
-      )}
     </div>
   );
 }
