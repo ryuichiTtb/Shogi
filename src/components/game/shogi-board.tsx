@@ -16,10 +16,13 @@ interface ShogiBoardProps {
   onSquareClick: (pos: Position) => void;
 }
 
-// 列ラベル（筋）: col=0 → 9, col=8 → 1
-const FILE_LABELS = ["9", "8", "7", "6", "5", "4", "3", "2", "1"];
-// 行ラベル（段）
-const RANK_LABELS = ["一", "二", "三", "四", "五", "六", "七", "八", "九"];
+// 先手目線のラベル
+const FILE_LABELS_SENTE = ["9", "8", "7", "6", "5", "4", "3", "2", "1"];
+const RANK_LABELS_SENTE = ["一", "二", "三", "四", "五", "六", "七", "八", "九"];
+
+// 後手目線のラベル（逆順）
+const FILE_LABELS_GOTE = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
+const RANK_LABELS_GOTE = ["九", "八", "七", "六", "五", "四", "三", "二", "一"];
 
 export function ShogiBoard({
   board,
@@ -44,12 +47,19 @@ export function ShogiBoard({
   };
 
   const isPlayerTurn = currentPlayer === playerColor;
+  const isGote = playerColor === "gote";
+
+  // 後手番時は行・列を逆順にして後手目線の盤面にする
+  const rowIndices = isGote ? [8, 7, 6, 5, 4, 3, 2, 1, 0] : [0, 1, 2, 3, 4, 5, 6, 7, 8];
+  const colIndices = isGote ? [8, 7, 6, 5, 4, 3, 2, 1, 0] : [0, 1, 2, 3, 4, 5, 6, 7, 8];
+  const fileLabels = isGote ? FILE_LABELS_GOTE : FILE_LABELS_SENTE;
+  const rankLabels = isGote ? RANK_LABELS_GOTE : RANK_LABELS_SENTE;
 
   return (
     <div className="flex flex-col items-center gap-1">
       {/* ファイルラベル（上） */}
       <div className="flex ml-6">
-        {FILE_LABELS.map((label) => (
+        {fileLabels.map((label) => (
           <div
             key={label}
             className="w-10 h-4 flex items-center justify-center text-xs text-muted-foreground"
@@ -62,7 +72,7 @@ export function ShogiBoard({
       <div className="flex">
         {/* ランクラベル（左） */}
         <div className="flex flex-col mr-1">
-          {RANK_LABELS.map((label) => (
+          {rankLabels.map((label) => (
             <div
               key={label}
               className="h-10 w-5 flex items-center justify-center text-xs text-muted-foreground"
@@ -80,8 +90,9 @@ export function ShogiBoard({
           )}
           style={{ gridTemplateColumns: "repeat(9, 2.5rem)", gridTemplateRows: "repeat(9, 2.5rem)" }}
         >
-          {board.map((row, rowIdx) =>
-            row.map((piece, colIdx) => {
+          {rowIndices.map((rowIdx) =>
+            colIndices.map((colIdx) => {
+              const piece = board[rowIdx][colIdx];
               const pos = { row: rowIdx, col: colIdx };
               const isSelected =
                 selectedSquare?.row === rowIdx &&
