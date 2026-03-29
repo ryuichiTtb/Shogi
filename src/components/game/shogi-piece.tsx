@@ -42,13 +42,13 @@ export function ShogiPiece({
     ? "bg-red-500"
     : isSelected
     ? "bg-blue-500"
-    : "bg-[#8b5e3c]";
+    : "bg-[#7a5c1e]";
 
   const innerColor = isInCheck
     ? "bg-red-100"
     : isSelected
     ? "bg-blue-100"
-    : "bg-[#f5deb3] hover:bg-[#ebd09a]";
+    : "bg-[#e8c87a] hover:bg-[#ddb85a]";
 
   return (
     <div
