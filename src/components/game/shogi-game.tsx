@@ -47,7 +47,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
   };
 
   const character = getCharacterById(gameConfig.characterId);
-  const { playSfx, toggleMute, isMuted } = useSound(
+  const { playSfx, toggleMute, isMuted, isReady } = useSound(
     gameConfig.soundEnabled ? character.bgmTrack : undefined
   );
 
@@ -86,10 +86,11 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
     const lastMove = gameState.moveHistory[gameState.moveHistory.length - 1];
     if (!lastMove) return;
 
-    if (lastMove.captured) {
-      playSfx("piece_capture");
-    } else if (lastMove.type === "drop") {
+    if (lastMove.type === "drop") {
       playSfx("piece_drop");
+    } else if (lastMove.captured) {
+      playSfx("piece_capture");
+      if (lastMove.promote) playSfx("piece_promote");
     } else if (lastMove.promote) {
       playSfx("piece_promote");
     } else {
@@ -97,13 +98,25 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
     }
 
     if (inCheck) playSfx("check");
-    if (!isGameActive) playSfx("game_over");
+    // 詰みは手を指した後なので1秒遅延
+    if (gameState.status === "checkmate") {
+      setTimeout(() => playSfx("game_over"), 1000);
+    }
   }, [gameState.moveCount]);
 
-  // ゲーム開始時のコメント
+  // 投了時（moveCountが変わらないため別途監視）
   useEffect(() => {
-    setTimeout(() => handleComment("game_start"), 800);
-  }, []);
+    if (gameState.status === "resign") {
+      playSfx("game_over");
+    }
+  }, [gameState.status]);
+
+  // ゲーム開始時のコメント・サウンド（Howler初期化完了後に再生）
+  useEffect(() => {
+    if (!isReady) return;
+    playSfx("game_start");
+    setTimeout(() => handleComment("game_start"), 500);
+  }, [isReady]);
 
   return (
     <div className="flex flex-col lg:flex-row gap-4 w-full max-w-5xl mx-auto p-4">

@@ -19,16 +19,18 @@ type HowlConstructor = new (options: {
 }) => HowlInstance;
 
 const SFX_FILES: Record<string, string> = {
-  piece_move: "/sounds/piece-move.wav",
-  piece_capture: "/sounds/piece-capture.wav",
-  piece_promote: "/sounds/piece-promote.wav",
-  piece_drop: "/sounds/piece-drop.wav",
-  check: "/sounds/check.wav",
-  game_over: "/sounds/game-over.wav",
+  piece_move: "/sounds/piece-move.mp3",
+  piece_capture: "/sounds/piece-capture.mp3",
+  piece_promote: "/sounds/piece-promote.mp3",
+  piece_drop: "/sounds/piece-drop.mp3",
+  check: "/sounds/check.mp3",
+  game_over: "/sounds/game-over.mp3",
+  game_start: "/sounds/game-start.mp3",
 };
 
 export function useSound(bgmTrack?: string) {
   const [isMuted, setIsMuted] = useState(false);
+  const [isReady, setIsReady] = useState(false);
   const bgmRef = useRef<HowlInstance | null>(null);
   const sfxCacheRef = useRef<Map<string, HowlInstance>>(new Map());
   const HowlRef = useRef<HowlConstructor | null>(null);
@@ -37,6 +39,7 @@ export function useSound(bgmTrack?: string) {
   useEffect(() => {
     import("howler").then(({ Howl }) => {
       HowlRef.current = Howl as unknown as HowlConstructor;
+      setIsReady(true);
     });
 
     return () => {
@@ -95,5 +98,5 @@ export function useSound(bgmTrack?: string) {
     });
   }, []);
 
-  return { playSfx, toggleMute, isMuted };
+  return { playSfx, toggleMute, isMuted, isReady };
 }
