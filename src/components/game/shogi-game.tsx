@@ -128,10 +128,16 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
     setTimeout(() => handleComment("game_start"), 500);
   }, [isReady]);
 
+  // document全体のクリックで選択解除（盤面内はstopPropagationで除外）
+  useEffect(() => {
+    document.addEventListener("click", deselect);
+    return () => document.removeEventListener("click", deselect);
+  }, [deselect]);
+
   return (
     <div className="flex flex-col lg:flex-row gap-4 w-full max-w-5xl mx-auto p-4">
-      {/* メインエリア（盤面外クリックで選択解除） */}
-      <div className="flex flex-col gap-3 flex-1" onClick={deselect}>
+      {/* メインエリア */}
+      <div className="flex flex-col gap-3 flex-1">
         {/* ステータスバー */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
