@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { moveToNotation } from "@/lib/shogi/notation";
 import type { Move } from "@/lib/shogi/types";
@@ -10,10 +11,16 @@ interface MoveHistoryProps {
 }
 
 export function MoveHistory({ moves }: MoveHistoryProps) {
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [moves.length]);
+
   return (
     <div className="flex flex-col h-full">
       <div className="text-sm font-medium text-muted-foreground mb-1">棋譜</div>
-      <ScrollArea className="h-full border rounded-md bg-muted/30">
+      <ScrollArea className="flex-1 border rounded-md bg-muted/30">
         <div className="p-2 space-y-0.5">
           {moves.length === 0 ? (
             <p className="text-xs text-muted-foreground p-2">棋譜はまだありません</p>
@@ -42,6 +49,7 @@ export function MoveHistory({ moves }: MoveHistoryProps) {
               );
             })
           )}
+          <div ref={bottomRef} />
         </div>
       </ScrollArea>
     </div>
