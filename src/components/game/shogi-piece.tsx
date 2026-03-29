@@ -8,6 +8,7 @@ interface ShogiPieceProps {
   piece: Piece;
   isSelected?: boolean;
   isSmall?: boolean;
+  isLarge?: boolean;
   isInCheck?: boolean;
   onClick?: () => void;
 }
@@ -61,6 +62,7 @@ export function ShogiPiece({
   piece,
   isSelected = false,
   isSmall = false,
+  isLarge = false,
   isInCheck = false,
   onClick,
 }: ShogiPieceProps) {
@@ -116,7 +118,7 @@ export function ShogiPiece({
           <span
             className={cn(
               "leading-none font-[family-name:var(--font-yuji-boku)]",
-              isSmall ? "text-lg md:text-xl" : "text-lg md:text-xl",
+              isLarge ? "text-3xl" : "text-lg md:text-xl",
               piece.type === "king" ? "font-bold" : "font-normal",
               promoted ? "text-red-700" : isInCheck ? "text-red-700" : "text-gray-900",
             )}

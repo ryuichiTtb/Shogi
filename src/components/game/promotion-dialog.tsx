@@ -37,7 +37,7 @@ export function PromotionDialog({ move, onConfirm, onCancel }: PromotionDialogPr
           >
             <div className="w-20 h-20">
               {promotedType ? (
-                <ShogiPiece piece={{ type: promotedType, owner: move.player }} />
+                <ShogiPiece piece={{ type: promotedType, owner: move.player }} isLarge />
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-2xl font-bold text-red-700">成</div>
               )}
@@ -51,7 +51,7 @@ export function PromotionDialog({ move, onConfirm, onCancel }: PromotionDialogPr
             className="flex flex-col items-center gap-2 p-4 rounded-lg border border-amber-400 bg-amber-50 hover:bg-amber-100 transition-colors cursor-pointer"
           >
             <div className="w-20 h-20">
-              <ShogiPiece piece={{ type: move.piece, owner: move.player }} />
+              <ShogiPiece piece={{ type: move.piece, owner: move.player }} isLarge />
             </div>
             <span className="text-sm font-medium">成らない</span>
           </button>
