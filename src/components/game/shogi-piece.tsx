@@ -80,9 +80,9 @@ export function ShogiPiece({
   const sizeClass = isSmall
     ? "w-8 h-8"
     : SMALL_PIECES.has(piece.type)
-      ? "w-[78%] h-[78%]"
+      ? "w-[85%] h-[85%]"
       : MEDIUM_PIECES.has(piece.type)
-        ? "w-[88%] h-[88%]"
+        ? "w-[90%] h-[90%]"
         : "w-full h-full";
 
   return (
