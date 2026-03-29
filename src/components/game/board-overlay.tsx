@@ -84,7 +84,8 @@ export function BoardOverlay({ event }: BoardOverlayProps) {
     >
       <div className={cn(
         "bg-black/60 rounded-xl px-8 py-4",
-        "text-4xl font-bold tracking-widest",
+        "text-5xl tracking-widest",
+        "font-[family-name:var(--font-yuji-boku)]",
         config.className
       )}>
         {config.text}
