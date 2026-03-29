@@ -97,18 +97,22 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
     }
 
     if (inCheck) playSfx("check");
-    if (!isGameActive) {
-      if (gameState.status === "checkmate") {
-        setTimeout(() => playSfx("game_over"), 1000);
-      } else {
-        playSfx("game_over");
-      }
+    // 詰みは手を指した後なので1秒遅延
+    if (gameState.status === "checkmate") {
+      setTimeout(() => playSfx("game_over"), 1000);
     }
   }, [gameState.moveCount]);
 
-  // ゲーム開始時のコメント・サウンド
+  // 投了時（moveCountが変わらないため別途監視）
   useEffect(() => {
-    playSfx("game_start");
+    if (gameState.status === "resign") {
+      playSfx("game_over");
+    }
+  }, [gameState.status]);
+
+  // ゲーム開始時のコメント・サウンド（Howler初期化待ちのため遅延）
+  useEffect(() => {
+    setTimeout(() => playSfx("game_start"), 300);
     setTimeout(() => handleComment("game_start"), 800);
   }, []);
 
