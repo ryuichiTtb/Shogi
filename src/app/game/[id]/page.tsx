@@ -27,7 +27,7 @@ export default async function GamePage({ params }: GamePageProps) {
   };
 
   return (
-    <main className="min-h-screen py-4">
+    <main className="h-dvh overflow-hidden flex-1">
       <ShogiGame
         initialGameState={game.boardState}
         gameId={id}

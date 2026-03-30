@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useShogiGame } from "@/hooks/use-shogi-game";
 import { useSound } from "@/hooks/use-sound";
 import { ShogiBoard } from "./shogi-board";
@@ -14,6 +14,12 @@ import { CharacterPanel } from "@/components/character/character-panel";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { getCharacterById } from "@/data/characters";
 import { gameResultText } from "@/lib/shogi/notation";
 import { isInCheck } from "@/lib/shogi/moves";
@@ -53,6 +59,7 @@ function shouldPlayJumpSfx(move: Move): boolean {
 export function ShogiGame({ initialGameState, gameId, gameConfig: serializableConfig }: ShogiGameProps) {
   const [commentEvent, setCommentEvent] = useState<CommentaryEvent | null>(null);
   const [overlayEvent, setOverlayEvent] = useState<{ event: OverlayEvent; key: number } | null>(null);
+  const [showMobileHistory, setShowMobileHistory] = useState(false);
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
@@ -110,39 +117,50 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
   const isGameActive = gameState.status === "active";
   const inCheck = (isGameActive || gameState.status === "checkmate") && isInCheck(gameState, gameState.currentPlayer, STANDARD_VARIANT);
 
-  // サウンドエフェクト
+  // Ref で最新値を保持（useEffect 内から参照してもクロージャが古くならない）
+  const playSfxRef = useRef(playSfx);
+  playSfxRef.current = playSfx;
+  const inCheckRef = useRef(inCheck);
+  inCheckRef.current = inCheck;
+  const handleCommentRef = useRef(handleComment);
+  handleCommentRef.current = handleComment;
+
+  // サウンドエフェクト（moveCount の変化で発火）
   useEffect(() => {
     const lastMove = gameState.moveHistory[gameState.moveHistory.length - 1];
     if (!lastMove) return;
 
+    const sfx = playSfxRef.current;
+
     if (lastMove.type === "drop") {
-      playSfx("piece_drop");
+      sfx("piece_drop");
     } else if (shouldPlayJumpSfx(lastMove)) {
-      playSfx("piece_jump");
+      sfx("piece_jump");
     } else if (lastMove.captured) {
-      playSfx("piece_capture");
-      if (lastMove.promote) playSfx("piece_promote");
+      sfx("piece_capture");
+      if (lastMove.promote) sfx("piece_promote");
     } else if (lastMove.promote) {
-      playSfx("piece_promote");
+      sfx("piece_promote");
     } else {
-      playSfx("piece_move");
+      sfx("piece_move");
     }
 
-    if (inCheck) {
-      playSfx("check");
+    if (inCheckRef.current) {
+      sfx("check");
       setOverlayEvent({ event: "check", key: Date.now() });
     }
     // 詰みは手を指した後なので1秒遅延
     if (gameState.status === "checkmate") {
-      setTimeout(() => playSfx("game_over"), 1000);
-      setTimeout(() => setOverlayEvent({ event: "checkmate", key: Date.now() }), 1000);
+      const t1 = setTimeout(() => playSfxRef.current("game_over"), 1000);
+      const t2 = setTimeout(() => setOverlayEvent({ event: "checkmate", key: Date.now() }), 1000);
+      return () => { clearTimeout(t1); clearTimeout(t2); };
     }
   }, [gameState.moveCount]);
 
   // 投了時（moveCountが変わらないため別途監視）
   useEffect(() => {
     if (gameState.status === "resign") {
-      playSfx("game_over");
+      playSfxRef.current("game_over");
       setOverlayEvent({ event: "resign", key: Date.now() });
     }
   }, [gameState.status]);
@@ -150,117 +168,164 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
   // ゲーム開始時のコメント・サウンド（Howler初期化完了後に再生）
   useEffect(() => {
     if (!isReady) return;
-    playSfx("game_start");
+    playSfxRef.current("game_start");
     setOverlayEvent({ event: "game_start", key: Date.now() });
-    setTimeout(() => handleComment("game_start"), 500);
+    const t = setTimeout(() => handleCommentRef.current("game_start"), 500);
+    return () => clearTimeout(t);
   }, [isReady]);
 
+  // ゲーム結果カード（PC サイドパネル・モバイルダイアログ共通）
+  const gameResultCard = !isGameActive && (
+    <Card className="p-3 text-center border-2 border-primary/20 bg-primary/5 shrink-0">
+      <p className="text-sm font-bold mb-2">
+        {gameResultText(gameState.status, gameState.winner)}
+      </p>
+      <div className="flex gap-2 justify-center">
+        <Link href="/">
+          <Button size="sm" variant="outline">
+            ホームへ
+          </Button>
+        </Link>
+        <Button size="sm" onClick={handlePlayAgain} disabled={isPending}>
+          {isPending ? "準備中..." : "もう一局"}
+        </Button>
+      </div>
+    </Card>
+  );
+
   return (
-    <div className="min-h-screen w-full" onClick={deselect}>
-    <div className="flex flex-col lg:flex-row gap-4 w-full max-w-5xl mx-auto p-4">
-      {/* メインエリア */}
-      <div className="flex flex-col gap-3 flex-1">
-        {/* ステータスバー */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Badge variant={isPlayerTurn ? "default" : "secondary"}>
-              {isPlayerTurn ? "あなたの番" : "相手の番"}
-            </Badge>
-            {inCheck && (
-              <Badge variant="destructive" className="animate-pulse">
-                王手！
+    <div className="h-full w-full" onClick={deselect}>
+      {/* メインレイアウト */}
+      <div
+        className="h-full flex flex-col lg:flex-row gap-1 lg:gap-4 max-w-5xl mx-auto p-2 lg:p-4"
+        style={{ paddingBottom: "calc(0.5rem + var(--safe-bottom, 0px))" }}
+      >
+        {/* メインエリア */}
+        <div className="flex flex-col gap-1 lg:gap-3 flex-1 min-h-0">
+          {/* ステータスバー */}
+          <div className="flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-1.5 lg:gap-2">
+              <Badge variant={isPlayerTurn ? "default" : "secondary"} className="text-xs">
+                {isPlayerTurn ? "あなたの番" : "相手の番"}
               </Badge>
-            )}
+              {inCheck && (
+                <Badge variant="destructive" className="animate-pulse text-xs">
+                  王手！
+                </Badge>
+              )}
+            </div>
+            <span className="text-xs lg:text-sm text-muted-foreground">
+              {gameState.moveCount}手目
+            </span>
           </div>
-          <span className="text-sm text-muted-foreground">
-            {gameState.moveCount}手目
-          </span>
-        </div>
 
-        {/* 後手（AI）の持ち駒 */}
-        <CapturedPieces
-          hand={gameState.hand}
-          player={aiColor}
-          playerColor={playerColor}
-          isCurrentPlayer={gameState.currentPlayer === aiColor && isGameActive}
-          selectedHandPiece={null}
-          onPieceClick={() => {}}
-          label={character.name}
-        />
-
-        {/* 将棋盤 */}
-        <div className="relative">
-          <ShogiBoard
-            board={gameState.board}
-            currentPlayer={gameState.currentPlayer}
+          {/* 後手（AI）の持ち駒 */}
+          <CapturedPieces
+            hand={gameState.hand}
+            player={aiColor}
             playerColor={playerColor}
-            selectedSquare={selectedSquare}
-            legalMoves={legalMoves}
-            lastMove={gameState.moveHistory[gameState.moveHistory.length - 1] ?? null}
-            isAiThinking={isAiThinking}
-            inCheck={inCheck}
-            onSquareClick={selectSquare}
+            isCurrentPlayer={gameState.currentPlayer === aiColor && isGameActive}
+            selectedHandPiece={null}
+            onPieceClick={() => {}}
+            label={character.name}
           />
-          <BoardOverlay key={overlayEvent?.key} event={overlayEvent?.event ?? null} />
+
+          {/* 将棋盤 — flex-1 min-h-0 で残りスペースを全て使用 */}
+          <div className="flex-1 min-h-0 relative">
+            <ShogiBoard
+              board={gameState.board}
+              currentPlayer={gameState.currentPlayer}
+              playerColor={playerColor}
+              selectedSquare={selectedSquare}
+              legalMoves={legalMoves}
+              lastMove={gameState.moveHistory[gameState.moveHistory.length - 1] ?? null}
+              isAiThinking={isAiThinking}
+              inCheck={inCheck}
+              onSquareClick={selectSquare}
+            />
+            <BoardOverlay key={overlayEvent?.key} event={overlayEvent?.event ?? null} />
+          </div>
+
+          {/* 先手（プレイヤー）の持ち駒 */}
+          <CapturedPieces
+            hand={gameState.hand}
+            player={playerColor}
+            playerColor={playerColor}
+            isCurrentPlayer={isPlayerTurn && isGameActive}
+            selectedHandPiece={selectedHandPiece}
+            onPieceClick={selectHandPiece}
+            label="あなた"
+          />
+
+          {/* ゲームコントロール */}
+          <GameControls
+            onResign={resign}
+            onUndo={undo}
+            isMuted={isMuted}
+            onToggleMute={toggleMute}
+            canUndo={gameState.moveHistory.length >= 2 && isPlayerTurn && !isAiThinking}
+            gameActive={isGameActive}
+            onShowHistory={() => setShowMobileHistory(true)}
+          />
         </div>
 
-        {/* 先手（プレイヤー）の持ち駒 */}
-        <CapturedPieces
-          hand={gameState.hand}
-          player={playerColor}
-          playerColor={playerColor}
-          isCurrentPlayer={isPlayerTurn && isGameActive}
-          selectedHandPiece={selectedHandPiece}
-          onPieceClick={selectHandPiece}
-          label="あなた"
-        />
+        {/* サイドパネル — PC のみ表示 */}
+        <div className="hidden lg:flex flex-col gap-3 w-56 shrink-0">
+          <Card className="p-3 shrink-0">
+            <CharacterPanel
+              character={character}
+              commentEvent={commentEvent}
+              isAiThinking={isAiThinking}
+            />
+          </Card>
 
-        {/* ゲームコントロール */}
-        <GameControls
-          onResign={resign}
-          onUndo={undo}
-          isMuted={isMuted}
-          onToggleMute={toggleMute}
-          canUndo={gameState.moveHistory.length >= 2 && isPlayerTurn && !isAiThinking}
-          gameActive={isGameActive}
-        />
+          <Card className="p-3 flex-1 flex flex-col min-h-0">
+            <MoveHistory moves={gameState.moveHistory} />
+          </Card>
+
+          {gameResultCard}
+        </div>
       </div>
 
-      {/* サイドパネル */}
-      <div className="flex flex-col gap-3 w-full lg:w-56">
-        {/* キャラクターパネル */}
-        <Card className="p-3">
-          <CharacterPanel
-            character={character}
-            commentEvent={commentEvent}
-            isAiThinking={isAiThinking}
-          />
-        </Card>
-
-        {/* 棋譜 */}
-        <Card className="p-3 h-64 flex flex-col">
-          <MoveHistory moves={gameState.moveHistory} />
-        </Card>
-
-        {/* ゲーム終了 */}
-        {!isGameActive && (
-          <Card className="p-3 text-center border-2 border-primary/20 bg-primary/5">
-            <p className="text-sm font-bold mb-2">
+      {/* モバイル: ゲーム終了オーバーレイ（自動表示） */}
+      {!isGameActive && (
+        <div
+          className="lg:hidden fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Card className="p-4 text-center border-2 border-primary/20 bg-card w-full max-w-xs">
+            <p className="text-sm font-bold mb-3">
               {gameResultText(gameState.status, gameState.winner)}
             </p>
             <div className="flex gap-2 justify-center">
               <Link href="/">
-                <Button size="sm" variant="outline">
-                  ホームへ
-                </Button>
+                <Button size="sm" variant="outline">ホームへ</Button>
               </Link>
               <Button size="sm" onClick={handlePlayAgain} disabled={isPending}>
                 {isPending ? "準備中..." : "もう一局"}
               </Button>
             </div>
           </Card>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* モバイル: 棋譜/キャラクターダイアログ */}
+      <Dialog open={showMobileHistory} onOpenChange={setShowMobileHistory}>
+        <DialogContent className="max-h-[90dvh] flex flex-col gap-3 overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>キャラクター・棋譜</DialogTitle>
+          </DialogHeader>
+          <CharacterPanel
+            character={character}
+            commentEvent={commentEvent}
+            isAiThinking={isAiThinking}
+          />
+          <div className="h-56">
+            <MoveHistory moves={gameState.moveHistory} />
+          </div>
+          {gameResultCard}
+        </DialogContent>
+      </Dialog>
 
       {/* 成りダイアログ */}
       <PromotionDialog
@@ -269,7 +334,6 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
         onConfirm={confirmPromotion}
         onCancel={cancelPromotion}
       />
-    </div>
     </div>
   );
 }

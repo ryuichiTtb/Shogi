@@ -34,12 +34,13 @@ export function CapturedPieces({
   return (
     <div
       className={cn(
-        "p-2 rounded-lg border h-20 overflow-hidden",
+        "p-1 lg:p-2 rounded-lg border shrink-0",
+        "h-10 lg:h-20 overflow-hidden",
         isCurrentPlayer ? "border-primary bg-primary/5" : "border-border bg-muted/30"
       )}
     >
-      <div className="text-xs text-muted-foreground mb-1 font-medium">{label}の持ち駒</div>
-      <div className="flex flex-wrap gap-1">
+      <div className="text-[0.6rem] lg:text-xs text-muted-foreground mb-0.5 lg:mb-1 font-medium leading-none">{label}の持ち駒</div>
+      <div className="flex flex-wrap gap-0.5 lg:gap-1">
         {sortedPieces.length === 0 ? (
           <span className="text-xs text-muted-foreground">なし</span>
         ) : (
@@ -49,7 +50,7 @@ export function CapturedPieces({
               onClick={(e) => { if (isCurrentPlayer) { e.stopPropagation(); onPieceClick(type); } }}
               disabled={!isCurrentPlayer}
               className={cn(
-                "relative w-9 h-9 rounded-sm flex items-center justify-center",
+                "relative w-7 h-7 lg:w-9 lg:h-9 rounded-sm flex items-center justify-center",
                 isCurrentPlayer && "cursor-pointer",
                 !isCurrentPlayer && "cursor-default opacity-80",
                 selectedHandPiece === type && isCurrentPlayer && "ring-2 ring-blue-500",
@@ -62,7 +63,7 @@ export function CapturedPieces({
                 playerColor={playerColor}
               />
               {count > 1 && (
-                <span className="absolute bottom-0 right-0.5 text-xs text-muted-foreground leading-none z-10">
+                <span className="absolute bottom-0 right-0.5 text-[0.55rem] lg:text-xs text-muted-foreground leading-none z-10">
                   {count}
                 </span>
               )}

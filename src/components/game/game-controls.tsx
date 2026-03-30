@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Flag, RotateCcw, Volume2, VolumeX } from "lucide-react";
+import { Flag, RotateCcw, Volume2, VolumeX, ScrollText } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -18,6 +18,7 @@ interface GameControlsProps {
   onToggleMute: () => void;
   canUndo: boolean;
   gameActive: boolean;
+  onShowHistory?: () => void;
 }
 
 export function GameControls({
@@ -27,20 +28,21 @@ export function GameControls({
   onToggleMute,
   canUndo,
   gameActive,
+  onShowHistory,
 }: GameControlsProps) {
   const [showResignDialog, setShowResignDialog] = useState(false);
 
   return (
     <>
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex gap-1 lg:gap-2 flex-wrap shrink-0">
         <Button
           variant="outline"
           size="sm"
           onClick={onToggleMute}
-          className="gap-1.5"
+          className="gap-1 lg:gap-1.5 text-xs lg:text-sm"
         >
-          {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-          {isMuted ? "ミュート中" : "音あり"}
+          {isMuted ? <VolumeX className="w-3.5 h-3.5 lg:w-4 lg:h-4" /> : <Volume2 className="w-3.5 h-3.5 lg:w-4 lg:h-4" />}
+          <span className="hidden sm:inline">{isMuted ? "ミュート中" : "音あり"}</span>
         </Button>
 
         {gameActive && (
@@ -50,9 +52,9 @@ export function GameControls({
               size="sm"
               onClick={onUndo}
               disabled={!canUndo}
-              className="gap-1.5"
+              className="gap-1 lg:gap-1.5 text-xs lg:text-sm"
             >
-              <RotateCcw className="w-4 h-4" />
+              <RotateCcw className="w-3.5 h-3.5 lg:w-4 lg:h-4" />
               待った
             </Button>
 
@@ -60,12 +62,25 @@ export function GameControls({
               variant="destructive"
               size="sm"
               onClick={() => setShowResignDialog(true)}
-              className="gap-1.5"
+              className="gap-1 lg:gap-1.5 text-xs lg:text-sm"
             >
-              <Flag className="w-4 h-4" />
+              <Flag className="w-3.5 h-3.5 lg:w-4 lg:h-4" />
               投了
             </Button>
           </>
+        )}
+
+        {/* モバイル専用: 棋譜/キャラクターボタン */}
+        {onShowHistory && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="lg:hidden gap-1 text-xs ml-auto"
+            onClick={onShowHistory}
+          >
+            <ScrollText className="w-3.5 h-3.5" />
+            棋譜
+          </Button>
         )}
       </div>
 

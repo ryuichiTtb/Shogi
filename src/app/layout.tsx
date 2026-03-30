@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Yuji_Boku } from "next/font/google";
 import "./globals.css";
 
@@ -22,6 +22,12 @@ const yujiBoku = Yuji_Boku({
 export const metadata: Metadata = {
   title: "将棋 - AI対局",
   description: "AIと将棋を楽しもう",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

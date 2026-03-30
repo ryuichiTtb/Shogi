@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { SpeechBubble } from "./speech-bubble";
 import { generateComment } from "@/app/actions/commentary";
@@ -28,6 +28,7 @@ export function CharacterPanel({
 }: CharacterPanelProps) {
   const [currentComment, setCurrentComment] = useState<string>("");
   const [isCommentVisible, setIsCommentVisible] = useState(false);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const fetchComment = useCallback(
     async (event: CommentaryEvent) => {
@@ -39,8 +40,9 @@ export function CharacterPanel({
         setCurrentComment(comment);
         setIsCommentVisible(true);
 
-        // 5秒後に非表示
-        setTimeout(() => setIsCommentVisible(false), 5000);
+        // 前のタイマーをクリアしてから新しいタイマーをセット
+        clearTimeout(hideTimerRef.current);
+        hideTimerRef.current = setTimeout(() => setIsCommentVisible(false), 5000);
       } catch {
         // エラー時は何もしない
       }
@@ -53,6 +55,11 @@ export function CharacterPanel({
       fetchComment(commentEvent);
     }
   }, [commentEvent, fetchComment]);
+
+  // アンマウント時にタイマーをクリーンアップ
+  useEffect(() => {
+    return () => clearTimeout(hideTimerRef.current);
+  }, []);
 
   const gradientClass = COLOR_MAP[character.color] ?? COLOR_MAP.amber;
 

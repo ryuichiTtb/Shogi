@@ -52,8 +52,16 @@ export function useSound(bgmTrack?: string) {
 
     return () => {
       bgmRef.current?.stop();
+      // SFX Howl インスタンスを解放してメモリリークを防止
+      sfxCacheRef.current.forEach((howl) => {
+        (howl as any).unload?.();
+      });
+      sfxCacheRef.current.clear();
     };
   }, []);
+
+  const isMutedRef = useRef(isMuted);
+  isMutedRef.current = isMuted;
 
   // BGMの切り替え
   useEffect(() => {
@@ -63,15 +71,16 @@ export function useSound(bgmTrack?: string) {
     const prev = bgmRef.current;
     setTimeout(() => prev?.stop(), 500);
 
+    const muted = isMutedRef.current;
     const newBgm = new HowlRef.current({
       src: [bgmTrack],
-      volume: isMuted ? 0 : 0.3,
+      volume: muted ? 0 : 0.3,
       loop: true,
       html5: true,
     });
 
     bgmRef.current = newBgm;
-    if (!isMuted) newBgm.play();
+    if (!muted) newBgm.play();
 
     return () => {
       newBgm.stop();

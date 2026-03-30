@@ -90,8 +90,8 @@ export function BoardOverlay({ event }: BoardOverlayProps) {
       style={{ transition: `opacity ${transitionDuration}ms ease`, opacity }}
     >
       <div className={cn(
-        "bg-black/60 rounded-xl px-8 py-4",
-        "text-5xl tracking-widest",
+        "bg-black/60 rounded-xl px-4 py-2 lg:px-8 lg:py-4",
+        "text-3xl lg:text-5xl tracking-widest",
         "font-[family-name:var(--font-yuji-boku)]",
         config.className
       )}>

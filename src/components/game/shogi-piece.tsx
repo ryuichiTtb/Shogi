@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { cn } from "@/lib/utils";
 import { PIECE_DEF_MAP } from "@/lib/shogi/variants/standard";
 import type { Piece, Player } from "@/lib/shogi/types";
@@ -59,7 +60,7 @@ function getPieceColors(type: string): { border: string; inner: string } {
   return { border: "#8b5e3c", inner: "#f5deb3" };   // Aパターン: 薄め
 }
 
-export function ShogiPiece({
+export const ShogiPiece = memo(function ShogiPiece({
   piece,
   isSelected = false,
   isSmall = false,
@@ -81,9 +82,9 @@ export function ShogiPiece({
   // strokeWidth の半分が外側にはみ出すため viewBox に 3px のマージンを確保
   const strokeWidth = 1.5;
 
-  // isSmall（持ち駒・ダイアログ用）の場合は固定サイズ、盤上は駒種別サイズ
+  // isSmall（持ち駒）は親コンテナを満たす、盤上は駒種別サイズ比率
   const sizeClass = isSmall
-    ? "w-8 h-8"
+    ? "w-full h-full"
     : SMALL_PIECES.has(piece.type)
       ? "w-[85%] h-[85%]"
       : MEDIUM_PIECES.has(piece.type)
@@ -95,13 +96,12 @@ export function ShogiPiece({
       onClick={onClick}
       className={cn(
         "relative cursor-pointer select-none transition-all duration-150",
-        // isSmall は絶対サイズ、盤上は親コンテナ内でセンタリング
-        isSmall ? sizeClass : "w-full h-full flex items-center justify-center",
+        "w-full h-full flex items-center justify-center",
         isGote && "rotate-180",
       )}
     >
-      {/* 盤上サイズ調整用のラッパー（isSmall 時は不要） */}
-      <div className={cn("relative", isSmall ? "w-full h-full" : sizeClass)}>
+      {/* 盤上サイズ調整用のラッパー */}
+      <div className={cn("relative", sizeClass)}>
         {/* SVG で五角形を描画（stroke が辺に沿って均一な枠線になる） */}
         <svg
           viewBox="-3 -3 106 106"
@@ -121,7 +121,12 @@ export function ShogiPiece({
           <span
             className={cn(
               "leading-none font-[family-name:var(--font-yuji-boku)]",
-              isLarge ? "text-5xl" : "text-lg md:text-xl",
+              // clamp() でセルサイズに連動したレスポンシブテキスト
+              isLarge
+                ? "text-[clamp(1.25rem,8vmin,3rem)]"
+                : isSmall
+                  ? "text-[clamp(0.65rem,4vmin,1rem)]"
+                  : "text-[clamp(0.7rem,6vmin,1.5rem)]",
               piece.type === "king" ? "font-bold" : "font-normal",
               promoted ? "text-red-700" : isInCheck ? "text-red-700" : "text-gray-900",
             )}
@@ -132,4 +137,4 @@ export function ShogiPiece({
       </div>
     </div>
   );
-}
+});

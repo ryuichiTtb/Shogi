@@ -47,6 +47,7 @@ interface ShogiGameState {
   legalMoves: Move[];
   isAiThinking: boolean;
   promotionPendingMove: Move | null;
+  stateHistory: GameState[];
 }
 
 function shogiReducer(state: ShogiGameState, action: GameAction): ShogiGameState {
@@ -159,6 +160,7 @@ function shogiReducer(state: ShogiGameState, action: GameAction): ShogiGameState
       return {
         ...state,
         gameState: evaluated,
+        stateHistory: [...state.stateHistory, state.gameState],
         selectedSquare: null,
         selectedHandPiece: null,
         legalMoves: [],
@@ -188,6 +190,7 @@ function shogiReducer(state: ShogiGameState, action: GameAction): ShogiGameState
       return {
         ...state,
         gameState: evaluated,
+        stateHistory: [...state.stateHistory, state.gameState],
         promotionPendingMove: null,
         selectedSquare: null,
         legalMoves: [],
@@ -211,21 +214,15 @@ function shogiReducer(state: ShogiGameState, action: GameAction): ShogiGameState
     }
 
     case "UNDO": {
-      // 最後の2手（プレイヤーとAI）を取り消す
-      const history = state.gameState.moveHistory;
-      if (history.length < 2) return state;
+      const { stateHistory } = state;
+      if (stateHistory.length < 2) return state;
 
-      // 初期状態から再適用
-      const initialState = createInitialGameState(STANDARD_VARIANT);
-      const movesToApply = history.slice(0, -2);
-      let newState = initialState;
-      for (const m of movesToApply) {
-        newState = applyMove(newState, m);
-      }
-
+      // stateHistory から2手前のスナップショットに戻す（O(1)）
+      const targetState = stateHistory[stateHistory.length - 2];
       return {
         ...state,
-        gameState: newState,
+        gameState: targetState,
+        stateHistory: stateHistory.slice(0, -2),
         selectedSquare: null,
         selectedHandPiece: null,
         legalMoves: [],
@@ -262,7 +259,18 @@ export function useShogiGame({
     legalMoves: [],
     isAiThinking: false,
     promotionPendingMove: null,
+    stateHistory: [],
   });
+
+  // stateRef で最新の state を参照（コールバックの依存配列から state を除去するため）
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  const gameIdRef = useRef(gameId);
+  gameIdRef.current = gameId;
+
+  const onCommentRef = useRef(onComment);
+  onCommentRef.current = onComment;
 
   const moveCountRef = useRef(initialState.moveCount);
 
@@ -298,36 +306,39 @@ export function useShogiGame({
         dispatch({ type: "SET_AI_THINKING", thinking: false });
 
         // DB保存
-        const nextState = applyMove(gameState, move);
-        const notation = moveToNotation(move, gameState.moveHistory.slice(-1)[0]?.to);
+        const currentState = stateRef.current.gameState;
+        const nextState = applyMove(currentState, move);
+        const notation = moveToNotation(move, currentState.moveHistory.slice(-1)[0]?.to);
         moveCountRef.current = nextState.moveCount;
-        saveMove(gameId, move, nextState, notation, nextState.moveCount);
-        onComment?.("ai_move");
+        saveMove(gameIdRef.current, move, nextState, notation, nextState.moveCount);
+        onCommentRef.current?.("ai_move");
       }, 500);
     });
   }, [state.gameState.currentPlayer, state.gameState.status]);
 
-  // プレイヤーの手を指す
+  // プレイヤーの手を指す（stateRef 経由で state 依存を除去）
   const makePlayerMove = useCallback(
     (move: Move) => {
       dispatch({ type: "MAKE_MOVE", move });
 
-      const nextState = applyMove(state.gameState, move);
-      const notation = moveToNotation(move, state.gameState.moveHistory.slice(-1)[0]?.to);
-      saveMove(gameId, move, nextState, notation, nextState.moveCount);
+      const { gameState } = stateRef.current;
+      const nextState = applyMove(gameState, move);
+      const notation = moveToNotation(move, gameState.moveHistory.slice(-1)[0]?.to);
+      saveMove(gameIdRef.current, move, nextState, notation, nextState.moveCount);
 
       if (move.captured && ["rook", "bishop", "promoted_rook", "promoted_bishop"].includes(move.captured)) {
-        onComment?.("capture_major");
+        onCommentRef.current?.("capture_major");
       }
       if (isInCheck(nextState, aiPlayer, STANDARD_VARIANT)) {
-        onComment?.("check");
+        onCommentRef.current?.("check");
       }
     },
-    [state.gameState, gameId, aiPlayer, onComment]
+    [aiPlayer]
   );
 
+  // selectSquare: stateRef 経由で state 依存を除去 → コールバック参照安定化
   const selectSquare = useCallback((pos: Position) => {
-    const { gameState, selectedSquare, selectedHandPiece, legalMoves } = state;
+    const { gameState, selectedSquare, selectedHandPiece, legalMoves } = stateRef.current;
 
     if (gameState.status !== "active") return;
     if (gameState.currentPlayer !== gameConfig.playerColor) return;
@@ -372,12 +383,10 @@ export function useShogiGame({
       );
 
       if (targetMove && promoteMove) {
-        // 成り確認ダイアログを表示
         dispatch({ type: "SHOW_PROMOTION_DIALOG", move: targetMove });
         return;
       }
       if (promoteMove && !targetMove) {
-        // 強制成り
         makePlayerMove(promoteMove);
         dispatch({ type: "SELECT_SQUARE", pos });
         return;
@@ -390,35 +399,35 @@ export function useShogiGame({
     }
 
     dispatch({ type: "SELECT_SQUARE", pos });
-  }, [state, gameConfig.playerColor, makePlayerMove]);
+  }, [gameConfig.playerColor, makePlayerMove]);
 
   const selectHandPiece = useCallback((pieceType: string) => {
-    if (state.gameState.currentPlayer !== gameConfig.playerColor) return;
+    if (stateRef.current.gameState.currentPlayer !== gameConfig.playerColor) return;
     dispatch({ type: "SELECT_HAND_PIECE", pieceType });
-  }, [state.gameState.currentPlayer, gameConfig.playerColor]);
+  }, [gameConfig.playerColor]);
 
   const confirmPromotion = useCallback(
     (promote: boolean) => {
-      const { promotionPendingMove } = state;
+      const { promotionPendingMove } = stateRef.current;
       if (promotionPendingMove) {
         const finalMove = { ...promotionPendingMove, promote };
         makePlayerMove(finalMove);
       }
       dispatch({ type: "CONFIRM_PROMOTION", promote });
     },
-    [state.promotionPendingMove, makePlayerMove]
+    [makePlayerMove]
   );
 
   const resign = useCallback(() => {
     dispatch({ type: "RESIGN" });
-    const winner: Player = state.gameState.currentPlayer === "sente" ? "gote" : "sente";
-    updateGameStatus(gameId, "resign", winner);
-  }, [state.gameState.currentPlayer, gameId]);
+    const winner: Player = stateRef.current.gameState.currentPlayer === "sente" ? "gote" : "sente";
+    updateGameStatus(gameIdRef.current, "resign", winner);
+  }, []);
 
   const undo = useCallback(() => {
-    if (state.gameState.moveHistory.length < 2) return;
+    if (stateRef.current.stateHistory.length < 2) return;
     dispatch({ type: "UNDO" });
-  }, [state.gameState.moveHistory.length]);
+  }, []);
 
   const deselect = useCallback(() => {
     dispatch({ type: "DESELECT" });

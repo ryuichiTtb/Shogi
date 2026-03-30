@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useMemo } from "react";
 import { moveToNotation } from "@/lib/shogi/notation";
 import type { Move } from "@/lib/shogi/types";
 import { cn } from "@/lib/utils";
@@ -11,6 +11,12 @@ interface MoveHistoryProps {
 
 export function MoveHistory({ moves }: MoveHistoryProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // 棋譜文字列をメモ化（moves が変わらない限り再計算しない）
+  const notations = useMemo(
+    () => moves.map((move, i) => moveToNotation(move, i > 0 ? moves[i - 1].to : undefined)),
+    [moves]
+  );
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -29,8 +35,6 @@ export function MoveHistory({ moves }: MoveHistoryProps) {
             <p className="text-xs text-muted-foreground p-2">棋譜はまだありません</p>
           ) : (
             moves.map((move, index) => {
-              const prevTo = index > 0 ? moves[index - 1].to : undefined;
-              const notation = moveToNotation(move, prevTo);
               const isSente = move.player === "sente";
 
               return (
@@ -47,7 +51,7 @@ export function MoveHistory({ moves }: MoveHistoryProps) {
                   <span className={cn("font-medium", isSente ? "text-gray-700" : "text-gray-500")}>
                     {isSente ? "▲" : "△"}
                   </span>
-                  <span>{notation}</span>
+                  <span>{notations[index]}</span>
                 </div>
               );
             })
