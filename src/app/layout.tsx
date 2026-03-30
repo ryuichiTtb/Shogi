@@ -12,11 +12,14 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// display:"optional" でフォント切り替えチラつき（FOUT）を排除する。
+// next/font が自己ホスティングするためほぼ即座に読み込まれ、
+// キャッシュ済みなら確実に Yuji Boku が表示される。
 const yujiBoku = Yuji_Boku({
   variable: "--font-yuji-boku",
   subsets: ["latin"],
   weight: "400",
-  display: "swap",
+  display: "optional",
 });
 
 export const metadata: Metadata = {
