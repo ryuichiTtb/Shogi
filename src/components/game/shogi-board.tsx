@@ -133,13 +133,10 @@ export const ShogiBoard = memo(function ShogiBoard({
   const rankLabels = isGote ? RANK_LABELS_GOTE : RANK_LABELS_SENTE;
 
   return (
-    // 親の flex-1 min-h-0 を満たすため h-full w-full で展開
-    <div className="h-full w-full flex items-center justify-center">
-      {/* 正方形コンテナ: 高さを基準に aspect-ratio で幅を決定 */}
-      <div
-        className="flex flex-col"
-        style={{ height: "100%", aspectRatio: "1 / 1", maxWidth: "100%" }}
-      >
+    // 親の flex-1 min-h-0 relative を absolute inset-0 で満たし、確実に寸法を取得
+    <div className="absolute inset-0 flex items-center justify-center">
+      {/* 正方形コンテナ: width基準でaspect-ratioから高さを算出、max-hで制約 */}
+      <div className="w-full aspect-square max-h-full flex flex-col">
         {/* ファイルラベル（上） — 左スペーサー + 9列 + 右スペーサーで盤面と揃える */}
         <div className="flex shrink-0">
           <div className="w-5 shrink-0" />
