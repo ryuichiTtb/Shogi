@@ -127,12 +127,13 @@
   html {
     @apply font-sans;
     overscroll-behavior: none;
+    touch-action: manipulation;
   }
 }
 
 /* ゲーム盤面のタッチ操作最適化 */
 .shogi-game-area {
-  touch-action: manipulation;
+  touch-action: pan-x pan-y;
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;

@@ -20,6 +20,9 @@ interface GameControlsProps {
   gameActive: boolean;
 }
 
+// 固定高さ: 36px
+export const GAME_CONTROLS_HEIGHT = 36;
+
 export function GameControls({
   onResign,
   onUndo,
@@ -32,7 +35,10 @@ export function GameControls({
 
   return (
     <>
-      <div className="flex gap-2 flex-wrap">
+      <div
+        className="flex gap-2 flex-wrap items-center"
+        style={{ height: GAME_CONTROLS_HEIGHT }}
+      >
         <Button
           variant="outline"
           size="sm"
