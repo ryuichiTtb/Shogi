@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,27 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty>("beginner");
   const [selectedColor, setSelectedColor] = useState<ColorOption>("sente");
+
+  // Safari互換: CSS 100dvh ではなく JS window.innerHeight を使用
+  const [viewportHeight, setViewportHeight] = useState<number | undefined>(undefined);
+
+  useEffect(() => {
+    const update = () => setViewportHeight(window.innerHeight);
+    update();
+
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const handleResize = () => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(update, 100);
+    };
+    window.addEventListener("resize", handleResize);
+    window.addEventListener("orientationchange", handleResize);
+    return () => {
+      clearTimeout(timeoutId);
+      window.removeEventListener("resize", handleResize);
+      window.removeEventListener("orientationchange", handleResize);
+    };
+  }, []);
 
   const selectedCharacter = CHARACTERS.find((c) => c.difficulty === selectedDifficulty)!;
 
@@ -58,7 +79,10 @@ export default function Home() {
   ];
 
   return (
-    <main className="h-[100dvh] h-screen flex flex-col bg-gradient-to-b from-amber-50 dark:from-amber-950/30 to-background safe-area-inset overflow-hidden">
+    <main
+      className="flex flex-col bg-gradient-to-b from-amber-50 dark:from-amber-950/30 to-background safe-area-inset overflow-hidden"
+      style={{ height: viewportHeight ?? "100dvh" }}
+    >
       {/* ヘッダー */}
       <div className="relative text-center py-4 sm:py-8 px-4 shrink-0">
         <div className="absolute top-3 right-4">
