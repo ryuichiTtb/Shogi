@@ -68,17 +68,57 @@ export default function Home() {
         <p className="text-sm text-muted-foreground">AIと対局しよう</p>
       </div>
 
-      <div className="flex-1 overflow-y-auto max-w-2xl mx-auto w-full px-4 pb-4 space-y-4">
+      <div className="flex-1 flex flex-col max-w-2xl mx-auto w-full px-4 pb-4 space-y-3 sm:space-y-4 min-h-0">
         {/* 難易度・キャラクター選択 */}
-        <Card>
-          <CardHeader>
+        <Card className="shrink-0">
+          <CardHeader className="pb-2 sm:pb-3">
             <CardTitle className="text-base flex items-center gap-2">
               <Swords className="w-4 h-4" />
               対局相手を選ぶ
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <CardContent className="pb-3">
+            {/* モバイル: コンパクトリスト / デスクトップ: カードグリッド */}
+            <div className="sm:hidden flex flex-col gap-1.5">
+              {CHARACTERS.map((character) => {
+                const diffInfo = DIFFICULTY_INFO[character.difficulty];
+                const isSelected = selectedDifficulty === character.difficulty;
+
+                return (
+                  <button
+                    key={character.id}
+                    onClick={() => setSelectedDifficulty(character.difficulty)}
+                    className={cn(
+                      "flex items-center gap-3 px-3 py-2.5 rounded-lg border-2 text-left transition-all",
+                      "cursor-pointer",
+                      isSelected
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:border-primary/40"
+                    )}
+                  >
+                    <span className="text-2xl shrink-0">{character.avatarEmoji}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sm">{character.name}</span>
+                        <Badge
+                          variant="outline"
+                          className={cn("text-[10px] px-1.5 py-0", diffInfo.color)}
+                        >
+                          {diffInfo.label}
+                        </Badge>
+                      </div>
+                      <div className="text-xs text-muted-foreground">{character.title}</div>
+                    </div>
+                    {isSelected && (
+                      <div className="w-2 h-2 rounded-full bg-primary shrink-0" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* デスクトップ: 従来のカードグリッド */}
+            <div className="hidden sm:grid grid-cols-3 gap-3">
               {CHARACTERS.map((character) => {
                 const diffInfo = DIFFICULTY_INFO[character.difficulty];
                 const isSelected = selectedDifficulty === character.difficulty;
@@ -118,12 +158,32 @@ export default function Home() {
         </Card>
 
         {/* 手番選択 */}
-        <Card>
-          <CardHeader>
+        <Card className="shrink-0">
+          <CardHeader className="pb-2 sm:pb-3">
             <CardTitle className="text-base">手番を選ぶ</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-3 gap-3">
+          <CardContent className="pb-3">
+            {/* モバイル: コンパクト横並び / デスクトップ: カードグリッド */}
+            <div className="sm:hidden flex gap-2">
+              {colorOptions.map(({ value, icon, label }) => (
+                <button
+                  key={value}
+                  onClick={() => setSelectedColor(value)}
+                  className={cn(
+                    "flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg border-2 transition-all cursor-pointer",
+                    selectedColor === value
+                      ? "border-primary bg-primary/5"
+                      : "border-border hover:border-primary/40"
+                  )}
+                >
+                  <span className="text-base">{icon}</span>
+                  <span className="font-medium text-xs">{label}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* デスクトップ: 従来のカードグリッド */}
+            <div className="hidden sm:grid grid-cols-3 gap-3">
               {colorOptions.map(({ value, icon, label, desc }) => (
                 <button
                   key={value}
@@ -145,10 +205,13 @@ export default function Home() {
           </CardContent>
         </Card>
 
+        {/* スペーサー（モバイルでボタンを下寄せ） */}
+        <div className="flex-1 sm:hidden" />
+
         {/* 対局開始ボタン */}
         <Button
           size="lg"
-          className="w-full text-base py-6"
+          className="w-full text-base py-6 sm:py-6 shrink-0"
           onClick={handleStart}
           disabled={isLoading}
         >
@@ -163,7 +226,7 @@ export default function Home() {
         </Button>
 
         {/* 棋譜履歴へのリンク */}
-        <div className="text-center">
+        <div className="text-center shrink-0">
           <Link
             href="/history"
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
