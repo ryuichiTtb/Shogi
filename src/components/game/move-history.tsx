@@ -44,7 +44,7 @@ export function MoveHistory({ moves }: MoveHistoryProps) {
                   <span className="text-muted-foreground w-6 text-right shrink-0">
                     {index + 1}.
                   </span>
-                  <span className={cn("font-medium", isSente ? "text-gray-700" : "text-gray-500")}>
+                  <span className={cn("font-medium", isSente ? "text-gray-700 dark:text-gray-300" : "text-gray-500 dark:text-gray-400")}>
                     {isSente ? "▲" : "△"}
                   </span>
                   <span>{notation}</span>

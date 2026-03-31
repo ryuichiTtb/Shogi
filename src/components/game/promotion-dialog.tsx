@@ -34,7 +34,7 @@ export function PromotionDialog({ move, playerColor, onConfirm, onCancel }: Prom
           {/* 成る */}
           <button
             onClick={() => onConfirm(true)}
-            className="flex flex-col items-center gap-2 p-4 rounded-lg border border-amber-400 bg-amber-50 hover:bg-amber-100 transition-colors cursor-pointer"
+            className="flex flex-col items-center gap-2 p-4 rounded-lg border border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/30 hover:bg-amber-100 dark:hover:bg-amber-800/40 transition-colors cursor-pointer"
           >
             <div className="w-20 h-20">
               {promotedType ? (
@@ -49,7 +49,7 @@ export function PromotionDialog({ move, playerColor, onConfirm, onCancel }: Prom
           {/* 成らない */}
           <button
             onClick={() => onConfirm(false)}
-            className="flex flex-col items-center gap-2 p-4 rounded-lg border border-amber-400 bg-amber-50 hover:bg-amber-100 transition-colors cursor-pointer"
+            className="flex flex-col items-center gap-2 p-4 rounded-lg border border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/30 hover:bg-amber-100 dark:hover:bg-amber-800/40 transition-colors cursor-pointer"
           >
             <div className="w-20 h-20">
               <ShogiPiece piece={{ type: move.piece, owner: move.player }} isLarge playerColor={playerColor} />

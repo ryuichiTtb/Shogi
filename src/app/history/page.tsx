@@ -13,7 +13,7 @@ export default async function HistoryPage() {
   const games = await getGameHistory();
 
   return (
-    <main className="min-h-screen py-8 px-4 max-w-2xl mx-auto">
+    <main className="min-h-[100dvh] min-h-screen py-8 px-4 max-w-2xl mx-auto safe-area-inset">
       <div className="flex items-center gap-3 mb-6">
         <Link href="/">
           <Button variant="ghost" size="sm" className="gap-1.5">

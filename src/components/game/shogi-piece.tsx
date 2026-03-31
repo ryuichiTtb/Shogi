@@ -12,6 +12,7 @@ interface ShogiPieceProps {
   isInCheck?: boolean;
   playerColor?: Player;
   onClick?: () => void;
+  squareSize?: number;
 }
 
 // 五角形の頂点座標（viewBox 0 0 100 100 基準）
@@ -59,6 +60,13 @@ function getPieceColors(type: string): { border: string; inner: string } {
   return { border: "#8b5e3c", inner: "#f5deb3" };   // Aパターン: 薄め
 }
 
+// 駒種に応じたサイズ比率
+function getPieceSizeRatio(type: string): number {
+  if (SMALL_PIECES.has(type)) return 0.85;
+  if (MEDIUM_PIECES.has(type)) return 0.90;
+  return 1.0;
+}
+
 export function ShogiPiece({
   piece,
   isSelected = false,
@@ -67,19 +75,28 @@ export function ShogiPiece({
   isInCheck = false,
   playerColor,
   onClick,
+  squareSize,
 }: ShogiPieceProps) {
   const kanji = getPieceKanji(piece.type);
   const promoted = isPromoted(piece.type);
   // playerColor が渡された場合は「相手の駒を回転」、未指定時は後手駒を回転（後方互換）
   const isGote = playerColor ? piece.owner !== playerColor : piece.owner === "gote";
   const colors = getPieceColors(piece.type);
-  const isThickBorder = THICK_BORDER_PIECES.has(piece.type);
   const isBoldFont = BOLD_FONT_PIECES.has(piece.type);
 
   const borderColor = isInCheck ? "#ef4444" : isSelected ? "#3b82f6" : colors.border;
   const fillColor   = isInCheck ? "#fee2e2" : isSelected ? "#dbeafe" : colors.inner;
   // strokeWidth の半分が外側にはみ出すため viewBox に 3px のマージンを確保
   const strokeWidth = 1.5;
+
+  // フォントサイズの計算
+  const fontSize = isLarge
+    ? 48
+    : isSmall
+      ? 14
+      : squareSize
+        ? Math.max(12, squareSize * 0.45)
+        : 18;
 
   // isSmall（持ち駒・ダイアログ用）の場合は固定サイズ、盤上は駒種別サイズ
   const sizeClass = isSmall
@@ -121,10 +138,10 @@ export function ShogiPiece({
           <span
             className={cn(
               "leading-none font-[family-name:var(--font-yuji-boku)]",
-              isLarge ? "text-5xl" : "text-lg md:text-xl",
               isBoldFont ? "font-bold" : "font-normal",
               promoted ? "text-red-700" : isInCheck ? "text-red-700" : "text-gray-900",
             )}
+            style={{ fontSize }}
           >
             {kanji}
           </span>

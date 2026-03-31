@@ -1,6 +1,8 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import localFont from "next/font/local";
+import { ThemeProvider } from "@/components/theme-provider";
+import { ServiceWorkerRegister } from "@/components/sw-register";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -23,9 +25,29 @@ const yujiBoku = localFont({
   display: "swap",
 });
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f5f0e1" },
+    { media: "(prefers-color-scheme: dark)", color: "#1a1410" },
+  ],
+};
+
 export const metadata: Metadata = {
   title: "将棋 - AI対局",
   description: "AIと将棋を楽しもう",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "将棋",
+  },
+  icons: {
+    apple: "/icons/apple-touch-icon.png",
+  },
 };
 
 export default function RootLayout({
@@ -36,10 +58,14 @@ export default function RootLayout({
   return (
     <html
       lang="ja"
+      suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} ${yujiBoku.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
-        {children}
+        <ThemeProvider>
+          {children}
+          <ServiceWorkerRegister />
+        </ThemeProvider>
       </body>
     </html>
   );
