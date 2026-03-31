@@ -27,12 +27,10 @@ export default async function GamePage({ params }: GamePageProps) {
   };
 
   return (
-    <main className="min-h-screen py-4">
-      <ShogiGame
-        initialGameState={game.boardState}
-        gameId={id}
-        gameConfig={serializableConfig}
-      />
-    </main>
+    <ShogiGame
+      initialGameState={game.boardState}
+      gameId={id}
+      gameConfig={serializableConfig}
+    />
   );
 }

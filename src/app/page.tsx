@@ -11,6 +11,7 @@ import type { Difficulty, Player } from "@/lib/shogi/types";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { History, Swords } from "lucide-react";
+import { ThemeSelector } from "@/components/game/theme-selector";
 
 const DIFFICULTY_INFO: Record<Difficulty, { label: string; description: string; color: string }> = {
   beginner: { label: "初級", description: "将棋を覚えたばかりの方に", color: "bg-green-100 text-green-800 border-green-200" },
@@ -57,9 +58,12 @@ export default function Home() {
   ];
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-amber-50 to-background">
+    <main className="min-h-[100dvh] min-h-screen bg-gradient-to-b from-amber-50 dark:from-amber-950/30 to-background safe-area-inset">
       {/* ヘッダー */}
-      <div className="text-center py-10 px-4">
+      <div className="relative text-center py-10 px-4">
+        <div className="absolute top-4 right-4">
+          <ThemeSelector />
+        </div>
         <h1 className="text-4xl font-bold tracking-tight mb-2">将棋</h1>
         <p className="text-muted-foreground">AIと対局しよう</p>
       </div>

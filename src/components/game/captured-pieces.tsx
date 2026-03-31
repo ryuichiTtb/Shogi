@@ -12,6 +12,7 @@ interface CapturedPiecesProps {
   selectedHandPiece: string | null;
   onPieceClick: (pieceType: string) => void;
   label: string;
+  squareSize?: number;
 }
 
 // 手駒の表示順
@@ -25,20 +26,23 @@ export function CapturedPieces({
   selectedHandPiece,
   onPieceClick,
   label,
+  squareSize = 40,
 }: CapturedPiecesProps) {
   const pieces = hand[player];
   const sortedPieces = HAND_PIECE_ORDER.filter(
     (type) => (pieces[type] ?? 0) > 0
   ).map((type) => ({ type, count: pieces[type]! }));
 
+  const handPieceSize = Math.max(28, Math.min(36, squareSize * 0.8));
+
   return (
     <div
       className={cn(
-        "p-2 rounded-lg border h-20 overflow-hidden",
+        "px-2 py-1.5 rounded-lg border overflow-hidden",
         isCurrentPlayer ? "border-primary bg-primary/5" : "border-border bg-muted/30"
       )}
     >
-      <div className="text-xs text-muted-foreground mb-1 font-medium">{label}の持ち駒</div>
+      <div className="text-xs text-muted-foreground mb-0.5 font-medium">{label}の持ち駒</div>
       <div className="flex flex-wrap gap-1">
         {sortedPieces.length === 0 ? (
           <span className="text-xs text-muted-foreground">なし</span>
@@ -49,11 +53,12 @@ export function CapturedPieces({
               onClick={(e) => { if (isCurrentPlayer) { e.stopPropagation(); onPieceClick(type); } }}
               disabled={!isCurrentPlayer}
               className={cn(
-                "relative w-9 h-9 rounded-sm flex items-center justify-center",
+                "relative rounded-sm flex items-center justify-center",
                 isCurrentPlayer && "cursor-pointer",
                 !isCurrentPlayer && "cursor-default opacity-80",
                 selectedHandPiece === type && isCurrentPlayer && "ring-2 ring-blue-500",
               )}
+              style={{ width: handPieceSize, height: handPieceSize }}
             >
               <ShogiPiece
                 piece={{ type, owner: player }}
