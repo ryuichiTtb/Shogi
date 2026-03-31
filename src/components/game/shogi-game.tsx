@@ -58,7 +58,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
   const [overlayEvent, setOverlayEvent] = useState<{ event: OverlayEvent; key: number } | null>(null);
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const { squareSize } = useBoardSize();
+  const { squareSize, viewportHeight } = useBoardSize();
 
   // クライアント側でバリアントを復元（関数を含むため props では渡せない）
   const gameConfig: GameConfig = {
@@ -160,7 +160,11 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
   }, [isReady]);
 
   return (
-    <div className="shogi-game-area h-[100dvh] h-screen w-full" onClick={deselect}>
+    <div
+      className="shogi-game-area w-full overflow-hidden"
+      style={{ height: viewportHeight }}
+      onClick={deselect}
+    >
       <div className="flex flex-col lg:flex-row h-full w-full max-w-5xl mx-auto overflow-hidden">
         {/* メインエリア */}
         <div className="flex flex-col items-center flex-1 min-h-0 px-2 py-0.5 lg:py-2">

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 
 interface BoardSize {
   squareSize: number;
+  viewportHeight: number;
   isReady: boolean;
 }
 
@@ -28,10 +29,11 @@ const MAX_SQUARE_SIZE = 64;
 const HORIZONTAL_PADDING = 48; // 左右パディング + ラベル分
 const BOARD_CELLS = 9;
 
-function calculateSquareSize(): number {
-  if (typeof window === "undefined") return 40;
+function calculate(): { squareSize: number; viewportHeight: number } {
+  if (typeof window === "undefined") return { squareSize: 40, viewportHeight: 800 };
 
   const vw = window.innerWidth;
+  // window.innerHeight は iOS Safari でもアドレスバー込みの実際の表示領域を返す
   const vh = window.innerHeight;
 
   const availableWidth = vw - HORIZONTAL_PADDING;
@@ -40,15 +42,19 @@ function calculateSquareSize(): number {
   const fromWidth = Math.floor(availableWidth / BOARD_CELLS);
   const fromHeight = Math.floor(availableHeight / BOARD_CELLS);
 
-  return Math.max(MIN_SQUARE_SIZE, Math.min(MAX_SQUARE_SIZE, fromWidth, fromHeight));
+  const squareSize = Math.max(MIN_SQUARE_SIZE, Math.min(MAX_SQUARE_SIZE, fromWidth, fromHeight));
+  return { squareSize, viewportHeight: vh };
 }
 
 export function useBoardSize(): BoardSize {
   const [squareSize, setSquareSize] = useState(40);
+  const [viewportHeight, setViewportHeight] = useState(800);
   const [isReady, setIsReady] = useState(false);
 
   const recalculate = useCallback(() => {
-    setSquareSize(calculateSquareSize());
+    const result = calculate();
+    setSquareSize(result.squareSize);
+    setViewportHeight(result.viewportHeight);
   }, []);
 
   useEffect(() => {
@@ -71,5 +77,5 @@ export function useBoardSize(): BoardSize {
     };
   }, [recalculate]);
 
-  return { squareSize, isReady };
+  return { squareSize, viewportHeight, isReady };
 }
