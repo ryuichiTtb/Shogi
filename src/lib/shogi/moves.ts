@@ -12,6 +12,39 @@ import type {
 import { STANDARD_VARIANT, PIECE_DEF_MAP } from "./variants/standard";
 import { applyMove, cloneGameState, isInPromotionZone } from "./board";
 
+// 駒の価値テーブル（MVV-LVA用）
+const MVV_LVA_VALUES: Record<string, number> = {
+  pawn: 100,
+  lance: 300,
+  knight: 400,
+  silver: 500,
+  gold: 600,
+  bishop: 800,
+  rook: 1000,
+  promoted_pawn: 600,
+  promoted_lance: 600,
+  promoted_knight: 600,
+  promoted_silver: 600,
+  promoted_bishop: 1100,
+  promoted_rook: 1300,
+  king: 10000,
+};
+
+// 取り駒のみを返す（MVV-LVAでソート済み）
+export function getCaptureMoves(
+  state: GameState,
+  player: Player,
+  variant: RuleVariant = STANDARD_VARIANT
+): Move[] {
+  const allMoves = getFullLegalMoves(state, player, variant);
+  const captures = allMoves.filter((m) => m.captured !== undefined);
+  return captures.sort((a, b) => {
+    const aVal = (MVV_LVA_VALUES[a.captured!] ?? 0) - (MVV_LVA_VALUES[a.piece] ?? 0) * 0.1;
+    const bVal = (MVV_LVA_VALUES[b.captured!] ?? 0) - (MVV_LVA_VALUES[b.piece] ?? 0) * 0.1;
+    return bVal - aVal;
+  });
+}
+
 // 指定プレイヤーの全合法手を生成
 export function getLegalMoves(state: GameState, player: Player, variant: RuleVariant = STANDARD_VARIANT): Move[] {
   const pseudoMoves = getPseudoMoves(state, player, variant);
