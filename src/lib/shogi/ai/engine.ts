@@ -11,17 +11,17 @@ const DIFFICULTY_PARAMS: Record<Difficulty, {
   beginner: {
     maxDepth: 2,
     timeLimitMs: 1000,
-    addNoise: 0.4, // 40%の確率でランダムな手
+    addNoise: 0.5, // 50%の確率でランダムな手（入門者向け）
   },
   intermediate: {
-    maxDepth: 4,
-    timeLimitMs: 3000,
-    addNoise: 0.1, // 10%の確率でランダムな手
+    maxDepth: 8,
+    timeLimitMs: 4000,
+    addNoise: 0.05, // 5%の確率でランダムな手（初心者への挑戦）
   },
   advanced: {
-    maxDepth: 6,
-    timeLimitMs: 5000,
-    addNoise: 0, // 常に最善手
+    maxDepth: 14,
+    timeLimitMs: 8000,
+    addNoise: 0, // 常に最善手（上級者への挑戦）
   },
 };
 
