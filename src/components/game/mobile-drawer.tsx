@@ -43,6 +43,30 @@ export function MobileDrawer({
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-20 safe-area-bottom">
+      {/* ゲーム終了表示（ドロワー外・タブバー上に常時表示） */}
+      {!isGameActive && (
+        <div
+          className="bg-card/95 backdrop-blur-sm border-t border-border px-3 py-2"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Card className="p-3 text-center border-2 border-primary/20 bg-primary/5">
+            <p className="text-sm font-bold mb-2">
+              {gameResultText(gameStatus, gameWinner)}
+            </p>
+            <div className="flex gap-2 justify-center">
+              <Link href="/">
+                <Button size="sm" variant="outline">
+                  ホームへ
+                </Button>
+              </Link>
+              <Button size="sm" onClick={onPlayAgain} disabled={isPending}>
+                {isPending ? "準備中..." : "もう一局"}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
       {/* タブバー（常に表示） */}
       <div
         className={cn(
@@ -101,27 +125,6 @@ export function MobileDrawer({
             </div>
           )}
         </div>
-
-        {/* ゲーム終了表示 */}
-        {!isGameActive && (
-          <div className="px-3 pb-3">
-            <Card className="p-3 text-center border-2 border-primary/20 bg-primary/5">
-              <p className="text-sm font-bold mb-2">
-                {gameResultText(gameStatus, gameWinner)}
-              </p>
-              <div className="flex gap-2 justify-center">
-                <Link href="/">
-                  <Button size="sm" variant="outline">
-                    ホームへ
-                  </Button>
-                </Link>
-                <Button size="sm" onClick={onPlayAgain} disabled={isPending}>
-                  {isPending ? "準備中..." : "もう一局"}
-                </Button>
-              </div>
-            </Card>
-          </div>
-        )}
       </div>
     </div>
   );

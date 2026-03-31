@@ -18,6 +18,9 @@ interface CapturedPiecesProps {
 // 手駒の表示順
 const HAND_PIECE_ORDER = ["rook", "bishop", "gold", "silver", "knight", "lance", "pawn"];
 
+// 固定高さ: 52px（ラベル14px + gap2px + 駒行36px = 52px）
+export const CAPTURED_PIECES_HEIGHT = 52;
+
 export function CapturedPieces({
   hand,
   player,
@@ -41,8 +44,9 @@ export function CapturedPieces({
         "px-2 py-1.5 rounded-lg border overflow-hidden",
         isCurrentPlayer ? "border-primary bg-primary/5" : "border-border bg-muted/30"
       )}
+      style={{ height: CAPTURED_PIECES_HEIGHT }}
     >
-      <div className="text-xs text-muted-foreground mb-0.5 font-medium">{label}の持ち駒</div>
+      <div className="text-xs text-muted-foreground mb-0.5 font-medium leading-none">{label}の持ち駒</div>
       <div className="flex flex-wrap gap-1">
         {sortedPieces.length === 0 ? (
           <span className="text-xs text-muted-foreground">なし</span>

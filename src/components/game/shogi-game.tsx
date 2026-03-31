@@ -160,12 +160,12 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
   }, [isReady]);
 
   return (
-    <div className="shogi-game-area h-[100dvh] h-[100vh] w-full safe-area-inset" onClick={deselect}>
-      <div className="flex flex-col lg:flex-row h-full w-full max-w-5xl mx-auto">
+    <div className="shogi-game-area h-[100dvh] h-screen w-full" onClick={deselect}>
+      <div className="flex flex-col lg:flex-row h-full w-full max-w-5xl mx-auto overflow-hidden">
         {/* メインエリア */}
-        <div className="flex flex-col items-center flex-1 min-h-0 px-2 py-1 lg:py-2">
-          {/* ステータスバー */}
-          <div className="flex items-center justify-between w-full px-1 py-1 shrink-0">
+        <div className="flex flex-col items-center flex-1 min-h-0 px-2 py-0.5 lg:py-2">
+          {/* ステータスバー（固定高さ 28px） */}
+          <div className="flex items-center justify-between w-full px-1 shrink-0" style={{ height: 28 }}>
             <div className="flex items-center gap-2">
               <Badge variant={isPlayerTurn ? "default" : "secondary"} className="text-xs">
                 {isPlayerTurn ? "あなたの番" : "相手の番"}
@@ -199,7 +199,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
           </div>
 
           {/* 将棋盤 */}
-          <div className="relative shrink-0 my-1">
+          <div className="relative shrink-0 my-0.5">
             <ShogiBoard
               board={gameState.board}
               currentPlayer={gameState.currentPlayer}
@@ -230,7 +230,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
           </div>
 
           {/* ゲームコントロール */}
-          <div className="shrink-0 mt-1">
+          <div className="shrink-0 mt-0.5">
             <GameControls
               onResign={resign}
               onUndo={undo}

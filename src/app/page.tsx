@@ -58,17 +58,17 @@ export default function Home() {
   ];
 
   return (
-    <main className="min-h-[100dvh] min-h-screen bg-gradient-to-b from-amber-50 dark:from-amber-950/30 to-background safe-area-inset">
+    <main className="h-[100dvh] h-screen flex flex-col bg-gradient-to-b from-amber-50 dark:from-amber-950/30 to-background safe-area-inset overflow-hidden">
       {/* ヘッダー */}
-      <div className="relative text-center py-10 px-4">
-        <div className="absolute top-4 right-4">
+      <div className="relative text-center py-4 sm:py-8 px-4 shrink-0">
+        <div className="absolute top-3 right-4">
           <ThemeSelector />
         </div>
-        <h1 className="text-4xl font-bold tracking-tight mb-2">将棋</h1>
-        <p className="text-muted-foreground">AIと対局しよう</p>
+        <h1 className="text-3xl sm:text-4xl font-bold tracking-tight mb-1">将棋</h1>
+        <p className="text-sm text-muted-foreground">AIと対局しよう</p>
       </div>
 
-      <div className="max-w-2xl mx-auto px-4 pb-12 space-y-6">
+      <div className="flex-1 overflow-y-auto max-w-2xl mx-auto w-full px-4 pb-4 space-y-4">
         {/* 難易度・キャラクター選択 */}
         <Card>
           <CardHeader>
