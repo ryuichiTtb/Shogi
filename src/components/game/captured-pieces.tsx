@@ -18,8 +18,8 @@ interface CapturedPiecesProps {
 // 手駒の表示順
 const HAND_PIECE_ORDER = ["rook", "bishop", "gold", "silver", "knight", "lance", "pawn"];
 
-// 固定高さ: 52px（ラベル14px + gap2px + 駒行36px = 52px）
-export const CAPTURED_PIECES_HEIGHT = 52;
+// 固定高さ: 56px（ラベル14px + gap2px + 駒行40px = 56px）
+export const CAPTURED_PIECES_HEIGHT = 56;
 
 export function CapturedPieces({
   hand,
@@ -36,7 +36,7 @@ export function CapturedPieces({
     (type) => (pieces[type] ?? 0) > 0
   ).map((type) => ({ type, count: pieces[type]! }));
 
-  const handPieceSize = Math.max(28, Math.min(36, squareSize * 0.8));
+  const handPieceSize = Math.max(36, Math.min(44, squareSize * 0.85));
 
   return (
     <div
@@ -57,7 +57,7 @@ export function CapturedPieces({
               onClick={(e) => { if (isCurrentPlayer) { e.stopPropagation(); onPieceClick(type); } }}
               disabled={!isCurrentPlayer}
               className={cn(
-                "relative rounded-sm flex items-center justify-center",
+                "captured-piece-btn relative rounded-sm flex items-center justify-center",
                 isCurrentPlayer && "cursor-pointer",
                 !isCurrentPlayer && "cursor-default opacity-80",
                 selectedHandPiece === type && isCurrentPlayer && "ring-2 ring-blue-500",

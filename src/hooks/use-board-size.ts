@@ -10,7 +10,7 @@ interface BoardSize {
 
 // 各エリアの固定高さ（px） — コンポーネントと同期させること
 const STATUS_BAR_HEIGHT = 28;
-const CAPTURED_PIECES_HEIGHT = 52; // captured-pieces.tsx の CAPTURED_PIECES_HEIGHT と同値
+const CAPTURED_PIECES_HEIGHT = 56; // captured-pieces.tsx の CAPTURED_PIECES_HEIGHT と同値
 const GAME_CONTROLS_HEIGHT = 36;  // game-controls.tsx の GAME_CONTROLS_HEIGHT と同値
 const MOBILE_DRAWER_TAB_HEIGHT = 40; // mobile-drawer.tsx のタブバー高さ
 const BOARD_LABEL_HEIGHT = 16; // ファイルラベル（上）
@@ -24,9 +24,9 @@ const VERTICAL_RESERVED =
   BOARD_LABEL_HEIGHT +
   GAPS;
 
-const MIN_SQUARE_SIZE = 32;
+const MIN_SQUARE_SIZE = 36;
 const MAX_SQUARE_SIZE = 64;
-const HORIZONTAL_PADDING = 48; // 左右パディング + ラベル分
+const HORIZONTAL_PADDING = 40; // 左右パディング + ラベル分
 const BOARD_CELLS = 9;
 
 function calculate(): { squareSize: number; viewportHeight: number } {
