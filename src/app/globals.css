@@ -140,6 +140,26 @@
   overscroll-behavior: none;
 }
 
+/* 将棋盤マスのタッチフィードバック */
+.shogi-square {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.shogi-square:active {
+  filter: brightness(0.88);
+  transition: filter 0ms;
+}
+
+/* 持ち駒ボタンのタッチフィードバック */
+.captured-piece-btn {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.captured-piece-btn:active {
+  transform: scale(0.90);
+  transition: transform 0ms;
+}
+
 /* Safe Area対応 */
 @supports (padding-top: env(safe-area-inset-top)) {
   .safe-area-top { padding-top: env(safe-area-inset-top); }

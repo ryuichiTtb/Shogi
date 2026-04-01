@@ -2,6 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { ShogiPiece } from "./shogi-piece";
+import { useTouchHandler } from "@/hooks/use-touch-handler";
 import type { Board, Move, Player, Position } from "@/lib/shogi/types";
 
 interface ShogiBoardProps {
@@ -41,6 +42,15 @@ export function ShogiBoard({
     legalMoves.map((m) => `${m.to.row}-${m.to.col}`)
   );
 
+  const isGote = playerColor === "gote";
+  const { gridRef, pointerHandlers } = useTouchHandler({
+    squareSize,
+    legalMoves,
+    selectedSquare,
+    isGote,
+    onSquareClick,
+  });
+
   const isLastMoveSquare = (row: number, col: number) => {
     if (!lastMove) return false;
     const matchTo = lastMove.to.row === row && lastMove.to.col === col;
@@ -49,7 +59,6 @@ export function ShogiBoard({
   };
 
   const isPlayerTurn = currentPlayer === playerColor;
-  const isGote = playerColor === "gote";
 
   // 後手番時は行・列を逆順にして後手目線の盤面にする
   const rowIndices = isGote ? [8, 7, 6, 5, 4, 3, 2, 1, 0] : [0, 1, 2, 3, 4, 5, 6, 7, 8];
@@ -91,13 +100,17 @@ export function ShogiBoard({
 
         {/* 盤面グリッド */}
         <div
+          ref={gridRef}
           role="grid"
           aria-label="将棋盤"
           className="grid border-2 border-amber-800 dark:border-amber-600 relative"
           style={{
             gridTemplateColumns: `repeat(9, ${squareSize}px)`,
             gridTemplateRows: `repeat(9, ${squareSize}px)`,
+            touchAction: "none",
           }}
+          onClick={(e) => e.stopPropagation()}
+          {...pointerHandlers}
         >
           {rowIndices.map((rowIdx) =>
             colIndices.map((colIdx) => {
@@ -116,10 +129,10 @@ export function ShogiBoard({
               return (
                 <div
                   key={`${rowIdx}-${colIdx}`}
-                  onClick={(e) => { e.stopPropagation(); onSquareClick(pos); }}
+                  data-legal={isLegalTarget}
                   className={cn(
-                    "border border-amber-700/60 dark:border-amber-600/40 relative flex items-center justify-center",
-                    "cursor-pointer transition-colors duration-100",
+                    "shogi-square border border-amber-700/60 dark:border-amber-600/40 relative flex items-center justify-center",
+                    "cursor-pointer",
                     // 通常背景
                     "bg-amber-50 dark:bg-amber-900/40",
                     // 直前の手（移動前・移動後）
