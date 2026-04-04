@@ -56,6 +56,7 @@ function shouldPlayJumpSfx(move: Move): boolean {
 export function ShogiGame({ initialGameState, gameId, gameConfig: serializableConfig }: ShogiGameProps) {
   const [commentEvent, setCommentEvent] = useState<CommentaryEvent | null>(null);
   const [overlayEvent, setOverlayEvent] = useState<{ event: OverlayEvent; key: number } | null>(null);
+  const [captureEffectKey, setCaptureEffectKey] = useState<number | null>(null);
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const { squareSize, viewportHeight } = useBoardSize();
@@ -118,6 +119,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
   useEffect(() => {
     const lastMove = gameState.moveHistory[gameState.moveHistory.length - 1];
     if (!lastMove) return;
+    const cleanups: ReturnType<typeof setTimeout>[] = [];
 
     if (lastMove.type === "drop") {
       playSfx("piece_drop");
@@ -132,6 +134,13 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
       playSfx("piece_move");
     }
 
+    // 駒取りエフェクト
+    if (lastMove.captured) {
+      setCaptureEffectKey(Date.now());
+      const timer = setTimeout(() => setCaptureEffectKey(null), 600);
+      cleanups.push(timer);
+    }
+
     if (inCheck) {
       playSfx("check");
       setOverlayEvent({ event: "check", key: Date.now() });
@@ -141,6 +150,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
       setTimeout(() => playSfx("game_over"), 1000);
       setTimeout(() => setOverlayEvent({ event: "checkmate", key: Date.now() }), 1000);
     }
+    return () => cleanups.forEach(clearTimeout);
   }, [gameState.moveCount]);
 
   // 投了時（moveCountが変わらないため別途監視）
@@ -215,6 +225,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
               inCheck={inCheck}
               onSquareClick={selectSquare}
               squareSize={squareSize}
+              captureEffectKey={captureEffectKey}
             />
             <BoardOverlay key={overlayEvent?.key} event={overlayEvent?.event ?? null} />
           </div>

@@ -2,6 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { ShogiPiece } from "./shogi-piece";
+import { CaptureEffect } from "./capture-effect";
 import { useTouchHandler } from "@/hooks/use-touch-handler";
 import type { Board, Move, Player, Position } from "@/lib/shogi/types";
 
@@ -16,6 +17,7 @@ interface ShogiBoardProps {
   inCheck: boolean;
   onSquareClick: (pos: Position) => void;
   squareSize: number;
+  captureEffectKey: number | null;
 }
 
 // 先手目線のラベル
@@ -37,6 +39,7 @@ export function ShogiBoard({
   inCheck,
   onSquareClick,
   squareSize,
+  captureEffectKey,
 }: ShogiBoardProps) {
   const legalMoveSet = new Set(
     legalMoves.map((m) => `${m.to.row}-${m.to.col}`)
@@ -121,6 +124,8 @@ export function ShogiBoard({
                 selectedSquare?.col === colIdx;
               const isLegalTarget = legalMoveSet.has(`${rowIdx}-${colIdx}`);
               const isLastMoveSq = isLastMoveSquare(rowIdx, colIdx);
+              const isLastMoveTo = lastMove?.to.row === rowIdx && lastMove?.to.col === colIdx;
+              const showCaptureEffect = isLastMoveTo && captureEffectKey !== null;
               const isKingInCheck =
                 inCheck &&
                 piece?.type === "king" &&
@@ -172,6 +177,11 @@ export function ShogiBoard({
                         squareSize={squareSize}
                       />
                     </div>
+                  )}
+
+                  {/* 駒取りエフェクト */}
+                  {showCaptureEffect && (
+                    <CaptureEffect key={captureEffectKey} squareSize={squareSize} />
                   )}
                 </div>
               );
