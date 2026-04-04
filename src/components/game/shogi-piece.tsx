@@ -13,7 +13,6 @@ interface ShogiPieceProps {
   playerColor?: Player;
   onClick?: () => void;
   squareSize?: number;
-  isJustMoved?: boolean;
 }
 
 // 五角形の頂点座標（viewBox 0 0 100 100 基準）
@@ -77,7 +76,6 @@ export function ShogiPiece({
   playerColor,
   onClick,
   squareSize,
-  isJustMoved = false,
 }: ShogiPieceProps) {
   const kanji = getPieceKanji(piece.type);
   const promoted = isPromoted(piece.type);
@@ -117,7 +115,6 @@ export function ShogiPiece({
         // isSmall は絶対サイズ、盤上は親コンテナ内でセンタリング
         isSmall ? sizeClass : "w-full h-full flex items-center justify-center",
         isGote && "rotate-180",
-        isJustMoved && !isSmall && "piece-slam",
       )}
     >
       {/* 盤上サイズ調整用のラッパー（isSmall 時は不要） */}
