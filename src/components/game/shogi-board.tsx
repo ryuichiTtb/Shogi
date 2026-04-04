@@ -16,6 +16,8 @@ interface ShogiBoardProps {
   inCheck: boolean;
   onSquareClick: (pos: Position) => void;
   squareSize: number;
+  moveEffectType: "move" | "capture" | "drop" | "promotion" | "check" | null;
+  moveEffectKey: number;
 }
 
 // 先手目線のラベル
@@ -37,6 +39,8 @@ export function ShogiBoard({
   inCheck,
   onSquareClick,
   squareSize,
+  moveEffectType,
+  moveEffectKey,
 }: ShogiBoardProps) {
   const legalMoveSet = new Set(
     legalMoves.map((m) => `${m.to.row}-${m.to.col}`)
@@ -121,6 +125,7 @@ export function ShogiBoard({
                 selectedSquare?.col === colIdx;
               const isLegalTarget = legalMoveSet.has(`${rowIdx}-${colIdx}`);
               const isLastMoveSq = isLastMoveSquare(rowIdx, colIdx);
+              const isLastMoveTo = lastMove?.to.row === rowIdx && lastMove?.to.col === colIdx;
               const isKingInCheck =
                 inCheck &&
                 piece?.type === "king" &&
@@ -170,8 +175,17 @@ export function ShogiBoard({
                         isInCheck={isKingInCheck}
                         playerColor={playerColor}
                         squareSize={squareSize}
+                        isJustMoved={isLastMoveTo && !!moveEffectType}
                       />
                     </div>
+                  )}
+
+                  {/* 着手エフェクトオーバーレイ（移動先マスのみ） */}
+                  {isLastMoveTo && moveEffectType && (
+                    <div
+                      key={moveEffectKey}
+                      className={`absolute inset-0 pointer-events-none move-effect-${moveEffectType}`}
+                    />
                   )}
                 </div>
               );

@@ -56,6 +56,7 @@ function shouldPlayJumpSfx(move: Move): boolean {
 export function ShogiGame({ initialGameState, gameId, gameConfig: serializableConfig }: ShogiGameProps) {
   const [commentEvent, setCommentEvent] = useState<CommentaryEvent | null>(null);
   const [overlayEvent, setOverlayEvent] = useState<{ event: OverlayEvent; key: number } | null>(null);
+  const [moveEffect, setMoveEffect] = useState<{ type: "move" | "capture" | "drop" | "promotion" | "check"; key: number } | null>(null);
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const { squareSize, viewportHeight } = useBoardSize();
@@ -132,15 +133,29 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
       playSfx("piece_move");
     }
 
+    // 着手エフェクトの種別決定（優先度: check > promotion > capture > drop > move）
+    const now = Date.now();
     if (inCheck) {
+      setMoveEffect({ type: "check", key: now });
       playSfx("check");
-      setOverlayEvent({ event: "check", key: Date.now() });
+      setOverlayEvent({ event: "check", key: now });
+    } else if (lastMove.promote) {
+      setMoveEffect({ type: "promotion", key: now });
+    } else if (lastMove.captured) {
+      setMoveEffect({ type: "capture", key: now });
+    } else if (lastMove.type === "drop") {
+      setMoveEffect({ type: "drop", key: now });
+    } else {
+      setMoveEffect({ type: "move", key: now });
     }
+    const effectTimer = setTimeout(() => setMoveEffect(null), 750);
+
     // 詰みは手を指した後なので1秒遅延
     if (gameState.status === "checkmate") {
       setTimeout(() => playSfx("game_over"), 1000);
       setTimeout(() => setOverlayEvent({ event: "checkmate", key: Date.now() }), 1000);
     }
+    return () => clearTimeout(effectTimer);
   }, [gameState.moveCount]);
 
   // 投了時（moveCountが変わらないため別途監視）
@@ -215,6 +230,8 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
               inCheck={inCheck}
               onSquareClick={selectSquare}
               squareSize={squareSize}
+              moveEffectType={moveEffect?.type ?? null}
+              moveEffectKey={moveEffect?.key ?? 0}
             />
             <BoardOverlay key={overlayEvent?.key} event={overlayEvent?.event ?? null} />
           </div>
