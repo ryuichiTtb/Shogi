@@ -11,7 +11,7 @@ export interface TTEntry {
   age: number;
 }
 
-const TT_SIZE = 1 << 20; // 1M entries
+const TT_SIZE = 1 << 22; // 4M entries
 const TT_MASK = TT_SIZE - 1;
 
 export class TranspositionTable {

@@ -102,7 +102,7 @@ export interface RuleVariant {
 }
 
 // ゲーム設定
-export type Difficulty = "beginner" | "intermediate" | "advanced";
+export type Difficulty = "beginner" | "intermediate" | "advanced" | "expert";
 
 export interface GameConfig {
   variant: RuleVariant;

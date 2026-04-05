@@ -17,6 +17,7 @@ const DIFFICULTY_INFO: Record<Difficulty, { label: string; description: string; 
   beginner: { label: "初級", description: "将棋を覚えたばかりの方に", color: "bg-green-100 text-green-800 border-green-200" },
   intermediate: { label: "中級", description: "ある程度指せる方に", color: "bg-yellow-100 text-yellow-800 border-yellow-200" },
   advanced: { label: "上級", description: "強い相手に挑みたい方に", color: "bg-red-100 text-red-800 border-red-200" },
+  expert: { label: "超上級", description: "五段クラスの最強AIに挑む", color: "bg-purple-100 text-purple-800 border-purple-200" },
 };
 
 type ColorOption = Player | "random";
@@ -142,7 +143,7 @@ export default function Home() {
             </div>
 
             {/* デスクトップ: 従来のカードグリッド */}
-            <div className="hidden sm:grid grid-cols-3 gap-3">
+            <div className="hidden sm:grid grid-cols-4 gap-3">
               {CHARACTERS.map((character) => {
                 const diffInfo = DIFFICULTY_INFO[character.difficulty];
                 const isSelected = selectedDifficulty === character.difficulty;

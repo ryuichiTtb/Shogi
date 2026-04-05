@@ -1,17 +1,18 @@
 import type { GameState, Move, Player, RuleVariant } from "../types";
 import { STANDARD_VARIANT } from "../variants/standard";
-import { getFullLegalMoves, getCaptureMoves, isInCheck } from "../moves";
-import { applyMove } from "../board";
+import { getFullLegalMoves, isInCheck } from "../moves";
+import { applyMoveForSearch } from "../board";
 import { evaluate, scoreMoveForOrdering } from "./evaluate";
-import { evaluateGameEnd } from "../rules";
 import { TranspositionTable } from "./transpositionTable";
 import { computeHash, PIECE_KEYS, HAND_KEYS, SIDE_TO_MOVE_KEY } from "./zobrist";
 import type { ZobristHash } from "./zobrist";
+import { getCaptureMovesForSearch } from "./captureGen";
 
 const NEG_INF = -Infinity;
 const POS_INF = Infinity;
 
 const MAX_DEPTH = 64;
+const MATE_SCORE = 90000;
 
 interface SearchOptions {
   maxDepth: number;
@@ -40,7 +41,7 @@ function resetSearchTables(): void {
 
 // 手のインデックス（ヒストリー用）
 function moveFromIndex(move: Move): number {
-  if (move.type === "drop") return 80; // ドロップは一律インデックス（簡略化）
+  if (move.type === "drop") return 80;
   return (move.from!.row * 9 + move.from!.col);
 }
 
@@ -62,7 +63,7 @@ function isKillerMove(move: Move, ply: number): boolean {
 // キラームーブを更新
 function updateKillerMove(move: Move, ply: number): void {
   if (ply >= MAX_DEPTH) return;
-  if (move.captured) return; // 取り駒はキラーに不要
+  if (move.captured) return;
   const k0 = killerMoves[ply][0];
   if (k0 === null || !movesEqual(move, k0)) {
     killerMoves[ply][1] = killerMoves[ply][0];
@@ -99,11 +100,9 @@ function updateHash(
   if (move.type === "drop") {
     const piece = move.dropPiece!;
     const toIdx = move.to.row * 9 + move.to.col;
-    // Place dropped piece on board
     const placeKey = PIECE_KEYS[piece]?.[move.player]?.[toIdx];
     if (placeKey !== undefined) hash ^= placeKey;
 
-    // Remove from hand: prevState had count, nextState has count-1
     const prevCount = prevState.hand[move.player][piece] ?? 0;
     const nextCount = nextState.hand[move.player][piece] ?? 0;
     const handKeys = HAND_KEYS[piece]?.[move.player];
@@ -117,21 +116,16 @@ function updateHash(
     const fromIdx = fromRow * 9 + fromCol;
     const toIdx = move.to.row * 9 + move.to.col;
 
-    // Remove moving piece from origin
     const movingPieceType = move.piece;
     const fromKey = PIECE_KEYS[movingPieceType]?.[move.player]?.[fromIdx];
     if (fromKey !== undefined) hash ^= fromKey;
 
-    // Determine destination piece type (after promotion)
     const destPieceType = nextState.board[move.to.row][move.to.col]?.type ?? movingPieceType;
 
-    // Remove captured piece
     if (move.captured) {
       const capturedKey = PIECE_KEYS[move.captured]?.[move.player === "sente" ? "gote" : "sente"]?.[toIdx];
       if (capturedKey !== undefined) hash ^= capturedKey;
 
-      // Add captured (unpromoted) piece to hand
-      // The unpromoted type is derived from captured
       const capturedBase = getCapturedBase(move.captured);
       const capturedPlayer = move.player;
       const prevCount = prevState.hand[capturedPlayer][capturedBase] ?? 0;
@@ -143,7 +137,6 @@ function updateHash(
       }
     }
 
-    // Place piece at destination
     const toKey = PIECE_KEYS[destPieceType]?.[move.player]?.[toIdx];
     if (toKey !== undefined) hash ^= toKey;
   }
@@ -151,7 +144,6 @@ function updateHash(
   return hash;
 }
 
-// Get base (unpromoted) piece type for captured pieces going to hand
 function getCapturedBase(pieceType: string): string {
   const promotedMap: Record<string, string> = {
     promoted_rook: "rook",
@@ -164,6 +156,14 @@ function getCapturedBase(pieceType: string): string {
   return promotedMap[pieceType] ?? pieceType;
 }
 
+// 駒の価値（手の順序付け用）
+const ORDER_PIECE_VALUES: Record<string, number> = {
+  pawn: 100, lance: 300, knight: 400, silver: 500, gold: 600,
+  bishop: 800, rook: 1000, promoted_pawn: 600, promoted_lance: 600,
+  promoted_knight: 600, promoted_silver: 600, promoted_bishop: 1100,
+  promoted_rook: 1300, king: 10000,
+};
+
 // 手の順序付けスコア
 function scoreMove(
   move: Move,
@@ -175,13 +175,7 @@ function scoreMove(
 
   // 取り駒（MVV-LVA）
   if (move.captured) {
-    const PIECE_VALUES: Record<string, number> = {
-      pawn: 100, lance: 300, knight: 400, silver: 500, gold: 600,
-      bishop: 800, rook: 1000, promoted_pawn: 600, promoted_lance: 600,
-      promoted_knight: 600, promoted_silver: 600, promoted_bishop: 1100,
-      promoted_rook: 1300, king: 10000,
-    };
-    return 100000 + (PIECE_VALUES[move.captured] ?? 0) - (PIECE_VALUES[move.piece] ?? 0) * 0.1;
+    return 100000 + (ORDER_PIECE_VALUES[move.captured] ?? 0) - (ORDER_PIECE_VALUES[move.piece] ?? 0) * 0.1;
   }
 
   // 成り
@@ -206,34 +200,30 @@ function quiescence(
   tt: TranspositionTable,
   hash: ZobristHash
 ): number {
-  const finalState = evaluateGameEnd(state, variant);
-  if (finalState.status !== "active") {
-    const rawScore = evaluate(finalState, variant);
-    return player === "sente" ? rawScore : -rawScore;
-  }
-
   const rawScore = evaluate(state, variant);
   const standPat = player === "sente" ? rawScore : -rawScore;
 
   if (standPat >= beta) return beta;
-  if (standPat > alpha) alpha = standPat;
+  let currentAlpha = alpha;
+  if (standPat > currentAlpha) currentAlpha = standPat;
 
-  const captures = getCaptureMoves(state, player, variant);
+  // 直接取り駒生成（全合法手生成を避ける）
+  const captures = getCaptureMovesForSearch(state, player, variant);
   const opponent: Player = player === "sente" ? "gote" : "sente";
 
   for (const move of captures) {
-    const nextState = applyMove(state, move);
+    const nextState = applyMoveForSearch(state, move);
     const nextHash = updateHash(hash, state, move, nextState);
-    const score = -quiescence(nextState, -beta, -alpha, opponent, variant, tt, nextHash);
+    const score = -quiescence(nextState, -beta, -currentAlpha, opponent, variant, tt, nextHash);
 
     if (score >= beta) return beta;
-    if (score > alpha) alpha = score;
+    if (score > currentAlpha) currentAlpha = score;
   }
 
-  return alpha;
+  return currentAlpha;
 }
 
-// Negamax with alpha-beta, TT, null-move pruning, LMR, killers, history
+// Negamax with alpha-beta, TT, null-move pruning, LMR, PVS, futility, killers, history
 function negamax(
   state: GameState,
   depth: number,
@@ -248,8 +238,8 @@ function negamax(
   startTime: number,
   timeLimitMs: number
 ): number {
-  // Time check
-  if ((ply % 16 === 0) && (Date.now() - startTime > timeLimitMs)) {
+  // Time check（16ノードごと）
+  if ((ply & 15) === 0 && (Date.now() - startTime > timeLimitMs)) {
     const rawScore = evaluate(state, variant);
     return player === "sente" ? rawScore : -rawScore;
   }
@@ -267,31 +257,34 @@ function negamax(
     ttMove = ttEntry.bestMove;
   }
 
-  // Terminal state check
-  const finalState = evaluateGameEnd(state, variant);
-  if (finalState.status !== "active") {
-    const rawScore = evaluate(finalState, variant);
-    return player === "sente" ? rawScore : -rawScore;
-  }
-
   // Quiescence search at depth 0
   if (depth <= 0) {
     return quiescence(state, alpha, beta, player, variant, tt, hash);
   }
 
-  // Null Move Pruning
+  // 合法手生成（evaluateGameEnd の代わりに手数で終局判定）
+  const moves = getFullLegalMoves(state, player, variant);
   const opponent: Player = player === "sente" ? "gote" : "sente";
+
+  if (moves.length === 0) {
+    // 手がない = 詰み or ステールメイト
+    if (isInCheck(state, player, variant)) {
+      return -(MATE_SCORE - ply); // 詰み（深いほど低評価＝早い詰みを優先）
+    }
+    return 0; // ステールメイト
+  }
+
+  // Null Move Pruning
   if (
     isNullMoveAllowed &&
     depth >= 3 &&
-    !isInCheckFast(state, player, variant)
+    !isInCheck(state, player, variant)
   ) {
-    // Make a "null move" by just switching turn
     const nullState: GameState = {
       ...state,
       currentPlayer: opponent,
-      moveHistory: [...state.moveHistory],
-      positionHistory: [...state.positionHistory],
+      moveHistory: state.moveHistory,
+      positionHistory: state.positionHistory,
     };
     const nullHash = hash ^ SIDE_TO_MOVE_KEY;
     const R = 2;
@@ -314,13 +307,10 @@ function negamax(
     }
   }
 
-  // Generate and order moves
-  const moves = getFullLegalMoves(state, player, variant);
-  if (moves.length === 0) {
-    const rawScore = evaluate(state, variant);
-    return player === "sente" ? rawScore : -rawScore;
-  }
+  // 静的評価（futility pruning用）
+  let staticEval: number | null = null;
 
+  // 手の順序付け
   const sortedMoves = [...moves].sort(
     (a, b) => scoreMove(b, ttMove, ply) - scoreMove(a, ttMove, ply)
   );
@@ -331,27 +321,52 @@ function negamax(
 
   for (let i = 0; i < sortedMoves.length; i++) {
     const move = sortedMoves[i];
-    const nextState = applyMove(state, move);
-    const nextHash = updateHash(hash, state, move, nextState);
-
-    let score: number;
-
-    // Late Move Reduction (LMR): non-tactical moves after first 3
     const isCapture = move.captured !== undefined;
     const isPromotion = move.promote === true;
     const isKiller = isKillerMove(move, ply);
 
-    if (
-      i >= 3 &&
-      depth >= 3 &&
-      !isCapture &&
-      !isPromotion &&
-      !isKiller
-    ) {
-      // Reduced search
+    // Futility Pruning（depth 1-2で非戦術手をスキップ）
+    if (depth <= 2 && !isCapture && !isPromotion && i > 0) {
+      if (staticEval === null) {
+        const rawEval = evaluate(state, variant);
+        staticEval = player === "sente" ? rawEval : -rawEval;
+      }
+      const margin = depth === 1 ? 300 : 500;
+      if (staticEval + margin <= alpha) continue;
+    }
+
+    const nextState = applyMoveForSearch(state, move);
+    const nextHash = updateHash(hash, state, move, nextState);
+
+    let score: number;
+
+    if (i === 0) {
+      // 最初の手（PV候補）: フルウィンドウ
       score = -negamax(
         nextState,
-        depth - 2,
+        depth - 1,
+        -beta,
+        -alpha,
+        opponent,
+        variant,
+        tt,
+        nextHash,
+        ply + 1,
+        true,
+        startTime,
+        timeLimitMs
+      );
+    } else {
+      // PVS: まずnull-window探索
+      // LMR: 3手目以降の非戦術手は深度を下げる
+      let reduction = 0;
+      if (i >= 3 && depth >= 3 && !isCapture && !isPromotion && !isKiller) {
+        reduction = 1;
+      }
+
+      score = -negamax(
+        nextState,
+        depth - 1 - reduction,
         -alpha - 1,
         -alpha,
         opponent,
@@ -363,8 +378,9 @@ function negamax(
         startTime,
         timeLimitMs
       );
-      // If reduction finds improvement, do full search
-      if (score > alpha) {
+
+      // null-windowで改善あり → フルウィンドウで再探索
+      if (score > alpha && score < beta) {
         score = -negamax(
           nextState,
           depth - 1,
@@ -380,21 +396,6 @@ function negamax(
           timeLimitMs
         );
       }
-    } else {
-      score = -negamax(
-        nextState,
-        depth - 1,
-        -beta,
-        -alpha,
-        opponent,
-        variant,
-        tt,
-        nextHash,
-        ply + 1,
-        true,
-        startTime,
-        timeLimitMs
-      );
     }
 
     if (score > maxScore) {
@@ -405,7 +406,6 @@ function negamax(
       alpha = score;
     }
     if (alpha >= beta) {
-      // Beta cutoff: update killers and history
       updateKillerMove(move, ply);
       const fromIdx = moveFromIndex(move);
       const toIdx = moveToIndex(move);
@@ -428,15 +428,6 @@ function negamax(
   return maxScore;
 }
 
-// 王手判定（null move用ラッパー）
-function isInCheckFast(
-  state: GameState,
-  player: Player,
-  variant: RuleVariant
-): boolean {
-  return isInCheck(state, player, variant);
-}
-
 // 反復深化で最善手を探索
 export function findBestMove(
   state: GameState,
@@ -456,62 +447,117 @@ export function findBestMove(
   let bestMove = moves[0];
   let bestScore = NEG_INF;
 
-  // Compute initial hash
   const initialHash = computeHash(state);
 
-  // 反復深化
+  // 反復深化 + Aspiration Windows
   for (let depth = 1; depth <= options.maxDepth; depth++) {
     const elapsed = Date.now() - startTime;
     if (elapsed > options.timeLimitMs * 0.8) break;
 
-    // Use TT move from previous iteration for ordering
     const ttEntry = tt.probe(initialHash);
     const ttMove = ttEntry?.bestMove ?? null;
 
-    // Sort root moves using TT move
     const sortedMoves = [...moves].sort(
       (a, b) => scoreMove(b, ttMove, 0) - scoreMove(a, ttMove, 0)
     );
 
-    let depthBestMove = sortedMoves[0];
-    let depthBestScore = NEG_INF;
     const opponent: Player = player === "sente" ? "gote" : "sente";
-    let alpha = NEG_INF;
-    const beta = POS_INF;
 
-    for (const move of sortedMoves) {
-      const elapsed2 = Date.now() - startTime;
-      if (elapsed2 > options.timeLimitMs * 0.9) break;
+    // Aspiration Windows（depth > 1 から使用）
+    let aspirationAlpha = depth > 1 ? bestScore - 50 : NEG_INF;
+    let aspirationBeta = depth > 1 ? bestScore + 50 : POS_INF;
+    let aspirationRetry = 0;
 
-      const nextState = applyMove(state, move);
-      const nextHash = updateHash(initialHash, state, move, nextState);
-      const score = -negamax(
-        nextState,
-        depth - 1,
-        -beta,
-        -alpha,
-        opponent,
-        variant,
-        tt,
-        nextHash,
-        1,
-        true,
-        startTime,
-        options.timeLimitMs
-      );
+    while (aspirationRetry < 3) {
+      let depthBestMove = sortedMoves[0];
+      let depthBestScore = NEG_INF;
+      let alpha = aspirationAlpha;
 
-      if (score > depthBestScore) {
-        depthBestScore = score;
-        depthBestMove = move;
+      for (let i = 0; i < sortedMoves.length; i++) {
+        const move = sortedMoves[i];
+        const elapsed2 = Date.now() - startTime;
+        if (elapsed2 > options.timeLimitMs * 0.9) break;
+
+        const nextState = applyMoveForSearch(state, move);
+        const nextHash = updateHash(initialHash, state, move, nextState);
+
+        let score: number;
+        if (i === 0) {
+          score = -negamax(
+            nextState,
+            depth - 1,
+            -aspirationBeta,
+            -alpha,
+            opponent,
+            variant,
+            tt,
+            nextHash,
+            1,
+            true,
+            startTime,
+            options.timeLimitMs
+          );
+        } else {
+          // PVS at root
+          score = -negamax(
+            nextState,
+            depth - 1,
+            -alpha - 1,
+            -alpha,
+            opponent,
+            variant,
+            tt,
+            nextHash,
+            1,
+            true,
+            startTime,
+            options.timeLimitMs
+          );
+          if (score > alpha && score < aspirationBeta) {
+            score = -negamax(
+              nextState,
+              depth - 1,
+              -aspirationBeta,
+              -alpha,
+              opponent,
+              variant,
+              tt,
+              nextHash,
+              1,
+              true,
+              startTime,
+              options.timeLimitMs
+            );
+          }
+        }
+
+        if (score > depthBestScore) {
+          depthBestScore = score;
+          depthBestMove = move;
+        }
+        if (score > alpha) {
+          alpha = score;
+        }
       }
-      if (score > alpha) {
-        alpha = score;
-      }
-    }
 
-    if (depthBestScore > bestScore || depth === 1) {
-      bestScore = depthBestScore;
-      bestMove = depthBestMove;
+      // Aspiration fail check
+      if (depthBestScore <= aspirationAlpha) {
+        aspirationAlpha = NEG_INF;
+        aspirationRetry++;
+        continue;
+      }
+      if (depthBestScore >= aspirationBeta) {
+        aspirationBeta = POS_INF;
+        aspirationRetry++;
+        continue;
+      }
+
+      // 成功
+      if (depthBestScore > bestScore || depth === 1) {
+        bestScore = depthBestScore;
+        bestMove = depthBestMove;
+      }
+      break;
     }
 
     tt.newSearch();

@@ -1,6 +1,6 @@
 import type { GameState, Player, RuleVariant } from "../types";
 import { STANDARD_VARIANT } from "../variants/standard";
-import { findKing, isInCheck } from "../moves";
+import { findKing, isSquareAttackedByFast } from "../moves";
 
 // 局面評価関数
 // 正の値 = 先手有利、負の値 = 後手有利
@@ -197,7 +197,128 @@ const PST_MAP: Record<string, number[][] | undefined> = {
   promoted_bishop: PROMOTED_BISHOP_PST,
 };
 
-// 玉の安全度評価（玉の周辺に味方の駒がいるか）
+// --- 囲いパターン認識 ---
+
+// 囲いパターン: 玉からの相対位置と必要な駒種
+interface CastlePattern {
+  name: string;
+  // 玉の絶対位置条件（先手視点）: [row, col]。nullは任意
+  kingRow?: number;
+  kingCol?: number;
+  // 玉からの相対座標に置くべき駒 [dr, dc, pieceType]
+  pieces: [number, number, string][];
+  bonus: number;
+}
+
+// 先手視点での囲いパターン
+const CASTLE_PATTERNS: CastlePattern[] = [
+  // 矢倉囲い: 玉が7八（row7,col1）、金が6八(row6,col1)と7七(row7,col2)、銀が6七(row6,col2)
+  {
+    name: "矢倉",
+    kingRow: 7, kingCol: 1,
+    pieces: [[0, 1, "gold"], [-1, 0, "gold"], [-1, 1, "silver"]],
+    bonus: 150,
+  },
+  // 美濃囲い: 玉が8二（row8,col1）、金が7八(row7,col1)、銀が7七(row7,col2)
+  {
+    name: "美濃",
+    kingRow: 8, kingCol: 1,
+    pieces: [[-1, 0, "gold"], [-1, 1, "silver"]],
+    bonus: 120,
+  },
+  // 高美濃: 玉が8二（row8,col1）、金が6七(row6,col2)、銀が7七(row7,col2)
+  {
+    name: "高美濃",
+    kingRow: 8, kingCol: 1,
+    pieces: [[-2, 1, "gold"], [-1, 1, "silver"]],
+    bonus: 130,
+  },
+  // 穴熊: 玉が8一（row8,col0）、金が8二(row8,col1)、銀が7一(row7,col0)
+  {
+    name: "穴熊",
+    kingRow: 8, kingCol: 0,
+    pieces: [[0, 1, "gold"], [-1, 0, "silver"]],
+    bonus: 200,
+  },
+  // elmo囲い: 玉が8二（row8,col1）、金が7八(row7,col1)、銀が8三(row8,col2)
+  {
+    name: "elmo",
+    kingRow: 8, kingCol: 1,
+    pieces: [[-1, 0, "gold"], [0, 1, "silver"]],
+    bonus: 130,
+  },
+  // 舟囲い: 玉が7八(row7,col1)または6八(row6,col1)付近、金が隣接
+  {
+    name: "舟囲い",
+    kingRow: 7, kingCol: 2,
+    pieces: [[0, -1, "gold"]],
+    bonus: 60,
+  },
+  // 左美濃: 玉が8八（row8,col7）、金が7八(row7,col7)、銀が7七(row7,col6)
+  {
+    name: "左美濃",
+    kingRow: 8, kingCol: 7,
+    pieces: [[-1, 0, "gold"], [-1, -1, "silver"]],
+    bonus: 120,
+  },
+  // 居飛車穴熊: 玉が8九（row8,col8）、金が8八(row8,col7)、銀が7九(row7,col8)
+  {
+    name: "居飛車穴熊",
+    kingRow: 8, kingCol: 8,
+    pieces: [[0, -1, "gold"], [-1, 0, "silver"]],
+    bonus: 200,
+  },
+];
+
+// 囲い評価（片方のプレイヤー）
+function evaluateCastle(
+  state: GameState,
+  player: Player,
+  kingRow: number,
+  kingCol: number,
+  variant: RuleVariant
+): number {
+  const { rows } = variant.boardSize;
+  let bestBonus = 0;
+
+  for (const pattern of CASTLE_PATTERNS) {
+    // 玉の位置を先手視点に変換して比較
+    const patternKingRow = player === "sente" ? (pattern.kingRow ?? kingRow) : rows - 1 - (pattern.kingRow ?? (rows - 1 - kingRow));
+    const patternKingCol = pattern.kingCol ?? kingCol;
+
+    // 左右対称も考慮（colを8-colに反転）
+    const positions = [patternKingCol, 8 - patternKingCol];
+
+    for (const pCol of positions) {
+      if (kingRow !== patternKingRow || kingCol !== pCol) continue;
+
+      let matchCount = 0;
+      const totalPieces = pattern.pieces.length;
+
+      for (const [dr, dc, reqType] of pattern.pieces) {
+        // 左右反転時はdcも反転
+        const actualDc = pCol === patternKingCol ? dc : -dc;
+        const pr = kingRow + (player === "sente" ? dr : -dr);
+        const pc = kingCol + actualDc;
+
+        if (pr < 0 || pr >= rows || pc < 0 || pc >= 9) continue;
+        const piece = state.board[pr][pc];
+        if (piece && piece.owner === player && piece.type === reqType) {
+          matchCount++;
+        }
+      }
+
+      if (totalPieces > 0) {
+        const bonus = Math.floor(pattern.bonus * matchCount / totalPieces);
+        if (bonus > bestBonus) bestBonus = bonus;
+      }
+    }
+  }
+
+  return bestBonus;
+}
+
+// 玉の安全度評価（囲いパターン + 周辺評価）
 function evaluateKingSafety(
   state: GameState,
   player: Player,
@@ -208,8 +329,12 @@ function evaluateKingSafety(
 
   let safety = 0;
   const { rows, cols } = variant.boardSize;
+  const opponent: Player = player === "sente" ? "gote" : "sente";
 
-  // 玉周辺の味方駒の数をカウント
+  // 囲いパターンボーナス
+  safety += evaluateCastle(state, player, kingPos.row, kingPos.col, variant);
+
+  // 玉周辺の味方駒カウント + 敵駒ペナルティ
   for (let dr = -2; dr <= 2; dr++) {
     for (let dc = -2; dc <= 2; dc++) {
       if (dr === 0 && dc === 0) continue;
@@ -218,22 +343,67 @@ function evaluateKingSafety(
       if (r < 0 || r >= rows || c < 0 || c >= cols) continue;
 
       const piece = state.board[r][c];
-      if (piece && piece.owner === player) {
-        const dist = Math.max(Math.abs(dr), Math.abs(dc));
-        // 金・銀・成り小駒は守備評価を高める
-        const isDefensePiece = ["gold", "silver", "promoted_pawn", "promoted_lance", "promoted_knight", "promoted_silver"].includes(piece.type);
-        const baseBonus = dist === 1 ? 20 : 10;
-        safety += isDefensePiece ? baseBonus * 1.5 : baseBonus;
+      if (!piece) continue;
+
+      const dist = Math.max(Math.abs(dr), Math.abs(dc));
+
+      if (piece.owner === player) {
+        const isDefensePiece = piece.type === "gold" || piece.type === "silver" ||
+          piece.type === "promoted_pawn" || piece.type === "promoted_lance" ||
+          piece.type === "promoted_knight" || piece.type === "promoted_silver";
+        const baseBonus = dist === 1 ? 25 : 10;
+        safety += isDefensePiece ? Math.floor(baseBonus * 1.5) : baseBonus;
+      } else {
+        // 敵駒が玉周辺に侵入: ペナルティ
+        const penalty = dist === 1 ? -30 : -15;
+        safety += penalty;
       }
     }
   }
 
-  // 王手されている場合は大きなペナルティ
-  if (isInCheck(state, player, variant)) {
+  // 王手ペナルティ（高速版使用）
+  if (isSquareAttackedByFast(state.board, kingPos, opponent, variant.boardSize)) {
     safety -= 200;
   }
 
   return safety;
+}
+
+// 飛車のオープンファイル評価
+function evaluateRookFiles(
+  state: GameState,
+  player: Player,
+  variant: RuleVariant
+): number {
+  let bonus = 0;
+  const { rows, cols } = variant.boardSize;
+
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const piece = state.board[row][col];
+      if (!piece || piece.owner !== player) continue;
+      if (piece.type !== "rook" && piece.type !== "promoted_rook") continue;
+
+      // 同列に自分の歩がないか確認
+      let hasFriendlyPawn = false;
+      let hasEnemyPawn = false;
+      for (let r = 0; r < rows; r++) {
+        const p = state.board[r][col];
+        if (p && p.type === "pawn") {
+          if (p.owner === player) hasFriendlyPawn = true;
+          else hasEnemyPawn = true;
+        }
+      }
+
+      if (!hasFriendlyPawn && !hasEnemyPawn) {
+        bonus += 30; // オープンファイル
+      } else if (!hasFriendlyPawn) {
+        bonus += 15; // セミオープンファイル
+      }
+    }
+  }
+
+  return bonus;
 }
 
 // メイン評価関数
@@ -262,7 +432,6 @@ export function evaluate(
       // 配置ボーナス（全駒種）
       const pst = PST_MAP[piece.type];
       if (pst) {
-        // 先手: row=0が前線、後手: 盤面反転してrow=0が前線
         const posRow = piece.owner === "sente" ? row : rows - 1 - row;
         const posBonus = pst[posRow]?.[col] ?? 0;
         score += sign * posBonus;
@@ -278,9 +447,16 @@ export function evaluate(
     score -= (HAND_PIECE_VALUES[type] ?? 100) * (count ?? 0);
   }
 
-  // 玉の安全度
+  // 玉の安全度（囲いパターン込み）
   score += evaluateKingSafety(state, "sente", variant);
   score -= evaluateKingSafety(state, "gote", variant);
+
+  // 飛車オープンファイル
+  score += evaluateRookFiles(state, "sente", variant);
+  score -= evaluateRookFiles(state, "gote", variant);
+
+  // テンポボーナス（手番側に小さなボーナス）
+  score += state.currentPlayer === "sente" ? 15 : -15;
 
   return score;
 }
