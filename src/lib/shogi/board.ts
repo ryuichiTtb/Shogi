@@ -8,7 +8,7 @@ import type {
   Position,
   RuleVariant,
 } from "./types";
-import { STANDARD_VARIANT } from "./variants/standard";
+import { STANDARD_VARIANT, PIECE_DEF_MAP } from "./variants/standard";
 import { unpromotePieceType } from "./variants/standard";
 
 // 初期ゲーム状態を作成
@@ -120,6 +120,70 @@ export function applyMove(state: GameState, move: Move): GameState {
   next.positionHistory = [...state.positionHistory, posHash];
 
   return next;
+}
+
+// 探索専用の軽量applyMove（history系はコピーせず参照共有、boardは変更行のみコピー）
+export function applyMoveForSearch(state: GameState, move: Move): GameState {
+  // boardは変更行のみ浅コピー（copy-on-write）
+  const board = [...state.board];
+  const hand: Hand = {
+    sente: { ...state.hand.sente },
+    gote: { ...state.hand.gote },
+  };
+
+  if (move.type === "drop") {
+    const piece = move.dropPiece!;
+    board[move.to.row] = [...board[move.to.row]];
+    board[move.to.row][move.to.col] = { type: piece, owner: move.player };
+    const count = hand[move.player][piece] ?? 0;
+    if (count <= 1) {
+      delete hand[move.player][piece];
+    } else {
+      hand[move.player][piece] = count - 1;
+    }
+  } else {
+    const fromRow = move.from!.row;
+    const toRow = move.to.row;
+    const fromPiece = state.board[fromRow][move.from!.col]!;
+
+    board[fromRow] = [...board[fromRow]];
+    if (toRow !== fromRow) {
+      board[toRow] = [...board[toRow]];
+    }
+
+    // 捕獲処理
+    const captured = state.board[toRow][move.to.col];
+    if (captured) {
+      const capturedBase = unpromotePieceType(captured.type);
+      hand[move.player][capturedBase] = (hand[move.player][capturedBase] ?? 0) + 1;
+    }
+
+    // 移動
+    board[fromRow][move.from!.col] = null;
+
+    if (move.promote) {
+      const def = PIECE_DEF_MAP.get(fromPiece.type);
+      board[toRow][move.to.col] = {
+        type: def?.promotesTo ?? fromPiece.type,
+        owner: move.player,
+      };
+    } else {
+      board[toRow][move.to.col] = {
+        type: fromPiece.type,
+        owner: move.player,
+      };
+    }
+  }
+
+  return {
+    board,
+    hand,
+    currentPlayer: move.player === "sente" ? "gote" : "sente",
+    moveHistory: state.moveHistory,       // 参照共有（探索では不変）
+    positionHistory: state.positionHistory, // 参照共有
+    status: "active",
+    moveCount: state.moveCount + 1,
+  };
 }
 
 // 指定マスの駒を取得

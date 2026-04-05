@@ -60,6 +60,22 @@ export const CHARACTERS: Character[] = [
     bgmTrack: "/sounds/bgm-genno.wav",
     color: "amber",
   },
+  {
+    id: "ryuou",
+    name: "龍王",
+    title: "伝説の棋神",
+    difficulty: "expert",
+    avatarEmoji: "🐉",
+    personality: `あなたは「龍王」という伝説の棋神です。
+人間を超越した棋力を持ち、その一手一手に深遠な意味が込められています。
+寡黙でありながら、時に鋭い洞察を述べます。
+相手の力量を見抜き、敬意を持って全力で指します。
+話し方は簡潔で威厳があり、「…ふむ」「見事」「まだまだ」などを使います。
+将棋の手に対するコメントは短く（1〜2文）、核心を突いた内容にしてください。`,
+    voiceStyle: "威厳、簡潔、達人口調",
+    bgmTrack: "/sounds/bgm-ryuou.wav",
+    color: "purple",
+  },
 ];
 
 export function getCharacterById(id: string): Character {

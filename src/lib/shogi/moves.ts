@@ -12,6 +12,154 @@ import type {
 import { STANDARD_VARIANT, PIECE_DEF_MAP } from "./variants/standard";
 import { applyMove, cloneGameState, isInPromotionZone } from "./board";
 
+// 高速マス攻撃判定（指定マスが指定プレイヤーに攻撃されているか）
+// 全疑似合法手を生成せず、ターゲットマスから逆方向に走査する
+// Gold型の駒種セット（module-level定数で再生成回避）
+const GOLD_MOVE_TYPES = new Set(["gold", "promoted_pawn", "promoted_silver", "promoted_knight", "promoted_lance"]);
+
+export function isSquareAttackedByFast(
+  board: Board,
+  pos: Position,
+  attacker: Player,
+  boardSize: { rows: number; cols: number }
+): boolean {
+  const { rows, cols } = boardSize;
+  const tr = pos.row;
+  const tc = pos.col;
+
+  // 方向符号: sente=-1, gote=+1
+  // 先手の駒の定義方向[dr,dc]に対し、攻撃元は (tr - dr, tc - dc) = (tr + s*dr, tc + s*dc)
+  // 後手の駒の定義方向[dr,dc]に対し、実際の��向は[-dr,-dc]なので、攻撃元は (tr + dr, tc + dc)
+  const s = attacker === "sente" ? -1 : 1;
+
+  // --- Step/Jump駒: 特定マスをチェック ---
+
+  // 金型: gold, と金, 成銀, 成桂, 成香
+  // 定義方向: [-1,-1], [-1,0], [-1,1], [0,-1], [0,1], [1,0]
+  let r: number, c: number;
+  const gd: [number, number][] = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, 0]];
+  for (let i = 0; i < 6; i++) {
+    r = tr + s * gd[i][0];
+    c = tc + s * gd[i][1];
+    if (r >= 0 && r < rows && c >= 0 && c < cols) {
+      const p = board[r][c];
+      if (p && p.owner === attacker && GOLD_MOVE_TYPES.has(p.type)) return true;
+    }
+  }
+
+  // 銀: [-1,-1], [-1,0], [-1,1], [1,-1], [1,1]
+  const sd: [number, number][] = [[-1, -1], [-1, 0], [-1, 1], [1, -1], [1, 1]];
+  for (let i = 0; i < 5; i++) {
+    r = tr + s * sd[i][0];
+    c = tc + s * sd[i][1];
+    if (r >= 0 && r < rows && c >= 0 && c < cols) {
+      const p = board[r][c];
+      if (p && p.owner === attacker && p.type === "silver") return true;
+    }
+  }
+
+  // 歩: [-1, 0]
+  r = tr - s;
+  if (r >= 0 && r < rows) {
+    const p = board[r][tc];
+    if (p && p.owner === attacker && p.type === "pawn") return true;
+  }
+
+  // 桂馬: [-2, -1], [-2, 1]
+  r = tr + s * -2;
+  if (r >= 0 && r < rows) {
+    c = tc + s * -1;
+    if (c >= 0 && c < cols) {
+      const p = board[r][c];
+      if (p && p.owner === attacker && p.type === "knight") return true;
+    }
+    c = tc + s * 1;
+    if (c >= 0 && c < cols) {
+      const p = board[r][c];
+      if (p && p.owner === attacker && p.type === "knight") return true;
+    }
+  }
+
+  // 玉: 全8方向（対称なのでsは不要だが統一のため使用）
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      if (dr === 0 && dc === 0) continue;
+      r = tr + dr;
+      c = tc + dc;
+      if (r >= 0 && r < rows && c >= 0 && c < cols) {
+        const p = board[r][c];
+        if (p && p.owner === attacker && p.type === "king") return true;
+      }
+    }
+  }
+
+  // --- Slide駒: ターゲットから外向きに走査 ---
+
+  // 縦横: 飛車, 龍, 香車
+  for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+    r = tr + dr;
+    c = tc + dc;
+    while (r >= 0 && r < rows && c >= 0 && c < cols) {
+      const p = board[r][c];
+      if (p) {
+        if (p.owner === attacker) {
+          if (p.type === "rook" || p.type === "promoted_rook") return true;
+          // 香車: 先手は上方向[-1,0]に進む → ターゲットから[+1,0]方向に存在
+          //       後手は下方向[+1,0]に進む → ターゲットから[-1,0]方向に存在
+          if (p.type === "lance" && dc === 0) {
+            if ((attacker === "sente" && dr === 1) ||
+                (attacker === "gote" && dr === -1)) {
+              return true;
+            }
+          }
+        }
+        break;
+      }
+      r += dr;
+      c += dc;
+    }
+  }
+
+  // 斜め: 角, 馬
+  for (const [dr, dc] of [[1, 1], [1, -1], [-1, 1], [-1, -1]] as const) {
+    r = tr + dr;
+    c = tc + dc;
+    while (r >= 0 && r < rows && c >= 0 && c < cols) {
+      const p = board[r][c];
+      if (p) {
+        if (p.owner === attacker && (p.type === "bishop" || p.type === "promoted_bishop")) return true;
+        break;
+      }
+      r += dr;
+      c += dc;
+    }
+  }
+
+  // --- 成り大駒のステップ拡張 ---
+
+  // 龍の斜めステップ
+  for (const [dr, dc] of [[1, 1], [1, -1], [-1, 1], [-1, -1]] as const) {
+    r = tr + dr;
+    c = tc + dc;
+    if (r >= 0 && r < rows && c >= 0 && c < cols) {
+      const p = board[r][c];
+      if (p && p.owner === attacker && p.type === "promoted_rook") return true;
+    }
+  }
+
+  // 馬の縦横ステップ
+  for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+    r = tr + dr;
+    c = tc + dc;
+    if (r >= 0 && r < rows && c >= 0 && c < cols) {
+      const p = board[r][c];
+      if (p && p.owner === attacker && p.type === "promoted_bishop") return true;
+    }
+  }
+
+  return false;
+}
+
 // 駒の価値テーブル（MVV-LVA用）
 const MVV_LVA_VALUES: Record<string, number> = {
   pawn: 100,
@@ -217,17 +365,13 @@ function leavesKingInCheck(
   return isInCheck(nextState, player, variant);
 }
 
-// 王手判定
+// 王手判定（高速版: 逆方向走査）
 export function isInCheck(state: GameState, player: Player, variant: RuleVariant = STANDARD_VARIANT): boolean {
   const kingPos = findKing(state.board, player, variant.boardSize);
   if (!kingPos) return false;
 
   const opponent: Player = player === "sente" ? "gote" : "sente";
-  const opponentMoves = getPseudoMoves(state, opponent, variant);
-
-  return opponentMoves.some(
-    (m) => m.type === "move" && m.to.row === kingPos.row && m.to.col === kingPos.col
-  );
+  return isSquareAttackedByFast(state.board, kingPos, opponent, variant.boardSize);
 }
 
 // 詰み判定
@@ -301,8 +445,8 @@ function isValidPos(row: number, col: number, rows: number, cols: number): boole
   return row >= 0 && row < rows && col >= 0 && col < cols;
 }
 
-function getPieceDef(type: string, variant: RuleVariant): PieceDefinition | undefined {
-  return variant.pieces.find((p) => p.type === type);
+function getPieceDef(type: string, _variant: RuleVariant): PieceDefinition | undefined {
+  return PIECE_DEF_MAP.get(type);
 }
 
 function createMove(
@@ -423,15 +567,12 @@ export function findKing(
   return null;
 }
 
-// 指定マスに特定プレイヤーが利いているか
+// 指定マスに特定プレイヤーが利いているか（高速版）
 export function isSquareAttacked(
   state: GameState,
   pos: Position,
   attackingPlayer: Player,
   variant: RuleVariant = STANDARD_VARIANT
 ): boolean {
-  const pseudoMoves = getPseudoMoves(state, attackingPlayer, variant);
-  return pseudoMoves.some(
-    (m) => m.type === "move" && m.to.row === pos.row && m.to.col === pos.col
-  );
+  return isSquareAttackedByFast(state.board, pos, attackingPlayer, variant.boardSize);
 }

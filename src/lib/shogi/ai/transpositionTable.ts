@@ -3,7 +3,7 @@ import type { Move } from "../types";
 export type TTFlag = "exact" | "lower" | "upper";
 
 export interface TTEntry {
-  hash: number;
+  verifyHash: number;  // hash.hi を保存（32-bit検証）
   depth: number;
   score: number;
   flag: TTFlag;
@@ -11,7 +11,7 @@ export interface TTEntry {
   age: number;
 }
 
-const TT_SIZE = 1 << 20; // 1M entries
+const TT_SIZE = 1 << 22; // 4M entries
 const TT_MASK = TT_SIZE - 1;
 
 export class TranspositionTable {
@@ -23,34 +23,35 @@ export class TranspositionTable {
     this.currentAge = 0;
   }
 
-  probe(hash: number): TTEntry | undefined {
-    const idx = hash & TT_MASK;
+  probe(hashLo: number, hashHi: number): TTEntry | undefined {
+    const idx = hashLo & TT_MASK;
     const entry = this.table[idx];
-    if (entry && entry.hash === hash) {
+    if (entry && entry.verifyHash === hashHi) {
       return entry;
     }
     return undefined;
   }
 
   store(
-    hash: number,
+    hashLo: number,
+    hashHi: number,
     depth: number,
     score: number,
     flag: TTFlag,
     bestMove: Move | null
   ): void {
-    const idx = hash & TT_MASK;
+    const idx = hashLo & TT_MASK;
     const existing = this.table[idx];
 
     // Replacement strategy: replace if same hash, older entry, or shallower depth
     if (
       !existing ||
-      existing.hash === hash ||
+      existing.verifyHash === hashHi ||
       existing.age < this.currentAge ||
       existing.depth <= depth
     ) {
       this.table[idx] = {
-        hash,
+        verifyHash: hashHi,
         depth,
         score,
         flag,
