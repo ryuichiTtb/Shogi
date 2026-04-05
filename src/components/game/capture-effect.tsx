@@ -25,14 +25,14 @@ interface CaptureEffectProps {
 }
 
 export function CaptureEffect({ squareSize }: CaptureEffectProps) {
-  const sparkLength = Math.max(4, squareSize * 0.18);
-  const sparkWidth = Math.max(2, squareSize * 0.06);
-  const maxTravel = squareSize * 0.7;
+  const sparkLength = Math.max(6, squareSize * 0.26);
+  const sparkWidth = Math.max(3, squareSize * 0.09);
+  const maxTravel = squareSize * 1.1;
 
   return (
     <div className="absolute inset-0 pointer-events-none overflow-visible z-10">
       {/* 中央の衝撃フラッシュ */}
-      <div className="capture-flash absolute inset-[-15%] rounded-full" />
+      <div className="capture-flash absolute inset-[-25%] rounded-full" />
 
       {/* 火花パーティクル */}
       {SPARKS.map((spark, i) => (
