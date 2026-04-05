@@ -146,3 +146,80 @@ function canPromoteMoveFast(
   const toInZone = inPromotionZone(to.row, player, rows, zone);
   return fromInZone || toInZone;
 }
+
+// 静止探索用: 非取り成り手の生成（歩・香の成りゾーンへの移動）
+// 2三歩成りのような重要な戦術手を静止探索で検知するため
+export function getPromotionMovesForSearch(
+  state: GameState,
+  player: Player,
+  variant: RuleVariant = STANDARD_VARIANT
+): Move[] {
+  const promotions: Move[] = [];
+  const { rows, cols } = variant.boardSize;
+  const board = state.board;
+  const zone = variant.rules.promotionZoneRows;
+
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const piece = board[row][col];
+      if (!piece || piece.owner !== player) continue;
+
+      // 歩と香のみ（最も重要な非取り成り手）
+      if (piece.type !== "pawn" && piece.type !== "lance") continue;
+
+      const def = PIECE_DEF_MAP.get(piece.type);
+      if (!def || !def.canPromote) continue;
+
+      for (const pattern of def.movePatterns) {
+        for (const [dr, dc] of pattern.directions) {
+          const actualDr = player === "sente" ? dr : -dr;
+
+          if (piece.type === "pawn") {
+            // 歩: 1マス前進で成りゾーンに入る場合のみ
+            const toRow = row + actualDr;
+            const toCol = col + dc;
+            if (toRow < 0 || toRow >= rows || toCol < 0 || toCol >= cols) continue;
+            if (board[toRow][toCol] !== null) continue; // 空マスのみ（取り駒は別で生成済み）
+
+            const to: Position = { row: toRow, col: toCol };
+            if (!inPromotionZone(toRow, player, rows, zone)) continue;
+
+            promotions.push({
+              type: "move",
+              from: { row, col },
+              to,
+              piece: piece.type,
+              promote: true,
+              player,
+            });
+          } else if (piece.type === "lance" && pattern.type === "slide") {
+            // 香: 前方スライドで成りゾーンに入る空マスへ
+            let r = row + actualDr;
+            const c = col;
+            while (r >= 0 && r < rows && c >= 0 && c < cols) {
+              if (board[r][c] !== null) break; // 駒があったら停止（取り駒は別で生成済み）
+
+              if (inPromotionZone(r, player, rows, zone)) {
+                promotions.push({
+                  type: "move",
+                  from: { row, col },
+                  to: { row: r, col: c },
+                  piece: piece.type,
+                  promote: true,
+                  player,
+                });
+              }
+              r += actualDr;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 王手放置チェック
+  return promotions.filter((move) => {
+    const nextState = applyMoveForSearch(state, move);
+    return !isInCheck(nextState, player, variant);
+  });
+}

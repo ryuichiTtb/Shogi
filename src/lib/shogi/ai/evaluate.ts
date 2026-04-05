@@ -200,9 +200,14 @@ const PST_MAP: Record<string, number[][] | undefined> = {
 // 成り可能な駒タイプ（成りゾーン脅威検知用）
 const PROMOTABLE_TYPES = new Set(["pawn", "lance", "knight", "silver", "bishop", "rook"]);
 
-// 成り込み脅威ペナルティ
+// 成り込み脅威ペナルティ（成りゾーン内）
 const PROMOTION_THREAT: Record<string, number> = {
-  rook: 150, bishop: 120, silver: 30, pawn: 15, lance: 15, knight: 15,
+  rook: 150, bishop: 120, silver: 30, pawn: 100, lance: 80, knight: 20,
+};
+
+// 成りゾーン1マス手前のペナルティ（次の手で成りゾーンに入れる）
+const PROMOTION_IMMINENT_THREAT: Record<string, number> = {
+  pawn: 60, lance: 50,
 };
 
 // 金型の駒タイプ
@@ -210,7 +215,7 @@ const GOLD_TYPES = new Set(["gold", "promoted_pawn", "promoted_silver", "promote
 
 // 最も安い攻撃駒の価値を返す（交換品質評価用）
 // isSquareAttackedByFastと同じ逆方向走査だが、安い駒から順に探索し、見つかったら即return
-function getLeastAttackerValue(
+export function getLeastAttackerValue(
   board: Board,
   pos: Position,
   attacker: Player,
@@ -398,15 +403,15 @@ function evaluatePieceSafety(
       const defended = isSquareAttackedByFast(board, pos, player, variant.boardSize);
 
       if (!defended) {
-        // タダ取り: 無防備の駒 → 駒価値の70%ペナルティ
-        penalty -= Math.floor(value * 0.7);
+        // タダ取り: 無防備の駒 → 駒価値の85%ペナルティ
+        penalty -= Math.floor(value * 0.85);
       } else {
         // 攻撃され、かつ守られている → 交換品質を評価
         const leastAttacker = getLeastAttackerValue(board, pos, opponent, variant.boardSize);
         if (leastAttacker > 0 && leastAttacker < value) {
           // 安い駒で攻撃されている → 交換すると損
-          // 例: 飛車(1000)を歩(100)が攻撃 → 900×0.4=360cpペナルティ
-          penalty -= Math.floor((value - leastAttacker) * 0.4);
+          // 例: 飛車(1000)を歩(100)が攻撃 → 900×0.65=585cpペナルティ
+          penalty -= Math.floor((value - leastAttacker) * 0.65);
         }
       }
     }
@@ -443,6 +448,18 @@ function evaluatePromotionThreats(
 
       if (inPromotionZone) {
         penalty -= PROMOTION_THREAT[piece.type] ?? 15;
+      } else {
+        // 成りゾーンの1マス手前にいるか判定（次の手で成れる）
+        const oneStepFromZone = opponent === "sente"
+          ? row === zoneRows      // senteの成りゾーンはrow < 3、row=3が1マス手前
+          : row === rows - zoneRows - 1; // goteの成りゾーンはrow >= 6、row=5が1マス手前
+
+        if (oneStepFromZone) {
+          const imminentPenalty = PROMOTION_IMMINENT_THREAT[piece.type];
+          if (imminentPenalty) {
+            penalty -= imminentPenalty;
+          }
+        }
       }
     }
   }

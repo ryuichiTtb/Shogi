@@ -1,7 +1,7 @@
 import type { Difficulty, GameState, Move, Player, RuleVariant } from "../types";
 import { STANDARD_VARIANT } from "../variants/standard";
 import { findBestMove } from "./search";
-import { evaluate } from "./evaluate";
+import { evaluate, getLeastAttackerValue } from "./evaluate";
 import { getBookMove, MAX_BOOK_MOVES } from "./openingBook";
 import { getFullLegalMoves, isSquareAttackedByFast } from "../moves";
 import { applyMoveForSearch } from "../board";
@@ -29,18 +29,18 @@ const DIFFICULTY_PARAMS: Record<Difficulty, {
     nearEqualThreshold: 80, // 中程度の閾値
   },
   advanced: {
-    maxDepth: 12,
-    timeLimitMs: 2800,     // 3秒以内（マージン込み）
+    maxDepth: 16,          // 反復深化で到達できる限り深く
+    timeLimitMs: 4000,     // 4秒（品質優先）
     addNoise: 0,           // ノイズなし: ブランダー排除
     useBook: true,
-    nearEqualThreshold: 15, // 小さい閾値: 最善手に近い手のみ
+    nearEqualThreshold: 0,  // 常に最善手を選択
   },
   expert: {
-    maxDepth: 20,          // 反復深化で到達できる限り深く
-    timeLimitMs: 2800,     // 3秒以内（マージン込み）
+    maxDepth: 24,          // 反復深化で到達できる限り深く
+    timeLimitMs: 4500,     // 4.5秒（品質最優先）
     addNoise: 0,           // ノイズなし: ブランダー排除
     useBook: true,
-    nearEqualThreshold: 5,  // ほぼ最善手のみ
+    nearEqualThreshold: 0,  // 常に最善手を選択
   },
 };
 
@@ -127,7 +127,7 @@ const BLUNDER_PIECE_VALUES: Record<string, number> = {
   promoted_rook: 1300, king: 10000,
 };
 
-// ブランダーガード: 指した後に価値>=300の自駒がタダ取りされる状態かチェック
+// ブランダーガード: 指した後に自駒がタダ取りまたは損な交換にさらされるかチェック
 function hasHangingPiece(
   state: GameState,
   player: Player,
@@ -150,6 +150,11 @@ function hasHangingPiece(
       if (isSquareAttackedByFast(board, pos, opponent, variant.boardSize)) {
         if (!isSquareAttackedByFast(board, pos, player, variant.boardSize)) {
           return true; // 攻撃されているが守られていない → タダ取り
+        }
+        // 守られているが、最安攻撃駒との交換で損する場合もブランダー
+        const leastAttacker = getLeastAttackerValue(board, pos, opponent, variant.boardSize);
+        if (leastAttacker > 0 && (value - leastAttacker) >= minValue) {
+          return true; // 損な交換（例: 飛車を歩で攻撃されている）
         }
       }
     }
