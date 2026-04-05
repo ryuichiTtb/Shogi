@@ -137,7 +137,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
     // 駒取りエフェクト
     if (lastMove.captured) {
       setCaptureEffectKey(Date.now());
-      const timer = setTimeout(() => setCaptureEffectKey(null), 400);
+      const timer = setTimeout(() => setCaptureEffectKey(null), 600);
       cleanups.push(timer);
     }
 
