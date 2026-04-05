@@ -18,6 +18,7 @@ interface SearchOptions {
   maxDepth: number;
   timeLimitMs: number;
   addNoise: number; // 0.0-1.0 ノイズ比率（beginner向け）
+  nearEqualThreshold: number; // 接戦時ランダム選択の閾値（cp）
 }
 
 // キラームーブ: 深さごとに2手保存
@@ -257,8 +258,15 @@ function negamax(
     ttMove = ttEntry.bestMove;
   }
 
+  // 王手チェック（check extension用）
+  const inCheck = isInCheck(state, player, variant);
+
+  // Check Extension: 王手されている場合は深度を1延長
+  // これにより詰みの読みが格段に深くなる
+  const effectiveDepth = inCheck ? depth + 1 : depth;
+
   // Quiescence search at depth 0
-  if (depth <= 0) {
+  if (effectiveDepth <= 0) {
     return quiescence(state, alpha, beta, player, variant, tt, hash);
   }
 
@@ -268,17 +276,17 @@ function negamax(
 
   if (moves.length === 0) {
     // 手がない = 詰み or ステールメイト
-    if (isInCheck(state, player, variant)) {
-      return -(MATE_SCORE - ply); // 詰み（深いほど低評価＝早い詰みを優先）
+    if (inCheck) {
+      return -(MATE_SCORE - ply); // ��み（深いほど低評価＝早い詰みを���先）
     }
     return 0; // ステールメイト
   }
 
-  // Null Move Pruning
+  // Null Move Pruning（王手中は使用不可）
   if (
     isNullMoveAllowed &&
     depth >= 3 &&
-    !isInCheck(state, player, variant)
+    !inCheck
   ) {
     const nullState: GameState = {
       ...state,
@@ -325,8 +333,8 @@ function negamax(
     const isPromotion = move.promote === true;
     const isKiller = isKillerMove(move, ply);
 
-    // Futility Pruning（depth 1-2で非戦術手をスキップ）
-    if (depth <= 2 && !isCapture && !isPromotion && i > 0) {
+    // Futility Pruning（depth 1-2で非戦術手をスキップ、王手中は除外）
+    if (depth <= 2 && !isCapture && !isPromotion && !inCheck && i > 0) {
       if (staticEval === null) {
         const rawEval = evaluate(state, variant);
         staticEval = player === "sente" ? rawEval : -rawEval;
@@ -358,9 +366,9 @@ function negamax(
       );
     } else {
       // PVS: まずnull-window探索
-      // LMR: 3手目以降の非戦術手は深度を下げる
+      // LMR: 3手目以降の非戦術手は深度を下げる（王手中は除外）
       let reduction = 0;
-      if (i >= 3 && depth >= 3 && !isCapture && !isPromotion && !isKiller) {
+      if (i >= 3 && depth >= 3 && !isCapture && !isPromotion && !isKiller && !inCheck) {
         reduction = 1;
       }
 
@@ -446,6 +454,8 @@ export function findBestMove(
 
   let bestMove = moves[0];
   let bestScore = NEG_INF;
+  // ルート手ごとのスコアを追跡（nearEqualThreshold用）
+  let rootMoveScores: { move: Move; score: number }[] = [];
 
   const initialHash = computeHash(state);
 
@@ -471,6 +481,7 @@ export function findBestMove(
     while (aspirationRetry < 3) {
       let depthBestMove = sortedMoves[0];
       let depthBestScore = NEG_INF;
+      const depthMoveScores: { move: Move; score: number }[] = [];
       let alpha = aspirationAlpha;
 
       for (let i = 0; i < sortedMoves.length; i++) {
@@ -531,6 +542,8 @@ export function findBestMove(
           }
         }
 
+        depthMoveScores.push({ move, score });
+
         if (score > depthBestScore) {
           depthBestScore = score;
           depthBestMove = move;
@@ -556,11 +569,22 @@ export function findBestMove(
       if (depthBestScore > bestScore || depth === 1) {
         bestScore = depthBestScore;
         bestMove = depthBestMove;
+        rootMoveScores = depthMoveScores;
       }
       break;
     }
 
     tt.newSearch();
+  }
+
+  // nearEqualThreshold: 最善手に近い評価値の手からランダム選択（多様性確保）
+  if (options.nearEqualThreshold > 0 && rootMoveScores.length > 1) {
+    const candidates = rootMoveScores.filter(
+      (ms) => ms.score >= bestScore - options.nearEqualThreshold
+    );
+    if (candidates.length > 1) {
+      bestMove = candidates[Math.floor(Math.random() * candidates.length)].move;
+    }
   }
 
   // ノイズ追加（初級向け）

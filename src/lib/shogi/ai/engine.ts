@@ -15,30 +15,30 @@ const DIFFICULTY_PARAMS: Record<Difficulty, {
   beginner: {
     maxDepth: 3,
     timeLimitMs: 1000,
-    addNoise: 0.40,
-    useBook: true,
-    nearEqualThreshold: 0, // beginnerはaddNoiseで多様性確保
+    addNoise: 0.50,       // 高ノイズ: 半分の確率でランダムな手
+    useBook: false,        // 定石なし: 自然な弱さを演出
+    nearEqualThreshold: 200, // 広い閾値: 大きくブレる
   },
   intermediate: {
-    maxDepth: 8,
-    timeLimitMs: 3000,
-    addNoise: 0.03,
+    maxDepth: 6,
+    timeLimitMs: 2000,
+    addNoise: 0.10,       // 10%のノイズ
     useBook: true,
-    nearEqualThreshold: 0,
+    nearEqualThreshold: 80, // 中程度の閾値
   },
   advanced: {
-    maxDepth: 12,
+    maxDepth: 10,
     timeLimitMs: 3000,
     addNoise: 0,
     useBook: true,
-    nearEqualThreshold: 20,
+    nearEqualThreshold: 25, // 小さい閾値: 多少のブレ
   },
   expert: {
     maxDepth: 16,
-    timeLimitMs: 3000,
+    timeLimitMs: 5000,     // 長い思考時間
     addNoise: 0,
     useBook: true,
-    nearEqualThreshold: 15,
+    nearEqualThreshold: 10, // ほぼ最善手のみ
   },
 };
 
@@ -73,7 +73,12 @@ export function calculateAiMove(
   }
 
   // 探索による手の選択
-  return findBestMove(state, player, params, variant);
+  return findBestMove(state, player, {
+    maxDepth: params.maxDepth,
+    timeLimitMs: params.timeLimitMs,
+    addNoise: params.addNoise,
+    nearEqualThreshold: params.nearEqualThreshold,
+  }, variant);
 }
 
 // 難易度の表示名

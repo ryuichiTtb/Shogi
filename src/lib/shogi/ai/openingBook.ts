@@ -1,80 +1,72 @@
-import type { GameState, Move, Player, Position } from "../types";
+import type { GameState, Move, Player } from "../types";
 
 // --- 定石ブックシステム ---
 // 対局ごとにランダムで戦法を選択し、序盤の多様性を確保する
 
-// コンパクトな手の表記
-// 盤面移動: "76,77" = (row7,col6) → (row7,col7) ※row,colの順
-// 打ち駒:   "drop:pawn@53" = 歩を(row5,col3)に打つ
-// 成り:     "76,77+" = 成り付き
+// 座標系: row=0が一段(後手陣奥), row=8が九段(先手陣奥)
+//         col=0が9筋(右端), col=8が1筋(左端)
+// 変換: 筋F段R → col=9-F, row=R-1
+// 例: 7六 → col=9-7=2, row=6-1=5 → (5, 2)
 
-interface BookMove {
-  move: string; // コンパクト表記
-  responses?: BookNode[];
+// 標準将棋表記(筋段)からrow,colに変換
+function fromNotation(fileRank: string): { row: number; col: number } {
+  const file = parseInt(fileRank[0]); // 筋 (1-9)
+  const rank = parseInt(fileRank[1]); // 段 (1-9)
+  return { row: rank - 1, col: 9 - file };
 }
 
-interface BookNode {
-  move: string;
-  children?: BookMove[];
+// 標準表記の手を内部Moveに変換
+// "77-76" = 七七から七六へ移動
+// "drop:pawn@56" = 歩を五六に打つ
+function parseBookNotation(
+  notation: string,
+  player: Player,
+  board: (import("../types").Piece | null)[][]
+): Move | null {
+  if (notation.startsWith("drop:")) {
+    const match = notation.match(/^drop:(\w+)@(\d\d)$/);
+    if (!match) return null;
+    const [, pieceType, posStr] = match;
+    const to = fromNotation(posStr);
+    return { type: "drop", to, piece: pieceType, dropPiece: pieceType, player };
+  }
+
+  const promote = notation.endsWith("+");
+  const clean = promote ? notation.slice(0, -1) : notation;
+  const parts = clean.split("-");
+  if (parts.length !== 2) return null;
+
+  const from = fromNotation(parts[0]);
+  const to = fromNotation(parts[1]);
+
+  const piece = board[from.row]?.[from.col];
+  if (!piece) return null;
+
+  const captured = board[to.row]?.[to.col];
+  return {
+    type: "move", from, to, piece: piece.type,
+    captured: captured?.type, promote, player,
+  };
+}
+
+interface BookMove {
+  move: string; // 標準表記 "77-76" etc.
 }
 
 interface OpeningStrategy {
   id: string;
   name: string;
   forPlayer: "sente" | "gote" | "both";
-  weight: number; // 選択確率の重み（高いほど選ばれやすい）
-  moves: BookMove[]; // ルートレベルの手
+  weight: number;
+  moves: BookMove[];
 }
-
-// 手のコンパクト表記をMoveオブジェクトに変換
-function parseBookMove(notation: string, player: Player, board: (import("../types").Piece | null)[][]): Move | null {
-  if (notation.startsWith("drop:")) {
-    // drop:pawn@53
-    const match = notation.match(/^drop:(\w+)@(\d)(\d)$/);
-    if (!match) return null;
-    const [, pieceType, rowStr, colStr] = match;
-    return {
-      type: "drop",
-      to: { row: parseInt(rowStr), col: parseInt(colStr) },
-      piece: pieceType,
-      dropPiece: pieceType,
-      player,
-    };
-  }
-
-  // 盤面移動: "67,57" or "67,57+"
-  const promote = notation.endsWith("+");
-  const clean = promote ? notation.slice(0, -1) : notation;
-  const parts = clean.split(",");
-  if (parts.length !== 2) return null;
-
-  const fromRow = parseInt(parts[0][0]);
-  const fromCol = parseInt(parts[0][1]);
-  const toRow = parseInt(parts[1][0]);
-  const toCol = parseInt(parts[1][1]);
-
-  const piece = board[fromRow]?.[fromCol];
-  if (!piece) return null;
-
-  const captured = board[toRow]?.[toCol];
-
-  return {
-    type: "move",
-    from: { row: fromRow, col: fromCol },
-    to: { row: toRow, col: toCol },
-    piece: piece.type,
-    captured: captured?.type,
-    promote,
-    player,
-  };
-}
-
-// --- 定石データ ---
-// 座標系: row=0が上（後手陣奥）、row=8が下（先手陣奥）
-//         col=0が右（9筋）、col=8が左（1筋）
-// 先手の初期配置: row6=歩、row7=[角(1),飛(7)]、row8=[香桂銀金王金銀桂香]
 
 // === 先手用定石 ===
+// 初期配置(先手):
+//   九段(row8): 香(0) 桂(1) 銀(2) 金(3) 玉(4) 金(5) 銀(6) 桂(7) 香(8)
+//   八段(row7): .(0)  角(1) .(2)  .(3)  .(4)  .(5)  .(6)  飛(7) .(8)
+//   七段(row6): 歩(0-8)
+// 先手は row が減る方向に進む
 
 const SENTE_STRATEGIES: OpeningStrategy[] = [
   {
@@ -83,22 +75,28 @@ const SENTE_STRATEGIES: OpeningStrategy[] = [
     forPlayer: "sente",
     weight: 10,
     moves: [
-      // 7六歩 (row6,col6→row5,col6)
-      { move: "66,56" },
-      // 6八銀 (row8,col6→row7,col5)
-      { move: "86,75" },
-      // 7七銀 (row7,col5→row6,col6)
-      { move: "75,66" },
-      // 5八金右 (row8,col5→row7,col4)
-      { move: "85,74" },
-      // 6九玉 (row8,col4→row7,col3)
-      { move: "84,73" },
-      // 7八玉 (row7,col3→row7,col1)
-      { move: "73,71" },
-      // 6七金 (row7,col4→row6,col5)
-      { move: "74,65" },
-      // 7八金 (row8,col3→row7,col2)
-      { move: "83,72" },
+      { move: "77-76" }, // 7六歩
+      { move: "69-78" }, // 7八金
+      { move: "79-68" }, // 6八銀
+      { move: "68-77" }, // 7七銀
+      { move: "49-58" }, // 5八金右
+      { move: "58-67" }, // 6七金
+      { move: "59-69" }, // 6九玉
+      { move: "69-79" }, // 7九玉
+    ],
+  },
+  {
+    id: "yagura2",
+    name: "矢倉急戦",
+    forPlayer: "sente",
+    weight: 8,
+    moves: [
+      { move: "77-76" }, // 7六歩
+      { move: "27-26" }, // 2六歩
+      { move: "26-25" }, // 2五歩
+      { move: "39-48" }, // 4八銀
+      { move: "69-78" }, // 7八金
+      { move: "59-69" }, // 6九玉
     ],
   },
   {
@@ -107,20 +105,12 @@ const SENTE_STRATEGIES: OpeningStrategy[] = [
     forPlayer: "sente",
     weight: 8,
     moves: [
-      // 7六歩
-      { move: "66,56" },
-      // 2六歩 (row6,col7→row5,col7)
-      { move: "67,57" },
-      // 2五歩
-      { move: "57,47" },
-      // 7八金 (row8,col3→row7,col2)
-      { move: "83,72" },
-      // 5八金 (row8,col5→row7,col4)
-      { move: "85,74" },
-      // 6八銀
-      { move: "86,75" },
-      // 7七銀
-      { move: "75,66" },
+      { move: "77-76" }, // 7六歩
+      { move: "27-26" }, // 2六歩
+      { move: "26-25" }, // 2五歩
+      { move: "69-78" }, // 7八金
+      { move: "49-58" }, // 5八金
+      { move: "39-48" }, // 4八銀
     ],
   },
   {
@@ -129,16 +119,11 @@ const SENTE_STRATEGIES: OpeningStrategy[] = [
     forPlayer: "sente",
     weight: 7,
     moves: [
-      // 2六歩
-      { move: "67,57" },
-      // 2五歩
-      { move: "57,47" },
-      // 7八金
-      { move: "83,72" },
-      // 3八銀 (row8,col6→row7,col5)
-      { move: "86,75" },
-      // 2四歩（攻め）
-      { move: "47,37" },
+      { move: "27-26" }, // 2六歩
+      { move: "26-25" }, // 2五歩
+      { move: "69-78" }, // 7八金
+      { move: "39-48" }, // 4八銀
+      { move: "77-76" }, // 7六歩
     ],
   },
   {
@@ -147,21 +132,13 @@ const SENTE_STRATEGIES: OpeningStrategy[] = [
     forPlayer: "sente",
     weight: 10,
     moves: [
-      // 7六歩
-      { move: "66,56" },
-      // 6八飛 (row7,col7→row7,col5) 飛車を四間に振る
-      { move: "77,75" },
-      // 7八銀
-      { move: "86,76" },
-      // 4八玉 (row8,col4→row8,col3)
-      { move: "84,83" },
-      // 3八玉
-      { move: "83,82" },
-      // 2八玉
-      { move: "82,81" },
-      // 3八金 (row8,col5→row7,col4)
-      { move: "85,74" },
-      // 1八香（穴熊への発展用省略）
+      { move: "77-76" }, // 7六歩
+      { move: "28-68" }, // 6八飛（飛車を四間に振る）
+      { move: "39-48" }, // 4八銀
+      { move: "59-49" }, // 4九玉
+      { move: "49-38" }, // 3八玉
+      { move: "38-28" }, // 2八玉
+      { move: "69-58" }, // 5八金左
     ],
   },
   {
@@ -170,18 +147,12 @@ const SENTE_STRATEGIES: OpeningStrategy[] = [
     forPlayer: "sente",
     weight: 9,
     moves: [
-      // 5六歩 (row6,col4→row5,col4)
-      { move: "64,54" },
-      // 5八飛 (row7,col7→row7,col4) 飛車を中央に
-      { move: "77,74" },
-      // 7八銀
-      { move: "86,76" },
-      // 4八玉
-      { move: "84,83" },
-      // 3八玉
-      { move: "83,82" },
-      // 6八金 (row8,col5→row7,col5)
-      { move: "85,75" },
+      { move: "57-56" }, // 5六歩
+      { move: "28-58" }, // 5八飛
+      { move: "39-48" }, // 4八銀
+      { move: "59-49" }, // 4九玉
+      { move: "49-38" }, // 3八玉
+      { move: "69-68" }, // 6八金
     ],
   },
   {
@@ -190,41 +161,50 @@ const SENTE_STRATEGIES: OpeningStrategy[] = [
     forPlayer: "sente",
     weight: 7,
     moves: [
-      // 7六歩
-      { move: "66,56" },
-      // 7八飛 (row7,col7→row7,col6) 飛車を三間に
-      { move: "77,76" },
-      // 6八銀
-      { move: "86,75" },
-      // 4八玉
-      { move: "84,83" },
-      // 3八玉
-      { move: "83,82" },
-      // 2八玉
-      { move: "82,81" },
+      { move: "77-76" }, // 7六歩
+      { move: "28-78" }, // 7八飛（三間に振る）
+      { move: "39-48" }, // 4八銀
+      { move: "59-49" }, // 4九玉
+      { move: "49-38" }, // 3八玉
+      { move: "38-28" }, // 2八玉
     ],
   },
   {
     id: "bougin",
     name: "棒銀",
     forPlayer: "sente",
-    weight: 8,
+    weight: 9,
     moves: [
-      // 2六歩
-      { move: "67,57" },
-      // 2五歩
-      { move: "57,47" },
-      // 3八銀 (row8,col2→row7,col2)
-      { move: "82,72" },
-      // 2七銀 (row7,col2→row6,col7)
-      { move: "72,67" },
-      // 7八金
-      { move: "83,72" },
+      { move: "27-26" }, // 2六歩
+      { move: "26-25" }, // 2五歩
+      { move: "39-38" }, // 3八銀
+      { move: "38-27" }, // 2七銀
+      { move: "69-78" }, // 7八金
+      { move: "77-76" }, // 7六歩
+    ],
+  },
+  {
+    id: "hidarimino",
+    name: "左美濃",
+    forPlayer: "sente",
+    weight: 7,
+    moves: [
+      { move: "77-76" }, // 7六歩
+      { move: "27-26" }, // 2六歩
+      { move: "59-68" }, // 6八玉
+      { move: "68-78" }, // 7八玉
+      { move: "79-68" }, // 6八銀
+      { move: "49-58" }, // 5八金
     ],
   },
 ];
 
 // === 後手用定石 ===
+// 初期配置(後手):
+//   一段(row0): 香(0) 桂(1) 銀(2) 金(3) 玉(4) 金(5) 銀(6) 桂(7) 香(8)
+//   二段(row1): .(0)  飛(1) .(2)  .(3)  .(4)  .(5)  .(6)  角(7) .(8)
+//   三段(row2): 歩(0-8)
+// 後手は row が増える方向に進む
 
 const GOTE_STRATEGIES: OpeningStrategy[] = [
   {
@@ -233,16 +213,11 @@ const GOTE_STRATEGIES: OpeningStrategy[] = [
     forPlayer: "gote",
     weight: 10,
     moves: [
-      // 3四歩 (row2,col2→row3,col2)
-      { move: "22,32" },
-      // 4二銀 (row0,col2→row1,col3)
-      { move: "02,13" },
-      // 3三銀
-      { move: "13,22" },
-      // 4二金 (row0,col3→row1,col3)
-      { move: "03,13" },
-      // 3一玉 (row0,col4→row1,col3)
-      { move: "04,13" },
+      { move: "33-34" }, // 3四歩
+      { move: "71-62" }, // 6二銀
+      { move: "62-53" }, // 5三銀
+      { move: "51-42" }, // 4二玉
+      { move: "41-32" }, // 3二金
     ],
   },
   {
@@ -251,20 +226,11 @@ const GOTE_STRATEGIES: OpeningStrategy[] = [
     forPlayer: "gote",
     weight: 10,
     moves: [
-      // 3四歩
-      { move: "22,32" },
-      // 4二飛 (row1,col1→row1,col3) 飛車を四間に
-      { move: "11,13" },
-      // 3二銀
-      { move: "02,12" },
-      // 6二玉 (row0,col4→row0,col5)
-      { move: "04,05" },
-      // 7二玉
-      { move: "05,06" },
-      // 8二玉
-      { move: "06,07" },
-      // 7二銀
-      { move: "06,12" },
+      { move: "33-34" }, // 3四歩
+      { move: "82-42" }, // 4二飛
+      { move: "51-62" }, // 6二玉
+      { move: "62-72" }, // 7二玉
+      { move: "31-32" }, // 3二銀
     ],
   },
   {
@@ -273,16 +239,11 @@ const GOTE_STRATEGIES: OpeningStrategy[] = [
     forPlayer: "gote",
     weight: 9,
     moves: [
-      // 5四歩 (row2,col4→row3,col4)
-      { move: "24,34" },
-      // 5二飛 (row1,col1→row1,col4)
-      { move: "11,14" },
-      // 3二銀
-      { move: "02,12" },
-      // 6二玉
-      { move: "04,05" },
-      // 7二玉
-      { move: "05,06" },
+      { move: "53-54" }, // 5四歩
+      { move: "82-52" }, // 5二飛
+      { move: "71-62" }, // 6二銀
+      { move: "51-42" }, // 4二玉
+      { move: "42-32" }, // 3二玉
     ],
   },
   {
@@ -291,16 +252,11 @@ const GOTE_STRATEGIES: OpeningStrategy[] = [
     forPlayer: "gote",
     weight: 8,
     moves: [
-      // 8四歩 (row2,col7→row3,col7)
-      { move: "27,37" },
-      // 8五歩
-      { move: "37,47" },
-      // 3二金 (row0,col3→row1,col2)
-      { move: "03,12" },
-      // 4二銀
-      { move: "02,13" },
-      // 3三銀
-      { move: "13,22" },
+      { move: "83-84" }, // 8四歩
+      { move: "84-85" }, // 8五歩
+      { move: "41-32" }, // 3二金
+      { move: "71-62" }, // 6二銀
+      { move: "62-53" }, // 5三銀
     ],
   },
   {
@@ -309,24 +265,44 @@ const GOTE_STRATEGIES: OpeningStrategy[] = [
     forPlayer: "gote",
     weight: 8,
     moves: [
-      // 8四歩
-      { move: "27,37" },
-      // 8五歩
-      { move: "37,47" },
-      // 7二銀 (row0,col6→row1,col6)
-      { move: "06,16" },
-      // 8三銀 (row1,col6→row2,col7)
-      { move: "16,27" },
-      // 3二金
-      { move: "03,12" },
+      { move: "83-84" }, // 8四歩
+      { move: "84-85" }, // 8五歩
+      { move: "71-72" }, // 7二銀
+      { move: "72-83" }, // 8三銀
+      { move: "41-32" }, // 3二金
+    ],
+  },
+  {
+    id: "gote_sangenbisha",
+    name: "後手三間飛車",
+    forPlayer: "gote",
+    weight: 7,
+    moves: [
+      { move: "33-34" }, // 3四歩
+      { move: "82-32" }, // 3二飛
+      { move: "51-62" }, // 6二玉
+      { move: "62-72" }, // 7二玉
+      { move: "71-62" }, // 6二銀
+    ],
+  },
+  {
+    id: "gote_ibisha",
+    name: "後手居飛車",
+    forPlayer: "gote",
+    weight: 8,
+    moves: [
+      { move: "83-84" }, // 8四歩
+      { move: "33-34" }, // 3四歩
+      { move: "41-32" }, // 3二金
+      { move: "71-62" }, // 6二銀
+      { move: "51-42" }, // 4二玉
     ],
   },
 ];
 
-// 全戦法の統合
 const ALL_STRATEGIES = [...SENTE_STRATEGIES, ...GOTE_STRATEGIES];
 
-// 対局の手順が定石と一致するかチェックし、次の手を返す
+// 対局の手順に基づいて次のブック手を返す
 export function getBookMove(
   state: GameState,
   player: Player
@@ -336,24 +312,21 @@ export function getBookMove(
     (s) => s.forPlayer === player || s.forPlayer === "both"
   );
 
-  // 各戦法について、現在の手順と一致するか確認
   const candidates: { move: Move; weight: number }[] = [];
 
   for (const strategy of applicableStrategies) {
     const bookMoves = strategy.moves;
 
-    // 手番に基づいてブック内の何手目かを計算
-    // 先手なら偶数手（0, 2, 4...）がこちらの手
-    // 後手なら奇数手（1, 3, 5...）がこちらの手
+    // 自分の手番だけを抽出
     const myMoveIndices: number[] = [];
     for (let i = 0; i < history.length; i++) {
       if (history[i].player === player) myMoveIndices.push(i);
     }
     const myMoveCount = myMoveIndices.length;
 
-    if (myMoveCount >= bookMoves.length) continue; // ブック終了
+    if (myMoveCount >= bookMoves.length) continue;
 
-    // これまでの自分の手がブックと一致するか確認
+    // これまでの自分の手がブックと一致するか
     let matches = true;
     for (let i = 0; i < myMoveCount; i++) {
       const bookNotation = bookMoves[i].move;
@@ -363,12 +336,11 @@ export function getBookMove(
         break;
       }
     }
-
     if (!matches) continue;
 
-    // 次のブック手を取得
+    // 次のブック手を生成・検証
     const nextNotation = bookMoves[myMoveCount].move;
-    const nextMove = parseBookMove(nextNotation, player, state.board);
+    const nextMove = parseBookNotation(nextNotation, player, state.board);
     if (nextMove) {
       candidates.push({ move: nextMove, weight: strategy.weight });
     }
@@ -383,39 +355,33 @@ export function getBookMove(
     rand -= candidate.weight;
     if (rand <= 0) return candidate.move;
   }
-
   return candidates[candidates.length - 1].move;
 }
 
-// Moveオブジェクトがブック表記と一致するか
+// Moveが標準表記と一致するか
 function moveMatchesNotation(move: Move, notation: string): boolean {
   if (notation.startsWith("drop:")) {
     if (move.type !== "drop") return false;
-    const match = notation.match(/^drop:(\w+)@(\d)(\d)$/);
+    const match = notation.match(/^drop:(\w+)@(\d\d)$/);
     if (!match) return false;
-    return move.dropPiece === match[1] &&
-      move.to.row === parseInt(match[2]) &&
-      move.to.col === parseInt(match[3]);
+    const to = fromNotation(match[2]);
+    return move.dropPiece === match[1] && move.to.row === to.row && move.to.col === to.col;
   }
 
   if (move.type !== "move") return false;
-
   const promote = notation.endsWith("+");
   const clean = promote ? notation.slice(0, -1) : notation;
-  const parts = clean.split(",");
+  const parts = clean.split("-");
   if (parts.length !== 2) return false;
 
-  const fromRow = parseInt(parts[0][0]);
-  const fromCol = parseInt(parts[0][1]);
-  const toRow = parseInt(parts[1][0]);
-  const toCol = parseInt(parts[1][1]);
+  const from = fromNotation(parts[0]);
+  const to = fromNotation(parts[1]);
 
-  return move.from?.row === fromRow &&
-    move.from?.col === fromCol &&
-    move.to.row === toRow &&
-    move.to.col === toCol &&
-    (move.promote ?? false) === promote;
+  return (
+    move.from?.row === from.row && move.from?.col === from.col &&
+    move.to.row === to.row && move.to.col === to.col &&
+    (move.promote ?? false) === promote
+  );
 }
 
-// 定石ブック内の手数上限
 export const MAX_BOOK_MOVES = 15;

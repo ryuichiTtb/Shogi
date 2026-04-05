@@ -354,16 +354,37 @@ function evaluateKingSafety(
         const baseBonus = dist === 1 ? 25 : 10;
         safety += isDefensePiece ? Math.floor(baseBonus * 1.5) : baseBonus;
       } else {
-        // 敵駒が玉周辺に侵入: ペナルティ
-        const penalty = dist === 1 ? -30 : -15;
+        // 敵駒が玉周辺に侵入: ペナルティ（強化）
+        const penalty = dist === 1 ? -50 : -20;
         safety += penalty;
       }
     }
   }
 
-  // 王手ペナルティ（高速版使用）
+  // 玉の逃げ道評価（liberty）: 隣接空きマスのうち敵に攻撃されていない数
+  let liberties = 0;
+  const kingDirs = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+  for (const [dr, dc] of kingDirs) {
+    const r = kingPos.row + dr;
+    const c = kingPos.col + dc;
+    if (r < 0 || r >= rows || c < 0 || c >= cols) continue;
+    const piece = state.board[r][c];
+    // 味方駒がいるマスには逃げられない
+    if (piece && piece.owner === player) continue;
+    // 敵に攻撃されているマスには逃げられない
+    if (isSquareAttackedByFast(state.board, { row: r, col: c }, opponent, variant.boardSize)) continue;
+    liberties++;
+  }
+  // 逃げ道が少ないほどペナルティ（0=完全に囲まれている→危険）
+  if (liberties === 0) {
+    safety -= 150; // 逃げ道なし: 詰みの危険
+  } else if (liberties === 1) {
+    safety -= 60;  // 逃げ道1つ: 危険
+  }
+
+  // 王手ペナルティ（強化: 王手は非常に危険な状態）
   if (isSquareAttackedByFast(state.board, kingPos, opponent, variant.boardSize)) {
-    safety -= 200;
+    safety -= 500;
   }
 
   return safety;
