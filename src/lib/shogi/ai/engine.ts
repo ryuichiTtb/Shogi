@@ -1,8 +1,10 @@
 import type { Difficulty, GameState, Move, Player, RuleVariant } from "../types";
 import { STANDARD_VARIANT } from "../variants/standard";
 import { findBestMove } from "./search";
+import { evaluate } from "./evaluate";
 import { getBookMove, MAX_BOOK_MOVES } from "./openingBook";
-import { getFullLegalMoves } from "../moves";
+import { getFullLegalMoves, isSquareAttackedByFast } from "../moves";
+import { applyMoveForSearch } from "../board";
 
 // 難易度別探索パラメータ
 const DIFFICULTY_PARAMS: Record<Difficulty, {
@@ -27,18 +29,18 @@ const DIFFICULTY_PARAMS: Record<Difficulty, {
     nearEqualThreshold: 80, // 中程度の閾値
   },
   advanced: {
-    maxDepth: 10,
-    timeLimitMs: 3000,
-    addNoise: 0,
+    maxDepth: 12,
+    timeLimitMs: 2800,     // 3秒以内（マージン込み）
+    addNoise: 0,           // ノイズなし: ブランダー排除
     useBook: true,
-    nearEqualThreshold: 25, // 小さい閾値: 多少のブレ
+    nearEqualThreshold: 15, // 小さい閾値: 最善手に近い手のみ
   },
   expert: {
-    maxDepth: 16,
-    timeLimitMs: 5000,     // 長い思考時間
-    addNoise: 0,
+    maxDepth: 20,          // 反復深化で到達できる限り深く
+    timeLimitMs: 2800,     // 3秒以内（マージン込み）
+    addNoise: 0,           // ノイズなし: ブランダー排除
     useBook: true,
-    nearEqualThreshold: 10, // ほぼ最善手のみ
+    nearEqualThreshold: 5,  // ほぼ最善手のみ
   },
 };
 
@@ -73,12 +75,86 @@ export function calculateAiMove(
   }
 
   // 探索による手の選択
-  return findBestMove(state, player, {
+  const bestMove = findBestMove(state, player, {
     maxDepth: params.maxDepth,
     timeLimitMs: params.timeLimitMs,
     addNoise: params.addNoise,
     nearEqualThreshold: params.nearEqualThreshold,
   }, variant);
+
+  // ブランダーガード（上級・超上級専用）
+  // 探索結果の最終チェック: 選択した手を指した後に自駒がタダ取りされないか確認
+  if (
+    (difficulty === "advanced" || difficulty === "expert") &&
+    bestMove !== null
+  ) {
+    const nextState = applyMoveForSearch(state, bestMove);
+    if (hasHangingPiece(nextState, player, variant)) {
+      // ブランダーの可能性 → 全合法手から安全な手を選び直す
+      const legalMoves = getFullLegalMoves(state, player, variant);
+      const safeMoves = legalMoves.filter((move) => {
+        const ns = applyMoveForSearch(state, move);
+        return !hasHangingPiece(ns, player, variant);
+      });
+
+      if (safeMoves.length > 0) {
+        // 安全な手の中から静的評価で最善手を選択
+        let bestSafeScore = -Infinity;
+        let bestSafeMove = safeMoves[0];
+        for (const move of safeMoves) {
+          const ns = applyMoveForSearch(state, move);
+          const rawScore = evaluate(ns, variant);
+          const score = player === "sente" ? rawScore : -rawScore;
+          if (score > bestSafeScore) {
+            bestSafeScore = score;
+            bestSafeMove = move;
+          }
+        }
+        return bestSafeMove;
+      }
+      // 安全な手がない場合（全手がタダ取りされる場合）は元の最善手を返す
+    }
+  }
+
+  return bestMove;
+}
+
+// ブランダーガード用: 駒の価値テーブル
+const BLUNDER_PIECE_VALUES: Record<string, number> = {
+  pawn: 100, lance: 300, knight: 400, silver: 500, gold: 600,
+  bishop: 800, rook: 1000, promoted_pawn: 600, promoted_lance: 600,
+  promoted_knight: 600, promoted_silver: 600, promoted_bishop: 1100,
+  promoted_rook: 1300, king: 10000,
+};
+
+// ブランダーガード: 指した後に価値>=300の自駒がタダ取りされる状態かチェック
+function hasHangingPiece(
+  state: GameState,
+  player: Player,
+  variant: RuleVariant,
+  minValue: number = 300
+): boolean {
+  const board = state.board;
+  const { rows, cols } = variant.boardSize;
+  const opponent: Player = player === "sente" ? "gote" : "sente";
+
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const piece = board[row][col];
+      if (!piece || piece.owner !== player || piece.type === "king") continue;
+
+      const value = BLUNDER_PIECE_VALUES[piece.type] ?? 0;
+      if (value < minValue) continue;
+
+      const pos = { row, col };
+      if (isSquareAttackedByFast(board, pos, opponent, variant.boardSize)) {
+        if (!isSquareAttackedByFast(board, pos, player, variant.boardSize)) {
+          return true; // 攻撃されているが守られていない → タダ取り
+        }
+      }
+    }
+  }
+  return false;
 }
 
 // 難易度の表示名

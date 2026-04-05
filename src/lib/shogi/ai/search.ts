@@ -213,6 +213,10 @@ function quiescence(
   const opponent: Player = player === "sente" ? "gote" : "sente";
 
   for (const move of captures) {
+    // Delta Pruning: 取っても到底alphaに届かない駒取りをスキップ
+    const capturedValue = ORDER_PIECE_VALUES[move.captured!] ?? 100;
+    if (standPat + capturedValue + 200 < currentAlpha) continue;
+
     const nextState = applyMoveForSearch(state, move);
     const nextHash = updateHash(hash, state, move, nextState);
     const score = -quiescence(nextState, -beta, -currentAlpha, opponent, variant, tt, nextHash);
@@ -239,8 +243,8 @@ function negamax(
   startTime: number,
   timeLimitMs: number
 ): number {
-  // Time check（16ノードごと）
-  if ((ply & 15) === 0 && (Date.now() - startTime > timeLimitMs)) {
+  // Time check（8ノードごと）
+  if ((ply & 7) === 0 && (Date.now() - startTime > timeLimitMs)) {
     const rawScore = evaluate(state, variant);
     return player === "sente" ? rawScore : -rawScore;
   }
@@ -258,15 +262,15 @@ function negamax(
     ttMove = ttEntry.bestMove;
   }
 
-  // 王手チェック（check extension用）
-  const inCheck = isInCheck(state, player, variant);
-
   // Check Extension: 王手されている場合は深度を1延長
-  // これにより詰みの読みが格段に深くなる
-  const effectiveDepth = inCheck ? depth + 1 : depth;
+  // depthを直接変更することで、再帰呼出し・TT・futilityすべてに自動反映
+  const inCheck = isInCheck(state, player, variant);
+  if (inCheck && ply < MAX_DEPTH - 2) {
+    depth++;
+  }
 
   // Quiescence search at depth 0
-  if (effectiveDepth <= 0) {
+  if (depth <= 0) {
     return quiescence(state, alpha, beta, player, variant, tt, hash);
   }
 
@@ -295,7 +299,7 @@ function negamax(
       positionHistory: state.positionHistory,
     };
     const nullHash = hash ^ SIDE_TO_MOVE_KEY;
-    const R = 2;
+    const R = depth >= 6 ? 3 : 2;
     const nullScore = -negamax(
       nullState,
       depth - 1 - R,
@@ -370,6 +374,7 @@ function negamax(
       let reduction = 0;
       if (i >= 3 && depth >= 3 && !isCapture && !isPromotion && !isKiller && !inCheck) {
         reduction = 1;
+        if (i >= 8 && depth >= 5) reduction = 2;
       }
 
       score = -negamax(
@@ -487,7 +492,7 @@ export function findBestMove(
       for (let i = 0; i < sortedMoves.length; i++) {
         const move = sortedMoves[i];
         const elapsed2 = Date.now() - startTime;
-        if (elapsed2 > options.timeLimitMs * 0.9) break;
+        if (elapsed2 > options.timeLimitMs * 0.85) break;
 
         const nextState = applyMoveForSearch(state, move);
         const nextHash = updateHash(initialHash, state, move, nextState);

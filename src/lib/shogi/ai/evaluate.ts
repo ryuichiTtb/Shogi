@@ -1,4 +1,4 @@
-import type { GameState, Player, RuleVariant } from "../types";
+import type { Board, GameState, Player, Position, RuleVariant } from "../types";
 import { STANDARD_VARIANT } from "../variants/standard";
 import { findKing, isSquareAttackedByFast } from "../moves";
 
@@ -197,6 +197,259 @@ const PST_MAP: Record<string, number[][] | undefined> = {
   promoted_bishop: PROMOTED_BISHOP_PST,
 };
 
+// 成り可能な駒タイプ（成りゾーン脅威検知用）
+const PROMOTABLE_TYPES = new Set(["pawn", "lance", "knight", "silver", "bishop", "rook"]);
+
+// 成り込み脅威ペナルティ
+const PROMOTION_THREAT: Record<string, number> = {
+  rook: 150, bishop: 120, silver: 30, pawn: 15, lance: 15, knight: 15,
+};
+
+// 金型の駒タイプ
+const GOLD_TYPES = new Set(["gold", "promoted_pawn", "promoted_silver", "promoted_knight", "promoted_lance"]);
+
+// 最も安い攻撃駒の価値を返す（交換品質評価用）
+// isSquareAttackedByFastと同じ逆方向走査だが、安い駒から順に探索し、見つかったら即return
+function getLeastAttackerValue(
+  board: Board,
+  pos: Position,
+  attacker: Player,
+  boardSize: { rows: number; cols: number }
+): number {
+  const { rows, cols } = boardSize;
+  const tr = pos.row;
+  const tc = pos.col;
+  const s = attacker === "sente" ? -1 : 1;
+  let r: number, c: number;
+
+  // 歩 (100) — 最安値から探索
+  r = tr - s;
+  if (r >= 0 && r < rows) {
+    const p = board[r][tc];
+    if (p && p.owner === attacker && p.type === "pawn") return 100;
+  }
+
+  // 香車 (300)
+  const lanceDr = attacker === "sente" ? 1 : -1;
+  r = tr + lanceDr;
+  while (r >= 0 && r < rows) {
+    const p = board[r][tc];
+    if (p) {
+      if (p.owner === attacker && p.type === "lance") return 300;
+      break;
+    }
+    r += lanceDr;
+  }
+
+  // 桂馬 (400)
+  r = tr + s * -2;
+  if (r >= 0 && r < rows) {
+    c = tc + s * -1;
+    if (c >= 0 && c < cols) {
+      const p = board[r][c];
+      if (p && p.owner === attacker && p.type === "knight") return 400;
+    }
+    c = tc + s * 1;
+    if (c >= 0 && c < cols) {
+      const p = board[r][c];
+      if (p && p.owner === attacker && p.type === "knight") return 400;
+    }
+  }
+
+  // 銀 (500)
+  const sd: [number, number][] = [[-1, -1], [-1, 0], [-1, 1], [1, -1], [1, 1]];
+  for (let i = 0; i < 5; i++) {
+    r = tr + s * sd[i][0];
+    c = tc + s * sd[i][1];
+    if (r >= 0 && r < rows && c >= 0 && c < cols) {
+      const p = board[r][c];
+      if (p && p.owner === attacker && p.type === "silver") return 500;
+    }
+  }
+
+  // 金型 (600) — 金、と金、成銀、成桂、成香
+  const gd: [number, number][] = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, 0]];
+  for (let i = 0; i < 6; i++) {
+    r = tr + s * gd[i][0];
+    c = tc + s * gd[i][1];
+    if (r >= 0 && r < rows && c >= 0 && c < cols) {
+      const p = board[r][c];
+      if (p && p.owner === attacker && GOLD_TYPES.has(p.type)) return 600;
+    }
+  }
+
+  // 角 (800)
+  for (const [dr, dc] of [[1, 1], [1, -1], [-1, 1], [-1, -1]] as const) {
+    r = tr + dr;
+    c = tc + dc;
+    while (r >= 0 && r < rows && c >= 0 && c < cols) {
+      const p = board[r][c];
+      if (p) {
+        if (p.owner === attacker && p.type === "bishop") return 800;
+        break;
+      }
+      r += dr;
+      c += dc;
+    }
+  }
+
+  // 飛車 (1000)
+  for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+    r = tr + dr;
+    c = tc + dc;
+    while (r >= 0 && r < rows && c >= 0 && c < cols) {
+      const p = board[r][c];
+      if (p) {
+        if (p.owner === attacker && p.type === "rook") return 1000;
+        break;
+      }
+      r += dr;
+      c += dc;
+    }
+  }
+
+  // 馬 (1100)
+  for (const [dr, dc] of [[1, 1], [1, -1], [-1, 1], [-1, -1]] as const) {
+    r = tr + dr;
+    c = tc + dc;
+    while (r >= 0 && r < rows && c >= 0 && c < cols) {
+      const p = board[r][c];
+      if (p) {
+        if (p.owner === attacker && p.type === "promoted_bishop") return 1100;
+        break;
+      }
+      r += dr;
+      c += dc;
+    }
+  }
+  // 馬の縦横ステップ
+  for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+    r = tr + dr;
+    c = tc + dc;
+    if (r >= 0 && r < rows && c >= 0 && c < cols) {
+      const p = board[r][c];
+      if (p && p.owner === attacker && p.type === "promoted_bishop") return 1100;
+    }
+  }
+
+  // 龍 (1300)
+  for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+    r = tr + dr;
+    c = tc + dc;
+    while (r >= 0 && r < rows && c >= 0 && c < cols) {
+      const p = board[r][c];
+      if (p) {
+        if (p.owner === attacker && p.type === "promoted_rook") return 1300;
+        break;
+      }
+      r += dr;
+      c += dc;
+    }
+  }
+  // 龍の斜めステップ
+  for (const [dr, dc] of [[1, 1], [1, -1], [-1, 1], [-1, -1]] as const) {
+    r = tr + dr;
+    c = tc + dc;
+    if (r >= 0 && r < rows && c >= 0 && c < cols) {
+      const p = board[r][c];
+      if (p && p.owner === attacker && p.type === "promoted_rook") return 1300;
+    }
+  }
+
+  // 王 (10000) — 最後
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      if (dr === 0 && dc === 0) continue;
+      r = tr + dr;
+      c = tc + dc;
+      if (r >= 0 && r < rows && c >= 0 && c < cols) {
+        const p = board[r][c];
+        if (p && p.owner === attacker && p.type === "king") return 10000;
+      }
+    }
+  }
+
+  return 0; // 攻撃駒なし
+}
+
+// --- 駒安全性評価 ---
+
+// 駒の安全性を評価（タダ取り・駒損交換の検知）
+function evaluatePieceSafety(
+  state: GameState,
+  player: Player,
+  variant: RuleVariant
+): number {
+  let penalty = 0;
+  const opponent: Player = player === "sente" ? "gote" : "sente";
+  const { rows, cols } = variant.boardSize;
+  const board = state.board;
+
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const piece = board[row][col];
+      if (!piece || piece.owner !== player || piece.type === "king") continue;
+
+      const pos = { row, col };
+      const attacked = isSquareAttackedByFast(board, pos, opponent, variant.boardSize);
+      if (!attacked) continue;
+
+      const value = PIECE_VALUES[piece.type] ?? 100;
+      const defended = isSquareAttackedByFast(board, pos, player, variant.boardSize);
+
+      if (!defended) {
+        // タダ取り: 無防備の駒 → 駒価値の70%ペナルティ
+        penalty -= Math.floor(value * 0.7);
+      } else {
+        // 攻撃され、かつ守られている → 交換品質を評価
+        const leastAttacker = getLeastAttackerValue(board, pos, opponent, variant.boardSize);
+        if (leastAttacker > 0 && leastAttacker < value) {
+          // 安い駒で攻撃されている → 交換すると損
+          // 例: 飛車(1000)を歩(100)が攻撃 → 900×0.4=360cpペナルティ
+          penalty -= Math.floor((value - leastAttacker) * 0.4);
+        }
+      }
+    }
+  }
+
+  return penalty;
+}
+
+// --- 成り込み脅威検知 ---
+
+// 相手の未成り駒が成りゾーンに侵入している場合のペナルティ
+function evaluatePromotionThreats(
+  state: GameState,
+  player: Player,
+  variant: RuleVariant
+): number {
+  let penalty = 0;
+  const opponent: Player = player === "sente" ? "gote" : "sente";
+  const { rows } = variant.boardSize;
+  const zoneRows = variant.rules.promotionZoneRows; // 3
+
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < 9; col++) {
+      const piece = state.board[row][col];
+      if (!piece || piece.owner !== opponent) continue;
+      if (!PROMOTABLE_TYPES.has(piece.type)) continue;
+
+      // 相手が成りゾーンにいるか判定
+      // opponent=senteなら成りゾーンはrow < zoneRows (0,1,2)
+      // opponent=goteなら成りゾーンはrow >= rows - zoneRows (6,7,8)
+      const inPromotionZone = opponent === "sente"
+        ? row < zoneRows
+        : row >= rows - zoneRows;
+
+      if (inPromotionZone) {
+        penalty -= PROMOTION_THREAT[piece.type] ?? 15;
+      }
+    }
+  }
+
+  return penalty;
+}
+
 // --- 囲いパターン認識 ---
 
 // 囲いパターン: 玉からの相対位置と必要な駒種
@@ -354,9 +607,20 @@ function evaluateKingSafety(
         const baseBonus = dist === 1 ? 25 : 10;
         safety += isDefensePiece ? Math.floor(baseBonus * 1.5) : baseBonus;
       } else {
-        // 敵駒が玉周辺に侵入: ペナルティ（強化）
-        const penalty = dist === 1 ? -50 : -20;
-        safety += penalty;
+        // 敵駒が玉周辺に侵入: 駒種別のペナルティ
+        const pt = piece.type;
+        let threatPenalty: number;
+        if (pt === "rook" || pt === "promoted_rook") {
+          threatPenalty = dist === 1 ? -120 : -60;
+        } else if (pt === "bishop" || pt === "promoted_bishop") {
+          threatPenalty = dist === 1 ? -100 : -50;
+        } else if (pt === "gold" || pt === "silver" || pt === "promoted_pawn" ||
+                   pt === "promoted_silver" || pt === "promoted_knight" || pt === "promoted_lance") {
+          threatPenalty = dist === 1 ? -60 : -25;
+        } else {
+          threatPenalty = dist === 1 ? -35 : -15;
+        }
+        safety += threatPenalty;
       }
     }
   }
@@ -475,6 +739,14 @@ export function evaluate(
   // 飛車オープンファイル
   score += evaluateRookFiles(state, "sente", variant);
   score -= evaluateRookFiles(state, "gote", variant);
+
+  // 駒安全性（タダ取り・駒損交換の検知）
+  score += evaluatePieceSafety(state, "sente", variant);
+  score -= evaluatePieceSafety(state, "gote", variant);
+
+  // 成り込み脅威
+  score += evaluatePromotionThreats(state, "sente", variant);
+  score -= evaluatePromotionThreats(state, "gote", variant);
 
   // テンポボーナス（手番側に小さなボーナス）
   score += state.currentPlayer === "sente" ? 15 : -15;
