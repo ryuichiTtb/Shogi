@@ -18,8 +18,10 @@ interface CapturedPiecesProps {
 // 手駒の表示順
 const HAND_PIECE_ORDER = ["rook", "bishop", "gold", "silver", "knight", "lance", "pawn"];
 
-// 固定高さ: 56px（ラベル14px + gap2px + 駒行40px = 56px）
-export const CAPTURED_PIECES_HEIGHT = 56;
+// 固定高さ: 72px（padding上下12px + ラベル12px + gap2px + 駒行最大44px + 余裕2px = 72px）
+// handPieceSize は Math.max(36, Math.min(44, squareSize * 0.85)) で最大44pxになるため、
+// PC(squareSize大)で見切れないよう十分な高さを確保する。
+export const CAPTURED_PIECES_HEIGHT = 72;
 
 export function CapturedPieces({
   hand,
