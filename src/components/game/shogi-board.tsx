@@ -103,10 +103,11 @@ export function ShogiBoard({
           ref={gridRef}
           role="grid"
           aria-label="将棋盤"
-          className="grid border-2 border-amber-800 dark:border-amber-600 relative"
+          className="grid border border-amber-800 dark:border-amber-600 bg-amber-800/60 dark:bg-amber-500/60 relative"
           style={{
             gridTemplateColumns: `repeat(9, ${squareSize}px)`,
             gridTemplateRows: `repeat(9, ${squareSize}px)`,
+            gap: "1px",
             touchAction: "none",
           }}
           onClick={(e) => e.stopPropagation()}
@@ -131,7 +132,7 @@ export function ShogiBoard({
                   key={`${rowIdx}-${colIdx}`}
                   data-legal={isLegalTarget}
                   className={cn(
-                    "shogi-square border border-amber-700/60 dark:border-amber-600/40 relative flex items-center justify-center",
+                    "shogi-square relative flex items-center justify-center",
                     "cursor-pointer",
                     // 通常背景
                     "bg-amber-50 dark:bg-amber-900/40",
