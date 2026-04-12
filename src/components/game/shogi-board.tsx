@@ -131,7 +131,7 @@ export function ShogiBoard({
                   key={`${rowIdx}-${colIdx}`}
                   data-legal={isLegalTarget}
                   className={cn(
-                    "shogi-square border border-amber-700/30 dark:border-amber-600/20 relative flex items-center justify-center",
+                    "shogi-square border-0 relative flex items-center justify-center",
                     "cursor-pointer",
                     // 通常背景
                     "bg-amber-50 dark:bg-amber-900/40",
@@ -149,7 +149,11 @@ export function ShogiBoard({
                     // ホバー
                     isPlayerTurn && !isAiThinking && "hover:bg-amber-100 dark:hover:bg-amber-800/50"
                   )}
-                  style={{ width: squareSize, height: squareSize }}
+                  style={{
+                    width: squareSize,
+                    height: squareSize,
+                    boxShadow: "inset 0 0 0 0.25px var(--board-line-color)",
+                  }}
                 >
                   {/* 合法手ドット（空きマス） */}
                   {isLegalTarget && !piece && (
