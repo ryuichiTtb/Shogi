@@ -85,18 +85,8 @@ export function ShogiBoard({
       </div>
 
       <div className="flex">
-        {/* ランクラベル（左） */}
-        <div className="flex flex-col" style={{ marginRight: 2 }}>
-          {rankLabels.map((label) => (
-            <div
-              key={label}
-              className="flex items-center justify-center text-muted-foreground"
-              style={{ height: squareSize, width: labelSize, fontSize: labelSize * 0.75 }}
-            >
-              {label}
-            </div>
-          ))}
-        </div>
+        {/* 左側スペーサー（段ラベルと同幅で盤面を中央に揃える） */}
+        <div style={{ width: labelSize + 6 }} />
 
         {/* 盤面グリッド */}
         <div
@@ -197,8 +187,18 @@ export function ShogiBoard({
           )}
         </div>
 
-        {/* 右側スペーサー（段ラベルと同幅で盤面を中央に揃える） */}
-        <div style={{ width: labelSize + 6 }} />
+        {/* ランクラベル（右） */}
+        <div className="flex flex-col" style={{ marginLeft: 2 }}>
+          {rankLabels.map((label) => (
+            <div
+              key={label}
+              className="flex items-center justify-center text-muted-foreground"
+              style={{ height: squareSize, width: labelSize, fontSize: labelSize * 0.75 }}
+            >
+              {label}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
