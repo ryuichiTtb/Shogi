@@ -131,7 +131,7 @@ export function ShogiBoard({
                   key={`${rowIdx}-${colIdx}`}
                   data-legal={isLegalTarget}
                   className={cn(
-                    "shogi-square border-[0.5px] border-amber-700/60 dark:border-amber-600/40 relative flex items-center justify-center",
+                    "shogi-square border border-amber-700/30 dark:border-amber-600/20 relative flex items-center justify-center",
                     "cursor-pointer",
                     // 通常背景
                     "bg-amber-50 dark:bg-amber-900/40",
