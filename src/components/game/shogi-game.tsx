@@ -58,7 +58,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
   const [overlayEvent, setOverlayEvent] = useState<{ event: OverlayEvent; key: number } | null>(null);
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const { squareSize, viewportHeight } = useBoardSize();
+  const { squareSize, isMobile, viewportHeight } = useBoardSize();
 
   // クライアント側でバリアントを復元（関数を含むため props では渡せない）
   const gameConfig: GameConfig = {
@@ -215,6 +215,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
               inCheck={inCheck}
               onSquareClick={selectSquare}
               squareSize={squareSize}
+              isMobile={isMobile}
             />
             <BoardOverlay key={overlayEvent?.key} event={overlayEvent?.event ?? null} />
           </div>

@@ -2,8 +2,11 @@
 
 import { useState, useEffect, useCallback } from "react";
 
+const MOBILE_BREAKPOINT = 768;
+
 interface BoardSize {
   squareSize: number;
+  isMobile: boolean;
   viewportHeight: number;
   isReady: boolean;
 }
@@ -26,34 +29,39 @@ const VERTICAL_RESERVED =
 
 const MIN_SQUARE_SIZE = 36;
 const MAX_SQUARE_SIZE = 64;
-const HORIZONTAL_PADDING = 40; // 左右パディング + ラベル分
+const HORIZONTAL_PADDING = 40;
+const HORIZONTAL_PADDING_MOBILE = 24;
 const BOARD_CELLS = 9;
 
-function calculate(): { squareSize: number; viewportHeight: number } {
-  if (typeof window === "undefined") return { squareSize: 40, viewportHeight: 800 };
+function calculate(): { squareSize: number; isMobile: boolean; viewportHeight: number } {
+  if (typeof window === "undefined") return { squareSize: 40, isMobile: false, viewportHeight: 800 };
 
   const vw = window.innerWidth;
   // window.innerHeight は iOS Safari でもアドレスバー込みの実際の表示領域を返す
   const vh = window.innerHeight;
+  const isMobile = vw < MOBILE_BREAKPOINT;
 
-  const availableWidth = vw - HORIZONTAL_PADDING;
+  const padding = isMobile ? HORIZONTAL_PADDING_MOBILE : HORIZONTAL_PADDING;
+  const availableWidth = vw - padding;
   const availableHeight = vh - VERTICAL_RESERVED;
 
   const fromWidth = Math.floor(availableWidth / BOARD_CELLS);
   const fromHeight = Math.floor(availableHeight / BOARD_CELLS);
 
   const squareSize = Math.max(MIN_SQUARE_SIZE, Math.min(MAX_SQUARE_SIZE, fromWidth, fromHeight));
-  return { squareSize, viewportHeight: vh };
+  return { squareSize, isMobile, viewportHeight: vh };
 }
 
 export function useBoardSize(): BoardSize {
   const [squareSize, setSquareSize] = useState(40);
+  const [isMobile, setIsMobile] = useState(false);
   const [viewportHeight, setViewportHeight] = useState(800);
   const [isReady, setIsReady] = useState(false);
 
   const recalculate = useCallback(() => {
     const result = calculate();
     setSquareSize(result.squareSize);
+    setIsMobile(result.isMobile);
     setViewportHeight(result.viewportHeight);
   }, []);
 
@@ -77,5 +85,5 @@ export function useBoardSize(): BoardSize {
     };
   }, [recalculate]);
 
-  return { squareSize, viewportHeight, isReady };
+  return { squareSize, isMobile, viewportHeight, isReady };
 }
