@@ -107,7 +107,7 @@ export function ShogiBoard({
           style={{
             gridTemplateColumns: `repeat(9, ${squareSize}px)`,
             gridTemplateRows: `repeat(9, ${squareSize}px)`,
-            gap: "0.5px",
+            gap: "1px",
             touchAction: "none",
           }}
           onClick={(e) => e.stopPropagation()}
