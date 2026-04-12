@@ -103,7 +103,7 @@ export function ShogiBoard({
           ref={gridRef}
           role="grid"
           aria-label="将棋盤"
-          className="grid border border-amber-800 dark:border-amber-600 bg-amber-800/60 dark:bg-amber-500/60 relative"
+          className="grid border border-amber-800 dark:border-amber-400 bg-amber-800/60 dark:bg-amber-400/60 relative"
           style={{
             gridTemplateColumns: `repeat(9, ${squareSize}px)`,
             gridTemplateRows: `repeat(9, ${squareSize}px)`,
@@ -138,7 +138,7 @@ export function ShogiBoard({
                     "shogi-square relative flex items-center justify-center",
                     "cursor-pointer",
                     // 通常背景
-                    "bg-amber-50 dark:bg-amber-900/40",
+                    "bg-amber-50 dark:bg-amber-950",
                     // 直前の手（移動前・移動後）
                     isLastMoveSq && !isSelected && "bg-emerald-200 dark:bg-emerald-800/60",
                     // 王手中の王
