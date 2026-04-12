@@ -103,7 +103,7 @@ export function ShogiBoard({
           ref={gridRef}
           role="grid"
           aria-label="将棋盤"
-          className="grid border border-amber-800 dark:border-amber-600 bg-amber-800/60 dark:bg-amber-600/40 relative"
+          className="grid border border-amber-800 dark:border-amber-600 bg-amber-800/60 dark:bg-amber-500/60 relative"
           style={{
             gridTemplateColumns: `repeat(9, ${squareSize}px)`,
             gridTemplateRows: `repeat(9, ${squareSize}px)`,
