@@ -138,7 +138,7 @@ export function ShogiBoard({
                     "shogi-square relative flex items-center justify-center",
                     "cursor-pointer",
                     // 通常背景
-                    "bg-amber-50 dark:bg-amber-900/40",
+                    "bg-amber-50 dark:bg-amber-950",
                     // 直前の手（移動前・移動後）
                     isLastMoveSq && !isSelected && "bg-emerald-200 dark:bg-emerald-800/60",
                     // 王手中の王
