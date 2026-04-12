@@ -113,8 +113,8 @@ export function ShogiBoard({
           onClick={(e) => e.stopPropagation()}
           {...pointerHandlers}
         >
-          {rowIndices.map((rowIdx) =>
-            colIndices.map((colIdx) => {
+          {rowIndices.map((rowIdx, visualRow) =>
+            colIndices.map((colIdx, visualCol) => {
               const piece = board[rowIdx][colIdx];
               const pos = { row: rowIdx, col: colIdx };
               const isSelected =
@@ -126,6 +126,9 @@ export function ShogiBoard({
                 inCheck &&
                 piece?.type === "king" &&
                 piece.owner === currentPlayer;
+              const isStarPoint =
+                (visualRow === 2 || visualRow === 5) &&
+                (visualCol === 2 || visualCol === 5);
 
               return (
                 <div
@@ -152,6 +155,20 @@ export function ShogiBoard({
                   )}
                   style={{ width: squareSize, height: squareSize }}
                 >
+                  {/* 星目（中央3×3四隅の交差点） */}
+                  {isStarPoint && (
+                    <div
+                      className="absolute z-10 rounded-full bg-amber-900 dark:bg-amber-400 pointer-events-none"
+                      style={{
+                        width: Math.max(4, squareSize * 0.08),
+                        height: Math.max(4, squareSize * 0.08),
+                        bottom: 0,
+                        right: 0,
+                        transform: "translate(50%, 50%)",
+                      }}
+                    />
+                  )}
+
                   {/* 合法手ドット（空きマス） */}
                   {isLegalTarget && !piece && (
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
