@@ -88,7 +88,7 @@ export function ShogiBoard({
 
       <div className="flex">
         {/* 左側スペーサー（段ラベルと同幅で盤面を中央に揃える） */}
-        <div style={{ width: labelSize + 6 }} />
+        <div style={{ width: labelSize + (isMobile ? 2 : 6) }} />
 
         {/* 盤面グリッド */}
         <div
