@@ -100,12 +100,12 @@ export function ShogiPiece({
 
   // isSmall（持ち駒・ダイアログ用）の場合は固定サイズ、盤上は駒種別サイズ
   const sizeClass = isSmall
-    ? "w-8 h-8"
+    ? "w-7 h-8"
     : SMALL_PIECES.has(piece.type)
-      ? "w-[85%] h-[85%]"
+      ? "w-[73%] h-[85%]"
       : MEDIUM_PIECES.has(piece.type)
-        ? "w-[90%] h-[90%]"
-        : "w-full h-full";
+        ? "w-[77%] h-[90%]"
+        : "w-[85%] h-full";
 
   return (
     <div
@@ -122,6 +122,7 @@ export function ShogiPiece({
         {/* SVG で五角形を描画（stroke が辺に沿って均一な枠線になる） */}
         <svg
           viewBox="-3 -3 106 106"
+          preserveAspectRatio="none"
           className="absolute inset-0 w-full h-full hover:brightness-90 transition-all duration-150"
         >
           <polygon
