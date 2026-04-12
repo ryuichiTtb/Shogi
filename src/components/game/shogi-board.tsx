@@ -16,6 +16,7 @@ interface ShogiBoardProps {
   inCheck: boolean;
   onSquareClick: (pos: Position) => void;
   squareSize: number;
+  isMobile: boolean;
 }
 
 // 先手目線のラベル
@@ -37,6 +38,7 @@ export function ShogiBoard({
   inCheck,
   onSquareClick,
   squareSize,
+  isMobile,
 }: ShogiBoardProps) {
   const legalMoveSet = new Set(
     legalMoves.map((m) => `${m.to.row}-${m.to.col}`)
@@ -66,7 +68,7 @@ export function ShogiBoard({
   const fileLabels = isGote ? FILE_LABELS_GOTE : FILE_LABELS_SENTE;
   const rankLabels = isGote ? RANK_LABELS_GOTE : RANK_LABELS_SENTE;
 
-  const labelSize = Math.max(16, squareSize * 0.45);
+  const labelSize = isMobile ? Math.max(12, squareSize * 0.3) : Math.max(16, squareSize * 0.45);
   const dotSize = Math.max(8, squareSize * 0.22);
 
   return (
@@ -85,8 +87,8 @@ export function ShogiBoard({
       </div>
 
       <div className="flex">
-        {/* 左側スペーサー（段ラベルと同幅で盤面を中央に揃える） */}
-        <div style={{ width: labelSize + 6 }} />
+        {/* 左側スペーサー（段ラベルと同幅で盤面を中央に揃える、モバイルでは省略） */}
+        {!isMobile && <div style={{ width: labelSize + 6 }} />}
 
         {/* 盤面グリッド */}
         <div
