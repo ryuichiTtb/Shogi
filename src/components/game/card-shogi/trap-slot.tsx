@@ -7,23 +7,30 @@ import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
 interface TrapSlotProps {
   trap: TrapInstance | null;
   faceDown?: boolean;
-  size?: "sm" | "md";
+  size?: "sm" | "md" | "lg";
 }
 
+const SIZE_CLASS = {
+  sm: "w-9 h-12 text-[9px]",
+  md: "w-14 h-20 text-xs",
+  lg: "w-16 h-24 text-sm",
+};
+
 export function TrapSlot({ trap, faceDown = false, size = "md" }: TrapSlotProps) {
-  const sizeClass = size === "sm" ? "w-9 h-12" : "w-12 h-16";
+  const sizeClass = SIZE_CLASS[size];
 
   if (!trap) {
     return (
       <div
         className={cn(
           "rounded-md border-2 border-dashed border-muted-foreground/40 bg-muted/30",
-          "flex items-center justify-center shrink-0",
+          "flex flex-col items-center justify-center shrink-0",
           sizeClass,
         )}
         aria-label="トラップ未セット"
       >
-        <span className="text-[8px] text-muted-foreground font-bold">TRAP</span>
+        <span className="text-base opacity-50">⚠</span>
+        <span className="text-[8px] text-muted-foreground font-bold mt-0.5">TRAP</span>
       </div>
     );
   }
@@ -38,7 +45,7 @@ export function TrapSlot({ trap, faceDown = false, size = "md" }: TrapSlotProps)
         )}
         aria-label="トラップセット済(裏向き)"
       >
-        ⚠
+        <span className="text-2xl">⚠</span>
       </div>
     );
   }
@@ -48,12 +55,13 @@ export function TrapSlot({ trap, faceDown = false, size = "md" }: TrapSlotProps)
     <div
       className={cn(
         "rounded-md border-2 border-purple-500 bg-purple-50 dark:bg-purple-950/40",
-        "flex flex-col items-center justify-center text-[9px] text-center p-0.5 shrink-0",
+        "flex flex-col items-center justify-center text-center p-0.5 shrink-0 leading-tight",
         sizeClass,
       )}
       aria-label={`トラップ: ${def.name}`}
     >
-      <div className="font-bold leading-tight">{def.name}</div>
+      <span className="text-base" aria-hidden>{def.icon}</span>
+      <div className="font-bold text-[9px] leading-tight mt-0.5">{def.name}</div>
       <div className="text-[7px] opacity-70">⚠ TRAP</div>
     </div>
   );

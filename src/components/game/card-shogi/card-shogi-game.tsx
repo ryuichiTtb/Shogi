@@ -221,17 +221,32 @@ export function CardShogiGame({
   );
 
   const opponentTrapSlot = (
+    <TrapSlot trap={cardState.trap[aiColor]} faceDown size="md" />
+  );
+  const ownTrapSlot = <TrapSlot trap={cardState.trap[playerColor]} size="md" />;
+  const opponentTrapSlotSm = (
     <TrapSlot trap={cardState.trap[aiColor]} faceDown size="sm" />
   );
-  const ownTrapSlot = <TrapSlot trap={cardState.trap[playerColor]} size="sm" />;
+  const ownTrapSlotSm = <TrapSlot trap={cardState.trap[playerColor]} size="sm" />;
 
-  const opponentDeckPile = <DeckPile count={cardState.deck[aiColor].length} size="sm" />;
+  const opponentDeckPile = <DeckPile count={cardState.deck[aiColor].length} size="md" />;
   const ownDeckPile = (
     <DeckPile
       count={cardState.deck[playerColor].length}
       canDraw={cardState.mana[playerColor] >= 5 && isPlayerTurn && isGameActive}
       onDraw={drawCard}
+      size="md"
+      showDrawCost
+    />
+  );
+  const opponentDeckPileSm = <DeckPile count={cardState.deck[aiColor].length} size="sm" />;
+  const ownDeckPileSm = (
+    <DeckPile
+      count={cardState.deck[playerColor].length}
+      canDraw={cardState.mana[playerColor] >= 5 && isPlayerTurn && isGameActive}
+      onDraw={drawCard}
       size="sm"
+      showDrawCost
     />
   );
 
@@ -289,8 +304,8 @@ export function CardShogiGame({
             emptyLabel=""
           />
         </div>
-        <span className="text-muted-foreground shrink-0 text-[10px]">山札 {cardState.deck[aiColor].length}</span>
-        <div className="ml-auto shrink-0">{opponentTrapSlot}</div>
+        <div className="shrink-0">{opponentDeckPileSm}</div>
+        <div className="ml-auto shrink-0">{opponentTrapSlotSm}</div>
       </section>
 
       {/* ===== 中央: 盤面 + 持ち駒 + (PCサイドパネル) ===== xl 未満で表示 */}
@@ -451,8 +466,8 @@ export function CardShogiGame({
             手札 {cardState.hand[playerColor].length}
           </Button>
           <div className="shrink-0">{ownManaGaugeCompact}</div>
-          {ownDeckPile}
-          <div className="ml-auto shrink-0">{ownTrapSlot}</div>
+          {ownDeckPileSm}
+          <div className="ml-auto shrink-0">{ownTrapSlotSm}</div>
         </div>
       </section>
 
@@ -528,9 +543,10 @@ export function CardShogiGame({
               count={cardState.deck[playerColor].length}
               canDraw={cardState.mana[playerColor] >= 5 && isPlayerTurn && isGameActive}
               onDraw={drawCard}
-              size="md"
+              size="lg"
+              showDrawCost
             />
-            <TrapSlot trap={cardState.trap[playerColor]} size="md" />
+            <TrapSlot trap={cardState.trap[playerColor]} size="lg" />
           </div>
           <div className="text-[10px] text-muted-foreground font-medium shrink-0">手札 {cardState.hand[playerColor].length}枚</div>
           <div className="flex-1 min-h-0 overflow-y-auto">
@@ -626,8 +642,8 @@ export function CardShogiGame({
           <Badge variant="outline" className="self-start shrink-0">△ 相手</Badge>
           <div className="shrink-0">{opponentManaGauge}</div>
           <div className="flex gap-2 items-end shrink-0">
-            <DeckPile count={cardState.deck[aiColor].length} size="md" />
-            <TrapSlot trap={cardState.trap[aiColor]} faceDown size="md" />
+            <DeckPile count={cardState.deck[aiColor].length} size="lg" />
+            <TrapSlot trap={cardState.trap[aiColor]} faceDown size="lg" />
           </div>
           <div className="text-[10px] text-muted-foreground font-medium shrink-0">手札 {cardState.hand[aiColor].length}枚</div>
           <div className="flex-1 min-h-0 overflow-y-auto">

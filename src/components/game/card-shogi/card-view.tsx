@@ -13,10 +13,18 @@ interface CardViewProps {
   selected?: boolean;
 }
 
+// "sm" はサムネイル(裏向きの相手手札用、縦長)
+// "md" / "lg" は表向きの手札(横長、コスト+アイコン+名前+説明)
 const SIZE_CLASS = {
   sm: "w-12 h-16 text-[9px]",
-  md: "w-20 h-28 text-xs",
-  lg: "w-24 h-32 text-sm",
+  md: "w-32 h-[72px] text-xs",
+  lg: "w-40 h-20 text-sm",
+};
+
+const ICON_SIZE_CLASS = {
+  sm: "text-base",
+  md: "text-2xl",
+  lg: "text-3xl",
 };
 
 export function CardView({
@@ -44,6 +52,7 @@ export function CardView({
     );
   }
 
+  // 横長レイアウト: 左にコスト+アイコン、右に名前+説明
   return (
     <button
       type="button"
@@ -51,20 +60,21 @@ export function CardView({
       disabled={disabled}
       className={cn(
         "rounded-md border-2 bg-card text-card-foreground shadow-sm shrink-0",
-        "flex flex-col items-stretch p-1.5 text-left transition-all",
+        "flex flex-row items-stretch gap-1.5 p-1.5 text-left transition-all",
         SIZE_CLASS[size],
         disabled
           ? "opacity-50 cursor-not-allowed border-border"
-          : "cursor-pointer hover:border-primary hover:shadow-md",
+          : "cursor-pointer hover:border-primary hover:shadow-md hover:scale-[1.02]",
         selected && "border-primary ring-2 ring-primary",
         def.kind === "trap" ? "border-purple-500" : "border-amber-500",
       )}
       aria-label={`${def.name} (コスト${def.cost})`}
     >
-      <div className="flex items-center justify-between gap-1">
+      {/* 左: コストとアイコン */}
+      <div className="flex flex-col items-center justify-center gap-0.5 shrink-0 w-9">
         <span
           className={cn(
-            "rounded-full px-1.5 leading-tight font-bold",
+            "rounded-full px-1.5 leading-tight font-bold text-[10px] tabular-nums",
             def.kind === "trap"
               ? "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200"
               : "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
@@ -72,16 +82,24 @@ export function CardView({
         >
           {def.cost}
         </span>
-        {def.kind === "trap" && <span className="text-[8px] opacity-70">TRAP</span>}
+        <span className={cn(ICON_SIZE_CLASS[size], "leading-none")} aria-hidden>
+          {def.icon}
+        </span>
       </div>
-      <div className="flex-1 flex items-center justify-center font-bold text-center leading-tight">
-        {def.name}
-      </div>
-      {size !== "sm" && (
-        <div className="text-[9px] text-muted-foreground leading-tight line-clamp-2">
+      {/* 右: 名前 + 説明 + (TRAPバッジ) */}
+      <div className="flex-1 min-w-0 flex flex-col justify-center gap-0.5">
+        <div className="flex items-center gap-1">
+          <span className="font-bold leading-tight truncate">{def.name}</span>
+          {def.kind === "trap" && (
+            <span className="text-[7px] bg-purple-200 dark:bg-purple-900/60 text-purple-900 dark:text-purple-100 px-1 rounded font-bold leading-tight shrink-0">
+              TRAP
+            </span>
+          )}
+        </div>
+        <div className="text-[10px] text-muted-foreground leading-tight line-clamp-2">
           {def.description}
         </div>
-      )}
+      </div>
     </button>
   );
 }

@@ -12,6 +12,7 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
     rarity: "common",
     effectId: "mana_up",
     targeting: "none",
+    icon: "💎",
   },
   pawn_return: {
     id: "pawn_return",
@@ -22,6 +23,7 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
     rarity: "common",
     effectId: "pawn_return",
     targeting: "ownPiece",
+    icon: "↩️",
   },
   no_promote: {
     id: "no_promote",
@@ -32,6 +34,7 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
     rarity: "rare",
     effectId: "no_promote",
     targeting: "none",
+    icon: "🛡️",
   },
 };
 

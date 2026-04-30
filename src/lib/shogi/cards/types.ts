@@ -24,6 +24,8 @@ export interface CardDefinition {
   // effects.ts でディスパッチするための識別子。CardId と同値だが将来「同一効果の別カード」を許すため独立。
   effectId: string;
   targeting: CardTargeting;
+  // カードの絵柄/アイコン(Phase 0 は絵文字)。Phase A 以降で SVG/画像差替予定。
+  icon: string;
 }
 
 export interface CardInstance {
