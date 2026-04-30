@@ -27,6 +27,8 @@ interface MobileDrawerProps {
   isPending: boolean;
   // card-shogi の場合に渡す。指定された場合は MoveHistory ではなく CardShogiHistory を表示。
   cardEventLog?: GameEvent[];
+  // ゲーム終了 Card の表示を抑止する(card-shogi では別エリアに配置するため)
+  hideEndCard?: boolean;
 }
 
 type Tab = "character" | "history";
@@ -42,14 +44,15 @@ export function MobileDrawer({
   onPlayAgain,
   isPending,
   cardEventLog,
+  hideEndCard = false,
 }: MobileDrawerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("character");
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-20 safe-area-bottom">
-      {/* ゲーム終了表示（ドロワー外・タブバー上に常時表示） */}
-      {!isGameActive && (
+      {/* ゲーム終了表示（ドロワー外・タブバー上に常時表示）。card-shogi では hideEndCard で抑止 */}
+      {!isGameActive && !hideEndCard && (
         <div
           className="bg-card/95 backdrop-blur-sm border-t border-border px-3 py-2"
           onClick={(e) => e.stopPropagation()}

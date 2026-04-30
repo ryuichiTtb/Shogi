@@ -15,14 +15,16 @@ const HORIZONTAL_PADDING = 40;
 const HORIZONTAL_PADDING_MOBILE = 24;
 const BOARD_CELLS = 9;
 
-// 既存 useBoardSize の VERTICAL_RESERVED と同等の基本予約値
-const BASE_RESERVED = 200;
+// 既存 useBoardSize の VERTICAL_RESERVED と同等の基本予約値。
+// card-shogi のモバイル時は CapturedPieces compact (52*2=104) を使用するため、
+// 標準より少し小さい値で十分。
+const BASE_RESERVED = 180;
 
 // PC タブレット相当 (md..xl-1): 上下分割の上ゾーン+下ゾーン
 const PC_CARD_RESERVED = 240;
 
-// モバイル (<md): 上端細バー+下端コンパクトバー
-const MOBILE_CARD_RESERVED = 100;
+// モバイル (<md): 上端細バー (≈ 50px) + 下端3カラムセクション (山札 md = 80px + padding) + safe-area
+const MOBILE_CARD_RESERVED = 150;
 
 // PC 大 (>=xl): 4列構成 = 上下ゾーンなし、ヘッダ・パディング分のみ
 const PC_LARGE_CARD_RESERVED = 40;

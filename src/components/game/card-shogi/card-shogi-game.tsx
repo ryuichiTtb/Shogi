@@ -232,8 +232,8 @@ export function CardShogiGame({
     <TrapSlot trap={cardState.trap[aiColor]} faceDown size="md" />
   );
   const ownTrapSlot = <TrapSlot trap={cardState.trap[playerColor]} size="md" />;
-  // モバイル下端用の TrapSlot。山札 lg と高さを揃えるため lg サイズ
-  const ownTrapSlotMobile = <TrapSlot trap={cardState.trap[playerColor]} size="lg" />;
+  // モバイル下端用の TrapSlot。山札 md と高さを揃えるため md サイズ
+  const ownTrapSlotMobile = <TrapSlot trap={cardState.trap[playerColor]} size="md" />;
 
   const opponentDeckPile = <DeckPile count={cardState.deck[aiColor].length} size="md" showDrawCost />;
   const ownDeckPile = (
@@ -247,13 +247,13 @@ export function CardShogiGame({
     />
   );
   // モバイル細バー(上端)の相手山札はテキストバッジ形式に変更したため別途インラインで表示 (P22)。
-  // モバイル下端用の自分山札。lg サイズで横幅を最大活用 (P17)
+  // モバイル下端用の自分山札。md サイズで縦幅を抑える (P25)
   const ownDeckPileMobile = (
     <DeckPile
       count={cardState.deck[playerColor].length}
       canDraw={cardState.mana[playerColor] >= 5 && isPlayerTurn && isGameActive && !inCheck}
       onDraw={drawCard}
-      size="lg"
+      size="md"
       showDrawCost
       dimmed={!isPlayerTurn || !isGameActive}
     />
@@ -469,9 +469,28 @@ export function CardShogiGame({
             onPlayAgain={handlePlayAgain}
             isPending={isPending}
             cardEventLog={eventLog}
+            hideEndCard
           />
         </div>
       </div>
+
+      {/* ゲーム終了表示 (card-shogi 専用、自分カードエリアの上に表示)。 */}
+      {/* MobileDrawer の終了 Card は hideEndCard で抑止しているため、ここで自前表示。 */}
+      {!isGameActive && (
+        <div className="xl:hidden shrink-0 px-3 py-2 border-t border-primary/30 bg-primary/5">
+          <Card className="p-2.5 text-center border-2 border-primary/20 bg-primary/5">
+            <p className="text-sm font-bold mb-1.5">{gameResultText(gameState.status, gameState.winner)}</p>
+            <div className="flex gap-2 justify-center">
+              <Link href="/">
+                <Button size="sm" variant="outline">ホームへ</Button>
+              </Link>
+              <Button size="sm" onClick={handlePlayAgain} disabled={isPending}>
+                {isPending ? "準備中..." : "もう一局"}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
 
       {/* ===== 自分ゾーン (xl 未満) ===== */}
       {/* PC タブレット相当 (md..xl-1): 詳細ゾーン (GameControls を統合) */}
@@ -541,15 +560,15 @@ export function CardShogiGame({
       </section>
 
       {/* モバイル: 手札ドロワー(下からスライドアップ) */}
-      {/* bottom 値は下端 3カラムセクションの高さ (山札 lg = 96px + padding) を逃げる */}
+      {/* bottom 値は下端 3カラムセクションの高さ (山札 md = 80px + padding) に合わせる */}
       <div
         className={cn(
           "md:hidden fixed left-0 right-0 z-20 bg-card border-t-2 border-primary shadow-2xl transition-transform duration-300",
           drawerOpen ? "translate-y-0" : "translate-y-full",
         )}
         style={{
-          bottom: "calc(116px + env(safe-area-inset-bottom))",
-          maxHeight: "50dvh",
+          bottom: "calc(100px + env(safe-area-inset-bottom))",
+          maxHeight: "55dvh",
         }}
         onClick={(e) => e.stopPropagation()}
       >

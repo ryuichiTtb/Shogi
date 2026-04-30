@@ -27,20 +27,20 @@ export function TrapSlot({
   fullWidth = false,
   horizontal = false,
 }: TrapSlotProps) {
-  // 横長モード: 高さ h-9 の小さいバッジ表示
+  // 横長モード: 2行構成 (⚠ / TRAP) で横幅を圧縮
   if (horizontal) {
     if (!trap) {
       return (
         <div
           className={cn(
             "rounded-md border-2 border-dashed border-muted-foreground/40 bg-muted/30",
-            "h-9 px-2 flex items-center justify-center gap-1 shrink-0",
+            "px-1.5 py-0.5 flex flex-col items-center justify-center shrink-0 leading-tight",
             fullWidth ? "w-full" : "w-auto",
           )}
           aria-label="トラップ未セット"
         >
-          <span className="text-base opacity-50 leading-none" aria-hidden>⚠</span>
-          <span className="text-[11px] text-muted-foreground font-bold leading-none">TRAP</span>
+          <span className="text-sm opacity-50 leading-none" aria-hidden>⚠</span>
+          <span className="text-[10px] text-muted-foreground font-bold leading-none mt-0.5">TRAP</span>
         </div>
       );
     }
@@ -49,13 +49,13 @@ export function TrapSlot({
         <div
           className={cn(
             "rounded-md border-2 border-purple-700 bg-gradient-to-br from-purple-700 to-purple-900",
-            "h-9 px-2 flex items-center justify-center gap-1 text-white/80 font-bold shrink-0",
+            "px-1.5 py-0.5 flex flex-col items-center justify-center text-white/80 font-bold shrink-0 leading-tight",
             fullWidth ? "w-full" : "w-auto",
           )}
           aria-label="トラップセット済(裏向き)"
         >
-          <span className="text-base leading-none">⚠</span>
-          <span className="text-[11px] leading-none">TRAP</span>
+          <span className="text-sm leading-none">⚠</span>
+          <span className="text-[10px] leading-none mt-0.5">TRAP</span>
         </div>
       );
     }
@@ -64,13 +64,13 @@ export function TrapSlot({
       <div
         className={cn(
           "rounded-md border-2 border-purple-500 bg-purple-50 dark:bg-purple-950/40",
-          "h-9 px-2 flex items-center justify-center gap-1 shrink-0",
+          "px-1.5 py-0.5 flex flex-col items-center justify-center shrink-0 leading-tight",
           fullWidth ? "w-full" : "w-auto",
         )}
         aria-label={`トラップ: ${def.name}`}
       >
         <span className="text-sm leading-none" aria-hidden>{def.icon}</span>
-        <span className="text-[11px] font-bold leading-none">{def.name}</span>
+        <span className="text-[10px] font-bold leading-none mt-0.5 truncate max-w-[80px]">{def.name}</span>
       </div>
     );
   }
