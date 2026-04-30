@@ -493,50 +493,59 @@ export function CardShogiGame({
         </div>
       </section>
 
-      {/* モバイル (<md): 下端 2段構成 (P17) */}
-      {/* 段1(上、薄い高さ): 待った・投了(文字付き) を右寄せ */}
-      {/* 段2(下、メイン高さ): 手札ボタン・マナゲージ・山札 lg・トラップ md を横幅一杯に */}
+      {/* モバイル (<md): 下端 3カラム構成 (P20) */}
+      {/* 左ブロック(2段): 段1=待った/投了(右寄せ、薄め)、段2=手札ボタン+マナゲージ */}
+      {/* 中央ブロック: 山札 (左ブロック2段分の高さ) */}
+      {/* 右ブロック: トラップ (同上の高さ) */}
       <section
-        className="md:hidden xl:hidden shrink-0 border-t bg-card flex flex-col z-30"
+        className="md:hidden xl:hidden shrink-0 border-t bg-card flex items-stretch gap-2 px-2 py-1.5 z-30"
         style={{ paddingBottom: "max(0.375rem, env(safe-area-inset-bottom))" }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-2 py-0.5 border-b flex items-center justify-end">
-          <GameControls
-            onResign={resign}
-            onUndo={undo}
-            isMuted={isMuted}
-            onToggleMute={toggleMute}
-            canUndo={canUndo}
-            gameActive={isGameActive}
-            hideSound
-          />
+        {/* 左ブロック: 2段(右の山札と同じ高さに伸縮、各段 flex-1 で半分ずつ) */}
+        <div className="flex-1 min-w-0 flex flex-col gap-1">
+          {/* 段1: 待った・投了 (右寄せ、縦幅小さめ) */}
+          <div className="flex items-center justify-end shrink-0">
+            <GameControls
+              onResign={resign}
+              onUndo={undo}
+              isMuted={isMuted}
+              onToggleMute={toggleMute}
+              canUndo={canUndo}
+              gameActive={isGameActive}
+              hideSound
+            />
+          </div>
+          {/* 段2: 手札ボタン + マナゲージ (flex-1 で残り高さを取る) */}
+          <div className="flex-1 flex items-center gap-2">
+            <Button
+              size="sm"
+              variant={drawerOpen ? "outline" : "default"}
+              className="h-9 gap-1 text-xs shrink-0"
+              onClick={() => setDrawerOpen((v) => !v)}
+            >
+              {drawerOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+              手札 {cardState.hand[playerColor].length}
+            </Button>
+            <div className="flex-1 min-w-0">{ownManaGaugeCompact}</div>
+          </div>
         </div>
-        <div className="px-2 py-1.5 flex items-center gap-2 overflow-x-auto">
-          <Button
-            size="sm"
-            variant={drawerOpen ? "outline" : "default"}
-            className="h-9 gap-1 text-xs shrink-0"
-            onClick={() => setDrawerOpen((v) => !v)}
-          >
-            {drawerOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
-            手札 {cardState.hand[playerColor].length}
-          </Button>
-          <div className="shrink-0">{ownManaGaugeCompact}</div>
-          <div className="shrink-0">{ownDeckPileMobile}</div>
-          <div className="ml-auto shrink-0">{ownTrapSlotMobile}</div>
-        </div>
+        {/* 中央: 山札 (左2段の高さに合わせて伸びる) */}
+        <div className="shrink-0 flex">{ownDeckPileMobile}</div>
+        {/* 右: トラップ */}
+        <div className="shrink-0 flex">{ownTrapSlotMobile}</div>
       </section>
 
       {/* モバイル: 手札ドロワー(下からスライドアップ) */}
+      {/* bottom 値は下端 3カラムセクションの高さ (山札 lg = 96px + padding) を逃げる */}
       <div
         className={cn(
           "md:hidden fixed left-0 right-0 z-20 bg-card border-t-2 border-primary shadow-2xl transition-transform duration-300",
           drawerOpen ? "translate-y-0" : "translate-y-full",
         )}
         style={{
-          bottom: "calc(56px + env(safe-area-inset-bottom))",
-          maxHeight: "55dvh",
+          bottom: "calc(116px + env(safe-area-inset-bottom))",
+          maxHeight: "50dvh",
         }}
         onClick={(e) => e.stopPropagation()}
       >
