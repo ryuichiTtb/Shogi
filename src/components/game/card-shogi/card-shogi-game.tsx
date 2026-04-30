@@ -558,21 +558,26 @@ export function CardShogiGame({
           </div>
         </div>
 
-        {/* Col 1: 自分カードエリア(縦並び) */}
+        {/* Col 1: 自分カードエリア(縦並び、横幅一杯+中央揃え) */}
         <aside className="flex flex-col gap-2 border-r pr-2 min-h-0 overflow-hidden">
-          <Badge variant="default" className="self-start shrink-0">▲ 自分</Badge>
-          <div className="shrink-0">{ownManaGauge}</div>
-          <div className="flex gap-2 items-end shrink-0">
-            <DeckPile
-              count={cardState.deck[playerColor].length}
-              canDraw={cardState.mana[playerColor] >= 5 && isPlayerTurn && isGameActive}
-              onDraw={drawCard}
-              size="lg"
-              showDrawCost
-            />
-            <TrapSlot trap={cardState.trap[playerColor]} size="lg" />
+          <Badge variant="default" className="self-center shrink-0">▲ 自分</Badge>
+          <div className="shrink-0 w-full">{ownManaGauge}</div>
+          <div className="flex gap-2 shrink-0 w-full">
+            <div className="flex-1 min-w-0">
+              <DeckPile
+                count={cardState.deck[playerColor].length}
+                canDraw={cardState.mana[playerColor] >= 5 && isPlayerTurn && isGameActive}
+                onDraw={drawCard}
+                size="lg"
+                showDrawCost
+                fullWidth
+              />
+            </div>
+            <div className="flex-1 min-w-0">
+              <TrapSlot trap={cardState.trap[playerColor]} size="lg" fullWidth />
+            </div>
           </div>
-          <div className="text-[10px] text-muted-foreground font-medium shrink-0">手札 {cardState.hand[playerColor].length}枚</div>
+          <div className="text-xs text-muted-foreground font-medium shrink-0 text-center">手札 {cardState.hand[playerColor].length}枚</div>
           <div className="flex-1 min-h-0 overflow-y-auto">
             <HandArea
               hand={cardState.hand[playerColor]}
@@ -580,10 +585,11 @@ export function CardShogiGame({
               layout="vertical"
               size="md"
               disabled={handDisabled}
+              fullWidth
               onCardClick={(id) => beginPlayCard(id)}
             />
           </div>
-          <div className="shrink-0 pt-2 border-t">
+          <div className="shrink-0 pt-2 border-t flex justify-center">
             <GameControls
               onResign={resign}
               onUndo={() => {}}
@@ -663,15 +669,19 @@ export function CardShogiGame({
           )}
         </aside>
 
-        {/* Col 4: 相手カードエリア(縦並び、裏向き) */}
+        {/* Col 4: 相手カードエリア(縦並び、裏向き、横幅一杯+中央揃え) */}
         <aside className="flex flex-col gap-2 border-l pl-2 min-h-0 overflow-hidden">
-          <Badge variant="outline" className="self-start shrink-0">△ 相手</Badge>
-          <div className="shrink-0">{opponentManaGauge}</div>
-          <div className="flex gap-2 items-end shrink-0">
-            <DeckPile count={cardState.deck[aiColor].length} size="lg" />
-            <TrapSlot trap={cardState.trap[aiColor]} faceDown size="lg" />
+          <Badge variant="outline" className="self-center shrink-0">△ 相手</Badge>
+          <div className="shrink-0 w-full">{opponentManaGauge}</div>
+          <div className="flex gap-2 shrink-0 w-full">
+            <div className="flex-1 min-w-0">
+              <DeckPile count={cardState.deck[aiColor].length} size="lg" fullWidth />
+            </div>
+            <div className="flex-1 min-w-0">
+              <TrapSlot trap={cardState.trap[aiColor]} faceDown size="lg" fullWidth />
+            </div>
           </div>
-          <div className="text-[10px] text-muted-foreground font-medium shrink-0">手札 {cardState.hand[aiColor].length}枚</div>
+          <div className="text-xs text-muted-foreground font-medium shrink-0 text-center">手札 {cardState.hand[aiColor].length}枚</div>
           <div className="flex-1 min-h-0 overflow-y-auto">
             <HandArea
               hand={cardState.hand[aiColor]}
@@ -679,6 +689,7 @@ export function CardShogiGame({
               faceDown
               layout="vertical"
               size="md"
+              fullWidth
               emptyLabel=""
             />
           </div>

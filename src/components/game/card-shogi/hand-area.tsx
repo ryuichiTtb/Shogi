@@ -16,6 +16,8 @@ interface HandAreaProps {
   emptyLabel?: string;
   // true のとき手札全体のクリックを無効化(相手の手番中・ゲーム終了時など)
   disabled?: boolean;
+  // true のとき各カードを横幅一杯に展開(vertical layout で使用)
+  fullWidth?: boolean;
 }
 
 export function HandArea({
@@ -27,6 +29,7 @@ export function HandArea({
   layout = "horizontal",
   emptyLabel = "手札なし",
   disabled = false,
+  fullWidth = false,
 }: HandAreaProps) {
   if (hand.length === 0) {
     return <div className="text-xs text-muted-foreground py-2 px-3">{emptyLabel}</div>;
@@ -74,6 +77,7 @@ export function HandArea({
             card={c}
             size={size}
             disabled={cardDisabled}
+            fullWidth={fullWidth}
             onClick={() => onCardClick?.(c.instanceId)}
           />
         );

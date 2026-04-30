@@ -11,20 +11,22 @@ interface CardViewProps {
   disabled?: boolean;
   size?: "sm" | "md" | "lg";
   selected?: boolean;
+  // true のとき横幅を親に合わせる(縦並び・中央揃えで使用)
+  fullWidth?: boolean;
 }
 
 // "sm" はサムネイル(裏向きの相手手札用、縦長)
 // "md" / "lg" は表向きの手札(横長、コスト+アイコン+名前+説明)
 const SIZE_CLASS = {
-  sm: "w-12 h-16 text-[9px]",
-  md: "w-32 h-[72px] text-xs",
-  lg: "w-40 h-20 text-sm",
+  sm: "w-12 h-16 text-[10px]",
+  md: "w-32 h-[80px] text-[13px]",
+  lg: "w-40 h-24 text-sm",
 };
 
 const ICON_SIZE_CLASS = {
   sm: "text-base",
-  md: "text-2xl",
-  lg: "text-3xl",
+  md: "text-3xl",
+  lg: "text-4xl",
 };
 
 export function CardView({
@@ -34,6 +36,7 @@ export function CardView({
   disabled = false,
   size = "md",
   selected = false,
+  fullWidth = false,
 }: CardViewProps) {
   const def = CARD_DEFS[card.defId];
 
@@ -43,7 +46,8 @@ export function CardView({
         className={cn(
           "rounded-md border-2 border-indigo-700 bg-gradient-to-br from-indigo-700 to-indigo-900",
           "flex items-center justify-center text-white/80 font-bold shrink-0",
-          SIZE_CLASS[size],
+          fullWidth ? cn("w-full", size === "sm" ? "h-16" : size === "md" ? "h-[80px]" : "h-24") : SIZE_CLASS[size],
+          fullWidth && "text-2xl",
         )}
         aria-label="伏せられたカード"
       >
@@ -51,6 +55,10 @@ export function CardView({
       </div>
     );
   }
+
+  const sizeClass = fullWidth
+    ? cn("w-full", size === "sm" ? "h-16 text-[10px]" : size === "md" ? "h-[80px] text-[13px]" : "h-24 text-sm")
+    : SIZE_CLASS[size];
 
   // 横長レイアウト: 左にコスト+アイコン、右に名前+説明
   return (
@@ -60,8 +68,8 @@ export function CardView({
       disabled={disabled}
       className={cn(
         "rounded-md border-2 bg-card text-card-foreground shadow-sm shrink-0",
-        "flex flex-row items-stretch gap-1.5 p-1.5 text-left transition-all",
-        SIZE_CLASS[size],
+        "flex flex-row items-stretch gap-2 p-2 text-left transition-all",
+        sizeClass,
         disabled
           ? "opacity-50 cursor-not-allowed border-border"
           : "cursor-pointer hover:border-primary hover:shadow-md",
@@ -71,10 +79,10 @@ export function CardView({
       aria-label={`${def.name} (コスト${def.cost})`}
     >
       {/* 左: コストとアイコン */}
-      <div className="flex flex-col items-center justify-center gap-0.5 shrink-0 w-9">
+      <div className="flex flex-col items-center justify-center gap-0.5 shrink-0 w-10">
         <span
           className={cn(
-            "rounded-full px-1.5 leading-tight font-bold text-[10px] tabular-nums",
+            "rounded-full px-2 leading-tight font-bold text-xs tabular-nums",
             def.kind === "trap"
               ? "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200"
               : "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
@@ -91,12 +99,12 @@ export function CardView({
         <div className="flex items-center gap-1">
           <span className="font-bold leading-tight truncate">{def.name}</span>
           {def.kind === "trap" && (
-            <span className="text-[7px] bg-purple-200 dark:bg-purple-900/60 text-purple-900 dark:text-purple-100 px-1 rounded font-bold leading-tight shrink-0">
+            <span className="text-[8px] bg-purple-200 dark:bg-purple-900/60 text-purple-900 dark:text-purple-100 px-1 rounded font-bold leading-tight shrink-0">
               TRAP
             </span>
           )}
         </div>
-        <div className="text-[10px] text-muted-foreground leading-tight line-clamp-2">
+        <div className="text-[11px] text-muted-foreground leading-tight line-clamp-2">
           {def.description}
         </div>
       </div>
