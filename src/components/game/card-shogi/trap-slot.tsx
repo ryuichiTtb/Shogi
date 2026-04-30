@@ -27,16 +27,13 @@ export function TrapSlot({
   fullWidth = false,
   horizontal = false,
 }: TrapSlotProps) {
-  // 横長モード: 2行構成 (⚠ / TRAP) で横幅を圧縮
+  // 横長モード: 2行構成 (⚠ / TRAP) で横幅を圧縮、h-full で親に追従
   if (horizontal) {
+    const wrapperBase = cn("rounded-md border-2 px-1.5 py-0.5 h-full flex flex-col items-center justify-center shrink-0 leading-tight", fullWidth ? "w-full" : "w-auto");
     if (!trap) {
       return (
         <div
-          className={cn(
-            "rounded-md border-2 border-dashed border-muted-foreground/40 bg-muted/30",
-            "px-1.5 py-0.5 flex flex-col items-center justify-center shrink-0 leading-tight",
-            fullWidth ? "w-full" : "w-auto",
-          )}
+          className={cn(wrapperBase, "border-dashed border-muted-foreground/40 bg-muted/30")}
           aria-label="トラップ未セット"
         >
           <span className="text-sm opacity-50 leading-none" aria-hidden>⚠</span>
@@ -47,11 +44,7 @@ export function TrapSlot({
     if (faceDown) {
       return (
         <div
-          className={cn(
-            "rounded-md border-2 border-purple-700 bg-gradient-to-br from-purple-700 to-purple-900",
-            "px-1.5 py-0.5 flex flex-col items-center justify-center text-white/80 font-bold shrink-0 leading-tight",
-            fullWidth ? "w-full" : "w-auto",
-          )}
+          className={cn(wrapperBase, "border-purple-700 bg-gradient-to-br from-purple-700 to-purple-900 text-white/80 font-bold")}
           aria-label="トラップセット済(裏向き)"
         >
           <span className="text-sm leading-none">⚠</span>
@@ -62,11 +55,7 @@ export function TrapSlot({
     const def = CARD_DEFS[trap.defId];
     return (
       <div
-        className={cn(
-          "rounded-md border-2 border-purple-500 bg-purple-50 dark:bg-purple-950/40",
-          "px-1.5 py-0.5 flex flex-col items-center justify-center shrink-0 leading-tight",
-          fullWidth ? "w-full" : "w-auto",
-        )}
+        className={cn(wrapperBase, "border-purple-500 bg-purple-50 dark:bg-purple-950/40")}
         aria-label={`トラップ: ${def.name}`}
       >
         <span className="text-sm leading-none" aria-hidden>{def.icon}</span>

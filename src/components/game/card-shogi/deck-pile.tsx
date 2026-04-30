@@ -72,6 +72,7 @@ export function DeckPile({
 
   // 横長モード: 縦長の SIZE_CLASS は使わず、2行構成で横幅を圧縮
   // 行1: 💎×5 (showDrawCost 時) / 行2: 山札 ×N
+  // h-full で親 (items-stretch) の高さに追従可能
   if (horizontal) {
     return (
       <button
@@ -79,7 +80,7 @@ export function DeckPile({
         onClick={onDraw}
         disabled={!interactable}
         className={cn(
-          "relative rounded-md border-2 transition-all px-1.5 py-0.5",
+          "relative rounded-md border-2 transition-all px-1.5 py-0.5 h-full",
           "flex flex-col items-center justify-center gap-0.5 text-white shrink-0 leading-tight",
           fullWidth ? "w-full" : "w-auto",
           isEmpty && "bg-gradient-to-br from-slate-400 to-slate-600 border-slate-500 text-slate-100 cursor-not-allowed opacity-70",

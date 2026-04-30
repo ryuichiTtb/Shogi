@@ -271,7 +271,30 @@ export function CardShogiGame({
 
   // 王手中はカード使用・ドロー禁止 (P10) → 駒指しでの王手回避のみ可能
   const handDisabled = !isPlayerTurn || !isGameActive || cardState.pendingCard !== null || inCheck;
-  const canUndo = gameState.moveHistory.length >= 2 && isPlayerTurn && !isAiThinking && cardState.pendingCard === null;
+
+  // 待った可否 (P28): 駒指し2手以上 / 自分の手番 / AI 思考中でない / pendingCard 無し / 過去2手の間にカード操作なし
+  const canUndo = useMemo(() => {
+    if (gameState.moveHistory.length < 2) return false;
+    if (!isPlayerTurn) return false;
+    if (isAiThinking) return false;
+    if (cardState.pendingCard) return false;
+    let movesSeen = 0;
+    for (let i = eventLog.length - 1; i >= 0; i--) {
+      const ev = eventLog[i];
+      if (ev.kind === "moveEvent") {
+        movesSeen++;
+        if (movesSeen === 2) break;
+      } else if (
+        ev.kind === "cardPlayEvent" ||
+        ev.kind === "drawEvent" ||
+        ev.kind === "trapSetEvent" ||
+        ev.kind === "trapTriggerEvent"
+      ) {
+        return false;
+      }
+    }
+    return movesSeen >= 2;
+  }, [gameState.moveHistory.length, isPlayerTurn, isAiThinking, cardState.pendingCard, eventLog]);
 
   // 歩戻し等のターゲット選択時にハイライトする盤面マス
   const cardTargetSquares: Position[] = useMemo(() => {
@@ -319,31 +342,30 @@ export function CardShogiGame({
         {opponentDeckPile}
         <div className="ml-auto shrink-0">{opponentManaGauge}</div>
       </section>
-      {/* モバイル (<md): 細バー (P22 横長 DeckPile/TrapSlot で自分山札と同じデザイン感、ズレなし) */}
+      {/* モバイル (<md): 細バー (P29 右揃え、山札・TRAP は手札 stack の高さに合わせて伸縮) */}
       <section
-        className="md:hidden shrink-0 px-2 py-0.5 border-b bg-muted/40 flex items-center gap-1.5 text-xs overflow-x-auto"
+        className="md:hidden shrink-0 px-2 py-1 border-b bg-muted/40 flex items-stretch gap-1.5 text-xs"
         onClick={(e) => e.stopPropagation()}
       >
-        <Badge variant="outline" className="shrink-0 text-[10px] px-1.5 py-0">△</Badge>
-        <div className="shrink-0">{opponentManaGauge}</div>
-        <div className="shrink-0">
-          <HandArea
-            hand={cardState.hand[aiColor]}
-            currentMana={0}
-            faceDown
-            layout="stack"
-            size="sm"
-            emptyLabel=""
-          />
+        {/* 左: 相手ラベル + マナゲージ (固定) */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Badge variant="outline" className="shrink-0 text-[10px] px-1.5 py-0">△</Badge>
+          <div className="shrink-0">{opponentManaGauge}</div>
         </div>
-        {/* 相手の山札 (横長、ズレなし、自分山札と同系統の amber グラデ) */}
-        <DeckPile
-          count={cardState.deck[aiColor].length}
-          horizontal
-          showDrawCost
-        />
-        {/* 相手のトラップ (横長) */}
-        <div className="ml-auto shrink-0">
+        {/* 右ブロック: 手札・山札・TRAP を右揃え。手札の左に余白を取り、増減に対応 */}
+        <div className="ml-auto flex items-stretch gap-1.5">
+          <div className="shrink-0 flex items-center">
+            <HandArea
+              hand={cardState.hand[aiColor]}
+              currentMana={0}
+              faceDown
+              layout="stack"
+              size="sm"
+              emptyLabel=""
+            />
+          </div>
+          {/* 山札・トラップは items-stretch で手札 stack の高さに揃う */}
+          <DeckPile count={cardState.deck[aiColor].length} horizontal showDrawCost />
           <TrapSlot trap={cardState.trap[aiColor]} faceDown horizontal />
         </div>
       </section>

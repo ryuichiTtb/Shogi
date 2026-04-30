@@ -279,16 +279,56 @@ function reducer(
 
     case "UNDO": {
       // 駒指しの最後の 2 手 (プレイヤー + AI) を巻き戻す。
-      // カード使用・トラップ・マナチャージはそのままに保ち、駒指しのみ undo する方針 (Phase 0)。
-      // Phase A 以降で「カード使用も含めた完全な undo」を検討。
+      // 仕様 (P28): 過去 2 手の間にカード操作 (drawCard/cardPlay/trapSet/trapTrigger) が含まれる場合は undo 不可。
+      // 含まれない場合は、移動巻き戻し + その 2 手分のターンチャージマナを巻き戻す。
       const history = state.gameState.moveHistory;
       if (history.length < 2) return state;
+
+      // eventLog の末尾から moveEvent 2 件分のスコープを確認し、間にカード操作があるか判定
+      const log = state.eventLog;
+      let movesSeen = 0;
+      let hasCardOp = false;
+      let scopeStartIndex = 0; // この index 以降が undo 対象スコープ
+      for (let i = log.length - 1; i >= 0; i--) {
+        const ev = log[i];
+        if (ev.kind === "moveEvent") {
+          movesSeen++;
+          if (movesSeen === 2) {
+            scopeStartIndex = i;
+            break;
+          }
+        } else if (
+          ev.kind === "cardPlayEvent" ||
+          ev.kind === "drawEvent" ||
+          ev.kind === "trapSetEvent" ||
+          ev.kind === "trapTriggerEvent"
+        ) {
+          hasCardOp = true;
+          break;
+        }
+      }
+      if (hasCardOp) return state;
+      if (movesSeen < 2) return state;
+
+      // 巻き戻すターンチャージマナを集計
+      let revertSenteMana = 0;
+      let revertGoteMana = 0;
+      for (let i = scopeStartIndex; i < log.length; i++) {
+        const ev = log[i];
+        if (ev.kind === "manaChargeEvent" && ev.reason === "turn") {
+          if (ev.player === "sente") revertSenteMana += ev.amount;
+          else revertGoteMana += ev.amount;
+        }
+      }
+
+      // 駒指しを 2 手前まで再適用
       const initialState = createInitialGameState(CARD_SHOGI_VARIANT);
       const movesToApply = history.slice(0, -2);
       let newGameState = initialState;
       for (const m of movesToApply) {
         newGameState = applyMove(newGameState, m);
       }
+
       return {
         ...state,
         gameState: newGameState,
@@ -298,11 +338,17 @@ function reducer(
         promotionPendingMove: null,
         cardState: {
           ...state.cardState,
+          mana: {
+            sente: Math.max(0, state.cardState.mana.sente - revertSenteMana),
+            gote: Math.max(0, state.cardState.mana.gote - revertGoteMana),
+          },
           // 早指しタイマーは undo 後に自分の番が来た時点で再セットされるため null に
           lastTurnStartedAt: { sente: null, gote: null },
           // pendingCard は undo の前提で常にクリア
           pendingCard: null,
         },
+        // eventLog も undo スコープ前まで戻す
+        eventLog: log.slice(0, scopeStartIndex),
       };
     }
 
