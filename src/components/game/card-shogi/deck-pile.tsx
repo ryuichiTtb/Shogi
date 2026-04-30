@@ -64,6 +64,7 @@ export function DeckPile({
   fullWidth = false,
   dimmed = false,
 }: DeckPileProps) {
+  const isEmpty = count === 0;
   const interactable = canDraw && count > 0 && !!onDraw;
   const sizeClass = fullWidth
     ? cn(
@@ -116,19 +117,25 @@ export function DeckPile({
           "relative z-10 rounded-md border-2 transition-all w-full h-full",
           "flex flex-col items-center justify-center text-white px-1",
           sizeClass,
+          // 山札が空: 灰色で「使えない感」を視覚的に表現
+          isEmpty && "bg-gradient-to-br from-slate-400 to-slate-600 border-slate-500 text-slate-100 cursor-not-allowed opacity-70",
           // 通常時(マナ不足など): amber を抑えた中間色
-          !interactable && !dimmed && "bg-gradient-to-br from-amber-700 to-amber-900 border-amber-800 cursor-not-allowed brightness-90",
+          !isEmpty && !interactable && !dimmed && "bg-gradient-to-br from-amber-700 to-amber-900 border-amber-800 cursor-not-allowed brightness-90",
           // 相手手番中など: 活性色をベースに更に暗く (R18)
-          !interactable && dimmed && "bg-gradient-to-br from-amber-800 to-amber-950 border-amber-900 cursor-not-allowed brightness-60 opacity-85",
+          !isEmpty && !interactable && dimmed && "bg-gradient-to-br from-amber-800 to-amber-950 border-amber-900 cursor-not-allowed brightness-60 opacity-85",
           // ドロー可能時: 明るいアンバー寄りグラデーション + グロー演出
           interactable && "bg-gradient-to-br from-amber-500 to-amber-700 border-amber-300 cursor-pointer hover:scale-[1.03] animate-deck-draw",
         )}
         aria-label={
-          interactable ? `山札からドロー (残${count}枚、コスト${PHASE0_DRAW_COST})` : `山札 (残${count}枚)`
+          isEmpty
+            ? "山札 (空)"
+            : interactable
+              ? `山札からドロー (残${count}枚、コスト${PHASE0_DRAW_COST})`
+              : `山札 (残${count}枚)`
         }
       >
-        {/* ドローコストを左上に「💎 × N」形式で表示 */}
-        {showDrawCost && (
+        {/* ドローコストを左上に「💎 × N」形式で表示 (空の時は不要なので非表示) */}
+        {showDrawCost && !isEmpty && (
           <span
             className={cn(
               "absolute top-0.5 left-0.5 flex items-center gap-0.5 rounded-full px-1.5 leading-tight font-bold tabular-nums",
@@ -144,6 +151,9 @@ export function DeckPile({
 
         <div className="opacity-90 leading-none font-medium mt-2">山札</div>
         <div className="font-bold tabular-nums leading-none mt-1 text-base">× {count}</div>
+        {isEmpty && (
+          <div className="mt-1 leading-none text-slate-200 text-[10px] font-bold">空</div>
+        )}
         {interactable && (
           <div className="mt-1 leading-none text-amber-300 text-[10px] font-bold animate-bounce">
             DRAW!
