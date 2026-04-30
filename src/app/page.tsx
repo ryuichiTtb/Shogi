@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { History, Swords } from "lucide-react";
 import { ThemeSelector } from "@/components/game/theme-selector";
+import { ModeSelector, type GameMode } from "@/components/home/mode-selector";
 
 const DIFFICULTY_INFO: Record<Difficulty, { label: string; description: string; color: string }> = {
   beginner: { label: "初級", description: "将棋を覚えたばかりの方に", color: "bg-green-100 text-green-800 border-green-200" },
@@ -27,6 +28,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty>("beginner");
   const [selectedColor, setSelectedColor] = useState<ColorOption>("sente");
+  const [selectedMode, setSelectedMode] = useState<GameMode>("standard");
 
   // Safari互換: CSS 100dvh ではなく JS window.innerHeight を使用
   const [viewportHeight, setViewportHeight] = useState<number | undefined>(undefined);
@@ -64,7 +66,8 @@ export default function Home() {
       const gameId = await createGame(
         selectedDifficulty,
         color,
-        selectedCharacter.id
+        selectedCharacter.id,
+        selectedMode,
       );
       router.push(`/game/${gameId}`);
     } catch (e) {
@@ -94,6 +97,9 @@ export default function Home() {
       </div>
 
       <div className="flex-1 flex flex-col max-w-2xl mx-auto w-full px-4 pb-4 space-y-3 sm:space-y-4 min-h-0">
+        {/* モード選択 */}
+        <ModeSelector mode={selectedMode} onChange={setSelectedMode} className="shrink-0" />
+
         {/* 難易度・キャラクター選択 */}
         <Card className="shrink-0">
           <CardHeader className="pb-2 sm:pb-3">
