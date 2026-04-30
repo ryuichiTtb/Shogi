@@ -32,7 +32,7 @@ import { getVariantById } from "@/lib/shogi/variants/index";
 import type { Difficulty, GameConfig, GameState, Move, Player, Position } from "@/lib/shogi/types";
 import type { CommentaryEvent } from "@/app/actions/commentary";
 import type { CardGameState } from "@/lib/shogi/cards/types";
-import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
+import { CARD_DEFS, PHASE0_DRAW_COST } from "@/lib/shogi/cards/definitions";
 import { createGame } from "@/app/actions/game";
 
 import { ManaGauge } from "./mana-gauge";
@@ -232,10 +232,8 @@ export function CardShogiGame({
     <TrapSlot trap={cardState.trap[aiColor]} faceDown size="md" />
   );
   const ownTrapSlot = <TrapSlot trap={cardState.trap[playerColor]} size="md" />;
-  // モバイル細バー(上端)・下端用の TrapSlot。md サイズで横幅を活かす
-  const opponentTrapSlotMobile = (
-    <TrapSlot trap={cardState.trap[aiColor]} faceDown size="md" />
-  );
+  // モバイル下端用の TrapSlot (md サイズで横幅を活かす)。
+  // 上端細バー側はテキストバッジ形式に変更したため Slot コンポーネントは不要 (P22)。
   const ownTrapSlotMobile = <TrapSlot trap={cardState.trap[playerColor]} size="md" />;
 
   const opponentDeckPile = <DeckPile count={cardState.deck[aiColor].length} size="md" showDrawCost />;
@@ -249,8 +247,7 @@ export function CardShogiGame({
       dimmed={!isPlayerTurn || !isGameActive}
     />
   );
-  // モバイル細バー(上端)用の相手山札。md サイズで「山札」とドローコストの被りを防ぐ (P18)
-  const opponentDeckPileMobile = <DeckPile count={cardState.deck[aiColor].length} size="md" showDrawCost />;
+  // モバイル細バー(上端)の相手山札はテキストバッジ形式に変更したため別途インラインで表示 (P22)。
   // モバイル下端用の自分山札。lg サイズで横幅を最大活用 (P17)
   const ownDeckPileMobile = (
     <DeckPile
@@ -323,9 +320,9 @@ export function CardShogiGame({
         {opponentDeckPile}
         <div className="ml-auto shrink-0">{opponentManaGauge}</div>
       </section>
-      {/* モバイル (<md): 細バー、相手手札はカード裏向きの重ね表示 */}
+      {/* モバイル (<md): 細バー、相手手札はカード裏向きの重ね表示 (P22: 縦幅をコンパクトに) */}
       <section
-        className="md:hidden shrink-0 px-2 py-1 border-b bg-muted/40 flex items-center gap-2 text-xs"
+        className="md:hidden shrink-0 px-2 py-0.5 border-b bg-muted/40 flex items-center gap-1.5 text-xs overflow-x-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <Badge variant="outline" className="shrink-0 text-[10px] px-1.5 py-0">△</Badge>
@@ -340,8 +337,27 @@ export function CardShogiGame({
             emptyLabel=""
           />
         </div>
-        <div className="shrink-0">{opponentDeckPileMobile}</div>
-        <div className="ml-auto shrink-0">{opponentTrapSlotMobile}</div>
+        {/* 山札・トラップ表示はテキスト形式で縦幅を抑える */}
+        <div className="shrink-0 flex items-center gap-1 rounded-md bg-amber-800/70 dark:bg-amber-900/50 text-amber-50 px-1.5 py-0.5 text-[10px] font-bold leading-tight">
+          <span aria-hidden>💎</span>
+          <span>×{PHASE0_DRAW_COST}</span>
+          <span className="opacity-70 mx-0.5">|</span>
+          <span>山札 ×{cardState.deck[aiColor].length}</span>
+        </div>
+        <div className="shrink-0 ml-auto">
+          {/* トラップは状態(セット済/未セット)を小さく表示 */}
+          <div
+            className={cn(
+              "rounded-md border px-1.5 py-0.5 text-[10px] font-bold leading-tight flex items-center gap-1",
+              cardState.trap[aiColor]
+                ? "border-purple-400 bg-purple-700/60 text-purple-50"
+                : "border-dashed border-muted-foreground/40 bg-muted/30 text-muted-foreground",
+            )}
+          >
+            <span aria-hidden>⚠</span>
+            <span>{cardState.trap[aiColor] ? "セット済" : "TRAP"}</span>
+          </div>
+        </div>
       </section>
 
       {/* ===== 中央: 盤面 + 持ち駒 + (PCサイドパネル) ===== xl 未満で表示 */}
