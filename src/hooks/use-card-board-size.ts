@@ -3,11 +3,12 @@
 import { useState, useEffect, useCallback } from "react";
 
 // カード将棋画面用の盤面サイズ計算フック。
-// 既存の useBoardSize はカード要素を考慮していないため、PC/モバイル それぞれで
-// カード要素が確保する縦領域を `extraReservedVertical` として加算する。
+// 既存の useBoardSize はカード要素を考慮していないため、ハイブリッドUI のレイアウト
+// (モバイル / タブレット / PC大) ごとに reserved 値を切り替える。
 // 既存の useBoardSize は改変しない(影響を切る方針)。
 
-const MOBILE_BREAKPOINT = 768;
+const MOBILE_BREAKPOINT = 768; // md
+const PC_LARGE_BREAKPOINT = 1280; // xl - 4列レイアウト発動
 const MIN_SQUARE_SIZE = 32;
 const MAX_SQUARE_SIZE = 64;
 const HORIZONTAL_PADDING = 40;
@@ -15,19 +16,25 @@ const HORIZONTAL_PADDING_MOBILE = 24;
 const BOARD_CELLS = 9;
 
 // 既存 useBoardSize の VERTICAL_RESERVED と同等の基本予約値
-// (statusbar + captured*2 + game-controls + mobile-drawer-tab + board-label + gaps)
 const BASE_RESERVED = 200;
 
-// PC (>=md): 上ゾーン(マナ/相手手札裏/山札/トラップ)+下ゾーン(同上+表手札)
-// 上下ゾーン約 110-120px ずつ + 余白で 240px 確保
+// PC タブレット相当 (md..xl-1): 上下分割の上ゾーン+下ゾーン
 const PC_CARD_RESERVED = 240;
 
-// モバイル (<md): 上端細バー(約 36px)+下端コンパクトバー(約 56px)= 約 100px
+// モバイル (<md): 上端細バー+下端コンパクトバー
 const MOBILE_CARD_RESERVED = 100;
+
+// PC 大 (>=xl): 4列構成 = 上下ゾーンなし、ヘッダ・パディング分のみ
+const PC_LARGE_CARD_RESERVED = 40;
+
+// PC 大 (>=xl): 横方向に「自分カード + 相手カード + キャラ・棋譜」の3列が並ぶため、
+// 中央盤面に使える横幅は (vw - これら3列の合計幅 - gap)
+const PC_LARGE_HORIZONTAL_RESERVED = 600; // 180 + 240 + 180 = 600
 
 interface CardBoardSize {
   squareSize: number;
   isMobile: boolean;
+  isLargeDesktop: boolean;
   viewportHeight: number;
   isReady: boolean;
 }
@@ -35,6 +42,7 @@ interface CardBoardSize {
 export function useCardBoardSize(): CardBoardSize {
   const [squareSize, setSquareSize] = useState(40);
   const [isMobile, setIsMobile] = useState(false);
+  const [isLargeDesktop, setIsLargeDesktop] = useState(false);
   const [viewportHeight, setViewportHeight] = useState(800);
   const [isReady, setIsReady] = useState(false);
 
@@ -43,15 +51,25 @@ export function useCardBoardSize(): CardBoardSize {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const mobile = vw < MOBILE_BREAKPOINT;
+    const largeDesktop = vw >= PC_LARGE_BREAKPOINT;
+
     const padding = mobile ? HORIZONTAL_PADDING_MOBILE : HORIZONTAL_PADDING;
-    const cardReserved = mobile ? MOBILE_CARD_RESERVED : PC_CARD_RESERVED;
-    const availableWidth = vw - padding;
+    const cardReserved = mobile
+      ? MOBILE_CARD_RESERVED
+      : largeDesktop
+        ? PC_LARGE_CARD_RESERVED
+        : PC_CARD_RESERVED;
+    const horizontalReserved = largeDesktop
+      ? PC_LARGE_HORIZONTAL_RESERVED + padding
+      : padding;
+    const availableWidth = vw - horizontalReserved;
     const availableHeight = vh - BASE_RESERVED - cardReserved;
     const fromWidth = Math.floor(availableWidth / BOARD_CELLS);
     const fromHeight = Math.floor(availableHeight / BOARD_CELLS);
     const size = Math.max(MIN_SQUARE_SIZE, Math.min(MAX_SQUARE_SIZE, fromWidth, fromHeight));
     setSquareSize(size);
     setIsMobile(mobile);
+    setIsLargeDesktop(largeDesktop);
     setViewportHeight(vh);
   }, []);
 
@@ -74,5 +92,5 @@ export function useCardBoardSize(): CardBoardSize {
     };
   }, [recalc]);
 
-  return { squareSize, isMobile, viewportHeight, isReady };
+  return { squareSize, isMobile, isLargeDesktop, viewportHeight, isReady };
 }

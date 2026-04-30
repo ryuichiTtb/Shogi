@@ -261,9 +261,9 @@ export function CardShogiGame({
       onClick={deselect}
     >
       {/* ===== 相手ゾーン ===== */}
-      {/* PC (>=md): 詳細ゾーン */}
+      {/* PC タブレット相当 (md..xl-1): 詳細ゾーン */}
       <section
-        className="hidden md:flex shrink-0 px-2 py-1.5 border-b bg-muted/40 items-center gap-2 overflow-x-auto"
+        className="hidden md:flex xl:hidden shrink-0 px-2 py-1.5 border-b bg-muted/40 items-center gap-2 overflow-x-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <Badge variant="outline" className="shrink-0">△ 相手</Badge>
@@ -272,20 +272,29 @@ export function CardShogiGame({
         {opponentDeckPile}
         <div className="ml-auto shrink-0">{opponentManaGauge}</div>
       </section>
-      {/* モバイル (<md): 細バー */}
+      {/* モバイル (<md): 細バー、相手手札はカード裏向きの重ね表示 */}
       <section
-        className="md:hidden shrink-0 px-2 py-1 border-b bg-muted/40 flex items-center gap-2 text-xs overflow-x-auto"
+        className="md:hidden shrink-0 px-2 py-1 border-b bg-muted/40 flex items-center gap-2 text-xs"
         onClick={(e) => e.stopPropagation()}
       >
         <Badge variant="outline" className="shrink-0 text-[10px] px-1.5 py-0">△</Badge>
         <div className="shrink-0">{opponentManaGauge}</div>
-        <span className="text-muted-foreground shrink-0 text-[10px]">手札 {cardState.hand[aiColor].length}</span>
+        <div className="shrink-0">
+          <HandArea
+            hand={cardState.hand[aiColor]}
+            currentMana={0}
+            faceDown
+            layout="stack"
+            size="sm"
+            emptyLabel=""
+          />
+        </div>
         <span className="text-muted-foreground shrink-0 text-[10px]">山札 {cardState.deck[aiColor].length}</span>
         <div className="ml-auto shrink-0">{opponentTrapSlot}</div>
       </section>
 
-      {/* ===== 中央: 盤面 + 持ち駒 + コントロール + (PCサイドパネル) ===== */}
-      <div className="flex-1 min-h-0 flex flex-col lg:flex-row max-w-5xl mx-auto w-full overflow-hidden">
+      {/* ===== 中央: 盤面 + 持ち駒 + (PCサイドパネル) ===== xl 未満で表示 */}
+      <div className="xl:hidden flex-1 min-h-0 flex flex-col lg:flex-row max-w-5xl mx-auto w-full overflow-hidden">
         <div className="flex flex-col items-center flex-1 min-h-0 px-2 py-0.5 lg:py-2">
           {/* ステータスバー */}
           <div className="flex items-center justify-between w-full px-1 shrink-0" style={{ height: 28 }}>
@@ -391,10 +400,10 @@ export function CardShogiGame({
         </div>
       </div>
 
-      {/* ===== 自分ゾーン ===== */}
-      {/* PC (>=md): 詳細ゾーン (GameControls を統合) */}
+      {/* ===== 自分ゾーン (xl 未満) ===== */}
+      {/* PC タブレット相当 (md..xl-1): 詳細ゾーン (GameControls を統合) */}
       <section
-        className="hidden md:flex shrink-0 px-2 py-1.5 border-t bg-muted/40 items-end gap-2 overflow-x-auto"
+        className="hidden md:flex xl:hidden shrink-0 px-2 py-1.5 border-t bg-muted/40 items-end gap-2 overflow-x-auto"
         style={{ paddingBottom: "max(0.375rem, env(safe-area-inset-bottom))" }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -417,7 +426,7 @@ export function CardShogiGame({
 
       {/* モバイル (<md): 下端コンパクトバー (上段: ゲーム操作 / 下段: カード) */}
       <section
-        className="md:hidden shrink-0 border-t bg-card flex flex-col z-30"
+        className="md:hidden xl:hidden shrink-0 border-t bg-card flex flex-col z-30"
         style={{ paddingBottom: "max(0.375rem, env(safe-area-inset-bottom))" }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -484,6 +493,154 @@ export function CardShogiGame({
           aria-hidden
         />
       )}
+
+      {/* ===== xl 以上: 4列レイアウト ===== */}
+      {/* 列幅: 自分カード 180px / 中央 1fr / キャラ・棋譜 240px / 相手カード 180px */}
+      <div
+        className="hidden xl:grid xl:grid-cols-[180px_1fr_240px_180px] xl:grid-rows-[auto_minmax(0,1fr)] xl:gap-2 xl:p-2 h-full"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* ヘッダー (全列スパン) */}
+        <div className="col-span-4 flex items-center justify-between px-2 py-1 shrink-0">
+          <div className="flex items-center gap-2">
+            <Badge variant={isPlayerTurn ? "default" : "secondary"} className="text-xs">
+              {isPlayerTurn ? "あなたの番" : "相手の番"}
+            </Badge>
+            {inCheck && (
+              <Badge variant="destructive" className="animate-pulse text-xs">
+                王手！
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">{gameState.moveCount}手目</span>
+            <ThemeSelector />
+          </div>
+        </div>
+
+        {/* Col 1: 自分カードエリア(縦並び) */}
+        <aside className="flex flex-col gap-2 border-r pr-2 min-h-0 overflow-hidden">
+          <Badge variant="default" className="self-start shrink-0">▲ 自分</Badge>
+          <div className="shrink-0">{ownManaGauge}</div>
+          <div className="flex gap-2 items-end shrink-0">
+            <DeckPile
+              count={cardState.deck[playerColor].length}
+              canDraw={cardState.mana[playerColor] >= 5 && isPlayerTurn && isGameActive}
+              onDraw={drawCard}
+              size="md"
+            />
+            <TrapSlot trap={cardState.trap[playerColor]} size="md" />
+          </div>
+          <div className="text-[10px] text-muted-foreground font-medium shrink-0">手札 {cardState.hand[playerColor].length}枚</div>
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <HandArea
+              hand={cardState.hand[playerColor]}
+              currentMana={cardState.mana[playerColor]}
+              layout="vertical"
+              size="md"
+              onCardClick={(id) => beginPlayCard(id)}
+            />
+          </div>
+          <div className="shrink-0 pt-2 border-t">
+            <GameControls
+              onResign={resign}
+              onUndo={() => {}}
+              isMuted={isMuted}
+              onToggleMute={toggleMute}
+              canUndo={false}
+              gameActive={isGameActive}
+            />
+          </div>
+        </aside>
+
+        {/* Col 2: 中央(盤面 + 持ち駒) */}
+        <main className="flex flex-col items-center gap-1 min-h-0 overflow-hidden">
+          <div className="w-full shrink-0" style={{ maxWidth: squareSize * 9 + 60 }}>
+            <CapturedPieces
+              hand={gameState.hand}
+              player={aiColor}
+              playerColor={playerColor}
+              isCurrentPlayer={gameState.currentPlayer === aiColor && isGameActive}
+              selectedHandPiece={null}
+              onPieceClick={() => {}}
+              label={character.name}
+              squareSize={squareSize}
+            />
+          </div>
+          <div className="relative shrink-0">
+            <ShogiBoard
+              board={gameState.board}
+              currentPlayer={gameState.currentPlayer}
+              playerColor={playerColor}
+              selectedSquare={selectedSquare}
+              legalMoves={legalMoves}
+              lastMove={gameState.moveHistory[gameState.moveHistory.length - 1] ?? null}
+              isAiThinking={isAiThinking}
+              inCheck={inCheck}
+              onSquareClick={selectSquare}
+              squareSize={squareSize}
+              isMobile={isMobile}
+            />
+            <BoardOverlay key={overlayEvent?.key} event={overlayEvent?.event ?? null} />
+          </div>
+          <div className="w-full shrink-0" style={{ maxWidth: squareSize * 9 + 60 }}>
+            <CapturedPieces
+              hand={gameState.hand}
+              player={playerColor}
+              playerColor={playerColor}
+              isCurrentPlayer={isPlayerTurn && isGameActive}
+              selectedHandPiece={selectedHandPiece}
+              onPieceClick={selectHandPiece}
+              label="あなた"
+              squareSize={squareSize}
+            />
+          </div>
+        </main>
+
+        {/* Col 3: キャラパネル + 棋譜 */}
+        <aside className="flex flex-col gap-3 min-h-0 overflow-hidden">
+          <Card className="p-3 shrink-0">
+            <CharacterPanel character={character} commentEvent={commentEvent} isAiThinking={isAiThinking} />
+          </Card>
+          <Card className="p-3 flex-1 min-h-0 flex flex-col">
+            <MoveHistory moves={gameState.moveHistory} />
+          </Card>
+          {!isGameActive && (
+            <Card className="p-3 text-center border-2 border-primary/20 bg-primary/5 shrink-0">
+              <p className="text-sm font-bold mb-2">{gameResultText(gameState.status, gameState.winner)}</p>
+              <div className="flex gap-2 justify-center">
+                <Link href="/">
+                  <Button size="sm" variant="outline">ホームへ</Button>
+                </Link>
+                <Button size="sm" onClick={handlePlayAgain} disabled={isPending}>
+                  {isPending ? "準備中..." : "もう一局"}
+                </Button>
+              </div>
+            </Card>
+          )}
+        </aside>
+
+        {/* Col 4: 相手カードエリア(縦並び、裏向き) */}
+        <aside className="flex flex-col gap-2 border-l pl-2 min-h-0 overflow-hidden">
+          <Badge variant="outline" className="self-start shrink-0">△ 相手</Badge>
+          <div className="shrink-0">{opponentManaGauge}</div>
+          <div className="flex gap-2 items-end shrink-0">
+            <DeckPile count={cardState.deck[aiColor].length} size="md" />
+            <TrapSlot trap={cardState.trap[aiColor]} faceDown size="md" />
+          </div>
+          <div className="text-[10px] text-muted-foreground font-medium shrink-0">手札 {cardState.hand[aiColor].length}枚</div>
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <HandArea
+              hand={cardState.hand[aiColor]}
+              currentMana={0}
+              faceDown
+              layout="vertical"
+              size="md"
+              emptyLabel=""
+            />
+          </div>
+        </aside>
+      </div>
 
       {/* ===== ダイアログ群 ===== */}
       <PromotionDialog
