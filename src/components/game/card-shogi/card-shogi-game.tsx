@@ -237,7 +237,7 @@ export function CardShogiGame({
   );
   const ownTrapSlotSm = <TrapSlot trap={cardState.trap[playerColor]} size="sm" />;
 
-  const opponentDeckPile = <DeckPile count={cardState.deck[aiColor].length} size="md" />;
+  const opponentDeckPile = <DeckPile count={cardState.deck[aiColor].length} size="md" showDrawCost />;
   const ownDeckPile = (
     <DeckPile
       count={cardState.deck[playerColor].length}
@@ -248,13 +248,14 @@ export function CardShogiGame({
       dimmed={!isPlayerTurn || !isGameActive}
     />
   );
-  const opponentDeckPileSm = <DeckPile count={cardState.deck[aiColor].length} size="sm" />;
+  const opponentDeckPileSm = <DeckPile count={cardState.deck[aiColor].length} size="sm" showDrawCost />;
   const ownDeckPileSm = (
     <DeckPile
       count={cardState.deck[playerColor].length}
       canDraw={cardState.mana[playerColor] >= 5 && isPlayerTurn && isGameActive && !inCheck}
       onDraw={drawCard}
-      size="sm"
+      // P13: モバイル下端では「山札」文字とドローコストバッジが被るため md サイズで横に広げる
+      size="md"
       showDrawCost
       dimmed={!isPlayerTurn || !isGameActive}
     />
@@ -344,12 +345,22 @@ export function CardShogiGame({
       {/* ===== 中央: 盤面 + 持ち駒 + (PCサイドパネル) ===== xl 未満で表示 */}
       <div className="xl:hidden flex-1 min-h-0 flex flex-col lg:flex-row max-w-5xl mx-auto w-full overflow-hidden">
         <div className="flex flex-col items-center flex-1 min-h-0 px-2 py-0.5 lg:py-2">
-          {/* ステータスバー */}
+          {/* ステータスバー (モバイルでは音アイコンもここに集約) */}
           <div className="flex items-center justify-between w-full px-1 shrink-0" style={{ height: 28 }}>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <Badge variant={isPlayerTurn ? "default" : "secondary"} className="text-xs">
                 {isPlayerTurn ? "あなたの番" : "相手の番"}
               </Badge>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-6 w-6"
+                onClick={toggleMute}
+                aria-label={isMuted ? "ミュート中" : "音あり"}
+                title={isMuted ? "ミュート中" : "音あり"}
+              >
+                {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+              </Button>
               {inCheck && (
                 <Badge variant="destructive" className="animate-pulse text-xs">
                   王手！
@@ -362,7 +373,7 @@ export function CardShogiGame({
             </div>
           </div>
 
-          {/* 相手の持ち駒 */}
+          {/* 相手の持ち駒 (モバイルでは compact で縦幅を詰める) */}
           <div className="w-full shrink-0" style={{ maxWidth: squareSize * 9 + 60 }}>
             <CapturedPieces
               hand={gameState.hand}
@@ -373,6 +384,7 @@ export function CardShogiGame({
               onPieceClick={() => {}}
               label={character.name}
               squareSize={squareSize}
+              compact={isMobile}
             />
           </div>
 
@@ -399,7 +411,7 @@ export function CardShogiGame({
             />
           </div>
 
-          {/* 自分の持ち駒 */}
+          {/* 自分の持ち駒 (モバイルでは compact で縦幅を詰める) */}
           <div className="w-full shrink-0" style={{ maxWidth: squareSize * 9 + 60 }}>
             <CapturedPieces
               hand={gameState.hand}
@@ -410,6 +422,7 @@ export function CardShogiGame({
               onPieceClick={selectHandPiece}
               label="あなた"
               squareSize={squareSize}
+              compact={isMobile}
             />
           </div>
         </div>
@@ -478,35 +491,36 @@ export function CardShogiGame({
         </div>
       </section>
 
-      {/* モバイル (<md): 下端コンパクトバー (上段: ゲーム操作 / 下段: カード) */}
+      {/* モバイル (<md): 下端コンパクトバー 1段に統合 (P12) */}
+      {/* 構成: [手札ボタン][マナ][山札 md][トラップ sm] | [待った][投了] (音はステータスバーへ) */}
       <section
-        className="md:hidden xl:hidden shrink-0 border-t bg-card flex flex-col z-30"
+        className="md:hidden xl:hidden shrink-0 border-t bg-card flex items-center gap-1.5 px-2 py-1.5 z-30 overflow-x-auto"
         style={{ paddingBottom: "max(0.375rem, env(safe-area-inset-bottom))" }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-2 py-1 border-b flex items-center justify-end">
+        <Button
+          size="sm"
+          variant={drawerOpen ? "outline" : "default"}
+          className="h-9 gap-1 text-xs shrink-0"
+          onClick={() => setDrawerOpen((v) => !v)}
+        >
+          {drawerOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+          手札 {cardState.hand[playerColor].length}
+        </Button>
+        <div className="shrink-0">{ownManaGaugeCompact}</div>
+        {ownDeckPileSm}
+        {ownTrapSlotSm}
+        <div className="ml-auto shrink-0">
           <GameControls
             onResign={resign}
-            onUndo={() => {}}
+            onUndo={undo}
             isMuted={isMuted}
             onToggleMute={toggleMute}
-            canUndo={false}
+            canUndo={canUndo}
             gameActive={isGameActive}
+            compact
+            hideSound
           />
-        </div>
-        <div className="px-2 py-1.5 flex items-center gap-2">
-          <Button
-            size="sm"
-            variant={drawerOpen ? "outline" : "default"}
-            className="h-9 gap-1 text-xs shrink-0"
-            onClick={() => setDrawerOpen((v) => !v)}
-          >
-            {drawerOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
-            手札 {cardState.hand[playerColor].length}
-          </Button>
-          <div className="shrink-0">{ownManaGaugeCompact}</div>
-          {ownDeckPileSm}
-          <div className="ml-auto shrink-0">{ownTrapSlotSm}</div>
         </div>
       </section>
 
@@ -707,7 +721,7 @@ export function CardShogiGame({
           <div className="shrink-0 w-full">{opponentManaGauge}</div>
           <div className="flex gap-2 shrink-0 w-full">
             <div className="flex-1 min-w-0">
-              <DeckPile count={cardState.deck[aiColor].length} size="lg" fullWidth />
+              <DeckPile count={cardState.deck[aiColor].length} size="lg" fullWidth showDrawCost />
             </div>
             <div className="flex-1 min-w-0">
               <TrapSlot trap={cardState.trap[aiColor]} faceDown size="lg" fullWidth />

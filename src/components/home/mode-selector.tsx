@@ -42,7 +42,7 @@ export function ModeSelector({ mode, onChange, className }: ModeSelectorProps) {
             aria-selected={active}
             onClick={() => onChange(m.value)}
             className={cn(
-              "relative py-3 px-3 rounded-lg border-2 transition-all",
+              "relative py-2 sm:py-3 px-3 rounded-lg border-2 transition-all",
               "flex flex-col items-center justify-center gap-0.5 text-center",
               "cursor-pointer",
               active
@@ -63,7 +63,8 @@ export function ModeSelector({ mode, onChange, className }: ModeSelectorProps) {
                 </Badge>
               )}
             </div>
-            <span className="text-[11px] text-muted-foreground leading-tight">
+            {/* モバイルでは説明文を非表示にして縦幅を詰める (P11) */}
+            <span className="hidden sm:block text-[11px] text-muted-foreground leading-tight">
               {m.description}
             </span>
           </button>
