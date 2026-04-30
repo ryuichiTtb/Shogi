@@ -17,6 +17,8 @@ interface ShogiBoardProps {
   onSquareClick: (pos: Position) => void;
   squareSize: number;
   isMobile: boolean;
+  // カード将棋: 歩戻し等のターゲット選択時にハイライトするマス。標準将棋では未指定。
+  cardTargetSquares?: Position[];
 }
 
 // 先手目線のラベル
@@ -39,9 +41,13 @@ export function ShogiBoard({
   onSquareClick,
   squareSize,
   isMobile,
+  cardTargetSquares,
 }: ShogiBoardProps) {
   const legalMoveSet = new Set(
     legalMoves.map((m) => `${m.to.row}-${m.to.col}`)
+  );
+  const cardTargetSet = new Set(
+    (cardTargetSquares ?? []).map((p) => `${p.row}-${p.col}`)
   );
 
   const isGote = playerColor === "gote";
@@ -113,6 +119,7 @@ export function ShogiBoard({
                 selectedSquare?.row === rowIdx &&
                 selectedSquare?.col === colIdx;
               const isLegalTarget = legalMoveSet.has(`${rowIdx}-${colIdx}`);
+              const isCardTarget = cardTargetSet.has(`${rowIdx}-${colIdx}`);
               const isLastMoveSq = isLastMoveSquare(rowIdx, colIdx);
               const isKingInCheck =
                 inCheck &&
@@ -140,8 +147,10 @@ export function ShogiBoard({
                     // 合法手ハイライト
                     isLegalTarget && !piece && "bg-blue-200/70 dark:bg-blue-700/40",
                     isLegalTarget && piece && "bg-red-200/70 dark:bg-red-700/40",
+                    // カード効果のターゲット候補(歩戻し等) - 既存の合法手ハイライトより優先
+                    isCardTarget && "bg-amber-300/80 dark:bg-amber-500/40 ring-2 ring-inset ring-amber-500 dark:ring-amber-300 animate-pulse",
                     // プレイヤーのターンでない・AI思考中は操作不可
-                    (!isPlayerTurn || isAiThinking) && "cursor-not-allowed",
+                    (!isPlayerTurn || isAiThinking) && !isCardTarget && "cursor-not-allowed",
                     // ホバー
                     isPlayerTurn && !isAiThinking && "hover:bg-amber-100 dark:hover:bg-amber-800/50"
                   )}

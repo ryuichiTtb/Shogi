@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { notFound } from "next/navigation";
 import { getGame } from "@/app/actions/game";
-import { ShogiGame } from "@/components/game/shogi-game";
+import { GameLayout } from "@/components/game/game-layout";
 
 interface GamePageProps {
   params: Promise<{ id: string }>;
@@ -16,7 +16,7 @@ export default async function GamePage({ params }: GamePageProps) {
     notFound();
   }
 
-  // variant（関数を含む）は Client Component に渡せないためシリアライズ可能な値のみ渡す
+  // variant(関数を含む)は Client Component に渡せないためシリアライズ可能な値のみ渡す
   const serializableConfig = {
     variantId: game.variantId,
     difficulty: game.gameConfig.difficulty,
@@ -27,8 +27,9 @@ export default async function GamePage({ params }: GamePageProps) {
   };
 
   return (
-    <ShogiGame
+    <GameLayout
       initialGameState={game.boardState}
+      initialCardState={game.cardState}
       gameId={id}
       gameConfig={serializableConfig}
     />

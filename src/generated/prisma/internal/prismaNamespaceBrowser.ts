@@ -54,7 +54,11 @@ export const ModelName = {
   User: 'User',
   Game: 'Game',
   GameMove: 'GameMove',
-  PlayerStats: 'PlayerStats'
+  PlayerStats: 'PlayerStats',
+  Card: 'Card',
+  PlayerCardCollection: 'PlayerCardCollection',
+  Deck: 'Deck',
+  DeckEntry: 'DeckEntry'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -93,6 +97,7 @@ export const GameScalarFieldEnum = {
   winner: 'winner',
   boardState: 'boardState',
   gameConfig: 'gameConfig',
+  cardState: 'cardState',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
@@ -126,6 +131,52 @@ export const PlayerStatsScalarFieldEnum = {
 export type PlayerStatsScalarFieldEnum = (typeof PlayerStatsScalarFieldEnum)[keyof typeof PlayerStatsScalarFieldEnum]
 
 
+export const CardScalarFieldEnum = {
+  id: 'id',
+  kind: 'kind',
+  name: 'name',
+  description: 'description',
+  cost: 'cost',
+  rarity: 'rarity',
+  effectId: 'effectId',
+  targeting: 'targeting',
+  createdAt: 'createdAt'
+} as const
+
+export type CardScalarFieldEnum = (typeof CardScalarFieldEnum)[keyof typeof CardScalarFieldEnum]
+
+
+export const PlayerCardCollectionScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  cardId: 'cardId',
+  count: 'count'
+} as const
+
+export type PlayerCardCollectionScalarFieldEnum = (typeof PlayerCardCollectionScalarFieldEnum)[keyof typeof PlayerCardCollectionScalarFieldEnum]
+
+
+export const DeckScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  name: 'name',
+  isDefault: 'isDefault',
+  createdAt: 'createdAt'
+} as const
+
+export type DeckScalarFieldEnum = (typeof DeckScalarFieldEnum)[keyof typeof DeckScalarFieldEnum]
+
+
+export const DeckEntryScalarFieldEnum = {
+  id: 'id',
+  deckId: 'deckId',
+  cardId: 'cardId',
+  count: 'count'
+} as const
+
+export type DeckEntryScalarFieldEnum = (typeof DeckEntryScalarFieldEnum)[keyof typeof DeckEntryScalarFieldEnum]
+
+
 export const SortOrder = {
   asc: 'asc',
   desc: 'desc'
@@ -139,6 +190,14 @@ export const JsonNullValueInput = {
 } as const
 
 export type JsonNullValueInput = (typeof JsonNullValueInput)[keyof typeof JsonNullValueInput]
+
+
+export const NullableJsonNullValueInput = {
+  DbNull: DbNull,
+  JsonNull: JsonNull
+} as const
+
+export type NullableJsonNullValueInput = (typeof NullableJsonNullValueInput)[keyof typeof NullableJsonNullValueInput]
 
 
 export const QueryMode = {

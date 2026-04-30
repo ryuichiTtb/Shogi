@@ -5,6 +5,13 @@ import { revalidatePath } from "next/cache";
 import { createInitialGameState, serializeGameState, deserializeGameState } from "@/lib/shogi/board";
 import { getVariantById } from "@/lib/shogi/variants/index";
 import type { Difficulty, GameConfig, GameState, Move, Player } from "@/lib/shogi/types";
+import type { CardGameState } from "@/lib/shogi/cards/types";
+import {
+  createInitialCardState,
+  serializeCardState,
+  deserializeCardState,
+  type DeckSpec,
+} from "@/lib/shogi/cards/state";
 
 const DEFAULT_PLAYER_ID = "default-player";
 
@@ -16,6 +23,21 @@ async function ensureDefaultUser() {
     update: {},
   });
   return user;
+}
+
+// card-shogi variant 用: ユーザーのデフォルトデッキから DeckSpec を取得
+async function loadDeckSpecForUser(userId: string): Promise<DeckSpec[]> {
+  const deck = await prisma.deck.findFirst({
+    where: { userId, isDefault: true },
+    include: { entries: true },
+  });
+  if (!deck) {
+    throw new Error(`No default deck found for user ${userId}. Run "npx prisma db seed".`);
+  }
+  return deck.entries.map((e) => ({
+    defId: e.cardId as DeckSpec["defId"],
+    count: e.count,
+  }));
 }
 
 // 新規ゲームを作成
@@ -39,6 +61,14 @@ export async function createGame(
     commentaryEnabled: true,
   };
 
+  // card-shogi variant の場合は cardState を初期化
+  let initialCardState: unknown = undefined;
+  if (variantId === "card-shogi") {
+    const deckSpec = await loadDeckSpecForUser(user.id);
+    const cardState = createInitialCardState(deckSpec);
+    initialCardState = serializeCardState(cardState);
+  }
+
   const game = await prisma.game.create({
     data: {
       playerId: user.id,
@@ -49,6 +79,7 @@ export async function createGame(
       status: "active",
       boardState: serializeGameState(initialState),
       gameConfig: serializableConfig,
+      cardState: initialCardState as never,
     },
   });
 
@@ -85,14 +116,21 @@ export async function getGame(gameId: string) {
     commentaryEnabled: stored.commentaryEnabled ?? true,
   };
 
+  // card-shogi variant のとき cardState を復元
+  let cardState: CardGameState | null = null;
+  if (game.variantId === "card-shogi" && game.cardState) {
+    cardState = deserializeCardState(game.cardState);
+  }
+
   return {
     ...game,
     boardState: deserializeGameState(game.boardState),
     gameConfig,
+    cardState,
   };
 }
 
-// 手を保存してゲーム状態を更新
+// 手を保存してゲーム状態を更新 (standard variant)
 export async function saveMove(
   gameId: string,
   move: Move,
@@ -116,6 +154,41 @@ export async function saveMove(
       where: { id: gameId },
       data: {
         boardState: serializeGameState(newBoardState),
+        status: newBoardState.status,
+        winner: newBoardState.winner,
+      },
+    }),
+  ]);
+
+  revalidatePath(`/game/${gameId}`);
+}
+
+// 手を保存してゲーム状態を更新 (card-shogi variant、cardState も同時保存)
+export async function saveCardShogiMove(
+  gameId: string,
+  move: Move,
+  newBoardState: GameState,
+  newCardState: CardGameState,
+  notation: string,
+  moveNum: number,
+  comment?: string
+): Promise<void> {
+  await prisma.$transaction([
+    prisma.gameMove.create({
+      data: {
+        gameId,
+        moveNum,
+        player: move.player,
+        moveData: move as object,
+        notation,
+        comment,
+      },
+    }),
+    prisma.game.update({
+      where: { id: gameId },
+      data: {
+        boardState: serializeGameState(newBoardState),
+        cardState: serializeCardState(newCardState) as never,
         status: newBoardState.status,
         winner: newBoardState.winner,
       },
