@@ -312,9 +312,14 @@ function reducer(
       const deck = state.cardState.deck[action.player];
       if (deck.length === 0) return state;
       if (state.cardState.mana[action.player] < PHASE0_DRAW_COST) return state;
+      // 自分の手番でなければドロー禁止
+      if (state.gameState.currentPlayer !== action.player) return state;
       const [top, ...rest] = deck;
+      const opponent: Player = action.player === "sente" ? "gote" : "sente";
       return {
         ...state,
+        // ドロー = 1手相当。currentPlayer を反転 + lastTurnStartedAt をクリア (B1)
+        gameState: { ...state.gameState, currentPlayer: opponent },
         cardState: {
           ...state.cardState,
           mana: {
@@ -326,7 +331,15 @@ function reducer(
             ...state.cardState.hand,
             [action.player]: [...state.cardState.hand[action.player], top],
           },
+          lastTurnStartedAt: {
+            ...state.cardState.lastTurnStartedAt,
+            [action.player]: null,
+          },
         },
+        // 駒選択状態もクリア
+        selectedSquare: null,
+        selectedHandPiece: null,
+        legalMoves: [],
         eventLog: [
           ...state.eventLog,
           { kind: "drawEvent", player: action.player, instance: top, at: Date.now() },
@@ -373,6 +386,7 @@ function reducer(
       if (!pending) return state;
       const def = CARD_DEFS[pending.instance.defId];
       const player = pending.player;
+      const opponent: Player = player === "sente" ? "gote" : "sente";
 
       // ターゲット必須カードでターゲット未選択 → 何もしない
       if (def.targeting !== "none" && def.kind !== "trap" && !pending.target) {
@@ -413,6 +427,14 @@ function reducer(
         return state;
       }
 
+      // カード使用 = 1手相当。currentPlayer を反転 + lastTurnStartedAt をクリア (B1)
+      nextGameState = { ...nextGameState, currentPlayer: opponent };
+      nextCardState = {
+        ...nextCardState,
+        pendingCard: null,
+        lastTurnStartedAt: { ...nextCardState.lastTurnStartedAt, [player]: null },
+      };
+
       // pendingCard クリア + イベントログ
       const event: GameEvent =
         def.kind === "trap"
@@ -433,7 +455,11 @@ function reducer(
       return {
         ...state,
         gameState: nextGameState,
-        cardState: { ...nextCardState, pendingCard: null },
+        cardState: nextCardState,
+        // 駒選択状態もクリア
+        selectedSquare: null,
+        selectedHandPiece: null,
+        legalMoves: [],
         eventLog: [...state.eventLog, event],
       };
     }
@@ -615,7 +641,15 @@ export function useCardShogiGame({
       if (gameState.currentPlayer !== gameConfig.playerColor) return;
 
       // pendingCard が selectTarget フェーズなら、盤面クリックをターゲット指定として扱う
+      // ただしカード効果に応じて選択可能な対象を制限する (P2: 歩戻しは自分の歩のみ)
       if (cardState.pendingCard && cardState.pendingCard.phase === "selectTarget") {
+        const def = CARD_DEFS[cardState.pendingCard.instance.defId];
+        if (def.effectId === "pawn_return") {
+          const piece = gameState.board[pos.row]?.[pos.col];
+          if (!piece) return; // 空マスは無効
+          if (piece.owner !== gameConfig.playerColor) return; // 相手の駒は無効
+          if (piece.type !== "pawn" && piece.type !== "promoted_pawn") return; // 歩・と金以外は無効
+        }
         dispatch({
           type: "SELECT_CARD_TARGET",
           target: { kind: "square", row: pos.row, col: pos.col },

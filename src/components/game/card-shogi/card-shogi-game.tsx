@@ -495,9 +495,10 @@ export function CardShogiGame({
       )}
 
       {/* ===== xl 以上: 4列レイアウト ===== */}
-      {/* 列幅: 自分カード 180px / 中央 1fr / キャラ・棋譜 240px / 相手カード 180px */}
+      {/* 列幅: 自分カード 220px / 中央 1fr / キャラ・棋譜 240px / 相手カード 220px */}
+      {/* 220px は GameControls(音あり/待った/投了 計216px)が折り返し無く収まる最小幅 */}
       <div
-        className="hidden xl:grid xl:grid-cols-[180px_1fr_240px_180px] xl:grid-rows-[auto_minmax(0,1fr)] xl:gap-2 xl:p-2 h-full"
+        className="hidden xl:grid xl:grid-cols-[220px_1fr_240px_220px] xl:grid-rows-[auto_minmax(0,1fr)] xl:gap-2 xl:p-2 h-full"
         onClick={(e) => e.stopPropagation()}
       >
         {/* ヘッダー (全列スパン) */}

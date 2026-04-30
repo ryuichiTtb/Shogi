@@ -29,7 +29,7 @@ const PC_LARGE_CARD_RESERVED = 40;
 
 // PC 大 (>=xl): 横方向に「自分カード + 相手カード + キャラ・棋譜」の3列が並ぶため、
 // 中央盤面に使える横幅は (vw - これら3列の合計幅 - gap)
-const PC_LARGE_HORIZONTAL_RESERVED = 600; // 180 + 240 + 180 = 600
+const PC_LARGE_HORIZONTAL_RESERVED = 680; // 220 + 240 + 220 = 680
 
 interface CardBoardSize {
   squareSize: number;
