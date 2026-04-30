@@ -232,10 +232,11 @@ export function CardShogiGame({
     <TrapSlot trap={cardState.trap[aiColor]} faceDown size="md" />
   );
   const ownTrapSlot = <TrapSlot trap={cardState.trap[playerColor]} size="md" />;
-  const opponentTrapSlotSm = (
-    <TrapSlot trap={cardState.trap[aiColor]} faceDown size="sm" />
+  // モバイル細バー(上端)・下端用の TrapSlot。md サイズで横幅を活かす
+  const opponentTrapSlotMobile = (
+    <TrapSlot trap={cardState.trap[aiColor]} faceDown size="md" />
   );
-  const ownTrapSlotSm = <TrapSlot trap={cardState.trap[playerColor]} size="sm" />;
+  const ownTrapSlotMobile = <TrapSlot trap={cardState.trap[playerColor]} size="md" />;
 
   const opponentDeckPile = <DeckPile count={cardState.deck[aiColor].length} size="md" showDrawCost />;
   const ownDeckPile = (
@@ -248,14 +249,15 @@ export function CardShogiGame({
       dimmed={!isPlayerTurn || !isGameActive}
     />
   );
-  const opponentDeckPileSm = <DeckPile count={cardState.deck[aiColor].length} size="sm" showDrawCost />;
-  const ownDeckPileSm = (
+  // モバイル細バー(上端)用の相手山札。md サイズで「山札」とドローコストの被りを防ぐ (P18)
+  const opponentDeckPileMobile = <DeckPile count={cardState.deck[aiColor].length} size="md" showDrawCost />;
+  // モバイル下端用の自分山札。lg サイズで横幅を最大活用 (P17)
+  const ownDeckPileMobile = (
     <DeckPile
       count={cardState.deck[playerColor].length}
       canDraw={cardState.mana[playerColor] >= 5 && isPlayerTurn && isGameActive && !inCheck}
       onDraw={drawCard}
-      // P13: モバイル下端では「山札」文字とドローコストバッジが被るため md サイズで横に広げる
-      size="md"
+      size="lg"
       showDrawCost
       dimmed={!isPlayerTurn || !isGameActive}
     />
@@ -338,8 +340,8 @@ export function CardShogiGame({
             emptyLabel=""
           />
         </div>
-        <div className="shrink-0">{opponentDeckPileSm}</div>
-        <div className="ml-auto shrink-0">{opponentTrapSlotSm}</div>
+        <div className="shrink-0">{opponentDeckPileMobile}</div>
+        <div className="ml-auto shrink-0">{opponentTrapSlotMobile}</div>
       </section>
 
       {/* ===== 中央: 盤面 + 持ち駒 + (PCサイドパネル) ===== xl 未満で表示 */}
@@ -491,26 +493,15 @@ export function CardShogiGame({
         </div>
       </section>
 
-      {/* モバイル (<md): 下端コンパクトバー 1段に統合 (P12) */}
-      {/* 構成: [手札ボタン][マナ][山札 md][トラップ sm] | [待った][投了] (音はステータスバーへ) */}
+      {/* モバイル (<md): 下端 2段構成 (P17) */}
+      {/* 段1(上、薄い高さ): 待った・投了(文字付き) を右寄せ */}
+      {/* 段2(下、メイン高さ): 手札ボタン・マナゲージ・山札 lg・トラップ md を横幅一杯に */}
       <section
-        className="md:hidden xl:hidden shrink-0 border-t bg-card flex items-center gap-1.5 px-2 py-1.5 z-30 overflow-x-auto"
+        className="md:hidden xl:hidden shrink-0 border-t bg-card flex flex-col z-30"
         style={{ paddingBottom: "max(0.375rem, env(safe-area-inset-bottom))" }}
         onClick={(e) => e.stopPropagation()}
       >
-        <Button
-          size="sm"
-          variant={drawerOpen ? "outline" : "default"}
-          className="h-9 gap-1 text-xs shrink-0"
-          onClick={() => setDrawerOpen((v) => !v)}
-        >
-          {drawerOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
-          手札 {cardState.hand[playerColor].length}
-        </Button>
-        <div className="shrink-0">{ownManaGaugeCompact}</div>
-        {ownDeckPileSm}
-        {ownTrapSlotSm}
-        <div className="ml-auto shrink-0">
+        <div className="px-2 py-0.5 border-b flex items-center justify-end">
           <GameControls
             onResign={resign}
             onUndo={undo}
@@ -518,9 +509,22 @@ export function CardShogiGame({
             onToggleMute={toggleMute}
             canUndo={canUndo}
             gameActive={isGameActive}
-            compact
             hideSound
           />
+        </div>
+        <div className="px-2 py-1.5 flex items-center gap-2 overflow-x-auto">
+          <Button
+            size="sm"
+            variant={drawerOpen ? "outline" : "default"}
+            className="h-9 gap-1 text-xs shrink-0"
+            onClick={() => setDrawerOpen((v) => !v)}
+          >
+            {drawerOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+            手札 {cardState.hand[playerColor].length}
+          </Button>
+          <div className="shrink-0">{ownManaGaugeCompact}</div>
+          <div className="shrink-0">{ownDeckPileMobile}</div>
+          <div className="ml-auto shrink-0">{ownTrapSlotMobile}</div>
         </div>
       </section>
 
@@ -544,7 +548,7 @@ export function CardShogiGame({
           <HandArea
             hand={cardState.hand[playerColor]}
             currentMana={cardState.mana[playerColor]}
-            size="lg"
+            size="md"
             disabled={handDisabled}
             onCardClick={(id) => {
               beginPlayCard(id);

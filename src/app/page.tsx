@@ -87,30 +87,30 @@ export default function Home() {
       className="flex flex-col bg-gradient-to-b from-amber-50 dark:from-amber-950/30 to-background safe-area-inset overflow-hidden"
       style={{ height: viewportHeight ?? "100dvh" }}
     >
-      {/* ヘッダー */}
-      <div className="relative text-center py-4 sm:py-8 px-4 shrink-0">
-        <div className="absolute top-3 right-4">
+      {/* ヘッダー (モバイルでは縦幅を更に詰める) */}
+      <div className="relative text-center py-2 sm:py-8 px-4 shrink-0">
+        <div className="absolute top-2 right-4 sm:top-3">
           <ThemeSelector />
         </div>
-        <h1 className="text-3xl sm:text-4xl font-bold tracking-tight mb-1">将棋</h1>
-        <p className="text-sm text-muted-foreground">AIと対局しよう</p>
+        <h1 className="text-2xl sm:text-4xl font-bold tracking-tight">将棋</h1>
+        <p className="text-xs sm:text-sm text-muted-foreground">AIと対局しよう</p>
       </div>
 
-      <div className="flex-1 flex flex-col max-w-2xl mx-auto w-full px-4 pb-4 space-y-3 sm:space-y-4 min-h-0">
+      <div className="flex-1 flex flex-col max-w-2xl mx-auto w-full px-4 pb-2 sm:pb-4 space-y-2 sm:space-y-4 min-h-0">
         {/* モード選択 */}
         <ModeSelector mode={selectedMode} onChange={setSelectedMode} className="shrink-0" />
 
-        {/* 難易度・キャラクター選択 */}
+        {/* 難易度・キャラクター選択 (モバイル時 padding を詰める) */}
         <Card className="shrink-0">
-          <CardHeader className="pb-2 sm:pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
+          <CardHeader className="pb-1 sm:pb-3 pt-3 sm:pt-6">
+            <CardTitle className="text-sm sm:text-base flex items-center gap-2">
               <Swords className="w-4 h-4" />
               対局相手を選ぶ
             </CardTitle>
           </CardHeader>
-          <CardContent className="pb-3">
+          <CardContent className="pb-2 sm:pb-3">
             {/* モバイル: コンパクトリスト / デスクトップ: カードグリッド */}
-            <div className="sm:hidden flex flex-col gap-1.5">
+            <div className="sm:hidden flex flex-col gap-1">
               {CHARACTERS.map((character) => {
                 const diffInfo = DIFFICULTY_INFO[character.difficulty];
                 const isSelected = selectedDifficulty === character.difficulty;
@@ -120,14 +120,14 @@ export default function Home() {
                     key={character.id}
                     onClick={() => setSelectedDifficulty(character.difficulty)}
                     className={cn(
-                      "flex items-center gap-3 px-3 py-2.5 rounded-lg border-2 text-left transition-all",
+                      "flex items-center gap-2 px-2.5 py-1.5 rounded-lg border-2 text-left transition-all",
                       "cursor-pointer",
                       isSelected
                         ? "border-primary bg-primary/5"
                         : "border-border hover:border-primary/40"
                     )}
                   >
-                    <span className="text-2xl shrink-0">{character.avatarEmoji}</span>
+                    <span className="text-xl shrink-0">{character.avatarEmoji}</span>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-sm">{character.name}</span>
@@ -188,12 +188,12 @@ export default function Home() {
           </CardContent>
         </Card>
 
-        {/* 手番選択 */}
+        {/* 手番選択 (モバイル時 padding を詰める) */}
         <Card className="shrink-0">
-          <CardHeader className="pb-2 sm:pb-3">
-            <CardTitle className="text-base">手番を選ぶ</CardTitle>
+          <CardHeader className="pb-1 sm:pb-3 pt-3 sm:pt-6">
+            <CardTitle className="text-sm sm:text-base">手番を選ぶ</CardTitle>
           </CardHeader>
-          <CardContent className="pb-3">
+          <CardContent className="pb-2 sm:pb-3">
             {/* モバイル: コンパクト横並び / デスクトップ: カードグリッド */}
             <div className="sm:hidden flex gap-2">
               {colorOptions.map(({ value, icon, label }) => (
@@ -239,10 +239,10 @@ export default function Home() {
         {/* スペーサー（モバイルでボタンを下寄せ） */}
         <div className="flex-1 sm:hidden" />
 
-        {/* 対局開始ボタン */}
+        {/* 対局開始ボタン (モバイル時 高さを詰める) */}
         <Button
           size="lg"
-          className="w-full text-base py-6 sm:py-6 shrink-0"
+          className="w-full text-sm sm:text-base py-3 sm:py-6 shrink-0"
           onClick={handleStart}
           disabled={isLoading}
         >
