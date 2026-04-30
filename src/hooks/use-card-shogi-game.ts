@@ -8,7 +8,7 @@ import type {
   Player,
   Position,
 } from "@/lib/shogi/types";
-import { applyMove } from "@/lib/shogi/board";
+import { applyMove, createInitialGameState } from "@/lib/shogi/board";
 import {
   getPieceMoves,
   getLegalDropMoves,
@@ -45,6 +45,7 @@ type ShogiAction =
   | { type: "CONFIRM_PROMOTION"; promote: boolean }
   | { type: "CANCEL_PROMOTION" }
   | { type: "RESIGN" }
+  | { type: "UNDO" }
   | { type: "BEGIN_TURN_TIMER"; player: Player };
 
 type Action = ShogiAction | CardAction;
@@ -276,6 +277,35 @@ function reducer(
       };
     }
 
+    case "UNDO": {
+      // 駒指しの最後の 2 手 (プレイヤー + AI) を巻き戻す。
+      // カード使用・トラップ・マナチャージはそのままに保ち、駒指しのみ undo する方針 (Phase 0)。
+      // Phase A 以降で「カード使用も含めた完全な undo」を検討。
+      const history = state.gameState.moveHistory;
+      if (history.length < 2) return state;
+      const initialState = createInitialGameState(CARD_SHOGI_VARIANT);
+      const movesToApply = history.slice(0, -2);
+      let newGameState = initialState;
+      for (const m of movesToApply) {
+        newGameState = applyMove(newGameState, m);
+      }
+      return {
+        ...state,
+        gameState: newGameState,
+        selectedSquare: null,
+        selectedHandPiece: null,
+        legalMoves: [],
+        promotionPendingMove: null,
+        cardState: {
+          ...state.cardState,
+          // 早指しタイマーは undo 後に自分の番が来た時点で再セットされるため null に
+          lastTurnStartedAt: { sente: null, gote: null },
+          // pendingCard は undo の前提で常にクリア
+          pendingCard: null,
+        },
+      };
+    }
+
     case "BEGIN_TURN_TIMER": {
       return {
         ...state,
@@ -314,6 +344,8 @@ function reducer(
       if (state.cardState.mana[action.player] < PHASE0_DRAW_COST) return state;
       // 自分の手番でなければドロー禁止
       if (state.gameState.currentPlayer !== action.player) return state;
+      // 王手中はドロー禁止 (P10: 王手回避以外の手は禁止)
+      if (isInCheck(state.gameState, action.player, CARD_SHOGI_VARIANT)) return state;
       const [top, ...rest] = deck;
       const opponent: Player = action.player === "sente" ? "gote" : "sente";
       return {
@@ -349,6 +381,10 @@ function reducer(
 
     case "BEGIN_PLAY_CARD": {
       if (state.cardState.pendingCard) return state;
+      // 自分の手番でなければカード使用禁止
+      if (state.gameState.currentPlayer !== action.player) return state;
+      // 王手中はカード使用禁止 (P10)
+      if (isInCheck(state.gameState, action.player, CARD_SHOGI_VARIANT)) return state;
       const card = state.cardState.hand[action.player].find(
         (c) => c.instanceId === action.instanceId,
       );
@@ -743,6 +779,12 @@ export function useCardShogiGame({
     updateGameStatus(gameId, "resign", winner);
   }, [state.gameState.currentPlayer, gameId]);
 
+  const undo = useCallback(() => {
+    if (state.gameState.moveHistory.length < 2) return;
+    if (state.cardState.pendingCard) return;
+    dispatch({ type: "UNDO" });
+  }, [state.gameState.moveHistory.length, state.cardState.pendingCard]);
+
   const deselect = useCallback(() => {
     dispatch({ type: "DESELECT" });
   }, []);
@@ -784,6 +826,7 @@ export function useCardShogiGame({
     confirmPromotion,
     cancelPromotion,
     resign,
+    undo,
     deselect,
     drawCard,
     beginPlayCard,

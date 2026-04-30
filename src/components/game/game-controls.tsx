@@ -18,6 +18,8 @@ interface GameControlsProps {
   onToggleMute: () => void;
   canUndo: boolean;
   gameActive: boolean;
+  // 狭い領域用にアイコンのみ表示する。card-shogi の 4列レイアウト Col1 等で使用。
+  compact?: boolean;
 }
 
 // 固定高さ: 36px
@@ -30,6 +32,7 @@ export function GameControls({
   onToggleMute,
   canUndo,
   gameActive,
+  compact = false,
 }: GameControlsProps) {
   const [showResignDialog, setShowResignDialog] = useState(false);
 
@@ -41,35 +44,41 @@ export function GameControls({
       >
         <Button
           variant="outline"
-          size="sm"
+          size={compact ? "icon" : "sm"}
           onClick={onToggleMute}
-          className="gap-1.5"
+          className={compact ? "h-9 w-9" : "gap-1.5"}
+          aria-label={isMuted ? "ミュート中" : "音あり"}
+          title={isMuted ? "ミュート中" : "音あり"}
         >
           {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-          {isMuted ? "ミュート中" : "音あり"}
+          {!compact && (isMuted ? "ミュート中" : "音あり")}
         </Button>
 
         {gameActive && (
           <>
             <Button
               variant="outline"
-              size="sm"
+              size={compact ? "icon" : "sm"}
               onClick={onUndo}
               disabled={!canUndo}
-              className="gap-1.5"
+              className={compact ? "h-9 w-9" : "gap-1.5"}
+              aria-label="待った"
+              title="待った"
             >
               <RotateCcw className="w-4 h-4" />
-              待った
+              {!compact && "待った"}
             </Button>
 
             <Button
               variant="destructive"
-              size="sm"
+              size={compact ? "icon" : "sm"}
               onClick={() => setShowResignDialog(true)}
-              className="gap-1.5"
+              className={compact ? "h-9 w-9" : "gap-1.5"}
+              aria-label="投了"
+              title="投了"
             >
               <Flag className="w-4 h-4" />
-              投了
+              {!compact && "投了"}
             </Button>
           </>
         )}

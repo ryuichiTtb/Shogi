@@ -119,6 +119,7 @@ export function CardShogiGame({
     confirmPromotion,
     cancelPromotion,
     resign,
+    undo,
     deselect,
     drawCard,
     beginPlayCard,
@@ -234,7 +235,7 @@ export function CardShogiGame({
   const ownDeckPile = (
     <DeckPile
       count={cardState.deck[playerColor].length}
-      canDraw={cardState.mana[playerColor] >= 5 && isPlayerTurn && isGameActive}
+      canDraw={cardState.mana[playerColor] >= 5 && isPlayerTurn && isGameActive && !inCheck}
       onDraw={drawCard}
       size="md"
       showDrawCost
@@ -244,7 +245,7 @@ export function CardShogiGame({
   const ownDeckPileSm = (
     <DeckPile
       count={cardState.deck[playerColor].length}
-      canDraw={cardState.mana[playerColor] >= 5 && isPlayerTurn && isGameActive}
+      canDraw={cardState.mana[playerColor] >= 5 && isPlayerTurn && isGameActive && !inCheck}
       onDraw={drawCard}
       size="sm"
       showDrawCost
@@ -261,7 +262,9 @@ export function CardShogiGame({
     />
   );
 
-  const handDisabled = !isPlayerTurn || !isGameActive || cardState.pendingCard !== null;
+  // 王手中はカード使用・ドロー禁止 (P10) → 駒指しでの王手回避のみ可能
+  const handDisabled = !isPlayerTurn || !isGameActive || cardState.pendingCard !== null || inCheck;
+  const canUndo = gameState.moveHistory.length >= 2 && isPlayerTurn && !isAiThinking && cardState.pendingCard === null;
 
   // 歩戻し等のターゲット選択時にハイライトする盤面マス
   const cardTargetSquares: Position[] = useMemo(() => {
@@ -593,11 +596,12 @@ export function CardShogiGame({
           <div className="shrink-0 pt-2 border-t flex justify-center">
             <GameControls
               onResign={resign}
-              onUndo={() => {}}
+              onUndo={undo}
               isMuted={isMuted}
               onToggleMute={toggleMute}
-              canUndo={false}
+              canUndo={canUndo}
               gameActive={isGameActive}
+              compact
             />
           </div>
         </aside>
