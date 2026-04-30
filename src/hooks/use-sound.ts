@@ -27,6 +27,11 @@ const SFX_FILES: Record<string, string> = {
   check: "/sounds/check.mp3",
   game_over: "/sounds/game-over.mp3",
   game_start: "/sounds/game-start.mp3",
+  // カード将棋用 SE (Phase 0 では既存ファイルをエイリアスとして再利用、Phase A 以降で差替予定)
+  card_draw: "/sounds/piece-drop.mp3",
+  card_play: "/sounds/piece-move.mp3",
+  mana_charge: "/sounds/piece-promote.mp3",
+  trap_trigger: "/sounds/check.mp3",
 };
 
 export function useSound(bgmTrack?: string) {

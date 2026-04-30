@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronUp, ChevronDown } from "lucide-react";
@@ -112,6 +112,7 @@ export function CardShogiGame({
     isAiThinking,
     promotionPendingMove,
     cardState,
+    eventLog,
     selectSquare,
     selectHandPiece,
     confirmPromotion,
@@ -180,6 +181,34 @@ export function CardShogiGame({
     setTimeout(() => handleComment("game_start"), 500);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isReady]);
+
+  // カードイベント由来の SE を再生 (eventLog の差分監視)
+  const lastEventIndexRef = useRef(0);
+  useEffect(() => {
+    if (!isReady) return;
+    const newEvents = eventLog.slice(lastEventIndexRef.current);
+    for (const ev of newEvents) {
+      switch (ev.kind) {
+        case "drawEvent":
+          playSfx("card_draw");
+          break;
+        case "cardPlayEvent":
+          playSfx("card_play");
+          break;
+        case "manaChargeEvent":
+          // ターン由来の自動チャージは駒移動 SE と被るため、カード由来のみ鳴らす
+          if (ev.reason === "card") playSfx("mana_charge");
+          break;
+        case "trapSetEvent":
+          playSfx("card_play");
+          break;
+        case "trapTriggerEvent":
+          playSfx("trap_trigger");
+          break;
+      }
+    }
+    lastEventIndexRef.current = eventLog.length;
+  }, [eventLog, isReady, playSfx]);
 
   // ----- レイアウト用ヘルパ -----
 
