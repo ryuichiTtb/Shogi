@@ -53,7 +53,7 @@ export function HandArea({
     return (
       <div className={cn("flex gap-1", layout === "vertical" ? "flex-col" : "flex-row")}>
         {hand.map((c) => (
-          <CardView key={c.instanceId} card={c} faceDown size={size} />
+          <CardView key={c.instanceId} card={c} faceDown size={size} fullWidth={fullWidth} />
         ))}
       </div>
     );

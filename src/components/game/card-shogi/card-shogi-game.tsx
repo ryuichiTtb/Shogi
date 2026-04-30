@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronUp, ChevronDown } from "lucide-react";
+import { ChevronUp, ChevronDown, Volume2, VolumeX } from "lucide-react";
 
 import { useCardShogiGame } from "@/hooks/use-card-shogi-game";
 import { useSound } from "@/hooks/use-sound";
@@ -184,7 +184,7 @@ export function CardShogiGame({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isReady]);
 
-  // カードイベント由来の SE を再生 (eventLog の差分監視)
+  // カードイベント由来の SE 再生と画面演出 (eventLog の差分監視)
   const lastEventIndexRef = useRef(0);
   useEffect(() => {
     if (!isReady) return;
@@ -206,6 +206,8 @@ export function CardShogiGame({
           break;
         case "trapTriggerEvent":
           playSfx("trap_trigger");
+          // R16: トラップ発動を画面中央オーバーレイで明示
+          setOverlayEvent({ event: "trap_trigger", key: Date.now() });
           break;
       }
     }
@@ -239,6 +241,7 @@ export function CardShogiGame({
       onDraw={drawCard}
       size="md"
       showDrawCost
+      dimmed={!isPlayerTurn || !isGameActive}
     />
   );
   const opponentDeckPileSm = <DeckPile count={cardState.deck[aiColor].length} size="sm" />;
@@ -249,6 +252,7 @@ export function CardShogiGame({
       onDraw={drawCard}
       size="sm"
       showDrawCost
+      dimmed={!isPlayerTurn || !isGameActive}
     />
   );
 
@@ -539,17 +543,26 @@ export function CardShogiGame({
 
       {/* ===== xl 以上: 4列レイアウト ===== */}
       {/* 列幅: 自分カード 220px / 中央 1fr / キャラ・棋譜 240px / 相手カード 220px */}
-      {/* 220px は GameControls(音あり/待った/投了 計216px)が折り返し無く収まる最小幅 */}
       <div
         className="hidden xl:grid xl:grid-cols-[220px_1fr_240px_220px] xl:grid-rows-[auto_minmax(0,1fr)] xl:gap-2 xl:p-2 h-full"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* ヘッダー (全列スパン) */}
+        {/* ヘッダー (全列スパン)、音量トグルは「あなたの番」横に分離配置 (R15) */}
         <div className="col-span-4 flex items-center justify-between px-2 py-1 shrink-0">
           <div className="flex items-center gap-2">
             <Badge variant={isPlayerTurn ? "default" : "secondary"} className="text-xs">
               {isPlayerTurn ? "あなたの番" : "相手の番"}
             </Badge>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7"
+              onClick={toggleMute}
+              aria-label={isMuted ? "ミュート中" : "音あり"}
+              title={isMuted ? "ミュート中" : "音あり"}
+            >
+              {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+            </Button>
             {inCheck && (
               <Badge variant="destructive" className="animate-pulse text-xs">
                 王手！
@@ -570,11 +583,12 @@ export function CardShogiGame({
             <div className="flex-1 min-w-0">
               <DeckPile
                 count={cardState.deck[playerColor].length}
-                canDraw={cardState.mana[playerColor] >= 5 && isPlayerTurn && isGameActive}
+                canDraw={cardState.mana[playerColor] >= 5 && isPlayerTurn && isGameActive && !inCheck}
                 onDraw={drawCard}
                 size="lg"
                 showDrawCost
                 fullWidth
+                dimmed={!isPlayerTurn || !isGameActive}
               />
             </div>
             <div className="flex-1 min-w-0">
@@ -594,6 +608,7 @@ export function CardShogiGame({
             />
           </div>
           <div className="shrink-0 pt-2 border-t flex justify-center">
+            {/* R15: 音量はヘッダーへ分離、ここは「待った」「投了」のみ(文字付き) */}
             <GameControls
               onResign={resign}
               onUndo={undo}
@@ -601,7 +616,7 @@ export function CardShogiGame({
               onToggleMute={toggleMute}
               canUndo={canUndo}
               gameActive={isGameActive}
-              compact
+              hideSound
             />
           </div>
         </aside>

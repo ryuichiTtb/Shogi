@@ -20,6 +20,8 @@ interface GameControlsProps {
   gameActive: boolean;
   // 狭い領域用にアイコンのみ表示する。card-shogi の 4列レイアウト Col1 等で使用。
   compact?: boolean;
+  // 音量トグルを非表示にする。card-shogi の 4列レイアウトでは音はヘッダーに分離するため。
+  hideSound?: boolean;
 }
 
 // 固定高さ: 36px
@@ -33,6 +35,7 @@ export function GameControls({
   canUndo,
   gameActive,
   compact = false,
+  hideSound = false,
 }: GameControlsProps) {
   const [showResignDialog, setShowResignDialog] = useState(false);
 
@@ -42,17 +45,19 @@ export function GameControls({
         className="flex gap-2 flex-wrap items-center"
         style={{ height: GAME_CONTROLS_HEIGHT }}
       >
-        <Button
-          variant="outline"
-          size={compact ? "icon" : "sm"}
-          onClick={onToggleMute}
-          className={compact ? "h-9 w-9" : "gap-1.5"}
-          aria-label={isMuted ? "ミュート中" : "音あり"}
-          title={isMuted ? "ミュート中" : "音あり"}
-        >
-          {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-          {!compact && (isMuted ? "ミュート中" : "音あり")}
-        </Button>
+        {!hideSound && (
+          <Button
+            variant="outline"
+            size={compact ? "icon" : "sm"}
+            onClick={onToggleMute}
+            className={compact ? "h-9 w-9" : "gap-1.5"}
+            aria-label={isMuted ? "ミュート中" : "音あり"}
+            title={isMuted ? "ミュート中" : "音あり"}
+          >
+            {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+            {!compact && (isMuted ? "ミュート中" : "音あり")}
+          </Button>
+        )}
 
         {gameActive && (
           <>

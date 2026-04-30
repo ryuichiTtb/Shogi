@@ -12,6 +12,8 @@ interface DeckPileProps {
   showDrawCost?: boolean;
   // true のとき横幅を親に合わせる(縦並び・中央揃えで使用)
   fullWidth?: boolean;
+  // 相手手番中など、より暗くした非活性表示にしたい場合に true
+  dimmed?: boolean;
 }
 
 const SIZE_CLASS = {
@@ -27,6 +29,7 @@ export function DeckPile({
   size = "md",
   showDrawCost = false,
   fullWidth = false,
+  dimmed = false,
 }: DeckPileProps) {
   const interactable = canDraw && count > 0 && !!onDraw;
   const sizeClass = fullWidth
@@ -44,10 +47,12 @@ export function DeckPile({
         "relative rounded-md border-2 transition-all",
         "flex flex-col items-center justify-center text-white shrink-0 px-1",
         sizeClass,
-        // 通常時: 暗いグラデーション
-        !interactable && "bg-gradient-to-br from-slate-700 to-slate-900 border-slate-700 cursor-not-allowed opacity-80",
-        // ドロー可能時: 明るいアンバー寄りグラデーション + パルスで誘目 (R13)
-        interactable && "bg-gradient-to-br from-amber-600 to-amber-800 border-amber-300 cursor-pointer hover:scale-[1.03] shadow-amber-400/60 shadow-lg animate-pulse",
+        // 通常時(マナ不足など): 中間色グラデーション、非活性
+        !interactable && !dimmed && "bg-gradient-to-br from-slate-600 to-slate-800 border-slate-600 cursor-not-allowed",
+        // 相手手番中など: より暗くした非活性表示 (R14)
+        !interactable && dimmed && "bg-gradient-to-br from-slate-800 to-slate-950 border-slate-800 cursor-not-allowed opacity-65",
+        // ドロー可能時: 明るいアンバー寄りグラデーション + 独自グロー演出 (R13/R14)
+        interactable && "bg-gradient-to-br from-amber-500 to-amber-700 border-amber-300 cursor-pointer hover:scale-[1.03] animate-deck-draw",
       )}
       aria-label={
         interactable ? `山札からドロー (残${count}枚、コスト${PHASE0_DRAW_COST})` : `山札 (残${count}枚)`

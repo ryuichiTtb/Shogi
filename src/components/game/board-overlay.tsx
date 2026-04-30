@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 
-export type OverlayEvent = "game_start" | "check" | "resign" | "checkmate";
+export type OverlayEvent = "game_start" | "check" | "resign" | "checkmate" | "trap_trigger";
 
 interface BoardOverlayProps {
   event: OverlayEvent | null;
@@ -46,6 +46,13 @@ const OVERLAY_CONFIG: Record<OverlayEvent, OverlayConfig> = {
     fadeOut: 0,
     className: "text-white",
   },
+  trap_trigger: {
+    text: "トラップ発動！",
+    fadeIn: 200,
+    hold: 1500,
+    fadeOut: 600,
+    className: "text-purple-100",
+  },
 };
 
 export function BoardOverlay({ event }: BoardOverlayProps) {
@@ -83,6 +90,32 @@ export function BoardOverlay({ event }: BoardOverlayProps) {
   if (!visible || !event) return null;
 
   const config = OVERLAY_CONFIG[event];
+
+  // トラップ発動はトラップ専用の演出(紫グラデ + シェイク的なスケールアニメ + ⚠アイコン)
+  if (event === "trap_trigger") {
+    return (
+      <div
+        className="absolute inset-0 flex items-center justify-center pointer-events-none z-10"
+        style={{ transition: `opacity ${transitionDuration}ms ease`, opacity }}
+      >
+        <div
+          className={cn(
+            "rounded-xl px-8 py-4 flex items-center gap-3",
+            "bg-gradient-to-br from-purple-700 to-purple-900",
+            "border-2 border-purple-300 shadow-2xl shadow-purple-500/50",
+            "text-3xl tracking-wider font-bold",
+            "font-[family-name:var(--font-yuji-boku)]",
+            "animate-trap-trigger",
+            config.className,
+          )}
+        >
+          <span className="text-4xl" aria-hidden>⚠</span>
+          <span>{config.text}</span>
+          <span className="text-4xl" aria-hidden>⚠</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
