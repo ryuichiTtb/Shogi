@@ -14,6 +14,8 @@ interface HandAreaProps {
   // "horizontal": 横スクロール / "vertical": 縦スクロール / "stack": 重ね表示(クリック非インタラクティブ向け)
   layout?: "horizontal" | "vertical" | "stack";
   emptyLabel?: string;
+  // true のとき手札全体のクリックを無効化(相手の手番中・ゲーム終了時など)
+  disabled?: boolean;
 }
 
 export function HandArea({
@@ -24,6 +26,7 @@ export function HandArea({
   size = "md",
   layout = "horizontal",
   emptyLabel = "手札なし",
+  disabled = false,
 }: HandAreaProps) {
   if (hand.length === 0) {
     return <div className="text-xs text-muted-foreground py-2 px-3">{emptyLabel}</div>;
@@ -64,13 +67,13 @@ export function HandArea({
     >
       {hand.map((c) => {
         const def = CARD_DEFS[c.defId];
-        const disabled = currentMana < def.cost;
+        const cardDisabled = disabled || currentMana < def.cost;
         return (
           <CardView
             key={c.instanceId}
             card={c}
             size={size}
-            disabled={disabled}
+            disabled={cardDisabled}
             onClick={() => onCardClick?.(c.instanceId)}
           />
         );

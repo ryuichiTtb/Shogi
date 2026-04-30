@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronUp, ChevronDown } from "lucide-react";
@@ -29,9 +29,10 @@ import { gameResultText } from "@/lib/shogi/notation";
 import { isInCheck } from "@/lib/shogi/moves";
 import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
 import { getVariantById } from "@/lib/shogi/variants/index";
-import type { Difficulty, GameConfig, GameState, Move, Player } from "@/lib/shogi/types";
+import type { Difficulty, GameConfig, GameState, Move, Player, Position } from "@/lib/shogi/types";
 import type { CommentaryEvent } from "@/app/actions/commentary";
 import type { CardGameState } from "@/lib/shogi/cards/types";
+import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
 import { createGame } from "@/app/actions/game";
 
 import { ManaGauge } from "./mana-gauge";
@@ -260,12 +261,33 @@ export function CardShogiGame({
     />
   );
 
+  const handDisabled = !isPlayerTurn || !isGameActive || cardState.pendingCard !== null;
+
+  // 歩戻し等のターゲット選択時にハイライトする盤面マス
+  const cardTargetSquares: Position[] = useMemo(() => {
+    if (!cardState.pendingCard || cardState.pendingCard.phase !== "selectTarget") return [];
+    const def = CARD_DEFS[cardState.pendingCard.instance.defId];
+    if (def.effectId === "pawn_return") {
+      const targets: Position[] = [];
+      for (let r = 0; r < 9; r++) {
+        for (let c = 0; c < 9; c++) {
+          const piece = gameState.board[r]?.[c];
+          if (piece && piece.owner === playerColor && (piece.type === "pawn" || piece.type === "promoted_pawn")) {
+            targets.push({ row: r, col: c });
+          }
+        }
+      }
+      return targets;
+    }
+    return [];
+  }, [cardState.pendingCard, gameState.board, playerColor]);
   const ownHand = (
     <HandArea
       hand={cardState.hand[playerColor]}
       currentMana={cardState.mana[playerColor]}
       onCardClick={(id) => beginPlayCard(id)}
       size="md"
+      disabled={handDisabled}
     />
   );
 
@@ -357,6 +379,7 @@ export function CardShogiGame({
               onSquareClick={selectSquare}
               squareSize={squareSize}
               isMobile={isMobile}
+              cardTargetSquares={cardTargetSquares}
             />
             <BoardOverlay key={overlayEvent?.key} event={overlayEvent?.event ?? null} />
           </div>
@@ -492,6 +515,7 @@ export function CardShogiGame({
             hand={cardState.hand[playerColor]}
             currentMana={cardState.mana[playerColor]}
             size="lg"
+            disabled={handDisabled}
             onCardClick={(id) => {
               beginPlayCard(id);
               setDrawerOpen(false);
@@ -555,6 +579,7 @@ export function CardShogiGame({
               currentMana={cardState.mana[playerColor]}
               layout="vertical"
               size="md"
+              disabled={handDisabled}
               onCardClick={(id) => beginPlayCard(id)}
             />
           </div>
@@ -597,6 +622,7 @@ export function CardShogiGame({
               onSquareClick={selectSquare}
               squareSize={squareSize}
               isMobile={isMobile}
+              cardTargetSquares={cardTargetSquares}
             />
             <BoardOverlay key={overlayEvent?.key} event={overlayEvent?.event ?? null} />
           </div>

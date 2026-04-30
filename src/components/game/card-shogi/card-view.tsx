@@ -64,7 +64,7 @@ export function CardView({
         SIZE_CLASS[size],
         disabled
           ? "opacity-50 cursor-not-allowed border-border"
-          : "cursor-pointer hover:border-primary hover:shadow-md hover:scale-[1.02]",
+          : "cursor-pointer hover:border-primary hover:shadow-md",
         selected && "border-primary ring-2 ring-primary",
         def.kind === "trap" ? "border-purple-500" : "border-amber-500",
       )}
