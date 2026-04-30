@@ -14,6 +14,8 @@ interface DeckPileProps {
   fullWidth?: boolean;
   // 相手手番中など、より暗くした非活性表示にしたい場合に true
   dimmed?: boolean;
+  // true のとき横長表示にしてズレカードを描画しない (相手細バー等の縦幅圧縮で使用)
+  horizontal?: boolean;
 }
 
 const SIZE_CLASS = {
@@ -63,9 +65,50 @@ export function DeckPile({
   showDrawCost = false,
   fullWidth = false,
   dimmed = false,
+  horizontal = false,
 }: DeckPileProps) {
   const isEmpty = count === 0;
   const interactable = canDraw && count > 0 && !!onDraw;
+
+  // 横長モード: 縦長の SIZE_CLASS は使わず、横長レイアウトにする
+  if (horizontal) {
+    return (
+      <button
+        type="button"
+        onClick={onDraw}
+        disabled={!interactable}
+        className={cn(
+          "relative rounded-md border-2 transition-all px-2 h-9",
+          "flex items-center justify-center gap-1.5 text-white shrink-0",
+          fullWidth ? "w-full" : "w-auto",
+          isEmpty && "bg-gradient-to-br from-slate-400 to-slate-600 border-slate-500 text-slate-100 cursor-not-allowed opacity-70",
+          !isEmpty && !interactable && !dimmed && "bg-gradient-to-br from-amber-700 to-amber-900 border-amber-800 cursor-not-allowed brightness-90",
+          !isEmpty && !interactable && dimmed && "bg-gradient-to-br from-amber-800 to-amber-950 border-amber-900 cursor-not-allowed brightness-60 opacity-85",
+          interactable && "bg-gradient-to-br from-amber-500 to-amber-700 border-amber-300 cursor-pointer hover:scale-[1.02] animate-deck-draw",
+        )}
+        aria-label={
+          isEmpty ? "山札 (空)" : interactable ? `山札からドロー (残${count}枚)` : `山札 (残${count}枚)`
+        }
+      >
+        {showDrawCost && !isEmpty && (
+          <span
+            className={cn(
+              "flex items-center gap-0.5 rounded-full px-1 leading-tight font-bold tabular-nums text-[10px]",
+              "bg-cyan-100 text-cyan-900 dark:bg-cyan-900/60 dark:text-cyan-100",
+            )}
+            title={`ドローコスト: マナ ${PHASE0_DRAW_COST}`}
+          >
+            <span aria-hidden>💎</span>
+            <span>×{PHASE0_DRAW_COST}</span>
+          </span>
+        )}
+        <span className="text-[11px] font-bold leading-tight">山札 × {count}</span>
+        {isEmpty && <span className="text-[10px] opacity-90 leading-tight">空</span>}
+        {interactable && <span className="text-[10px] text-amber-200 font-bold leading-tight animate-bounce">DRAW!</span>}
+      </button>
+    );
+  }
+
   const sizeClass = fullWidth
     ? cn(
         "w-full",
