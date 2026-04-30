@@ -37,3 +37,23 @@ export type GameMove = Prisma.GameMoveModel
  * 
  */
 export type PlayerStats = Prisma.PlayerStatsModel
+/**
+ * Model Card
+ * 
+ */
+export type Card = Prisma.CardModel
+/**
+ * Model PlayerCardCollection
+ * 
+ */
+export type PlayerCardCollection = Prisma.PlayerCardCollectionModel
+/**
+ * Model Deck
+ * 
+ */
+export type Deck = Prisma.DeckModel
+/**
+ * Model DeckEntry
+ * 
+ */
+export type DeckEntry = Prisma.DeckEntryModel

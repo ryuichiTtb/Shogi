@@ -8,11 +8,13 @@ datasource db {
 }
 
 model User {
-  id        String       @id @default(cuid())
-  name      String       @default("Player")
-  createdAt DateTime     @default(now())
-  games     Game[]
-  stats     PlayerStats?
+  id          String                 @id @default(cuid())
+  name        String                 @default("Player")
+  createdAt   DateTime               @default(now())
+  games       Game[]
+  stats       PlayerStats?
+  collections PlayerCardCollection[]
+  decks       Deck[]
 }
 
 model Game {
@@ -27,6 +29,7 @@ model Game {
   winner      String?    // "sente" | "gote" | "draw" | null
   boardState  Json
   gameConfig  Json
+  cardState   Json? // card-shogi variant の場合のみ使用 (マナ/手札/山札/トラップ等)
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
   moves       GameMove[]
@@ -55,4 +58,56 @@ model PlayerStats {
   wins   Int    @default(0)
   losses Int    @default(0)
   draws  Int    @default(0)
+}
+
+// カード将棋 (card-shogi variant) 用テーブル群
+
+// カードマスタ (CardDefinition と同期)
+model Card {
+  id          String                 @id // CardDefinition.id と一致 ("mana_up" 等)
+  kind        String // "normal" | "trap"
+  name        String
+  description String
+  cost        Int
+  rarity      String                 @default("common") // "common" | "rare" | "epic"
+  effectId    String // effects.ts でディスパッチ
+  targeting   String                 @default("none") // "none" | "ownPiece" | "enemyPiece" | "square"
+  createdAt   DateTime               @default(now())
+  collections PlayerCardCollection[]
+  deckEntries DeckEntry[]
+}
+
+// プレイヤー所持カード
+model PlayerCardCollection {
+  id     String @id @default(cuid())
+  userId String
+  cardId String
+  count  Int    @default(1)
+  user   User   @relation(fields: [userId], references: [id])
+  card   Card   @relation(fields: [cardId], references: [id])
+
+  @@unique([userId, cardId])
+}
+
+// デッキ編成
+model Deck {
+  id        String      @id @default(cuid())
+  userId    String
+  name      String      @default("デフォルトデッキ")
+  isDefault Boolean     @default(true)
+  user      User        @relation(fields: [userId], references: [id])
+  entries   DeckEntry[]
+  createdAt DateTime    @default(now())
+}
+
+// デッキ内のカード編成
+model DeckEntry {
+  id     String @id @default(cuid())
+  deckId String
+  cardId String
+  count  Int    @default(1)
+  deck   Deck   @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  card   Card   @relation(fields: [cardId], references: [id])
+
+  @@unique([deckId, cardId])
 }
