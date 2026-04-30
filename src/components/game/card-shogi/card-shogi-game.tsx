@@ -72,7 +72,7 @@ export function CardShogiGame({
   gameConfig: serializableConfig,
 }: CardShogiGameProps) {
   const [commentEvent, setCommentEvent] = useState<CommentaryEvent | null>(null);
-  const [overlayEvent, setOverlayEvent] = useState<{ event: OverlayEvent; key: number } | null>(null);
+  const [overlayEvent, setOverlayEvent] = useState<{ event: OverlayEvent; key: number; trapName?: string } | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -206,8 +206,12 @@ export function CardShogiGame({
           break;
         case "trapTriggerEvent":
           playSfx("trap_trigger");
-          // R16: トラップ発動を画面中央オーバーレイで明示
-          setOverlayEvent({ event: "trap_trigger", key: Date.now() });
+          // R16/R20: トラップ発動を画面中央オーバーレイで明示、トラップ名も併記
+          setOverlayEvent({
+            event: "trap_trigger",
+            key: Date.now(),
+            trapName: CARD_DEFS[ev.instance.defId].name,
+          });
           break;
       }
     }
@@ -388,7 +392,11 @@ export function CardShogiGame({
               isMobile={isMobile}
               cardTargetSquares={cardTargetSquares}
             />
-            <BoardOverlay key={overlayEvent?.key} event={overlayEvent?.event ?? null} />
+            <BoardOverlay
+              key={overlayEvent?.key}
+              event={overlayEvent?.event ?? null}
+              trapName={overlayEvent?.trapName}
+            />
           </div>
 
           {/* 自分の持ち駒 */}
@@ -650,7 +658,11 @@ export function CardShogiGame({
               isMobile={isMobile}
               cardTargetSquares={cardTargetSquares}
             />
-            <BoardOverlay key={overlayEvent?.key} event={overlayEvent?.event ?? null} />
+            <BoardOverlay
+              key={overlayEvent?.key}
+              event={overlayEvent?.event ?? null}
+              trapName={overlayEvent?.trapName}
+            />
           </div>
           <div className="w-full shrink-0" style={{ maxWidth: squareSize * 9 + 60 }}>
             <CapturedPieces

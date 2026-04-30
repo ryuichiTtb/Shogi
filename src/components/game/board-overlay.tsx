@@ -7,6 +7,8 @@ export type OverlayEvent = "game_start" | "check" | "resign" | "checkmate" | "tr
 
 interface BoardOverlayProps {
   event: OverlayEvent | null;
+  // trap_trigger イベント時に表示するトラップ名(任意、未指定時は「トラップ発動！」のみ)
+  trapName?: string;
 }
 
 type OverlayConfig = {
@@ -55,7 +57,7 @@ const OVERLAY_CONFIG: Record<OverlayEvent, OverlayConfig> = {
   },
 };
 
-export function BoardOverlay({ event }: BoardOverlayProps) {
+export function BoardOverlay({ event, trapName }: BoardOverlayProps) {
   const [opacity, setOpacity] = useState(0);
   const [transitionDuration, setTransitionDuration] = useState(0);
   const [visible, setVisible] = useState(false);
@@ -91,7 +93,7 @@ export function BoardOverlay({ event }: BoardOverlayProps) {
 
   const config = OVERLAY_CONFIG[event];
 
-  // トラップ発動はトラップ専用の演出(紫グラデ + シェイク的なスケールアニメ + ⚠アイコン)
+  // トラップ発動はトラップ専用の演出(紫グラデ + シェイク的なスケールアニメ + ⚠アイコン + トラップ名)
   if (event === "trap_trigger") {
     return (
       <div
@@ -100,18 +102,24 @@ export function BoardOverlay({ event }: BoardOverlayProps) {
       >
         <div
           className={cn(
-            "rounded-xl px-8 py-4 flex items-center gap-3",
+            "rounded-xl px-8 py-4 flex flex-col items-center gap-1",
             "bg-gradient-to-br from-purple-700 to-purple-900",
             "border-2 border-purple-300 shadow-2xl shadow-purple-500/50",
-            "text-3xl tracking-wider font-bold",
             "font-[family-name:var(--font-yuji-boku)]",
             "animate-trap-trigger",
             config.className,
           )}
         >
-          <span className="text-4xl" aria-hidden>⚠</span>
-          <span>{config.text}</span>
-          <span className="text-4xl" aria-hidden>⚠</span>
+          <div className="flex items-center gap-3 text-3xl tracking-wider font-bold">
+            <span className="text-4xl" aria-hidden>⚠</span>
+            <span>{config.text}</span>
+            <span className="text-4xl" aria-hidden>⚠</span>
+          </div>
+          {trapName && (
+            <div className="text-xl text-purple-200 tracking-wide">
+              {trapName}
+            </div>
+          )}
         </div>
       </div>
     );
