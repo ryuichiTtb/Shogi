@@ -603,22 +603,87 @@ export function useCardShogiGame({
 
   // ----- 公開API -----
 
+  // 駒指しを発火する内部関数(MAKE_MOVE を dispatch)
+  const makePlayerMove = useCallback((move: Move) => {
+    dispatch({ type: "MAKE_MOVE", move });
+  }, []);
+
   const selectSquare = useCallback(
     (pos: Position) => {
-      const { gameState, cardState } = state;
+      const { gameState, cardState, selectedSquare, selectedHandPiece, legalMoves } = state;
       if (gameState.status !== "active") return;
       if (gameState.currentPlayer !== gameConfig.playerColor) return;
 
       // pendingCard が selectTarget フェーズなら、盤面クリックをターゲット指定として扱う
       if (cardState.pendingCard && cardState.pendingCard.phase === "selectTarget") {
-        dispatch({ type: "SELECT_CARD_TARGET", target: { kind: "square", row: pos.row, col: pos.col } });
+        dispatch({
+          type: "SELECT_CARD_TARGET",
+          target: { kind: "square", row: pos.row, col: pos.col },
+        });
         return;
       }
       if (cardState.pendingCard) return;
 
+      // 手駒選択中: 打ち駒
+      if (selectedHandPiece) {
+        const dropMove = legalMoves.find(
+          (m) =>
+            m.type === "drop" &&
+            m.to.row === pos.row &&
+            m.to.col === pos.col &&
+            m.dropPiece === selectedHandPiece,
+        );
+        if (dropMove) {
+          makePlayerMove(dropMove);
+        }
+        dispatch({ type: "SELECT_SQUARE", pos });
+        return;
+      }
+
+      // 同じマス再クリック → 解除
+      if (selectedSquare?.row === pos.row && selectedSquare?.col === pos.col) {
+        dispatch({ type: "DESELECT" });
+        return;
+      }
+
+      // 駒移動先指定
+      if (selectedSquare) {
+        const targetMove = legalMoves.find(
+          (m) =>
+            m.type === "move" &&
+            m.to.row === pos.row &&
+            m.to.col === pos.col &&
+            !m.promote,
+        );
+        const promoteMove = legalMoves.find(
+          (m) =>
+            m.type === "move" &&
+            m.to.row === pos.row &&
+            m.to.col === pos.col &&
+            m.promote,
+        );
+
+        if (targetMove && promoteMove) {
+          // 成り確認ダイアログ
+          dispatch({ type: "SHOW_PROMOTION_DIALOG", move: targetMove });
+          return;
+        }
+        if (promoteMove && !targetMove) {
+          makePlayerMove(promoteMove);
+          dispatch({ type: "SELECT_SQUARE", pos });
+          return;
+        }
+        if (targetMove) {
+          makePlayerMove(targetMove);
+          dispatch({ type: "SELECT_SQUARE", pos });
+          return;
+        }
+      }
+
+      // 通常の選択(駒選択 / 解除)
       dispatch({ type: "SELECT_SQUARE", pos });
     },
-    [state, gameConfig.playerColor],
+    [state, gameConfig.playerColor, makePlayerMove],
   );
 
   const selectHandPiece = useCallback(

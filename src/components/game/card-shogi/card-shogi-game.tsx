@@ -350,18 +350,6 @@ export function CardShogiGame({
               squareSize={squareSize}
             />
           </div>
-
-          {/* ゲームコントロール */}
-          <div className="shrink-0 mt-0.5">
-            <GameControls
-              onResign={resign}
-              onUndo={() => {}}
-              isMuted={isMuted}
-              onToggleMute={toggleMute}
-              canUndo={false}
-              gameActive={isGameActive}
-            />
-          </div>
         </div>
 
         {/* PC: サイドパネル */}
@@ -404,7 +392,7 @@ export function CardShogiGame({
       </div>
 
       {/* ===== 自分ゾーン ===== */}
-      {/* PC (>=md): 詳細ゾーン */}
+      {/* PC (>=md): 詳細ゾーン (GameControls を統合) */}
       <section
         className="hidden md:flex shrink-0 px-2 py-1.5 border-t bg-muted/40 items-end gap-2 overflow-x-auto"
         style={{ paddingBottom: "max(0.375rem, env(safe-area-inset-bottom))" }}
@@ -414,27 +402,49 @@ export function CardShogiGame({
         {ownTrapSlot}
         <div className="flex-1 min-w-0">{ownHand}</div>
         {ownDeckPile}
-        <div className="ml-auto shrink-0">{ownManaGauge}</div>
+        <div className="shrink-0">{ownManaGauge}</div>
+        <div className="shrink-0 ml-2 border-l pl-2">
+          <GameControls
+            onResign={resign}
+            onUndo={() => {}}
+            isMuted={isMuted}
+            onToggleMute={toggleMute}
+            canUndo={false}
+            gameActive={isGameActive}
+          />
+        </div>
       </section>
 
-      {/* モバイル (<md): 下端コンパクトバー */}
+      {/* モバイル (<md): 下端コンパクトバー (上段: ゲーム操作 / 下段: カード) */}
       <section
-        className="md:hidden shrink-0 px-2 py-1.5 border-t bg-card flex items-center gap-2 z-30"
+        className="md:hidden shrink-0 border-t bg-card flex flex-col z-30"
         style={{ paddingBottom: "max(0.375rem, env(safe-area-inset-bottom))" }}
         onClick={(e) => e.stopPropagation()}
       >
-        <Button
-          size="sm"
-          variant={drawerOpen ? "outline" : "default"}
-          className="h-9 gap-1 text-xs shrink-0"
-          onClick={() => setDrawerOpen((v) => !v)}
-        >
-          {drawerOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
-          手札 {cardState.hand[playerColor].length}
-        </Button>
-        <div className="shrink-0">{ownManaGaugeCompact}</div>
-        {ownDeckPile}
-        <div className="ml-auto shrink-0">{ownTrapSlot}</div>
+        <div className="px-2 py-1 border-b flex items-center justify-end">
+          <GameControls
+            onResign={resign}
+            onUndo={() => {}}
+            isMuted={isMuted}
+            onToggleMute={toggleMute}
+            canUndo={false}
+            gameActive={isGameActive}
+          />
+        </div>
+        <div className="px-2 py-1.5 flex items-center gap-2">
+          <Button
+            size="sm"
+            variant={drawerOpen ? "outline" : "default"}
+            className="h-9 gap-1 text-xs shrink-0"
+            onClick={() => setDrawerOpen((v) => !v)}
+          >
+            {drawerOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+            手札 {cardState.hand[playerColor].length}
+          </Button>
+          <div className="shrink-0">{ownManaGaugeCompact}</div>
+          {ownDeckPile}
+          <div className="ml-auto shrink-0">{ownTrapSlot}</div>
+        </div>
       </section>
 
       {/* モバイル: 手札ドロワー(下からスライドアップ) */}

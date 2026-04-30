@@ -1,6 +1,5 @@
 "use client";
 
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -12,27 +11,64 @@ interface ModeSelectorProps {
   className?: string;
 }
 
+const MODES: { value: GameMode; label: string; description: string; beta?: boolean }[] = [
+  {
+    value: "standard",
+    label: "従来将棋",
+    description: "正統派ルール",
+  },
+  {
+    value: "card-shogi",
+    label: "カード将棋",
+    description: "マナとカードで戦う",
+    beta: true,
+  },
+];
+
 export function ModeSelector({ mode, onChange, className }: ModeSelectorProps) {
   return (
-    <Tabs
-      value={mode}
-      onValueChange={(v) => onChange(v as GameMode)}
-      className={cn("w-full", className)}
+    <div
+      className={cn("grid grid-cols-2 gap-2", className)}
+      role="tablist"
+      aria-label="モード選択"
     >
-      <TabsList className="w-full grid grid-cols-2 h-auto">
-        <TabsTrigger value="standard" className="py-2">
-          <span className="font-bold text-sm">従来将棋</span>
-        </TabsTrigger>
-        <TabsTrigger value="card-shogi" className="py-2 gap-1.5">
-          <span className="font-bold text-sm">カード将棋</span>
-          <Badge
-            variant="secondary"
-            className="text-[9px] px-1 py-0 leading-tight bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200"
+      {MODES.map((m) => {
+        const active = mode === m.value;
+        return (
+          <button
+            key={m.value}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(m.value)}
+            className={cn(
+              "relative py-3 px-3 rounded-lg border-2 transition-all",
+              "flex flex-col items-center justify-center gap-0.5 text-center",
+              "cursor-pointer",
+              active
+                ? "border-primary bg-primary/10 shadow-sm"
+                : "border-border bg-card hover:border-primary/40",
+            )}
           >
-            BETA
-          </Badge>
-        </TabsTrigger>
-      </TabsList>
-    </Tabs>
+            <div className="flex items-center gap-1.5">
+              <span className={cn("font-bold text-sm", active ? "text-primary" : "text-foreground")}>
+                {m.label}
+              </span>
+              {m.beta && (
+                <Badge
+                  variant="secondary"
+                  className="text-[9px] px-1 py-0 leading-tight bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200"
+                >
+                  BETA
+                </Badge>
+              )}
+            </div>
+            <span className="text-[11px] text-muted-foreground leading-tight">
+              {m.description}
+            </span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
