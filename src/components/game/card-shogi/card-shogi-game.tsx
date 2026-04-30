@@ -11,7 +11,7 @@ import { useCardBoardSize } from "@/hooks/use-card-board-size";
 
 import { ShogiBoard } from "../shogi-board";
 import { CapturedPieces } from "../captured-pieces";
-import { MoveHistory } from "../move-history";
+import { CardShogiHistory } from "./card-shogi-history";
 import { GameControls } from "../game-controls";
 import { PromotionDialog } from "../promotion-dialog";
 import { BoardOverlay, type OverlayEvent } from "../board-overlay";
@@ -405,7 +405,7 @@ export function CardShogiGame({
             <CharacterPanel character={character} commentEvent={commentEvent} isAiThinking={isAiThinking} />
           </Card>
           <Card className="p-3 flex-1 min-h-0 flex flex-col">
-            <MoveHistory moves={gameState.moveHistory} />
+            <CardShogiHistory eventLog={eventLog} />
           </Card>
           {!isGameActive && (
             <Card className="p-3 text-center border-2 border-primary/20 bg-primary/5">
@@ -434,6 +434,7 @@ export function CardShogiGame({
             gameWinner={gameState.winner}
             onPlayAgain={handlePlayAgain}
             isPending={isPending}
+            cardEventLog={eventLog}
           />
         </div>
       </div>
@@ -652,7 +653,7 @@ export function CardShogiGame({
             <CharacterPanel character={character} commentEvent={commentEvent} isAiThinking={isAiThinking} />
           </Card>
           <Card className="p-3 flex-1 min-h-0 flex flex-col">
-            <MoveHistory moves={gameState.moveHistory} />
+            <CardShogiHistory eventLog={eventLog} />
           </Card>
           {!isGameActive && (
             <Card className="p-3 text-center border-2 border-primary/20 bg-primary/5 shrink-0">

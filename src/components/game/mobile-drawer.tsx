@@ -4,6 +4,7 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { CharacterPanel } from "@/components/character/character-panel";
 import { MoveHistory } from "./move-history";
+import { CardShogiHistory } from "./card-shogi/card-shogi-history";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { gameResultText } from "@/lib/shogi/notation";
@@ -12,6 +13,7 @@ import Link from "next/link";
 import type { Character } from "@/data/characters";
 import type { CommentaryEvent } from "@/app/actions/commentary";
 import type { Move, GameStatus, Player } from "@/lib/shogi/types";
+import type { GameEvent } from "@/lib/shogi/cards/types";
 
 interface MobileDrawerProps {
   character: Character;
@@ -23,6 +25,8 @@ interface MobileDrawerProps {
   gameWinner?: Player | "draw";
   onPlayAgain: () => void;
   isPending: boolean;
+  // card-shogi の場合に渡す。指定された場合は MoveHistory ではなく CardShogiHistory を表示。
+  cardEventLog?: GameEvent[];
 }
 
 type Tab = "character" | "history";
@@ -37,6 +41,7 @@ export function MobileDrawer({
   gameWinner,
   onPlayAgain,
   isPending,
+  cardEventLog,
 }: MobileDrawerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("character");
@@ -121,7 +126,11 @@ export function MobileDrawer({
           )}
           {activeTab === "history" && (
             <div className="h-full flex flex-col">
-              <MoveHistory moves={moves} />
+              {cardEventLog ? (
+                <CardShogiHistory eventLog={cardEventLog} />
+              ) : (
+                <MoveHistory moves={moves} />
+              )}
             </div>
           )}
         </div>
