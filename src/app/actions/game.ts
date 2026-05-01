@@ -15,6 +15,21 @@ import {
 
 const DEFAULT_PLAYER_ID = "default-player";
 
+// Issue #104 検証用: 対局画面でレア度別の見た目(背景バンド・閃光・オーブ)を
+// 確認できるよう、マスターカタログのサンプル 8 枚を山札に強制的に挿入する。
+// 各カードは effectId: "noop" なのでゲーム進行への影響はない。
+// 検証完了後はこの定数とマージ処理を削除すれば本番デッキ構成に戻る。
+const SAMPLE_CARD_IDS: DeckSpec["defId"][] = [
+  "sample_normal_common",
+  "sample_normal_rare",
+  "sample_normal_super_rare",
+  "sample_normal_epic",
+  "sample_trap_common",
+  "sample_trap_rare",
+  "sample_trap_super_rare",
+  "sample_trap_epic",
+];
+
 // デフォルトユーザーを確保（認証実装前の仮実装）
 async function ensureDefaultUser() {
   const user = await prisma.user.upsert({
@@ -64,7 +79,13 @@ export async function createGame(
   // card-shogi variant の場合は cardState を初期化
   let initialCardState: unknown = undefined;
   if (variantId === "card-shogi") {
-    const deckSpec = await loadDeckSpecForUser(user.id);
+    const baseDeckSpec = await loadDeckSpecForUser(user.id);
+    // Issue #104 検証用: 既存 DeckEntry に sample_* が含まれていても重複させない
+    // ように除外してから、サンプル 8 種を各 1 枚追加する。
+    const deckSpec: DeckSpec[] = [
+      ...baseDeckSpec.filter((s) => !SAMPLE_CARD_IDS.includes(s.defId)),
+      ...SAMPLE_CARD_IDS.map((id) => ({ defId: id, count: 1 })),
+    ];
     const cardState = createInitialCardState(deckSpec);
     initialCardState = serializeCardState(cardState);
   }
