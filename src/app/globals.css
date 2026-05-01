@@ -233,7 +233,21 @@
 .card-rarity-bg-epic {
   background-color: rgb(15, 23, 42);  /* slate-900 (ライト/ダーク共通の暗色ベース) */
   color: rgb(241, 245, 249);          /* slate-100 (明色テキスト) */
+  /* カードサイズに比例した装飾スケール (基準: catalog の size="md")。
+   * 同じカードがサイズ違いで表示されるとき、背景バンドの幅・閃光のぼかし・
+   * オーブの大きさ等が「カードに対する見た目の比率」を保って拡縮されるように、
+   * 全装飾の寸法を var(--card-rarity-scale) 倍で計算する。
+   * size 別の値は [data-card-size] セレクタで上書き(下記)。
+   */
+  --card-rarity-scale: 1;
+  --card-rarity-period: calc(360px * var(--card-rarity-scale));
+  --card-rarity-tile: calc(var(--card-rarity-period) * 1.41421356);
 }
+/* card-view.tsx 側で button に data-card-size={size} を付与している。
+ * sm (48×64) は装飾自体が OFF なので未指定。md は 1.0 がデフォルトのまま。
+ */
+[data-card-size="lg"] { --card-rarity-scale: 1.25; }   /* 160/128 */
+[data-card-size="xl"] { --card-rarity-scale: 4.5; }    /* 576/128 */
 /* 斜めバンド(135deg)を「横」にスライドさせる設計。
  *
  * 1. background-size: 各 rarity 側で 1 タイルを √2 × 360px ≈ 509.117px の
@@ -254,12 +268,12 @@
   100% {
     background-position:
       0px 0px,
-      calc(360px * -1.41421356) 0px;
+      calc(var(--card-rarity-tile) * -1) 0px;
   }
 }
 .card-rarity-bg-rare {
   background-image:
-    /* brushed metal 縞(静止) */
+    /* brushed metal 縞(静止)。細密ヘアラインなのでスケール対象外 */
     repeating-linear-gradient(
       45deg,
       rgba(186, 230, 253, 0.10),
@@ -267,18 +281,17 @@
       transparent 1px,
       transparent 5px
     ),
-    /* 斜め繰り返しグラデ(135deg): 各ピークの前後 80px を傾斜にして
-     * 縁の急変による「線」が見えないようにする。 stop 6 で滑らか */
+    /* 斜め繰り返しグラデ(135deg)。stops を全て scale 倍にしてバンド幅も拡縮 */
     repeating-linear-gradient(
       135deg,
       rgba(56, 189, 248, 0.25) 0px,
-      rgba(56, 189, 248, 0.25) 50px,
-      rgba(186, 230, 253, 0.55) 130px,   /* H1 ピーク(明水色) */
-      rgba(56, 189, 248, 0.25) 210px,
-      rgba(99, 102, 241, 0.50) 290px,    /* H2 ピーク(indigo) */
-      rgba(56, 189, 248, 0.25) 360px
+      rgba(56, 189, 248, 0.25) calc(50px * var(--card-rarity-scale)),
+      rgba(186, 230, 253, 0.55) calc(130px * var(--card-rarity-scale)),  /* H1 ピーク(明水色) */
+      rgba(56, 189, 248, 0.25) calc(210px * var(--card-rarity-scale)),
+      rgba(99, 102, 241, 0.50) calc(290px * var(--card-rarity-scale)),    /* H2 ピーク(indigo) */
+      rgba(56, 189, 248, 0.25) var(--card-rarity-period)
     );
-  background-size: 8px 8px, calc(360px * 1.41421356) calc(360px * 1.41421356);
+  background-size: 8px 8px, var(--card-rarity-tile) var(--card-rarity-tile);
   animation:
     card-rarity-bg-slide 5.5s linear infinite,
     card-rarity-rare-pulse 2.6s ease-in-out infinite;
@@ -296,13 +309,13 @@
     repeating-linear-gradient(
       135deg,
       rgba(251, 191, 36, 0.25) 0px,
-      rgba(251, 191, 36, 0.25) 50px,
-      rgba(255, 248, 200, 0.60) 130px,    /* H1 ピーク(白系) */
-      rgba(251, 191, 36, 0.25) 210px,
-      rgba(217, 119, 6, 0.55) 290px,      /* H2 ピーク(deep amber) */
-      rgba(251, 191, 36, 0.25) 360px
+      rgba(251, 191, 36, 0.25) calc(50px * var(--card-rarity-scale)),
+      rgba(255, 248, 200, 0.60) calc(130px * var(--card-rarity-scale)),   /* H1 ピーク(白系) */
+      rgba(251, 191, 36, 0.25) calc(210px * var(--card-rarity-scale)),
+      rgba(217, 119, 6, 0.55) calc(290px * var(--card-rarity-scale)),     /* H2 ピーク(deep amber) */
+      rgba(251, 191, 36, 0.25) var(--card-rarity-period)
     );
-  background-size: 8px 8px, calc(360px * 1.41421356) calc(360px * 1.41421356);
+  background-size: 8px 8px, var(--card-rarity-tile) var(--card-rarity-tile);
   animation:
     card-rarity-bg-slide 5.0s linear infinite,
     card-rarity-super-rare-pulse 2.0s ease-in-out infinite;
@@ -320,13 +333,13 @@
     repeating-linear-gradient(
       135deg,
       rgba(168, 85, 247, 0.30) 0px,
-      rgba(168, 85, 247, 0.30) 50px,
-      rgba(244, 114, 182, 0.60) 130px,    /* H1 ピーク(pink) */
-      rgba(168, 85, 247, 0.30) 210px,
-      rgba(96, 165, 250, 0.55) 290px,     /* H2 ピーク(blue) */
-      rgba(168, 85, 247, 0.30) 360px
+      rgba(168, 85, 247, 0.30) calc(50px * var(--card-rarity-scale)),
+      rgba(244, 114, 182, 0.60) calc(130px * var(--card-rarity-scale)),   /* H1 ピーク(pink) */
+      rgba(168, 85, 247, 0.30) calc(210px * var(--card-rarity-scale)),
+      rgba(96, 165, 250, 0.55) calc(290px * var(--card-rarity-scale)),    /* H2 ピーク(blue) */
+      rgba(168, 85, 247, 0.30) var(--card-rarity-period)
     );
-  background-size: 8px 8px, calc(360px * 1.41421356) calc(360px * 1.41421356);
+  background-size: 8px 8px, var(--card-rarity-tile) var(--card-rarity-tile);
   animation:
     card-rarity-bg-slide 4.5s linear infinite,
     card-rarity-epic-pulse 1.8s ease-in-out infinite;
@@ -378,7 +391,10 @@
   transform: translate(-130%, -130%);
   animation: card-rarity-shine 3.2s ease-in-out infinite;
 }
-/* ソフト層: 太め+blur、淡いゴールド寄りハロー */
+/* ソフト層: 太め+blur、淡いゴールド寄りハロー
+ * width/height は親要素 100% で自動追従、stops は % なのでカードサイズに比例して
+ * 帯幅も拡大。blur 量だけ絶対 px なので scale 倍にしてカード比率を維持する。
+ */
 .card-rarity-shine::before {
   background: linear-gradient(
     135deg,
@@ -388,7 +404,7 @@
     rgba(255, 240, 200, 0.20) 56%,
     transparent 62%
   );
-  filter: blur(3px);
+  filter: blur(calc(3px * var(--card-rarity-scale, 1)));
   z-index: 4;
 }
 /* シャープ層: 極細の純白コア */
@@ -410,8 +426,9 @@
  */
 .card-rarity-orb {
   position: absolute;
-  width: 14px;
-  height: 14px;
+  /* オーブ径もカードサイズに比例して拡縮。基準 14px (size="md")。 */
+  width: calc(14px * var(--card-rarity-scale, 1));
+  height: calc(14px * var(--card-rarity-scale, 1));
   border-radius: 50%;
   pointer-events: none;
   z-index: 1;
@@ -437,8 +454,8 @@
       transparent 100%
     );
   box-shadow:
-    0 0 10px 3px rgba(168, 85, 247, 0.85),
-    0 0 22px 6px rgba(168, 85, 247, 0.45);
+    0 0 calc(10px * var(--card-rarity-scale, 1)) calc(3px * var(--card-rarity-scale, 1)) rgba(168, 85, 247, 0.85),
+    0 0 calc(22px * var(--card-rarity-scale, 1)) calc(6px * var(--card-rarity-scale, 1)) rgba(168, 85, 247, 0.45);
 }
 .card-rarity-orb-blue {
   background:
@@ -457,8 +474,8 @@
       transparent 100%
     );
   box-shadow:
-    0 0 10px 3px rgba(59, 130, 246, 0.85),
-    0 0 22px 6px rgba(59, 130, 246, 0.45);
+    0 0 calc(10px * var(--card-rarity-scale, 1)) calc(3px * var(--card-rarity-scale, 1)) rgba(59, 130, 246, 0.85),
+    0 0 calc(22px * var(--card-rarity-scale, 1)) calc(6px * var(--card-rarity-scale, 1)) rgba(59, 130, 246, 0.45);
 }
 .card-rarity-orb-red {
   background:
@@ -477,8 +494,8 @@
       transparent 100%
     );
   box-shadow:
-    0 0 10px 3px rgba(239, 68, 68, 0.85),
-    0 0 22px 6px rgba(239, 68, 68, 0.45);
+    0 0 calc(10px * var(--card-rarity-scale, 1)) calc(3px * var(--card-rarity-scale, 1)) rgba(239, 68, 68, 0.85),
+    0 0 calc(22px * var(--card-rarity-scale, 1)) calc(6px * var(--card-rarity-scale, 1)) rgba(239, 68, 68, 0.45);
 }
 
 /* オーブの色相回転 + 彩度揺らぎ (軌道アニメと独立周期、色味の動的変化を演出)
@@ -517,18 +534,22 @@
   80%  { opacity: 0.55; }
   100% { left: 28%; top: 6%;  transform: scale(0.7); opacity: 0; }
 }
+/* delay は JSX 側から --orb-delay / --orb-delay-hue で個別に渡せる。
+ * カードサイズが大きい (size="xl" 等) ときは同じ軌道 class を異なる delay で
+ * 複数のオーブに割り当てて、画面内の粒数を増やす。
+ */
 .card-rarity-orb-1 {
   animation:
-    card-rarity-orb-1 4.8s ease-in-out infinite,
-    card-rarity-orb-hue 3.5s ease-in-out infinite;
+    card-rarity-orb-1 4.8s ease-in-out infinite var(--orb-delay, 0s),
+    card-rarity-orb-hue 3.5s ease-in-out infinite var(--orb-delay-hue, 0s);
 }
 .card-rarity-orb-2 {
   animation:
-    card-rarity-orb-2 5.2s ease-in-out infinite 0.6s,
-    card-rarity-orb-hue 3.8s ease-in-out infinite 0.4s;
+    card-rarity-orb-2 5.2s ease-in-out infinite var(--orb-delay, 0.6s),
+    card-rarity-orb-hue 3.8s ease-in-out infinite var(--orb-delay-hue, 0.4s);
 }
 .card-rarity-orb-3 {
   animation:
-    card-rarity-orb-3 5.6s ease-in-out infinite 1.2s,
-    card-rarity-orb-hue 4.0s ease-in-out infinite 0.9s;
+    card-rarity-orb-3 5.6s ease-in-out infinite var(--orb-delay, 1.2s),
+    card-rarity-orb-hue 4.0s ease-in-out infinite var(--orb-delay-hue, 0.9s);
 }

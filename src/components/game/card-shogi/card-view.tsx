@@ -128,6 +128,45 @@ const FACEDOWN_SYMBOL_CLASS: Record<CardViewSize, string> = {
   xl: "text-9xl",
 };
 
+/* epic オーブの size 別配置。
+ * カタログ md=3個 を基準に、カードが大きいほど粒数を増やす。
+ * 軌道 keyframes は orb-1/2/3 の 3 種しかないので、xl では同じ軌道を
+ * 異なる delay で再利用して画面に分散させる。
+ *   orbit: 既存の軌道(left/top の % 経路)
+ *   color: 配色 class
+ *   delay / delayHue: それぞれ位置アニメと色相揺らぎの開始ずれ (秒)
+ */
+type OrbVariant = {
+  orbit: 1 | 2 | 3;
+  color: "purple" | "blue" | "red";
+  delay: number;
+  delayHue: number;
+};
+const EPIC_ORBS_BY_SIZE: Record<CardViewSize, OrbVariant[]> = {
+  sm: [],
+  md: [
+    { orbit: 1, color: "purple", delay: 0.0, delayHue: 0.0 },
+    { orbit: 2, color: "blue",   delay: 0.6, delayHue: 0.4 },
+    { orbit: 3, color: "red",    delay: 1.2, delayHue: 0.9 },
+  ],
+  lg: [
+    { orbit: 1, color: "purple", delay: 0.0, delayHue: 0.0 },
+    { orbit: 2, color: "blue",   delay: 0.6, delayHue: 0.4 },
+    { orbit: 3, color: "red",    delay: 1.2, delayHue: 0.9 },
+    { orbit: 2, color: "purple", delay: 2.6, delayHue: 1.6 },
+  ],
+  xl: [
+    { orbit: 1, color: "purple", delay: 0.0, delayHue: 0.0 },
+    { orbit: 2, color: "blue",   delay: 0.6, delayHue: 0.4 },
+    { orbit: 3, color: "red",    delay: 1.2, delayHue: 0.9 },
+    { orbit: 1, color: "blue",   delay: 1.8, delayHue: 1.3 },
+    { orbit: 2, color: "red",    delay: 2.4, delayHue: 1.7 },
+    { orbit: 3, color: "purple", delay: 3.0, delayHue: 2.2 },
+    { orbit: 1, color: "red",    delay: 3.6, delayHue: 2.6 },
+    { orbit: 2, color: "purple", delay: 4.2, delayHue: 3.0 },
+  ],
+};
+
 export function CardView({
   card,
   faceDown = false,
@@ -171,6 +210,7 @@ export function CardView({
       disabled={disabled}
       data-card-id={card.instanceId}
       data-rarity={def.rarity}
+      data-card-size={size}
       className={cn(
         "relative overflow-hidden rounded-md border-2 bg-card text-card-foreground shadow-sm shrink-0",
         "flex flex-row items-stretch text-left transition-all",
@@ -192,14 +232,23 @@ export function CardView({
       )}
       aria-label={`${def.name} (コスト${def.cost})`}
     >
-      {/* オーブ (epic のみ): 紫・青・赤の光球が舞う */}
-      {def.rarity === "epic" && isAnimated && (
-        <>
-          <span className="card-rarity-orb card-rarity-orb-purple card-rarity-orb-1" aria-hidden />
-          <span className="card-rarity-orb card-rarity-orb-blue card-rarity-orb-2" aria-hidden />
-          <span className="card-rarity-orb card-rarity-orb-red card-rarity-orb-3" aria-hidden />
-        </>
-      )}
+      {/* オーブ (epic のみ): 紫・青・赤の光球が舞う。粒数はカードサイズに比例 */}
+      {def.rarity === "epic" && isAnimated &&
+        EPIC_ORBS_BY_SIZE[size].map((orb, i) => (
+          <span
+            key={i}
+            className={cn(
+              "card-rarity-orb",
+              `card-rarity-orb-${orb.color}`,
+              `card-rarity-orb-${orb.orbit}`,
+            )}
+            style={{
+              ["--orb-delay" as string]: `${orb.delay}s`,
+              ["--orb-delay-hue" as string]: `${orb.delayHue}s`,
+            }}
+            aria-hidden
+          />
+        ))}
       {/* 左: コストとアイコン */}
       <div
         className={cn(
