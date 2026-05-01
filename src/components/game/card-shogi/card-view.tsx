@@ -1,10 +1,32 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import type { CardInstance } from "@/lib/shogi/cards/types";
+import type { CardInstance, CardKind, CardRarity } from "@/lib/shogi/cards/types";
 import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
 
 export type CardViewSize = "sm" | "md" | "lg" | "xl";
+
+// 枠色 = レア度 (Issue #104)
+const RARITY_FRAME_CLASS: Record<CardRarity, string> = {
+  common: "border-slate-400 dark:border-slate-500",
+  rare: "border-sky-500",
+  super_rare: "border-fuchsia-500",
+  epic: "border-amber-400",
+};
+
+// レア度別アニメーション class (globals.css 定義)。sm サイズと disabled では適用しない。
+const RARITY_ANIM_CLASS: Record<CardRarity, string> = {
+  common: "",
+  rare: "card-rarity-rare",
+  super_rare: "card-rarity-super-rare",
+  epic: "card-rarity-epic",
+};
+
+// 左カラム背景 = 種別 (内部塗りで通常/トラップを区別)
+const KIND_LEFT_BG_CLASS: Record<CardKind, string> = {
+  normal: "bg-amber-100/60 dark:bg-amber-950/40",
+  trap: "bg-purple-100/60 dark:bg-purple-950/40",
+};
 
 interface CardViewProps {
   card: CardInstance;
@@ -140,22 +162,33 @@ export function CardView({
       onClick={onClick}
       disabled={disabled}
       data-card-id={card.instanceId}
+      data-rarity={def.rarity}
       className={cn(
-        "rounded-md border-2 bg-card text-card-foreground shadow-sm shrink-0",
+        "relative rounded-md border-2 bg-card text-card-foreground shadow-sm shrink-0",
         "flex flex-row items-stretch text-left transition-all",
         PADDING_CLASS[size],
         GAP_CLASS[size],
         sizeClass,
+        // 枠色 = レア度
+        RARITY_FRAME_CLASS[def.rarity],
+        // レア度アニメーション (sm では OFF、disabled では OFF)
+        size !== "sm" && !disabled && RARITY_ANIM_CLASS[def.rarity],
         disabled
-          ? "opacity-50 cursor-not-allowed border-border"
-          : "cursor-pointer hover:border-primary hover:shadow-md",
-        selected && "border-primary ring-2 ring-primary",
-        def.kind === "trap" ? "border-purple-500" : "border-amber-500",
+          ? "opacity-50 cursor-not-allowed"
+          : "cursor-pointer hover:shadow-md",
+        // 選択時は ring で強調(枠のレア度色は維持)
+        selected && "ring-2 ring-primary ring-offset-1 ring-offset-background",
       )}
       aria-label={`${def.name} (コスト${def.cost})`}
     >
-      {/* 左: コストとアイコン */}
-      <div className={cn("flex flex-col items-center justify-center gap-0.5 shrink-0", LEFT_W_CLASS[size])}>
+      {/* 左: コストとアイコン (背景色で種別を表現) */}
+      <div
+        className={cn(
+          "flex flex-col items-center justify-center gap-0.5 shrink-0 rounded",
+          LEFT_W_CLASS[size],
+          KIND_LEFT_BG_CLASS[def.kind],
+        )}
+      >
         <span
           className={cn(
             "rounded-full px-2 leading-tight font-bold tabular-nums",

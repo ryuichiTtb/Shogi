@@ -209,3 +209,66 @@
 .animate-hand-card-flash {
   animation: hand-card-flash 0.9s ease-out forwards;
 }
+
+/* カード将棋: レア度別ビジュアル演出 (Issue #104)
+ * - common: 演出なし
+ * - rare:       淡い青のグロー pulse
+ * - super_rare: 紫のグロー pulse (中強度)
+ * - epic:       金のグロー pulse + sparkle (強)
+ */
+
+@keyframes card-rarity-rare-pulse {
+  0%, 100% { box-shadow: 0 0 6px 1px rgba(56, 189, 248, 0.30); }
+  50%      { box-shadow: 0 0 12px 2px rgba(56, 189, 248, 0.55); }
+}
+.card-rarity-rare {
+  animation: card-rarity-rare-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes card-rarity-super-rare-pulse {
+  0%, 100% { box-shadow: 0 0 8px 1px rgba(217, 70, 239, 0.35); }
+  50%      { box-shadow: 0 0 16px 3px rgba(217, 70, 239, 0.60); }
+}
+.card-rarity-super-rare {
+  animation: card-rarity-super-rare-pulse 2.0s ease-in-out infinite;
+}
+
+@keyframes card-rarity-epic-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 12px 2px rgba(251, 191, 36, 0.50),
+      0 0 6px 1px rgba(255, 235, 150, 0.40);
+  }
+  50% {
+    box-shadow:
+      0 0 22px 4px rgba(251, 191, 36, 0.75),
+      0 0 12px 2px rgba(255, 235, 150, 0.60);
+  }
+}
+@keyframes card-rarity-epic-sparkle {
+  0%, 100% { opacity: 0.30; transform: scale(0.7) rotate(0deg); }
+  50%      { opacity: 1.00; transform: scale(1.2) rotate(180deg); }
+}
+.card-rarity-epic {
+  animation: card-rarity-epic-pulse 1.8s ease-in-out infinite;
+}
+.card-rarity-epic::before,
+.card-rarity-epic::after {
+  content: "✦";
+  position: absolute;
+  font-size: 11px;
+  color: rgba(251, 191, 36, 0.95);
+  text-shadow: 0 0 6px rgba(251, 191, 36, 0.85);
+  pointer-events: none;
+  animation: card-rarity-epic-sparkle 1.6s ease-in-out infinite;
+}
+.card-rarity-epic::before {
+  top: -5px;
+  right: 6px;
+  animation-delay: 0s;
+}
+.card-rarity-epic::after {
+  bottom: -5px;
+  left: 6px;
+  animation-delay: 0.8s;
+}

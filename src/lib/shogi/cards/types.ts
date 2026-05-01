@@ -8,11 +8,24 @@ import type { Player, Move } from "@/lib/shogi/types";
 export type CardKind = "normal" | "trap";
 
 // Phase 0 の暫定カードID。Phase A 以降でユニオンを拡張する。
-export type CardId = "mana_up" | "pawn_return" | "no_promote";
+// `sample_*` はレア度ビジュアル検証用 (#104)、status: "draft"。
+export type CardId =
+  | "mana_up"
+  | "pawn_return"
+  | "no_promote"
+  | "sample_normal_common"
+  | "sample_normal_rare"
+  | "sample_normal_super_rare"
+  | "sample_normal_epic"
+  | "sample_trap_common"
+  | "sample_trap_rare"
+  | "sample_trap_super_rare"
+  | "sample_trap_epic";
 
 export type CardTargeting = "none" | "ownPiece" | "enemyPiece" | "square";
 
-export type CardRarity = "common" | "rare" | "epic";
+// 4段階レア度 (Issue #104)
+export type CardRarity = "common" | "rare" | "super_rare" | "epic";
 
 // マスターカタログ運用用ステータス(Issue #102)
 // draft: 検討中(本実装前) / preparing: 実装中(プール非公開) /
