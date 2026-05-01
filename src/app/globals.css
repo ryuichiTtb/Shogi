@@ -217,49 +217,109 @@
  * - epic:       パープルグロー pulse + 斜め閃光 (shine) + 紫/青/赤オーブ
  */
 
-/* --- 動的グラデ背景 (rare/super_rare/epic): メタリックな輝き
- * 同色の濃淡 + 隣接色アクセント + 白系ハイライトの 5stop でメタリック表現。
- * background-size 300% を背景位置で揺らし、色味自体が動的に遷移して見える。
+/* --- 動的グラデ背景 (rare/super_rare/epic): メタリック・宝石の質感
+ *
+ * 3 レイヤー合成でメタリック感を表現:
+ * 1. 反射ハイライト    : 白いバンドが横に流れる(光沢の鏡面反射)
+ * 2. brushed metal 縞 : 細い斜めライン (静的、金属表面のヘアライン)
+ * 3. ベースカラーグラデ: 色味自体が斜めにゆっくり揺らぐ(宝石の色変化)
+ *
+ * ブラウザのホロフォイル/ホログラフィックカード CSS 表現の常套手段。
  */
-@keyframes card-rarity-bg-shimmer {
-  0%, 100% { background-position: 0% 0%; }
-  50%      { background-position: 100% 100%; }
+@keyframes card-rarity-bg-metallic {
+  0% {
+    background-position: -150% 0%, 0% 0%, 0% 0%;
+  }
+  100% {
+    background-position: 150% 0%, 0% 0%, 100% 100%;
+  }
 }
 .card-rarity-bg-rare {
-  background-image: linear-gradient(
-    135deg,
-    rgba(56, 189, 248, 0.32)  0%,    /* sky-400 */
-    rgba(96, 165, 250, 0.18) 25%,    /* blue-400 アクセント */
-    rgba(186, 230, 253, 0.45) 50%,   /* sky-200 ハイライト */
-    rgba(96, 165, 250, 0.18) 75%,
-    rgba(56, 189, 248, 0.32) 100%
-  );
-  background-size: 300% 300%;
-  animation: card-rarity-bg-shimmer 4.5s ease-in-out infinite;
+  background:
+    /* 反射ハイライト */
+    linear-gradient(
+      105deg,
+      transparent 38%,
+      rgba(255, 255, 255, 0.30) 48%,
+      rgba(255, 255, 255, 0.60) 50%,
+      rgba(255, 255, 255, 0.30) 52%,
+      transparent 62%
+    ),
+    /* brushed metal 縞 */
+    repeating-linear-gradient(
+      45deg,
+      rgba(186, 230, 253, 0.10),
+      rgba(186, 230, 253, 0.10) 1px,
+      transparent 1px,
+      transparent 5px
+    ),
+    /* ベースカラーグラデ */
+    linear-gradient(
+      135deg,
+      rgba(56, 189, 248, 0.40) 0%,
+      rgba(96, 165, 250, 0.18) 25%,
+      rgba(186, 230, 253, 0.55) 50%,
+      rgba(96, 165, 250, 0.18) 75%,
+      rgba(56, 189, 248, 0.40) 100%
+    );
+  background-size: 250% 100%, 8px 8px, 250% 250%;
+  animation: card-rarity-bg-metallic 5.5s linear infinite;
 }
 .card-rarity-bg-super-rare {
-  background-image: linear-gradient(
-    135deg,
-    rgba(251, 191, 36, 0.38)  0%,    /* amber-400 */
-    rgba(217, 119, 6, 0.20) 25%,     /* amber-600 影 */
-    rgba(254, 240, 138, 0.55) 50%,   /* yellow-200 ハイライト */
-    rgba(217, 119, 6, 0.20) 75%,
-    rgba(251, 191, 36, 0.38) 100%
-  );
-  background-size: 300% 300%;
-  animation: card-rarity-bg-shimmer 4.0s ease-in-out infinite;
+  background:
+    linear-gradient(
+      105deg,
+      transparent 38%,
+      rgba(255, 255, 255, 0.35) 48%,
+      rgba(255, 255, 255, 0.70) 50%,
+      rgba(255, 255, 255, 0.35) 52%,
+      transparent 62%
+    ),
+    repeating-linear-gradient(
+      45deg,
+      rgba(254, 240, 138, 0.13),
+      rgba(254, 240, 138, 0.13) 1px,
+      transparent 1px,
+      transparent 5px
+    ),
+    linear-gradient(
+      135deg,
+      rgba(251, 191, 36, 0.46) 0%,
+      rgba(217, 119, 6, 0.22) 25%,
+      rgba(254, 240, 138, 0.62) 50%,
+      rgba(217, 119, 6, 0.22) 75%,
+      rgba(251, 191, 36, 0.46) 100%
+    );
+  background-size: 250% 100%, 8px 8px, 250% 250%;
+  animation: card-rarity-bg-metallic 4.8s linear infinite;
 }
 .card-rarity-bg-epic {
-  background-image: linear-gradient(
-    135deg,
-    rgba(168, 85, 247, 0.42)  0%,    /* violet-500 */
-    rgba(124, 58, 237, 0.25) 25%,    /* violet-600 影 */
-    rgba(233, 213, 255, 0.55) 50%,   /* violet-200 ハイライト */
-    rgba(124, 58, 237, 0.25) 75%,
-    rgba(168, 85, 247, 0.42) 100%
-  );
-  background-size: 300% 300%;
-  animation: card-rarity-bg-shimmer 3.5s ease-in-out infinite;
+  background:
+    linear-gradient(
+      105deg,
+      transparent 38%,
+      rgba(255, 255, 255, 0.40) 48%,
+      rgba(255, 255, 255, 0.78) 50%,
+      rgba(255, 255, 255, 0.40) 52%,
+      transparent 62%
+    ),
+    repeating-linear-gradient(
+      45deg,
+      rgba(233, 213, 255, 0.15),
+      rgba(233, 213, 255, 0.15) 1px,
+      transparent 1px,
+      transparent 5px
+    ),
+    linear-gradient(
+      135deg,
+      rgba(168, 85, 247, 0.52) 0%,
+      rgba(124, 58, 237, 0.28) 25%,
+      rgba(233, 213, 255, 0.68) 50%,
+      rgba(124, 58, 237, 0.28) 75%,
+      rgba(168, 85, 247, 0.52) 100%
+    );
+  background-size: 250% 100%, 8px 8px, 250% 250%;
+  animation: card-rarity-bg-metallic 4.2s linear infinite;
 }
 
 /* --- レア (rare) --- */
@@ -289,14 +349,14 @@
   animation: card-rarity-epic-pulse 1.8s ease-in-out infinite;
 }
 
-/* --- 斜め閃光 (shine): 左上→右下に細い光が走る (super_rare / epic 共通)
+/* --- 斜め閃光 (shine): 左上→右下に細い光がゆっくり走る (super_rare / epic 共通)
  * - 角度 135deg のバンドを translate(対角線) で動かす = 視覚的に45度の閃光
  * - 太さ 12% (44%-56%) で細く
- * - 周期 2.6s、移動区間 50-92% (= 約 1.1s 移動) でゆっくり目
+ * - 周期 4.5s、移動区間 55-95% (= 約 1.8s 移動) でゆっくり通過
  */
 @keyframes card-rarity-shine {
-  0%, 50% { transform: translate(-115%, -115%); }
-  92%     { transform: translate(115%, 115%); }
+  0%, 55% { transform: translate(-115%, -115%); }
+  95%     { transform: translate(115%, 115%); }
   100%    { transform: translate(115%, 115%); }
 }
 .card-rarity-shine::after {
@@ -311,7 +371,7 @@
     transparent 56%
   );
   transform: translate(-115%, -115%);
-  animation: card-rarity-shine 2.6s ease-in-out infinite;
+  animation: card-rarity-shine 4.5s ease-in-out infinite;
   pointer-events: none;
   z-index: 5;
 }
