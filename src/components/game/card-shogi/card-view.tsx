@@ -237,6 +237,10 @@ export function CardView({
       )}
       aria-label={`${def.name} (コスト${def.cost})`}
     >
+      {/* ホバーフォーカス用の薄黄色オーバーレイ。常に DOM に置き、:hover で
+        * opacity をフェードイン (CSS 側 .card-hover-focus:hover .card-hover-overlay)。
+        * disabled では :not(:disabled):hover が成立しないので透明のまま。 */}
+      <span className="card-hover-overlay" aria-hidden />
       {/* オーブ (epic のみ): 紫・青・赤の光球が舞う。粒数はカードサイズに比例 */}
       {def.rarity === "epic" && isAnimated &&
         EPIC_ORBS_BY_SIZE[size].map((orb, i) => (

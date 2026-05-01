@@ -423,26 +423,50 @@
  * 使えるカードを示すため、暖色(黄)のリング + 薄い黄色オーバーレイ +
  * わずかな lift で「これからプレイできるカード」感を出す。
  *
- * オーバーレイは ::after や擬似要素に頼らず box-shadow 1 プロパティに
- * 集約: 外側 2 つで枠線とソフトグロー、3 つ目の inset shadow を
- * 内側に巨大に伸ばすことで背景全体に薄い黄フィルムを乗せている。
- * これにより閃光(card-rarity-shine の ::before/::after)と擬似要素を
- * 取り合わずに済む。
+ * 設計上の制約:
+ *   レアカード(rare/super_rare/epic)には card-rarity-*-pulse という
+ *   keyframes が常時 box-shadow を更新し続けている。box-shadow で
+ *   hover を表現しようとすると CSS animation の値に毎フレーム
+ *   上書きされて hover 効果が見えない。
+ *
+ * よって以下を組み合わせる(いずれも box-shadow と独立):
+ *   1. outline           — 外側の黄色リング (animation 非干渉)
+ *   2. filter:drop-shadow — 外側のソフトな黄色グロー (animation 非干渉)
+ *   3. .card-hover-overlay — JSX に挿入した専用 span を opacity で
+ *      フェードインさせる薄い黄色フィルム。z-index は閃光の上、
+ *      コンテンツの下に挟むことでテキストの可読性を保ったまま
+ *      背景にだけ暖色を被せる。擬似要素を使わないので shine の
+ *      ::before/::after と衝突しない。
  *
  * disabled の手札にはホバー演出を適用しない (:not(:disabled))。
  */
 .card-hover-focus {
-  transition: box-shadow 0.18s ease, transform 0.18s ease;
+  outline: 2px solid transparent;
+  outline-offset: 1px;
+  transition: outline-color 0.18s ease, transform 0.18s ease, filter 0.18s ease;
 }
 .card-hover-focus:not(:disabled):hover {
   transform: translateY(-2px);
-  box-shadow:
-    /* 外側: 黄色アウトライン (フォーカス枠) */
-    0 0 0 2px rgba(250, 204, 21, 0.78),
-    /* 外側: 黄色のソフトグロー */
-    0 6px 18px rgba(250, 204, 21, 0.32),
-    /* 内側: 黄色オーバーレイ (背景に薄く乗せて暖色感) */
-    inset 0 0 0 9999px rgba(250, 204, 21, 0.10);
+  outline-color: rgba(250, 204, 21, 0.78);
+  filter: drop-shadow(0 4px 14px rgba(250, 204, 21, 0.40));
+}
+.card-hover-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  /* 閃光 (shine ::after = z:5) より上、コンテンツ (z:10) より下に挟む */
+  z-index: 6;
+  background: linear-gradient(
+    180deg,
+    rgba(250, 204, 21, 0.22) 0%,
+    rgba(250, 204, 21, 0.06) 100%
+  );
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+.card-hover-focus:not(:disabled):hover .card-hover-overlay {
+  opacity: 1;
 }
 
 /* --- 究極のオーブ: 多色グラデ + 色相回転で輝きが動的に変化する光球
