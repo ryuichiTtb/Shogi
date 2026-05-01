@@ -217,15 +217,13 @@
  * - epic:       パープルグロー pulse + 斜め閃光 (shine) + 紫/青/赤オーブ
  */
 
-/* --- 動的グラデ背景 (rare/super_rare/epic): 色付きスポット光が交差して
- * 色味自体が動的に変動するメタリック・宝石表現
+/* --- 動的グラデ背景 (rare/super_rare/epic): 横スライドする繰り返しグラデ
  *
- * 4 レイヤー合成:
- * 1. ハイライトスポット : 白系の光(鏡面反射)が対角線で動く
- * 2. アクセントスポット : レア度別の差し色光(反対方向に動く)
- *                         → 2 つの光が交差して色味が揺らぐ
- * 3. brushed metal 縞   : 細い斜めライン (静的、金属表面のヘアライン)
- * 4. ベースカラーグラデ : 色味自体が斜めに揺らぐ(宝石の色変化)
+ * 2 レイヤー構成:
+ * 1. brushed metal 縞 : 細い斜めライン (静的、金属表面のヘアライン)
+ * 2. 横方向グラデ      : 5 stop で左右対称(両端同色)の繰り返しパターン。
+ *                        background-size 200% を 1 周期分(-100% → 0%)横に
+ *                        スライドさせるとループ継ぎ目なく光が左→右へ流れる。
  *
  * ライトモードでも暗色ベースで見栄えを保つため、background-color を
  * slate-900 で明示固定+明色テキストを強制適用。
@@ -236,61 +234,13 @@
   background-color: rgb(15, 23, 42);  /* slate-900 (ライト/ダーク共通の暗色ベース) */
   color: rgb(241, 245, 249);          /* slate-100 (明色テキスト) */
 }
-@keyframes card-rarity-bg-dynamic {
-  /* 4 点ジグザグで巡回。各レイヤーが別方向に動き、常に色味が変動する */
-  0% {
-    background-position:
-      0% 100%,     /* ハイライト: 左下 */
-      100% 0%,     /* アクセント: 右上 */
-      0% 0%,       /* brushed: 静止 */
-      0% 0%;       /* ベース */
-  }
-  25% {
-    background-position:
-      50% 50%,
-      50% 50%,
-      0% 0%,
-      50% 100%;
-  }
-  50% {
-    background-position:
-      100% 0%,
-      0% 100%,
-      0% 0%,
-      100% 100%;
-  }
-  75% {
-    background-position:
-      0% 0%,
-      100% 100%,
-      0% 0%,
-      100% 50%;
-  }
-  100% {
-    background-position:
-      0% 100%,
-      100% 0%,
-      0% 0%,
-      0% 0%;
-  }
+@keyframes card-rarity-bg-slide {
+  0%   { background-position: 0% 0%, -100% 0%; }
+  100% { background-position: 0% 0%, 0% 0%; }
 }
 .card-rarity-bg-rare {
   background-image:
-    /* ハイライトスポット (白) */
-    radial-gradient(
-      ellipse 55% 60% at 50% 50%,
-      rgba(255, 255, 255, 0.70) 0%,
-      rgba(255, 255, 255, 0.25) 35%,
-      transparent 70%
-    ),
-    /* アクセントスポット (シアン寄り) */
-    radial-gradient(
-      ellipse 55% 60% at 50% 50%,
-      rgba(125, 211, 252, 0.65) 0%,
-      rgba(125, 211, 252, 0.20) 40%,
-      transparent 75%
-    ),
-    /* brushed metal 縞 */
+    /* brushed metal 縞(静止) */
     repeating-linear-gradient(
       45deg,
       rgba(186, 230, 253, 0.10),
@@ -298,34 +248,21 @@
       transparent 1px,
       transparent 5px
     ),
-    /* ベースカラーグラデ */
+    /* 横スライドグラデ: 青系(両端同色 = ループ継ぎ目なし) */
     linear-gradient(
-      135deg,
-      rgba(56, 189, 248, 0.40) 0%,
-      rgba(96, 165, 250, 0.18) 25%,
-      rgba(186, 230, 253, 0.55) 50%,
-      rgba(96, 165, 250, 0.18) 75%,
-      rgba(56, 189, 248, 0.40) 100%
+      90deg,
+      rgba(56, 189, 248, 0.45) 0%,
+      rgba(125, 211, 252, 0.60) 25%,
+      rgba(186, 230, 253, 0.75) 50%,
+      rgba(125, 211, 252, 0.60) 75%,
+      rgba(56, 189, 248, 0.45) 100%
     );
-  background-size: 200% 200%, 200% 200%, 8px 8px, 250% 250%;
-  animation: card-rarity-bg-dynamic 4.0s ease-in-out infinite;
+  background-size: 8px 8px, 200% 100%;
+  background-repeat: repeat, repeat;
+  animation: card-rarity-bg-slide 3.5s linear infinite;
 }
 .card-rarity-bg-super-rare {
   background-image:
-    /* ハイライトスポット (白) */
-    radial-gradient(
-      ellipse 55% 60% at 50% 50%,
-      rgba(255, 255, 255, 0.80) 0%,
-      rgba(255, 255, 255, 0.30) 35%,
-      transparent 70%
-    ),
-    /* アクセントスポット (オレンジ寄り) */
-    radial-gradient(
-      ellipse 55% 60% at 50% 50%,
-      rgba(251, 146, 60, 0.70) 0%,
-      rgba(251, 146, 60, 0.22) 40%,
-      transparent 75%
-    ),
     repeating-linear-gradient(
       45deg,
       rgba(254, 240, 138, 0.13),
@@ -333,33 +270,21 @@
       transparent 1px,
       transparent 5px
     ),
+    /* 横スライドグラデ: ゴールド系 */
     linear-gradient(
-      135deg,
-      rgba(251, 191, 36, 0.46) 0%,
-      rgba(217, 119, 6, 0.22) 25%,
-      rgba(254, 240, 138, 0.62) 50%,
-      rgba(217, 119, 6, 0.22) 75%,
-      rgba(251, 191, 36, 0.46) 100%
+      90deg,
+      rgba(251, 191, 36, 0.50) 0%,
+      rgba(254, 215, 138, 0.70) 25%,
+      rgba(255, 248, 200, 0.85) 50%,
+      rgba(254, 215, 138, 0.70) 75%,
+      rgba(251, 191, 36, 0.50) 100%
     );
-  background-size: 200% 200%, 200% 200%, 8px 8px, 250% 250%;
-  animation: card-rarity-bg-dynamic 3.5s ease-in-out infinite;
+  background-size: 8px 8px, 200% 100%;
+  background-repeat: repeat, repeat;
+  animation: card-rarity-bg-slide 3.0s linear infinite;
 }
 .card-rarity-bg-epic {
   background-image:
-    /* ハイライトスポット (白) */
-    radial-gradient(
-      ellipse 55% 60% at 50% 50%,
-      rgba(255, 255, 255, 0.85) 0%,
-      rgba(255, 255, 255, 0.35) 35%,
-      transparent 70%
-    ),
-    /* アクセントスポット (ピンク/マゼンタ寄り) */
-    radial-gradient(
-      ellipse 55% 60% at 50% 50%,
-      rgba(244, 114, 182, 0.70) 0%,
-      rgba(244, 114, 182, 0.22) 40%,
-      transparent 75%
-    ),
     repeating-linear-gradient(
       45deg,
       rgba(233, 213, 255, 0.15),
@@ -367,16 +292,18 @@
       transparent 1px,
       transparent 5px
     ),
+    /* 横スライドグラデ: パープル系 */
     linear-gradient(
-      135deg,
-      rgba(168, 85, 247, 0.52) 0%,
-      rgba(124, 58, 237, 0.28) 25%,
-      rgba(233, 213, 255, 0.68) 50%,
-      rgba(124, 58, 237, 0.28) 75%,
-      rgba(168, 85, 247, 0.52) 100%
+      90deg,
+      rgba(168, 85, 247, 0.55) 0%,
+      rgba(216, 180, 254, 0.75) 25%,
+      rgba(244, 114, 182, 0.70) 50%,
+      rgba(216, 180, 254, 0.75) 75%,
+      rgba(168, 85, 247, 0.55) 100%
     );
-  background-size: 200% 200%, 200% 200%, 8px 8px, 250% 250%;
-  animation: card-rarity-bg-dynamic 3.0s ease-in-out infinite;
+  background-size: 8px 8px, 200% 100%;
+  background-repeat: repeat, repeat;
+  animation: card-rarity-bg-slide 2.5s linear infinite;
 }
 
 /* --- レア (rare) --- */
