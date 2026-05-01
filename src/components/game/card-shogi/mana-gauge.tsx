@@ -13,68 +13,53 @@ interface ManaGaugeProps {
   label?: string;
 }
 
-interface FloatingDelta {
+interface DeltaSegment {
   id: number;
-  delta: number;
+  left: number;
+  width: number;
+  kind: "plus" | "minus";
 }
 
-const FLASH_DURATION_MS = 1000;
+const SEGMENT_DURATION_S = 1.2;
 
 export function ManaGauge({ current, cap, compact = false, label }: ManaGaugeProps) {
   const ratio = Math.min(1, current / cap);
   const canDraw = current >= PHASE0_DRAW_COST;
 
   const previousRef = useRef<number>(current);
-  const floatIdRef = useRef<number>(0);
-  const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const [floats, setFloats] = useState<FloatingDelta[]>([]);
-  const [flash, setFlash] = useState<"plus" | "minus" | null>(null);
+  const segIdRef = useRef<number>(0);
+  const [segments, setSegments] = useState<DeltaSegment[]>([]);
 
   useEffect(() => {
     const previous = previousRef.current;
     if (current === previous) return;
 
     const delta = current - previous;
+    const prevRatio = Math.min(1, Math.max(0, previous / cap));
+    const newRatio = Math.min(1, Math.max(0, current / cap));
     previousRef.current = current;
 
-    floatIdRef.current += 1;
-    const id = floatIdRef.current;
-    setFloats((prev) => [...prev, { id, delta }]);
-    setFlash(delta > 0 ? "plus" : "minus");
+    const left = delta > 0 ? prevRatio : newRatio;
+    const right = delta > 0 ? newRatio : prevRatio;
+    const width = Math.max(0, right - left);
+    if (width <= 0) return;
 
-    if (flashTimeoutRef.current) {
-      clearTimeout(flashTimeoutRef.current);
-    }
-    flashTimeoutRef.current = setTimeout(() => {
-      setFlash(null);
-      flashTimeoutRef.current = null;
-    }, FLASH_DURATION_MS);
-  }, [current]);
+    segIdRef.current += 1;
+    const id = segIdRef.current;
+    setSegments((prev) => [
+      ...prev,
+      { id, left, width, kind: delta > 0 ? "plus" : "minus" },
+    ]);
+  }, [current, cap]);
 
-  useEffect(() => {
-    return () => {
-      if (flashTimeoutRef.current) {
-        clearTimeout(flashTimeoutRef.current);
-      }
-    };
-  }, []);
-
-  const removeFloat = (id: number) => {
-    setFloats((prev) => prev.filter((f) => f.id !== id));
+  const removeSegment = (id: number) => {
+    setSegments((prev) => prev.filter((s) => s.id !== id));
   };
-
-  const gaugeGradientClass =
-    flash === "plus"
-      ? "from-emerald-400 to-green-500"
-      : flash === "minus"
-        ? "from-rose-400 to-red-500"
-        : "from-cyan-400 to-blue-500";
 
   return (
     <div
       className={cn(
-        "relative flex items-center gap-2 rounded-md border bg-card px-2 py-1",
+        "flex items-center gap-2 rounded-md border bg-card px-2 py-1",
         canDraw && "border-amber-400 shadow-sm",
         compact ? "text-[10px]" : "text-xs",
       )}
@@ -92,42 +77,31 @@ export function ManaGauge({ current, cap, compact = false, label }: ManaGaugePro
       </span>
       <div
         className={cn(
-          "flex-1 h-1.5 rounded-full bg-muted overflow-hidden min-w-[60px]",
+          "relative flex-1 h-1.5 rounded-full bg-muted overflow-hidden min-w-[60px]",
           compact && "min-w-[40px]",
         )}
       >
         <div
-          className={cn(
-            "h-full bg-gradient-to-r transition-all duration-300",
-            gaugeGradientClass,
-          )}
+          className="h-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-all duration-300"
           style={{ width: `${ratio * 100}%` }}
         />
-      </div>
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-col items-center"
-      >
         <AnimatePresence>
-          {floats.map((f) => (
-            <motion.span
-              key={f.id}
-              initial={{ y: 0, opacity: 0, scale: 0.6 }}
-              animate={{
-                y: compact ? -22 : -28,
-                opacity: [0, 1, 1, 0],
-                scale: 1,
-              }}
-              transition={{ duration: 0.9, times: [0, 0.15, 0.7, 1] }}
-              onAnimationComplete={() => removeFloat(f.id)}
+          {segments.map((s) => (
+            <motion.div
+              key={s.id}
+              initial={{ opacity: 1 }}
+              animate={{ opacity: 0 }}
+              transition={{ duration: SEGMENT_DURATION_S, ease: "easeOut" }}
+              onAnimationComplete={() => removeSegment(s.id)}
               className={cn(
-                "inline-block font-bold tabular-nums select-none drop-shadow-sm",
-                compact ? "text-xs" : "text-sm",
-                f.delta > 0 ? "text-emerald-500" : "text-rose-500",
+                "absolute top-0 bottom-0",
+                s.kind === "plus" ? "bg-emerald-500" : "bg-rose-500",
               )}
-            >
-              {f.delta > 0 ? `+${f.delta}` : f.delta}
-            </motion.span>
+              style={{
+                left: `${s.left * 100}%`,
+                width: `${s.width * 100}%`,
+              }}
+            />
           ))}
         </AnimatePresence>
       </div>
