@@ -10,7 +10,7 @@ import { createGame } from "@/app/actions/game";
 import type { Difficulty, Player } from "@/lib/shogi/types";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { History, Swords } from "lucide-react";
+import { History, Swords, Layers } from "lucide-react";
 import { ThemeSelector } from "@/components/game/theme-selector";
 import { ModeSelector, type GameMode } from "@/components/home/mode-selector";
 
@@ -255,6 +255,23 @@ export default function Home() {
             `${selectedCharacter.name}と対局開始！`
           )}
         </Button>
+
+        {/* カード機能セクション (カード将棋モード時のみ) */}
+        {selectedMode === "card-shogi" && (
+          <div className="grid grid-cols-2 gap-2 shrink-0">
+            <Link
+              href="/cards"
+              className={cn(
+                "flex items-center justify-center gap-1.5 py-2.5 rounded-lg border-2 border-border",
+                "bg-card text-sm font-medium hover:border-primary/40 transition-colors",
+              )}
+            >
+              <Layers className="w-4 h-4" />
+              カード一覧
+            </Link>
+            {/* 将来: デッキ編成 / ガチャ ボタンを追加 (別Issue) */}
+          </div>
+        )}
 
         {/* 棋譜履歴へのリンク */}
         <div className="text-center shrink-0">
