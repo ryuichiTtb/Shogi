@@ -234,14 +234,21 @@
   background-color: rgb(15, 23, 42);  /* slate-900 (ライト/ダーク共通の暗色ベース) */
   color: rgb(241, 245, 249);          /* slate-100 (明色テキスト) */
 }
-/* background-size 200% に対して 1 タイル分(=200%)動かす。これにより
- * repeat:repeat-x で繋ぎ目なく流れ続ける。
- * グラデは 5 stop で「主色 → ハイライト1 → 主色 → ハイライト2 → 主色」と
- * 2 種類のハイライトを交互に配置 → スライドで色合いが切り替わる輝きに。
+/* repeating-linear-gradient は 135deg 方向に内蔵で無限繰り返しするため
+ * タイル境界の概念がなく継ぎ目が出ない。1 パターン 360px を 360px 動かす
+ * ことで継ぎ目なくループする斜めスライドを実現。
+ *
+ * パターン構成(360px 周期):
+ *   0-80px   : 主色帯(0.25 = 黒透け 75%)
+ *   80-140px : H1 ハイライト(60px 幅、110px でピーク)
+ *   140-220px: 主色帯
+ *   220-280px: H2 ハイライト(60px 幅、250px でピーク)
+ *   280-360px: 主色帯
+ * → 主色帯 78%、ハイライト帯 22% で黒ベース多め
  */
 @keyframes card-rarity-bg-slide {
-  0%   { background-position: 0% 0%, 0% 0%; }
-  100% { background-position: 0% 0%, -200% 0%; }
+  0%   { background-position: 0px 0px, 0px 0px; }
+  100% { background-position: 0px 0px, -360px -360px; }
 }
 .card-rarity-bg-rare {
   background-image:
@@ -253,18 +260,19 @@
       transparent 1px,
       transparent 5px
     ),
-    /* 斜めスライドグラデ(135deg): 黒ベースを多めに(主色 0.25)、
-     * ハイライト 2 種(明水色 + indigo)が交互に通過 */
-    linear-gradient(
+    /* 斜め繰り返しグラデ(135deg): 主色 → H1 → 主色 → H2 → 主色 */
+    repeating-linear-gradient(
       135deg,
-      rgba(56, 189, 248, 0.25) 0%,
-      rgba(186, 230, 253, 0.75) 25%,    /* H1: 明水色 */
-      rgba(56, 189, 248, 0.25) 50%,
-      rgba(99, 102, 241, 0.60) 75%,     /* H2: indigo */
-      rgba(56, 189, 248, 0.25) 100%
+      rgba(56, 189, 248, 0.25) 0px,
+      rgba(56, 189, 248, 0.25) 80px,
+      rgba(186, 230, 253, 0.75) 110px,    /* H1: 明水色 */
+      rgba(56, 189, 248, 0.25) 140px,
+      rgba(56, 189, 248, 0.25) 220px,
+      rgba(99, 102, 241, 0.60) 250px,     /* H2: indigo */
+      rgba(56, 189, 248, 0.25) 280px,
+      rgba(56, 189, 248, 0.25) 360px
     );
-  background-size: 8px 8px, 200% 100%;
-  background-repeat: repeat, repeat;
+  background-size: 8px 8px, auto;
   animation:
     card-rarity-bg-slide 5.5s linear infinite,
     card-rarity-rare-pulse 2.6s ease-in-out infinite;
@@ -278,17 +286,19 @@
       transparent 1px,
       transparent 5px
     ),
-    /* 斜めスライドグラデ: ゴールド系(白系 + deep amber 交互) */
-    linear-gradient(
+    /* 斜め繰り返しグラデ: ゴールド系(白系 + deep amber 交互) */
+    repeating-linear-gradient(
       135deg,
-      rgba(251, 191, 36, 0.25) 0%,
-      rgba(255, 248, 200, 0.80) 25%,    /* H1: 白系 */
-      rgba(251, 191, 36, 0.25) 50%,
-      rgba(217, 119, 6, 0.65) 75%,      /* H2: deep amber */
-      rgba(251, 191, 36, 0.25) 100%
+      rgba(251, 191, 36, 0.25) 0px,
+      rgba(251, 191, 36, 0.25) 80px,
+      rgba(255, 248, 200, 0.80) 110px,    /* H1: 白系 */
+      rgba(251, 191, 36, 0.25) 140px,
+      rgba(251, 191, 36, 0.25) 220px,
+      rgba(217, 119, 6, 0.65) 250px,      /* H2: deep amber */
+      rgba(251, 191, 36, 0.25) 280px,
+      rgba(251, 191, 36, 0.25) 360px
     );
-  background-size: 8px 8px, 200% 100%;
-  background-repeat: repeat, repeat;
+  background-size: 8px 8px, auto;
   animation:
     card-rarity-bg-slide 5.0s linear infinite,
     card-rarity-super-rare-pulse 2.0s ease-in-out infinite;
@@ -302,17 +312,19 @@
       transparent 1px,
       transparent 5px
     ),
-    /* 斜めスライドグラデ: パープル系(pink + blue 交互) */
-    linear-gradient(
+    /* 斜め繰り返しグラデ: パープル系(pink + blue 交互) */
+    repeating-linear-gradient(
       135deg,
-      rgba(168, 85, 247, 0.30) 0%,
-      rgba(244, 114, 182, 0.80) 25%,    /* H1: pink */
-      rgba(168, 85, 247, 0.30) 50%,
-      rgba(96, 165, 250, 0.65) 75%,     /* H2: blue */
-      rgba(168, 85, 247, 0.30) 100%
+      rgba(168, 85, 247, 0.30) 0px,
+      rgba(168, 85, 247, 0.30) 80px,
+      rgba(244, 114, 182, 0.80) 110px,    /* H1: pink */
+      rgba(168, 85, 247, 0.30) 140px,
+      rgba(168, 85, 247, 0.30) 220px,
+      rgba(96, 165, 250, 0.65) 250px,     /* H2: blue */
+      rgba(168, 85, 247, 0.30) 280px,
+      rgba(168, 85, 247, 0.30) 360px
     );
-  background-size: 8px 8px, 200% 100%;
-  background-repeat: repeat, repeat;
+  background-size: 8px 8px, auto;
   animation:
     card-rarity-bg-slide 4.5s linear infinite,
     card-rarity-epic-pulse 1.8s ease-in-out infinite;
