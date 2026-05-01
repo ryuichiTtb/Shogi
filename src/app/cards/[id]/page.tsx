@@ -6,7 +6,6 @@ import { CardView } from "@/components/game/card-shogi/card-view";
 import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
 import {
   KIND_INFO,
-  PHASE_LABEL,
   RARITY_INFO,
   STATUS_INFO,
   TARGETING_LABEL,
@@ -17,8 +16,6 @@ import { cn } from "@/lib/utils";
 interface CardDetailPageProps {
   params: Promise<{ id: string }>;
 }
-
-const ISSUE_BASE_URL = "https://github.com/ryuichiTtb/Shogi/issues/";
 
 export async function generateMetadata({ params }: CardDetailPageProps) {
   const { id } = await params;
@@ -89,11 +86,6 @@ export default async function CardDetailPage({ params }: CardDetailPageProps) {
               <Badge variant="outline" className={cn("text-xs", rarityInfo.className)}>
                 {rarityInfo.label}
               </Badge>
-              {def.phase && (
-                <Badge variant="outline" className="text-xs">
-                  {PHASE_LABEL[def.phase]}
-                </Badge>
-              )}
             </div>
 
             {/* 説明文 */}
@@ -123,24 +115,6 @@ export default async function CardDetailPage({ params }: CardDetailPageProps) {
               </dl>
             </section>
 
-            {def.relatedIssues && def.relatedIssues.length > 0 && (
-              <section>
-                <h2 className="text-sm font-bold mb-2">関連 Issue</h2>
-                <div className="flex flex-wrap gap-1.5">
-                  {def.relatedIssues.map((num) => (
-                    <a
-                      key={num}
-                      href={`${ISSUE_BASE_URL}${num}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-primary hover:underline"
-                    >
-                      #{num}
-                    </a>
-                  ))}
-                </div>
-              </section>
-            )}
           </div>
         </div>
       </div>

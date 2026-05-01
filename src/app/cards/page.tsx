@@ -8,12 +8,12 @@ export const metadata = {
 };
 
 // マスターカタログ一覧ページ (Issue #102)
-// 全カードを CardView で並べ、ステータス/種別/レア度で絞り込み可能。
+// ヘッダ+フィルタを上部固定、グリッド領域のみ縦スクロール。
 export default function CardsPage() {
   return (
-    <main className="min-h-screen bg-gradient-to-b from-amber-50 dark:from-amber-950/30 to-background">
-      <div className="max-w-4xl mx-auto px-4 py-4 sm:py-6">
-        <header className="flex items-center gap-3 mb-4 sm:mb-6">
+    <main className="h-dvh flex flex-col bg-gradient-to-b from-amber-50 dark:from-amber-950/30 to-background">
+      <div className="max-w-4xl mx-auto px-4 pt-4 sm:pt-6 pb-2 w-full flex flex-col flex-1 min-h-0">
+        <header className="flex items-center gap-3 mb-3 sm:mb-4 shrink-0">
           <Link
             href="/"
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"

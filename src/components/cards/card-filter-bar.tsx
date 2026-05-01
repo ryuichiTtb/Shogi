@@ -70,9 +70,9 @@ interface FilterRowProps {
 
 function FilterRow({ label, options, selected, onSelect }: FilterRowProps) {
   return (
-    <div className="flex items-center gap-2 flex-wrap">
-      <span className="text-xs font-medium text-muted-foreground w-16 shrink-0">{label}</span>
-      <div className="flex flex-wrap gap-1.5">
+    <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+      <span className="text-[10px] sm:text-xs font-medium text-muted-foreground w-11 sm:w-16 shrink-0">{label}</span>
+      <div className="flex flex-wrap gap-1 sm:gap-1.5">
         {options.map((opt) => {
           const active = selected === opt.id;
           return (
@@ -88,7 +88,7 @@ function FilterRow({ label, options, selected, onSelect }: FilterRowProps) {
             >
               <Badge
                 variant="outline"
-                className={cn("text-xs px-2 py-0.5", opt.className || "bg-card")}
+                className={cn("text-[10px] sm:text-xs px-1.5 sm:px-2 py-0 sm:py-0.5", opt.className || "bg-card")}
               >
                 {opt.label}
               </Badge>

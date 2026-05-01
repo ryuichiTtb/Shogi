@@ -15,6 +15,8 @@ const INITIAL_FILTER: CardFilterValue = {
   rarity: "all",
 };
 
+// フィルタ欄は親 flex の shrink-0 で上部固定、
+// グリッド領域は flex-1 + overflow-y-auto で内部スクロール。
 export function CardCatalogGrid({ cards }: CardCatalogGridProps) {
   const [filter, setFilter] = useState<CardFilterValue>(INITIAL_FILTER);
 
@@ -28,8 +30,8 @@ export function CardCatalogGrid({ cards }: CardCatalogGridProps) {
   }, [cards, filter]);
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="rounded-lg border bg-card p-3">
+    <div className="flex flex-col gap-3 flex-1 min-h-0">
+      <div className="rounded-lg border bg-card p-3 shrink-0">
         <CardFilterBar value={filter} onChange={setFilter} />
       </div>
 
@@ -38,16 +40,16 @@ export function CardCatalogGrid({ cards }: CardCatalogGridProps) {
           条件に合致するカードがありません
         </div>
       ) : (
-        <>
-          <div className="text-xs text-muted-foreground">
+        <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1">
+          <div className="text-xs text-muted-foreground mb-2 sticky top-0 bg-background/80 backdrop-blur py-1 z-10">
             {filtered.length} 件表示中 (全 {cards.length} 件)
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pb-3">
             {filtered.map((def) => (
               <CardCatalogTile key={def.id} def={def} />
             ))}
           </div>
-        </>
+        </div>
       )}
     </div>
   );
