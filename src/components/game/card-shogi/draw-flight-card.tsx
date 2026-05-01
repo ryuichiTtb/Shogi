@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 
@@ -76,6 +76,22 @@ function DrawFlightInner({
   handRectGetter: () => DOMRect | null;
   onComplete: () => void;
 }) {
+  // タブ非アクティブ時に Framer Motion の onAnimationComplete が throttling で
+  // 遅延すると finalizeDraw が呼ばれず AI が永久に動かないリスクがある。
+  // 想定時間 + 500ms 経過しても発火しない場合は強制的に完了通知する保険。
+  // onAnimationComplete でも通知されるので completedRef で重複呼出しを防ぐ。
+  const completedRef = useRef(false);
+  const handleComplete = useCallback(() => {
+    if (completedRef.current) return;
+    completedRef.current = true;
+    onComplete();
+  }, [onComplete]);
+
+  useEffect(() => {
+    const id = window.setTimeout(handleComplete, TOTAL_MS + 500);
+    return () => window.clearTimeout(id);
+  }, [handleComplete]);
+
   const [coords] = useState(() => {
     if (typeof window === "undefined") return null;
     const deckRect = deckRectGetter();
@@ -144,7 +160,7 @@ function DrawFlightInner({
         times: [0, t1, t2, 1],
         ease: ["easeOut", "linear", "easeIn"],
       }}
-      onAnimationComplete={onComplete}
+      onAnimationComplete={handleComplete}
       style={{
         position: "fixed",
         width: CARD_W,
