@@ -1,9 +1,15 @@
 "use client";
 
+import { forwardRef, useImperativeHandle, useRef } from "react";
+
 import { cn } from "@/lib/utils";
 import { ShogiPiece } from "./shogi-piece";
 import { useTouchHandler } from "@/hooks/use-touch-handler";
 import type { Board, Move, Player, Position } from "@/lib/shogi/types";
+
+export interface ShogiBoardHandle {
+  getSquareRect: (row: number, col: number) => DOMRect | null;
+}
 
 interface ShogiBoardProps {
   board: Board;
@@ -29,20 +35,35 @@ const RANK_LABELS_SENTE = ["一", "二", "三", "四", "五", "六", "七", "八
 const FILE_LABELS_GOTE = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
 const RANK_LABELS_GOTE = ["九", "八", "七", "六", "五", "四", "三", "二", "一"];
 
-export function ShogiBoard({
-  board,
-  currentPlayer,
-  playerColor,
-  selectedSquare,
-  legalMoves,
-  lastMove,
-  isAiThinking,
-  inCheck,
-  onSquareClick,
-  squareSize,
-  isMobile,
-  cardTargetSquares,
-}: ShogiBoardProps) {
+export const ShogiBoard = forwardRef<ShogiBoardHandle, ShogiBoardProps>(function ShogiBoard(
+  {
+    board,
+    currentPlayer,
+    playerColor,
+    selectedSquare,
+    legalMoves,
+    lastMove,
+    isAiThinking,
+    inCheck,
+    onSquareClick,
+    squareSize,
+    isMobile,
+    cardTargetSquares,
+  },
+  forwardedRef,
+) {
+  const squareRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  useImperativeHandle(
+    forwardedRef,
+    () => ({
+      getSquareRect: (row, col) => {
+        const el = squareRefs.current.get(`${row}-${col}`);
+        return el ? el.getBoundingClientRect() : null;
+      },
+    }),
+    [],
+  );
   const legalMoveSet = new Set(
     legalMoves.map((m) => `${m.to.row}-${m.to.col}`)
   );
@@ -132,6 +153,11 @@ export function ShogiBoard({
               return (
                 <div
                   key={`${rowIdx}-${colIdx}`}
+                  ref={(el) => {
+                    const key = `${rowIdx}-${colIdx}`;
+                    if (el) squareRefs.current.set(key, el);
+                    else squareRefs.current.delete(key);
+                  }}
                   data-legal={isLegalTarget}
                   className={cn(
                     "shogi-square relative flex items-center justify-center",
@@ -213,4 +239,4 @@ export function ShogiBoard({
       </div>
     </div>
   );
-}
+});

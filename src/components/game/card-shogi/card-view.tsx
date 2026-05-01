@@ -139,6 +139,7 @@ export function CardView({
       type="button"
       onClick={onClick}
       disabled={disabled}
+      data-card-id={card.instanceId}
       className={cn(
         "rounded-md border-2 bg-card text-card-foreground shadow-sm shrink-0",
         "flex flex-row items-stretch text-left transition-all",

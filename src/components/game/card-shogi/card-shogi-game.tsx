@@ -9,7 +9,7 @@ import { useCardShogiGame } from "@/hooks/use-card-shogi-game";
 import { useSound } from "@/hooks/use-sound";
 import { useCardBoardSize } from "@/hooks/use-card-board-size";
 
-import { ShogiBoard } from "../shogi-board";
+import { ShogiBoard, type ShogiBoardHandle } from "../shogi-board";
 import { CapturedPieces } from "../captured-pieces";
 import { CardShogiHistory } from "./card-shogi-history";
 import { GameControls } from "../game-controls";
@@ -32,7 +32,7 @@ import { getVariantById } from "@/lib/shogi/variants/index";
 import type { Difficulty, GameConfig, GameState, Move, Player, Position } from "@/lib/shogi/types";
 import type { CommentaryEvent } from "@/app/actions/commentary";
 import type { CardGameState, CardInstance } from "@/lib/shogi/cards/types";
-import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
+import { CARD_DEFS, PHASE0_DRAW_COST } from "@/lib/shogi/cards/definitions";
 import { createGame } from "@/app/actions/game";
 
 import { ManaGauge } from "./mana-gauge";
@@ -41,6 +41,7 @@ import { TrapSlot } from "./trap-slot";
 import { DeckPile } from "./deck-pile";
 import { CardPlayDialog, CardTargetingNotice } from "./card-play-dialog";
 import { DrawFlightCard } from "./draw-flight-card";
+import { ManaFlightLayer, type ManaFlightItem } from "./mana-flight";
 
 interface SerializableGameConfig {
   variantId: string;
@@ -87,6 +88,15 @@ export function CardShogiGame({
   const ownHandTabletRef = useRef<HTMLDivElement>(null);
   const ownHandMobileBtnRef = useRef<HTMLDivElement>(null);
   const ownHandXlRef = useRef<HTMLDivElement>(null);
+  // 各レイアウトの ShogiBoard ref。表示中のものから盤面マスの矩形を取得する。
+  const boardTabletRef = useRef<ShogiBoardHandle>(null);
+  const boardXlRef = useRef<ShogiBoardHandle>(null);
+  // マナ増減の浮遊テキスト (Issue #77)。各イベントを起点 UI 付近で表示する。
+  const [manaFlights, setManaFlights] = useState<ManaFlightItem[]>([]);
+  const manaFlightIdRef = useRef(0);
+  // カード使用時、reducer がカードを hand から削除する前に DOMRect を保管する。
+  // cardPlayEvent / trapSetEvent / マナUP の manaChargeEvent(reason: card) の起点として使う。
+  const playedCardRectRef = useRef<{ id: string; rect: DOMRect } | null>(null);
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const { squareSize, isMobile, viewportHeight } = useCardBoardSize();
@@ -198,43 +208,7 @@ export function CardShogiGame({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isReady]);
 
-  // カードイベント由来の SE 再生と画面演出 (eventLog の差分監視)
   const lastEventIndexRef = useRef(0);
-  useEffect(() => {
-    if (!isReady) return;
-    const newEvents = eventLog.slice(lastEventIndexRef.current);
-    for (const ev of newEvents) {
-      switch (ev.kind) {
-        case "drawEvent":
-          playSfx("card_draw");
-          // Issue #78: 自分のドローのみ中央演出 (AI ドローは Phase 0 では発生しない想定だが防御的に絞る)
-          if (ev.player === playerColor) {
-            setDrawFlight({ card: ev.instance, key: Date.now() });
-          }
-          break;
-        case "cardPlayEvent":
-          playSfx("card_play");
-          break;
-        case "manaChargeEvent":
-          // ターン由来の自動チャージは駒移動 SE と被るため、カード由来のみ鳴らす
-          if (ev.reason === "card") playSfx("mana_charge");
-          break;
-        case "trapSetEvent":
-          playSfx("card_play");
-          break;
-        case "trapTriggerEvent":
-          playSfx("trap_trigger");
-          // R16/R20: トラップ発動を画面中央オーバーレイで明示、トラップ名も併記
-          setOverlayEvent({
-            event: "trap_trigger",
-            key: Date.now(),
-            trapName: CARD_DEFS[ev.instance.defId].name,
-          });
-          break;
-      }
-    }
-    lastEventIndexRef.current = eventLog.length;
-  }, [eventLog, isReady, playSfx, playerColor]);
 
   // 表示中の山札ラッパーから矩形を取得 (xl 以上 → タブレット → モバイル の順に visibility 判定)
   const getDeckRect = useCallback((): DOMRect | null => {
@@ -258,13 +232,139 @@ export function CardShogiGame({
     return null;
   }, []);
 
+  // 盤面マスの DOMRect。表示中の ShogiBoard (xl→タブレット) から取得する。
+  const getBoardSquareRect = useCallback((row: number, col: number): DOMRect | null => {
+    for (const ref of [boardXlRef, boardTabletRef]) {
+      const handle = ref.current;
+      if (!handle) continue;
+      const rect = handle.getSquareRect(row, col);
+      if (rect && rect.width > 0 && rect.height > 0) return rect;
+    }
+    return null;
+  }, []);
+
+  const triggerManaFlight = useCallback((delta: number, rect: DOMRect | null) => {
+    if (!rect || delta === 0) return;
+    manaFlightIdRef.current += 1;
+    const id = manaFlightIdRef.current;
+    setManaFlights((prev) => [...prev, { id, delta, rect }]);
+  }, []);
+
+  const removeManaFlight = useCallback((id: number) => {
+    setManaFlights((prev) => prev.filter((f) => f.id !== id));
+  }, []);
+
+  // 表示中の手札の中から該当カード DOM を見つけて DOMRect を返す。
+  const findVisibleCardRect = useCallback((instanceId: string): DOMRect | null => {
+    if (typeof document === "undefined") return null;
+    const els = document.querySelectorAll<HTMLElement>(`[data-card-id="${instanceId}"]`);
+    for (const el of els) {
+      if (el.offsetParent !== null) {
+        const rect = el.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) return rect;
+      }
+    }
+    return null;
+  }, []);
+
+  // reducer が hand からカードを削除する前に、使用カードの矩形を捕捉する。
+  // 後続イベント (cardPlayEvent / trapSetEvent / manaChargeEvent reason="card") で起点として参照される。
+  const cachePendingCardRect = useCallback(() => {
+    const pc = cardState.pendingCard;
+    if (!pc) return;
+    const rect = findVisibleCardRect(pc.instance.instanceId);
+    if (rect) playedCardRectRef.current = { id: pc.instance.instanceId, rect };
+  }, [cardState.pendingCard, findVisibleCardRect]);
+
+  const handleConfirmPlayCard = useCallback(() => {
+    cachePendingCardRect();
+    confirmPlayCard();
+  }, [cachePendingCardRect, confirmPlayCard]);
+
+  // カードイベント由来の SE 再生・画面演出・マナ浮遊テキストを eventLog の差分監視で発火
+  useEffect(() => {
+    if (!isReady) return;
+    const startIdx = lastEventIndexRef.current;
+    const newEvents = eventLog.slice(startIdx);
+    for (let i = 0; i < newEvents.length; i++) {
+      const ev = newEvents[i];
+      const absoluteIdx = startIdx + i;
+      switch (ev.kind) {
+        case "drawEvent":
+          playSfx("card_draw");
+          // Issue #78: 自分のドローのみ中央演出 (AI ドローは Phase 0 では発生しない想定だが防御的に絞る)
+          if (ev.player === playerColor) {
+            setDrawFlight({ card: ev.instance, key: Date.now() });
+          }
+          // Issue #77: 山札の位置で -5 マナ表示
+          triggerManaFlight(-PHASE0_DRAW_COST, getDeckRect());
+          break;
+        case "cardPlayEvent": {
+          playSfx("card_play");
+          const def = CARD_DEFS[ev.instance.defId];
+          if (def.cost > 0) {
+            const cached = playedCardRectRef.current;
+            const rect = cached?.id === ev.instance.instanceId ? cached.rect : getHandRect();
+            triggerManaFlight(-def.cost, rect);
+          }
+          break;
+        }
+        case "manaChargeEvent":
+          // ターン由来の自動チャージは駒移動 SE と被るため、カード由来のみ鳴らす
+          if (ev.reason === "card") playSfx("mana_charge");
+          // Issue #77: マナ加算を起点 UI 付近に表示
+          if (ev.reason === "turn") {
+            // 直前の同 player の moveEvent を遡って探し、移動先マスに表示
+            let moveTo: { row: number; col: number } | null = null;
+            for (let j = absoluteIdx - 1; j >= 0; j--) {
+              const m = eventLog[j];
+              if (m.kind === "moveEvent" && m.move.player === ev.player) {
+                moveTo = m.move.to;
+                break;
+              }
+            }
+            const rect = moveTo ? getBoardSquareRect(moveTo.row, moveTo.col) : null;
+            triggerManaFlight(ev.amount, rect);
+          } else {
+            // カード由来 (マナUP等): 直前に使用したカードの位置 (なければ手札中央)
+            const cached = playedCardRectRef.current;
+            const rect = cached?.rect ?? getHandRect();
+            triggerManaFlight(ev.amount, rect);
+          }
+          break;
+        case "trapSetEvent": {
+          playSfx("card_play");
+          const def = CARD_DEFS[ev.instance.defId];
+          if (def.cost > 0) {
+            const cached = playedCardRectRef.current;
+            const rect = cached?.id === ev.instance.instanceId ? cached.rect : getHandRect();
+            triggerManaFlight(-def.cost, rect);
+          }
+          break;
+        }
+        case "trapTriggerEvent":
+          playSfx("trap_trigger");
+          // R16/R20: トラップ発動を画面中央オーバーレイで明示、トラップ名も併記
+          setOverlayEvent({
+            event: "trap_trigger",
+            key: Date.now(),
+            trapName: CARD_DEFS[ev.instance.defId].name,
+          });
+          break;
+      }
+    }
+    lastEventIndexRef.current = eventLog.length;
+  }, [eventLog, isReady, playSfx, playerColor, triggerManaFlight, getDeckRect, getHandRect, getBoardSquareRect]);
+
   // Issue #78: 演出中は盤面・手札・カード操作・背景クリックをロックする
   const handleSquareClick = useCallback(
     (pos: Position) => {
       if (isDrawAnimating) return;
+      // 歩戻し等のターゲット選択フェーズで盤面クリックが confirm に直結するため、ここでも矩形を捕捉
+      if (cardState.pendingCard) cachePendingCardRect();
       selectSquare(pos);
     },
-    [isDrawAnimating, selectSquare],
+    [isDrawAnimating, selectSquare, cardState.pendingCard, cachePendingCardRect],
   );
   const handleHandPieceClick = useCallback(
     (piece: Parameters<typeof selectHandPiece>[0]) => {
@@ -507,6 +607,7 @@ export function CardShogiGame({
           {/* 盤面 */}
           <div className="relative shrink-0 my-0.5">
             <ShogiBoard
+              ref={boardTabletRef}
               board={gameState.board}
               currentPlayer={gameState.currentPlayer}
               playerColor={playerColor}
@@ -809,6 +910,7 @@ export function CardShogiGame({
           </div>
           <div className="relative shrink-0">
             <ShogiBoard
+              ref={boardXlRef}
               board={gameState.board}
               currentPlayer={gameState.currentPlayer}
               playerColor={playerColor}
@@ -901,7 +1003,7 @@ export function CardShogiGame({
       />
       <CardPlayDialog
         pendingCard={cardState.pendingCard}
-        onConfirm={confirmPlayCard}
+        onConfirm={handleConfirmPlayCard}
         onCancel={cancelPlayCard}
       />
       <CardTargetingNotice
@@ -917,6 +1019,9 @@ export function CardShogiGame({
         handRectGetter={getHandRect}
         onComplete={handleDrawFlightComplete}
       />
+
+      {/* Issue #77: マナ加減算の浮遊テキスト (起点 UI 付近に表示) */}
+      <ManaFlightLayer items={manaFlights} onComplete={removeManaFlight} />
     </div>
   );
 }
