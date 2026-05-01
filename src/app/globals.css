@@ -516,33 +516,30 @@
   75%      { filter: blur(0.5px) hue-rotate(20deg)  saturate(1.30); }
 }
 
-/* 軌道はゆるやかにカーブし、opacity は単一の山型 (0 → 1 → 0)、
- * scale は 0.7-1.1 の控えめな範囲で「ふわふわ」した浮遊感に。
- * 色相回転は別周期で並行し、移動と色変化が単調にならないようにする。
+/* 位置と scale は 0%/50%/100% の 3 点に絞り、間は線形に連続補間させる
+ * (中間の値が滞留しないため、止まる感がなくふわふわ流れる)。
+ * opacity だけ 5 点で段階フェードして滑らかに現れて消える。
  */
 @keyframes card-rarity-orb-1 {
-  0%   { left: 8%;  top: 85%; opacity: 0;    transform: scale(0.7); }
-  18%  { left: 14%; top: 70%; opacity: 0.75; transform: scale(0.95); }
-  40%  { left: 24%; top: 45%; opacity: 1;    transform: scale(1.10); }
-  60%  { left: 36%; top: 28%; opacity: 1;    transform: scale(1.05); }
-  82%  { left: 52%; top: 55%; opacity: 0.55; transform: scale(0.95); }
-  100% { left: 68%; top: 92%; opacity: 0;    transform: scale(0.7); }
+  0%   { left: 8%;  top: 85%; transform: scale(0.7); opacity: 0; }
+  20%  { opacity: 0.85; }
+  50%  { left: 36%; top: 30%; transform: scale(1.1); opacity: 1; }
+  80%  { opacity: 0.55; }
+  100% { left: 68%; top: 92%; transform: scale(0.7); opacity: 0; }
 }
 @keyframes card-rarity-orb-2 {
-  0%   { left: 92%; top: 78%; opacity: 0;    transform: scale(0.7); }
-  18%  { left: 84%; top: 64%; opacity: 0.75; transform: scale(0.95); }
-  40%  { left: 70%; top: 42%; opacity: 1;    transform: scale(1.10); }
-  60%  { left: 56%; top: 26%; opacity: 1;    transform: scale(1.05); }
-  82%  { left: 40%; top: 52%; opacity: 0.55; transform: scale(0.95); }
-  100% { left: 16%; top: 90%; opacity: 0;    transform: scale(0.7); }
+  0%   { left: 92%; top: 78%; transform: scale(0.7); opacity: 0; }
+  20%  { opacity: 0.85; }
+  50%  { left: 56%; top: 24%; transform: scale(1.1); opacity: 1; }
+  80%  { opacity: 0.55; }
+  100% { left: 16%; top: 90%; transform: scale(0.7); opacity: 0; }
 }
 @keyframes card-rarity-orb-3 {
-  0%   { left: 50%; top: 95%; opacity: 0;    transform: scale(0.7); }
-  18%  { left: 56%; top: 80%; opacity: 0.75; transform: scale(0.95); }
-  40%  { left: 64%; top: 55%; opacity: 1;    transform: scale(1.10); }
-  60%  { left: 72%; top: 32%; opacity: 1;    transform: scale(1.05); }
-  82%  { left: 56%; top: 18%; opacity: 0.55; transform: scale(0.95); }
-  100% { left: 28%; top: 6%;  opacity: 0;    transform: scale(0.7); }
+  0%   { left: 50%; top: 95%; transform: scale(0.7); opacity: 0; }
+  20%  { opacity: 0.85; }
+  50%  { left: 72%; top: 30%; transform: scale(1.1); opacity: 1; }
+  80%  { opacity: 0.55; }
+  100% { left: 28%; top: 6%;  transform: scale(0.7); opacity: 0; }
 }
 .card-rarity-orb-1 {
   animation:
