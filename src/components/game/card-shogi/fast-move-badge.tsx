@@ -18,11 +18,22 @@ const subscribe = () => () => {};
 const getClientSnapshot = () => true;
 const getServerSnapshot = () => false;
 
-const DURATION_S = 0.5;
+const DURATION_S = 1.0;
 const BOX_W = 160;
 const BOX_H = 48;
 // 駒下端からの余白(マナ +N の浮遊と被らないよう少し下に配置)
 const OFFSET_BELOW_PIECE_PX = 4;
+// 盤面の木目背景に黒文字が埋もれないよう、白で 8 方向に縁取りする
+const TEXT_STROKE = [
+  "-2px -2px 0 #fff",
+  "0 -2px 0 #fff",
+  "2px -2px 0 #fff",
+  "-2px 0 0 #fff",
+  "2px 0 0 #fff",
+  "-2px 2px 0 #fff",
+  "0 2px 0 #fff",
+  "2px 2px 0 #fff",
+].join(", ");
 
 export function FastMoveBadgeLayer({ items, onComplete }: FastMoveBadgeLayerProps) {
   const isClient = useSyncExternalStore(subscribe, getClientSnapshot, getServerSnapshot);
@@ -78,6 +89,7 @@ function FastMoveBadgeSingle({
     >
       <span
         className="select-none leading-none font-extrabold text-3xl text-black font-[family-name:var(--font-yuji-boku)]"
+        style={{ textShadow: TEXT_STROKE }}
       >
         早指し
       </span>
