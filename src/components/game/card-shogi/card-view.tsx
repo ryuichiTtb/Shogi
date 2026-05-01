@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import type { CardInstance, CardKind, CardRarity } from "@/lib/shogi/cards/types";
+import type { CardInstance, CardRarity } from "@/lib/shogi/cards/types";
 import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
 
 export type CardViewSize = "sm" | "md" | "lg" | "xl";
@@ -31,10 +31,12 @@ const RARITY_HAS_SHINE: Record<CardRarity, boolean> = {
   epic: true,
 };
 
-// 左カラム背景 = 種別 (内部塗りで通常/トラップを区別)
-const KIND_LEFT_BG_CLASS: Record<CardKind, string> = {
-  normal: "bg-amber-100/60 dark:bg-amber-950/40",
-  trap: "bg-purple-100/60 dark:bg-purple-950/40",
+// レア度別の動的グラデ背景 (rare/super_rare/epic のみ。globals.css 定義)
+const RARITY_BG_CLASS: Record<CardRarity, string> = {
+  common: "",
+  rare: "card-rarity-bg-rare",
+  super_rare: "card-rarity-bg-super-rare",
+  epic: "card-rarity-bg-epic",
 };
 
 interface CardViewProps {
@@ -108,8 +110,8 @@ const DESC_TEXT_CLASS: Record<CardViewSize, string> = {
 
 const TRAP_BADGE_TEXT_CLASS: Record<CardViewSize, string> = {
   sm: "text-[8px]",
-  md: "text-[8px]",
-  lg: "text-[8px]",
+  md: "text-[10px]",
+  lg: "text-[10px]",
   xl: "text-base",
 };
 
@@ -184,6 +186,8 @@ export function CardView({
         RARITY_FRAME_CLASS[def.rarity],
         // レア度グロー (sm では OFF、disabled では OFF)
         isAnimated && RARITY_ANIM_CLASS[def.rarity],
+        // 動的グラデ背景 (rare/super_rare/epic)
+        isAnimated && RARITY_BG_CLASS[def.rarity],
         // 斜め閃光 (super_rare/epic)
         isAnimated && RARITY_HAS_SHINE[def.rarity] && "card-rarity-shine",
         disabled
@@ -202,12 +206,11 @@ export function CardView({
           <span className="card-rarity-orb card-rarity-orb-red card-rarity-orb-3" aria-hidden />
         </>
       )}
-      {/* 左: コストとアイコン (背景色で種別を表現) */}
+      {/* 左: コストとアイコン */}
       <div
         className={cn(
-          "relative z-10 flex flex-col items-center justify-center gap-0.5 shrink-0 rounded",
+          "relative z-10 flex flex-col items-center justify-center gap-0.5 shrink-0",
           LEFT_W_CLASS[size],
-          KIND_LEFT_BG_CLASS[def.kind],
         )}
       >
         <span
@@ -232,11 +235,11 @@ export function CardView({
           {def.kind === "trap" && (
             <span
               className={cn(
-                "bg-purple-200 dark:bg-purple-900/60 text-purple-900 dark:text-purple-100 px-1 rounded font-bold leading-tight shrink-0",
+                "bg-purple-600 text-white px-1.5 rounded font-bold leading-tight shrink-0 shadow-sm",
                 TRAP_BADGE_TEXT_CLASS[size],
               )}
             >
-              TRAP
+              トラップ
             </span>
           )}
         </div>
