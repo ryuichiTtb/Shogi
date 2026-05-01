@@ -26,7 +26,7 @@ import type {
   CardTarget,
   GameEvent,
 } from "@/lib/shogi/cards/types";
-import { CARD_DEFS, PHASE0_DRAW_COST, PHASE0_MANA_PER_TURN, PHASE0_MANA_FAST_BONUS, PHASE0_FAST_THRESHOLD_MS } from "@/lib/shogi/cards/definitions";
+import { CARD_DEFS, DRAW_COST, MANA_PER_TURN, MANA_FAST_BONUS, FAST_THRESHOLD_MS } from "@/lib/shogi/cards/definitions";
 import {
   applyManaUp,
   applyPawnReturn,
@@ -104,9 +104,9 @@ function makeMoveWithEffects(
   // 3. マナチャージ(指した側、早指し判定)
   const lastStarted = cardStateNext.lastTurnStartedAt[move.player];
   const isFastMove =
-    lastStarted !== null && Date.now() - lastStarted < PHASE0_FAST_THRESHOLD_MS;
+    lastStarted !== null && Date.now() - lastStarted < FAST_THRESHOLD_MS;
   const manaAmount =
-    PHASE0_MANA_PER_TURN + (isFastMove ? PHASE0_MANA_FAST_BONUS : 0);
+    MANA_PER_TURN + (isFastMove ? MANA_FAST_BONUS : 0);
   cardStateNext = {
     ...cardStateNext,
     mana: {
@@ -127,6 +127,7 @@ function makeMoveWithEffects(
     player: move.player,
     amount: manaAmount,
     reason: "turn",
+    fastMove: isFastMove,
     at: Date.now(),
   });
 
@@ -391,7 +392,7 @@ function reducer(
     case "DRAW_CARD": {
       const deck = state.cardState.deck[action.player];
       if (deck.length === 0) return state;
-      if (state.cardState.mana[action.player] < PHASE0_DRAW_COST) return state;
+      if (state.cardState.mana[action.player] < DRAW_COST) return state;
       // 自分の手番でなければドロー禁止
       if (state.gameState.currentPlayer !== action.player) return state;
       // 王手中はドロー禁止 (P10: 王手回避以外の手は禁止)
@@ -407,7 +408,7 @@ function reducer(
           ...state.cardState,
           mana: {
             ...state.cardState.mana,
-            [action.player]: state.cardState.mana[action.player] - PHASE0_DRAW_COST,
+            [action.player]: state.cardState.mana[action.player] - DRAW_COST,
           },
           deck: { ...state.cardState.deck, [action.player]: rest },
           hand: {

@@ -54,7 +54,8 @@
       "Bash(gh pr checks:*)",
       "Bash(gh pr create:*)",
       "Bash(gh api:*)",
-      "Bash(gh repo view:*)"
+      "Bash(gh repo view:*)",
+      "Bash(gh pr merge:*)"
     ],
     "deny": [
       "Bash(rm -rf:*)",
@@ -69,7 +70,6 @@
       "Bash(git branch --delete --force:*)",
       "Bash(git push origin main:*)",
       "Bash(git push origin master:*)",
-      "Bash(gh pr merge:*)",
       "Bash(gh issue close:*)",
       "Bash(gh pr close:*)"
     ]

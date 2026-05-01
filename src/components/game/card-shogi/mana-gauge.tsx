@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 
 import { cn } from "@/lib/utils";
-import { PHASE0_DRAW_COST } from "@/lib/shogi/cards/definitions";
+import { DRAW_COST } from "@/lib/shogi/cards/definitions";
 
 interface ManaGaugeProps {
   current: number;
@@ -24,7 +24,7 @@ const SEGMENT_DURATION_S = 2.4;
 
 export function ManaGauge({ current, cap, compact = false, label }: ManaGaugeProps) {
   const ratio = Math.min(1, current / cap);
-  const canDraw = current >= PHASE0_DRAW_COST;
+  const canDraw = current >= DRAW_COST;
 
   const previousRef = useRef<number>(current);
   const segIdRef = useRef<number>(0);

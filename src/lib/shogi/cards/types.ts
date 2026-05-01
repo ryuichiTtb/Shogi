@@ -77,7 +77,7 @@ export type CardAction =
 
 export type GameEvent =
   | { kind: "moveEvent"; move: Move; at: number }
-  | { kind: "manaChargeEvent"; player: Player; amount: number; reason: "turn" | "card"; at: number }
+  | { kind: "manaChargeEvent"; player: Player; amount: number; reason: "turn" | "card"; fastMove?: boolean; at: number }
   | { kind: "drawEvent"; player: Player; instance: CardInstance; at: number }
   | { kind: "cardPlayEvent"; player: Player; instance: CardInstance; target?: CardTarget; at: number }
   | { kind: "trapSetEvent"; player: Player; instance: TrapInstance; at: number }
