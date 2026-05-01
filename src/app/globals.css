@@ -217,33 +217,50 @@
  * - epic:       パープルグロー pulse + 斜め閃光 (shine) + 紫/青/赤オーブ
  */
 
-/* --- 動的グラデ背景 (rare/super_rare/epic): メタリック・宝石の質感
+/* --- 動的グラデ背景 (rare/super_rare/epic): 色付きスポット光が交差して
+ * 色味自体が動的に変動するメタリック・宝石表現
  *
- * 3 レイヤー合成でメタリック感を表現:
- * 1. 反射ハイライト    : 白いバンドが横に流れる(光沢の鏡面反射)
- * 2. brushed metal 縞 : 細い斜めライン (静的、金属表面のヘアライン)
- * 3. ベースカラーグラデ: 色味自体が斜めにゆっくり揺らぐ(宝石の色変化)
+ * 4 レイヤー合成:
+ * 1. ハイライトスポット : 白系の光(鏡面反射)が対角線で動く
+ * 2. アクセントスポット : レア度別の差し色光(反対方向に動く)
+ *                         → 2 つの光が交差して色味が揺らぐ
+ * 3. brushed metal 縞   : 細い斜めライン (静的、金属表面のヘアライン)
+ * 4. ベースカラーグラデ : 色味自体が斜めに揺らぐ(宝石の色変化)
  *
- * ブラウザのホロフォイル/ホログラフィックカード CSS 表現の常套手段。
+ * 4 レイヤーの background-position を1つの ease-in-out 周期で
+ * 行きつ戻りつさせ、ループ境目のジャンプを排除。
  */
-@keyframes card-rarity-bg-metallic {
-  0% {
-    background-position: -150% 0%, 0% 0%, 0% 0%;
+@keyframes card-rarity-bg-dynamic {
+  0%, 100% {
+    background-position:
+      0% 100%,     /* ハイライト: 左下 */
+      100% 0%,     /* アクセント: 右上 */
+      0% 0%,       /* brushed: 静止 */
+      0% 0%;       /* ベース */
   }
-  100% {
-    background-position: 150% 0%, 0% 0%, 100% 100%;
+  50% {
+    background-position:
+      100% 0%,     /* ハイライト: 右上へ */
+      0% 100%,     /* アクセント: 左下へ */
+      0% 0%,
+      100% 100%;
   }
 }
 .card-rarity-bg-rare {
   background:
-    /* 反射ハイライト */
-    linear-gradient(
-      105deg,
-      transparent 38%,
-      rgba(255, 255, 255, 0.30) 48%,
-      rgba(255, 255, 255, 0.60) 50%,
-      rgba(255, 255, 255, 0.30) 52%,
-      transparent 62%
+    /* ハイライトスポット (白) */
+    radial-gradient(
+      ellipse 55% 60% at 50% 50%,
+      rgba(255, 255, 255, 0.55) 0%,
+      rgba(255, 255, 255, 0.20) 35%,
+      transparent 70%
+    ),
+    /* アクセントスポット (シアン寄り) */
+    radial-gradient(
+      ellipse 55% 60% at 50% 50%,
+      rgba(125, 211, 252, 0.50) 0%,
+      rgba(125, 211, 252, 0.15) 40%,
+      transparent 75%
     ),
     /* brushed metal 縞 */
     repeating-linear-gradient(
@@ -262,18 +279,24 @@
       rgba(96, 165, 250, 0.18) 75%,
       rgba(56, 189, 248, 0.40) 100%
     );
-  background-size: 250% 100%, 8px 8px, 250% 250%;
-  animation: card-rarity-bg-metallic 5.5s linear infinite;
+  background-size: 200% 200%, 200% 200%, 8px 8px, 250% 250%;
+  animation: card-rarity-bg-dynamic 5.5s ease-in-out infinite;
 }
 .card-rarity-bg-super-rare {
   background:
-    linear-gradient(
-      105deg,
-      transparent 38%,
-      rgba(255, 255, 255, 0.35) 48%,
-      rgba(255, 255, 255, 0.70) 50%,
-      rgba(255, 255, 255, 0.35) 52%,
-      transparent 62%
+    /* ハイライトスポット (白) */
+    radial-gradient(
+      ellipse 55% 60% at 50% 50%,
+      rgba(255, 255, 255, 0.65) 0%,
+      rgba(255, 255, 255, 0.25) 35%,
+      transparent 70%
+    ),
+    /* アクセントスポット (オレンジ寄り) */
+    radial-gradient(
+      ellipse 55% 60% at 50% 50%,
+      rgba(251, 146, 60, 0.55) 0%,
+      rgba(251, 146, 60, 0.18) 40%,
+      transparent 75%
     ),
     repeating-linear-gradient(
       45deg,
@@ -290,18 +313,24 @@
       rgba(217, 119, 6, 0.22) 75%,
       rgba(251, 191, 36, 0.46) 100%
     );
-  background-size: 250% 100%, 8px 8px, 250% 250%;
-  animation: card-rarity-bg-metallic 4.8s linear infinite;
+  background-size: 200% 200%, 200% 200%, 8px 8px, 250% 250%;
+  animation: card-rarity-bg-dynamic 4.8s ease-in-out infinite;
 }
 .card-rarity-bg-epic {
   background:
-    linear-gradient(
-      105deg,
-      transparent 38%,
-      rgba(255, 255, 255, 0.40) 48%,
-      rgba(255, 255, 255, 0.78) 50%,
-      rgba(255, 255, 255, 0.40) 52%,
-      transparent 62%
+    /* ハイライトスポット (白) */
+    radial-gradient(
+      ellipse 55% 60% at 50% 50%,
+      rgba(255, 255, 255, 0.70) 0%,
+      rgba(255, 255, 255, 0.28) 35%,
+      transparent 70%
+    ),
+    /* アクセントスポット (ピンク/マゼンタ寄り) */
+    radial-gradient(
+      ellipse 55% 60% at 50% 50%,
+      rgba(244, 114, 182, 0.55) 0%,
+      rgba(244, 114, 182, 0.18) 40%,
+      transparent 75%
     ),
     repeating-linear-gradient(
       45deg,
@@ -318,8 +347,8 @@
       rgba(124, 58, 237, 0.28) 75%,
       rgba(168, 85, 247, 0.52) 100%
     );
-  background-size: 250% 100%, 8px 8px, 250% 250%;
-  animation: card-rarity-bg-metallic 4.2s linear infinite;
+  background-size: 200% 200%, 200% 200%, 8px 8px, 250% 250%;
+  animation: card-rarity-bg-dynamic 4.2s ease-in-out infinite;
 }
 
 /* --- レア (rare) --- */
