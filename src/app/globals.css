@@ -429,10 +429,11 @@
   z-index: 5;
 }
 
-/* --- 究極のオーブ: 紫/青/赤の電撃が走るようにビカビカ光る
- * - コア白 + radial-gradient でゴージャスな光球
+/* --- 究極のオーブ: 多色グラデ + 色相回転で輝きが動的に変化する光球
+ * - コア白 → 隣接色ハロー → メイン色 → 外周深色 の 4 stop 多色グラデで宝石感
  * - box-shadow で外側に強いオーラ(発光感)
- * - 軌道に加えて opacity と scale を不規則に変化させて電撃チックな blink を表現
+ * - 軌道アニメ(opacity/scale 不規則切替で電撃 blink)+ orb-hue-shift で
+ *   色相 ±40deg、彩度 1.0〜1.5 を独立周期で揺らす → 輝きが動的に変化
  */
 .card-rarity-orb {
   position: absolute;
@@ -441,14 +442,14 @@
   border-radius: 50%;
   pointer-events: none;
   z-index: 1;
-  filter: blur(0.5px);
   opacity: 0;
 }
 .card-rarity-orb-purple {
   background: radial-gradient(circle,
     rgba(255, 255, 255, 1) 0%,
-    rgba(216, 180, 254, 1) 30%,
-    rgba(168, 85, 247, 0.7) 60%,
+    rgba(244, 114, 182, 0.90) 22%,    /* ピンクハロー */
+    rgba(216, 180, 254, 0.95) 45%,    /* ライト紫 */
+    rgba(168, 85, 247, 0.75) 70%,     /* 紫 */
     transparent 100%
   );
   box-shadow:
@@ -458,8 +459,9 @@
 .card-rarity-orb-blue {
   background: radial-gradient(circle,
     rgba(255, 255, 255, 1) 0%,
-    rgba(147, 197, 253, 1) 30%,
-    rgba(59, 130, 246, 0.7) 60%,
+    rgba(165, 243, 252, 0.90) 22%,    /* シアンハロー */
+    rgba(147, 197, 253, 0.95) 45%,    /* ライト青 */
+    rgba(59, 130, 246, 0.75) 70%,     /* 青 */
     transparent 100%
   );
   box-shadow:
@@ -469,13 +471,22 @@
 .card-rarity-orb-red {
   background: radial-gradient(circle,
     rgba(255, 255, 255, 1) 0%,
-    rgba(252, 165, 165, 1) 30%,
-    rgba(239, 68, 68, 0.7) 60%,
+    rgba(254, 215, 170, 0.90) 22%,    /* オレンジハロー */
+    rgba(252, 165, 165, 0.95) 45%,    /* ライト赤 */
+    rgba(239, 68, 68, 0.75) 70%,      /* 赤 */
     transparent 100%
   );
   box-shadow:
     0 0 8px 2px rgba(239, 68, 68, 0.85),
     0 0 18px 5px rgba(239, 68, 68, 0.45);
+}
+
+/* オーブの色相回転 + 彩度揺らぎ (軌道アニメと独立周期、色味の動的変化を演出) */
+@keyframes card-rarity-orb-hue {
+  0%, 100% { filter: blur(0.5px) hue-rotate(0deg)   saturate(1.0); }
+  25%      { filter: blur(0.5px) hue-rotate(40deg)  saturate(1.45); }
+  50%      { filter: blur(0.5px) hue-rotate(-30deg) saturate(1.55); }
+  75%      { filter: blur(0.5px) hue-rotate(20deg)  saturate(1.30); }
 }
 
 /* 軌道は ease-in-out、blink は不規則な opacity/scale 切替で電撃感を演出 */
@@ -515,6 +526,18 @@
   92%  { left: 38%; top: 12%; opacity: 0.4; transform: scale(0.8); }
   100% { left: 28%; top: 6%;  opacity: 0;   transform: scale(0.4); }
 }
-.card-rarity-orb-1 { animation: card-rarity-orb-1 3.6s ease-in-out infinite; }
-.card-rarity-orb-2 { animation: card-rarity-orb-2 4.0s ease-in-out infinite 0.5s; }
-.card-rarity-orb-3 { animation: card-rarity-orb-3 4.4s ease-in-out infinite 1.1s; }
+.card-rarity-orb-1 {
+  animation:
+    card-rarity-orb-1 3.6s ease-in-out infinite,
+    card-rarity-orb-hue 2.5s ease-in-out infinite;
+}
+.card-rarity-orb-2 {
+  animation:
+    card-rarity-orb-2 4.0s ease-in-out infinite 0.5s,
+    card-rarity-orb-hue 2.8s ease-in-out infinite 0.3s;
+}
+.card-rarity-orb-3 {
+  animation:
+    card-rarity-orb-3 4.4s ease-in-out infinite 1.1s,
+    card-rarity-orb-hue 3.0s ease-in-out infinite 0.7s;
+}
