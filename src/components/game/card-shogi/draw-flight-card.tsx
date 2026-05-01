@@ -20,9 +20,14 @@ const CARD_W = 576;
 const CARD_H = 352;
 
 const FADE_IN_MS = 350;
-const HOLD_MS = 600;
+const HOLD_MS = 2000;
 const FADE_OUT_MS = 300;
 const TOTAL_MS = FADE_IN_MS + HOLD_MS + FADE_OUT_MS;
+
+// 中央到着直後にカード上を斜めに走るシマー (光) と、周辺を一瞬光らせる黄金グロウ
+const FLASH_DELAY_S = FADE_IN_MS / 1000;
+const SHIMMER_DURATION_S = 0.7;
+const GLOW_DURATION_S = 0.8;
 
 const subscribe = () => () => {};
 const getClientSnapshot = () => true;
@@ -145,7 +150,11 @@ function DrawFlightInner({
       }}
     >
       <motion.div
-        animate={{ rotateY: [0, 540, 540, 1080] }}
+        animate={{
+          rotateY: [0, 540, 540, 1080],
+          // rotateZ で時計回りの円運動 (山札→中央 1周、中央→手札 1周、計2周)
+          rotateZ: [0, 360, 360, 720],
+        }}
         transition={{
           duration: TOTAL_MS / 1000,
           times: [0, t1, t2, 1],
@@ -170,14 +179,56 @@ function DrawFlightInner({
         </div>
         {/* 表面 (rotateY 180 のとき手前) */}
         <div
-          className="absolute inset-0 rounded-md shadow-2xl"
+          className="absolute inset-0"
           style={{
             backfaceVisibility: "hidden",
             WebkitBackfaceVisibility: "hidden",
             transform: "rotateY(180deg)",
           }}
         >
-          <CardView card={cardInstance} size="xl" fullWidth />
+          {/* 黄金グロウ: 中央到着の瞬間カード周辺がふわっと光る (はみ出し可) */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.92 }}
+            animate={{ opacity: [0, 0.95, 0], scale: [0.92, 1.08, 1] }}
+            transition={{
+              duration: GLOW_DURATION_S,
+              delay: FLASH_DELAY_S,
+              times: [0, 0.45, 1],
+              ease: "easeOut",
+            }}
+            style={{
+              position: "absolute",
+              inset: -12,
+              borderRadius: "0.6rem",
+              boxShadow: "0 0 90px 14px rgba(251, 191, 36, 0.9)",
+              pointerEvents: "none",
+            }}
+          />
+          {/* カード本体 + シマー (シマーはカード矩形内に収める) */}
+          <div className="absolute inset-0 rounded-md shadow-2xl overflow-hidden">
+            <CardView card={cardInstance} size="xl" fullWidth />
+            <motion.div
+              initial={{ x: "-110%", opacity: 0 }}
+              animate={{
+                x: ["-110%", "-110%", "210%"],
+                opacity: [0, 1, 0],
+              }}
+              transition={{
+                duration: SHIMMER_DURATION_S,
+                delay: FLASH_DELAY_S,
+                times: [0, 0.05, 1],
+                ease: "easeOut",
+              }}
+              style={{
+                position: "absolute",
+                inset: 0,
+                background:
+                  "linear-gradient(115deg, transparent 35%, rgba(255,255,255,0.9) 50%, transparent 65%)",
+                pointerEvents: "none",
+                mixBlendMode: "overlay",
+              }}
+            />
+          </div>
         </div>
       </motion.div>
     </motion.div>
