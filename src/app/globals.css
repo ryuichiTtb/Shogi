@@ -349,13 +349,13 @@
   animation: card-rarity-epic-pulse 1.8s ease-in-out infinite;
 }
 
-/* --- 斜め閃光 (shine): 左上→右下に細い光がゆっくり走る (super_rare / epic 共通)
+/* --- 斜め閃光 (shine): 極細の光が高頻度で走る (super_rare / epic 共通)
  * - 角度 135deg のバンドを translate(対角線) で動かす = 視覚的に45度の閃光
- * - 太さ 12% (44%-56%) で細く
- * - 周期 4.5s、移動区間 55-95% (= 約 1.8s 移動) でゆっくり通過
+ * - 太さ 4% (48%-52%) で極細
+ * - 周期 2.0s、移動区間 30-95% (= 1.3s 移動) でゆっくり通過、高頻度に走る
  */
 @keyframes card-rarity-shine {
-  0%, 55% { transform: translate(-115%, -115%); }
+  0%, 30% { transform: translate(-115%, -115%); }
   95%     { transform: translate(115%, 115%); }
   100%    { transform: translate(115%, 115%); }
 }
@@ -366,12 +366,12 @@
   width: 100%; height: 100%;
   background: linear-gradient(
     135deg,
-    transparent 44%,
-    rgba(255, 255, 255, 0.75) 50%,
-    transparent 56%
+    transparent 48%,
+    rgba(255, 255, 255, 0.90) 50%,
+    transparent 52%
   );
   transform: translate(-115%, -115%);
-  animation: card-rarity-shine 4.5s ease-in-out infinite;
+  animation: card-rarity-shine 2.0s ease-in-out infinite;
   pointer-events: none;
   z-index: 5;
 }
