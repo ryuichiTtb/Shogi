@@ -234,24 +234,27 @@
   background-color: rgb(15, 23, 42);  /* slate-900 (ライト/ダーク共通の暗色ベース) */
   color: rgb(241, 245, 249);          /* slate-100 (明色テキスト) */
 }
-/* repeating-linear-gradient(135deg) は 135deg 方向に 360px 周期で繰り返す。
+/* 斜めバンド(135deg)を「横」にスライドさせる設計。
  *
- * background-position を (X, Y) シフトすると 135deg 方向への投影距離は
- * (X + Y) / √2 となるので、ちょうど 1 周期分動かすには
- * X = Y = 360 / √2 = 254.5584... px が必要。
+ * 1. background-size: 各 rarity 側で 1 タイルを √2 × 360px ≈ 509.117px の
+ *    正方形に固定。タイルの幅・高さ方向それぞれの 135deg 投影距離が
+ *    509.117 × cos45° = 360px = 1 周期 となるため、タイル境界の
+ *    上下左右で位相が完全連続し、要素サイズに依存していた「十字の境目」
+ *    が消える。
  *
- * 360px 360px 動かしていた前回までは (360+360)/√2 ≈ 509px ≈ 1.41 周期分
- * になっており、ループ境目で位相が約 0.4 周期分ズレて「カタッと戻る」
- * 現象が発生していた。
+ * 2. background-position: X 方向のみ -1 タイル分(-509.117px)動かす。
+ *    Y 方向は 0 で固定するため見た目は「斜めバンドが水平に流れる」。
+ *    1 タイル分ジャストで折り返すのでループ位相が完全一致し、
+ *    「カタッと先頭に戻る」段差も発生しない。
  *
- * calc(360px / 1.41421356) で 1 周期分を厳密に計算しジャンプを解消する。
+ * brushed metal 縞 (1 つ目のレイヤー) は静止させたいので 0 0 のまま。
  */
 @keyframes card-rarity-bg-slide {
   0%   { background-position: 0px 0px, 0px 0px; }
   100% {
     background-position:
       0px 0px,
-      calc(360px / -1.41421356) calc(360px / -1.41421356);
+      calc(360px * -1.41421356) 0px;
   }
 }
 .card-rarity-bg-rare {
@@ -275,7 +278,7 @@
       rgba(99, 102, 241, 0.50) 290px,    /* H2 ピーク(indigo) */
       rgba(56, 189, 248, 0.25) 360px
     );
-  background-size: 8px 8px, auto;
+  background-size: 8px 8px, calc(360px * 1.41421356) calc(360px * 1.41421356);
   animation:
     card-rarity-bg-slide 5.5s linear infinite,
     card-rarity-rare-pulse 2.6s ease-in-out infinite;
@@ -299,7 +302,7 @@
       rgba(217, 119, 6, 0.55) 290px,      /* H2 ピーク(deep amber) */
       rgba(251, 191, 36, 0.25) 360px
     );
-  background-size: 8px 8px, auto;
+  background-size: 8px 8px, calc(360px * 1.41421356) calc(360px * 1.41421356);
   animation:
     card-rarity-bg-slide 5.0s linear infinite,
     card-rarity-super-rare-pulse 2.0s ease-in-out infinite;
@@ -323,7 +326,7 @@
       rgba(96, 165, 250, 0.55) 290px,     /* H2 ピーク(blue) */
       rgba(168, 85, 247, 0.30) 360px
     );
-  background-size: 8px 8px, auto;
+  background-size: 8px 8px, calc(360px * 1.41421356) calc(360px * 1.41421356);
   animation:
     card-rarity-bg-slide 4.5s linear infinite,
     card-rarity-epic-pulse 1.8s ease-in-out infinite;
