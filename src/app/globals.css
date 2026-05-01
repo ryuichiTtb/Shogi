@@ -253,19 +253,20 @@
       transparent 1px,
       transparent 5px
     ),
-    /* 横スライドグラデ: 青系(明水色ハイライト + indigo ハイライト 交互) */
+    /* 斜めスライドグラデ(135deg): 黒ベースを多めに(主色 0.25)、
+     * ハイライト 2 種(明水色 + indigo)が交互に通過 */
     linear-gradient(
-      90deg,
-      rgba(56, 189, 248, 0.50) 0%,
-      rgba(186, 230, 253, 0.85) 25%,    /* H1: 明水色(色合い1) */
-      rgba(56, 189, 248, 0.50) 50%,
-      rgba(99, 102, 241, 0.70) 75%,     /* H2: indigo 寄り(色合い2) */
-      rgba(56, 189, 248, 0.50) 100%
+      135deg,
+      rgba(56, 189, 248, 0.25) 0%,
+      rgba(186, 230, 253, 0.75) 25%,    /* H1: 明水色 */
+      rgba(56, 189, 248, 0.25) 50%,
+      rgba(99, 102, 241, 0.60) 75%,     /* H2: indigo */
+      rgba(56, 189, 248, 0.25) 100%
     );
   background-size: 8px 8px, 200% 100%;
   background-repeat: repeat, repeat;
   animation:
-    card-rarity-bg-slide 3.5s linear infinite,
+    card-rarity-bg-slide 5.5s linear infinite,
     card-rarity-rare-pulse 2.6s ease-in-out infinite;
 }
 .card-rarity-bg-super-rare {
@@ -277,19 +278,19 @@
       transparent 1px,
       transparent 5px
     ),
-    /* 横スライドグラデ: ゴールド系(白系ハイライト + deep amber 交互) */
+    /* 斜めスライドグラデ: ゴールド系(白系 + deep amber 交互) */
     linear-gradient(
-      90deg,
-      rgba(251, 191, 36, 0.50) 0%,
-      rgba(255, 248, 200, 0.85) 25%,    /* H1: 白系(色合い1) */
-      rgba(251, 191, 36, 0.50) 50%,
-      rgba(217, 119, 6, 0.75) 75%,      /* H2: deep amber(色合い2) */
-      rgba(251, 191, 36, 0.50) 100%
+      135deg,
+      rgba(251, 191, 36, 0.25) 0%,
+      rgba(255, 248, 200, 0.80) 25%,    /* H1: 白系 */
+      rgba(251, 191, 36, 0.25) 50%,
+      rgba(217, 119, 6, 0.65) 75%,      /* H2: deep amber */
+      rgba(251, 191, 36, 0.25) 100%
     );
   background-size: 8px 8px, 200% 100%;
   background-repeat: repeat, repeat;
   animation:
-    card-rarity-bg-slide 3.0s linear infinite,
+    card-rarity-bg-slide 5.0s linear infinite,
     card-rarity-super-rare-pulse 2.0s ease-in-out infinite;
 }
 .card-rarity-bg-epic {
@@ -301,19 +302,19 @@
       transparent 1px,
       transparent 5px
     ),
-    /* 横スライドグラデ: パープル系(ピンクハイライト + ブルーハイライト 交互) */
+    /* 斜めスライドグラデ: パープル系(pink + blue 交互) */
     linear-gradient(
-      90deg,
-      rgba(168, 85, 247, 0.55) 0%,
-      rgba(244, 114, 182, 0.85) 25%,    /* H1: pink(色合い1) */
-      rgba(168, 85, 247, 0.55) 50%,
-      rgba(96, 165, 250, 0.75) 75%,     /* H2: blue 寄り(色合い2) */
-      rgba(168, 85, 247, 0.55) 100%
+      135deg,
+      rgba(168, 85, 247, 0.30) 0%,
+      rgba(244, 114, 182, 0.80) 25%,    /* H1: pink */
+      rgba(168, 85, 247, 0.30) 50%,
+      rgba(96, 165, 250, 0.65) 75%,     /* H2: blue */
+      rgba(168, 85, 247, 0.30) 100%
     );
   background-size: 8px 8px, 200% 100%;
   background-repeat: repeat, repeat;
   animation:
-    card-rarity-bg-slide 2.5s linear infinite,
+    card-rarity-bg-slide 4.5s linear infinite,
     card-rarity-epic-pulse 1.8s ease-in-out infinite;
 }
 
