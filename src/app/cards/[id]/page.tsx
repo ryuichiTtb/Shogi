@@ -37,7 +37,7 @@ export default async function CardDetailPage({ params }: CardDetailPageProps) {
   const rarityInfo = RARITY_INFO[def.rarity];
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-amber-50 dark:from-amber-950/30 to-background">
+    <main className="min-h-dvh bg-gradient-to-b from-amber-50 dark:from-amber-950/30 to-background">
       <div className="max-w-4xl mx-auto px-4 py-4 sm:py-6">
         <header className="flex items-center gap-3 mb-4 sm:mb-6">
           <Link
