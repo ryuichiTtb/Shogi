@@ -14,6 +14,14 @@ export type CardTargeting = "none" | "ownPiece" | "enemyPiece" | "square";
 
 export type CardRarity = "common" | "rare" | "epic";
 
+// マスターカタログ運用用ステータス(Issue #102)
+// draft: 検討中(本実装前) / preparing: 実装中(プール非公開) /
+// active: 公開中 / deprecated: 廃止
+export type CardStatus = "draft" | "preparing" | "active" | "deprecated";
+
+// 採用フェーズ(設計ドキュメント 2.5)
+export type CardPhase = "0" | "A" | "B" | "C";
+
 export interface CardDefinition {
   id: CardId;
   kind: CardKind;
@@ -26,6 +34,16 @@ export interface CardDefinition {
   targeting: CardTargeting;
   // カードの絵柄/アイコン(Phase 0 は絵文字)。Phase A 以降で SVG/画像差替予定。
   icon: string;
+  // 運用ステータス(マスターカタログでのフィルタ・公開判定に使用)
+  status: CardStatus;
+  // 採用フェーズ
+  phase?: CardPhase;
+  // 詳細仕様(マスターカタログ詳細ページ表示用、改行・箇条書き可)
+  detailDescription?: string;
+  // 追加日(ISO 日付文字列、例: "2026-04-30")
+  addedAt?: string;
+  // 関連 Issue 番号
+  relatedIssues?: number[];
 }
 
 export interface CardInstance {

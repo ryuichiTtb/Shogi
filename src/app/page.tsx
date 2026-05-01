@@ -10,7 +10,7 @@ import { createGame } from "@/app/actions/game";
 import type { Difficulty, Player } from "@/lib/shogi/types";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { History, Swords } from "lucide-react";
+import { History, Swords, Layers } from "lucide-react";
 import { ThemeSelector } from "@/components/game/theme-selector";
 import { ModeSelector, type GameMode } from "@/components/home/mode-selector";
 
@@ -96,19 +96,19 @@ export default function Home() {
         <p className="text-xs sm:text-sm text-muted-foreground">AIと対局しよう</p>
       </div>
 
-      <div className="flex-1 flex flex-col max-w-2xl mx-auto w-full px-4 pb-2 sm:pb-4 space-y-2 sm:space-y-4 min-h-0">
+      <div className="flex-1 flex flex-col max-w-2xl mx-auto w-full px-4 pb-2 sm:pb-4 space-y-2 min-h-0">
         {/* モード選択 */}
         <ModeSelector mode={selectedMode} onChange={setSelectedMode} className="shrink-0" />
 
         {/* 難易度・キャラクター選択 (モバイル時 padding を詰める) */}
-        <Card className="shrink-0">
-          <CardHeader className="pb-1 sm:pb-3 pt-3 sm:pt-6">
+        <Card size="sm" className="shrink-0">
+          <CardHeader className="pb-0 pt-0">
             <CardTitle className="text-sm sm:text-base flex items-center gap-2">
               <Swords className="w-4 h-4" />
               対局相手を選ぶ
             </CardTitle>
           </CardHeader>
-          <CardContent className="pb-2 sm:pb-3">
+          <CardContent className="pb-0">
             {/* モバイル: コンパクトリスト / デスクトップ: カードグリッド */}
             <div className="sm:hidden flex flex-col gap-1">
               {CHARACTERS.map((character) => {
@@ -159,7 +159,7 @@ export default function Home() {
                     key={character.id}
                     onClick={() => setSelectedDifficulty(character.difficulty)}
                     className={cn(
-                      "relative p-4 rounded-xl border-2 text-left transition-all",
+                      "relative p-3 rounded-xl border-2 text-left transition-all",
                       "hover:shadow-md cursor-pointer",
                       isSelected
                         ? "border-primary bg-primary/5 shadow-sm"
@@ -169,16 +169,16 @@ export default function Home() {
                     {isSelected && (
                       <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-primary" />
                     )}
-                    <div className="text-3xl mb-2">{character.avatarEmoji}</div>
+                    <div className="text-3xl mb-1">{character.avatarEmoji}</div>
                     <div className="font-bold text-sm">{character.name}</div>
-                    <div className="text-xs text-muted-foreground mb-2">{character.title}</div>
+                    <div className="text-xs text-muted-foreground mb-1">{character.title}</div>
                     <Badge
                       variant="outline"
                       className={cn("text-xs", diffInfo.color)}
                     >
                       {diffInfo.label}
                     </Badge>
-                    <p className="text-xs text-muted-foreground mt-1">
+                    <p className="text-xs text-muted-foreground mt-0.5">
                       {diffInfo.description}
                     </p>
                   </button>
@@ -189,11 +189,11 @@ export default function Home() {
         </Card>
 
         {/* 手番選択 (モバイル時 padding を詰める) */}
-        <Card className="shrink-0">
-          <CardHeader className="pb-1 sm:pb-3 pt-3 sm:pt-6">
+        <Card size="sm" className="shrink-0">
+          <CardHeader className="pb-0 pt-0">
             <CardTitle className="text-sm sm:text-base">手番を選ぶ</CardTitle>
           </CardHeader>
-          <CardContent className="pb-2 sm:pb-3">
+          <CardContent className="pb-0">
             {/* モバイル: コンパクト横並び / デスクトップ: カードグリッド */}
             <div className="sm:hidden flex gap-2">
               {colorOptions.map(({ value, icon, label }) => (
@@ -220,14 +220,14 @@ export default function Home() {
                   key={value}
                   onClick={() => setSelectedColor(value)}
                   className={cn(
-                    "p-4 rounded-xl border-2 text-center transition-all cursor-pointer",
+                    "p-3 rounded-xl border-2 text-center transition-all cursor-pointer",
                     "hover:shadow-md",
                     selectedColor === value
                       ? "border-primary bg-primary/5"
                       : "border-border hover:border-primary/40"
                   )}
                 >
-                  <div className="text-2xl mb-1">{icon}</div>
+                  <div className="text-2xl mb-0.5">{icon}</div>
                   <div className="font-medium text-sm">{label}</div>
                   <div className="text-xs text-muted-foreground">{desc}</div>
                 </button>
@@ -255,6 +255,23 @@ export default function Home() {
             `${selectedCharacter.name}と対局開始！`
           )}
         </Button>
+
+        {/* カード機能セクション (カード将棋モード時のみ) */}
+        {selectedMode === "card-shogi" && (
+          <div className="grid grid-cols-2 gap-2 shrink-0">
+            <Link
+              href="/cards"
+              className={cn(
+                "flex items-center justify-center gap-1.5 py-2.5 rounded-lg border-2 border-border",
+                "bg-card text-sm font-medium hover:border-primary/40 transition-colors",
+              )}
+            >
+              <Layers className="w-4 h-4" />
+              カード一覧
+            </Link>
+            {/* 将来: デッキ編成 / ガチャ ボタンを追加 (別Issue) */}
+          </div>
+        )}
 
         {/* 棋譜履歴へのリンク */}
         <div className="text-center shrink-0">

@@ -13,6 +13,12 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
     effectId: "mana_up",
     targeting: "none",
     icon: "💎",
+    status: "active",
+    phase: "0",
+    detailDescription:
+      "使用すると即時にマナを +3 する。\n\n- ターゲット選択なし\n- マナ上限(現状20)を超えてチャージしない\n- 1ターン中の使用上限なし(マナ消費分は支払う必要あり)",
+    addedAt: "2026-04-30",
+    relatedIssues: [68, 80, 82],
   },
   pawn_return: {
     id: "pawn_return",
@@ -24,6 +30,12 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
     effectId: "pawn_return",
     targeting: "ownPiece",
     icon: "↩️",
+    status: "active",
+    phase: "0",
+    detailDescription:
+      "自分の盤上の歩(成り歩=と金は対象外)1枚を選び、持ち駒に戻す。\n\n- ターゲット: 自盤上の歩\n- 成った歩(と金)は対象外\n- 持ち駒に戻った歩は次ターン以降に通常通り打てる",
+    addedAt: "2026-04-30",
+    relatedIssues: [68, 80, 82],
   },
   no_promote: {
     id: "no_promote",
@@ -35,6 +47,12 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
     effectId: "no_promote",
     targeting: "none",
     icon: "🛡️",
+    status: "active",
+    phase: "0",
+    detailDescription:
+      "自分の盤面に1枚だけセットできるトラップカード。次に相手が成りを宣言したとき、その成りを1回無効化して破棄される。\n\n- 自動発火(セットしておけば該当タイミングで自動で発動)\n- 1枚だけセット可、既にセット済みなら新規セットで上書き(既存は破棄)",
+    addedAt: "2026-04-30",
+    relatedIssues: [68, 80, 82],
   },
 };
 
