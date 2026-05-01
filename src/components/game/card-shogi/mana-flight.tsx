@@ -65,12 +65,11 @@ function ManaFlightSingle({
 
   return (
     <motion.div
-      initial={{ left: startLeft, top: startTop, opacity: 0, scale: 0.6 }}
+      initial={{ left: startLeft, top: startTop, opacity: 0 }}
       animate={{
         left: startLeft,
         top: endTop,
         opacity: [0, 1, 1, 0],
-        scale: 1,
       }}
       transition={{
         duration: DURATION_S,

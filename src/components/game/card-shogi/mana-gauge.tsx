@@ -20,7 +20,7 @@ interface DeltaSegment {
   kind: "plus" | "minus";
 }
 
-const SEGMENT_DURATION_S = 1.2;
+const SEGMENT_DURATION_S = 2.4;
 
 export function ManaGauge({ current, cap, compact = false, label }: ManaGaugeProps) {
   const ratio = Math.min(1, current / cap);
@@ -86,23 +86,32 @@ export function ManaGauge({ current, cap, compact = false, label }: ManaGaugePro
           style={{ width: `${ratio * 100}%` }}
         />
         <AnimatePresence>
-          {segments.map((s) => (
-            <motion.div
-              key={s.id}
-              initial={{ opacity: 1 }}
-              animate={{ opacity: 0 }}
-              transition={{ duration: SEGMENT_DURATION_S, ease: "easeOut" }}
-              onAnimationComplete={() => removeSegment(s.id)}
-              className={cn(
-                "absolute top-0 bottom-0",
-                s.kind === "plus" ? "bg-emerald-500" : "bg-rose-500",
-              )}
-              style={{
-                left: `${s.left * 100}%`,
-                width: `${s.width * 100}%`,
-              }}
-            />
-          ))}
+          {segments.map((s) => {
+            const isPlus = s.kind === "plus";
+            const initialWidth = `${s.width * 100}%`;
+            return (
+              <motion.div
+                key={s.id}
+                // プラス: width 維持で opacity 1→0 にフェードアウト
+                // マイナス: opacity 維持で width を右端から 0% に縮める (右から徐々に消える)
+                initial={{ opacity: 1, width: initialWidth }}
+                animate={
+                  isPlus
+                    ? { opacity: 0, width: initialWidth }
+                    : { opacity: 1, width: "0%" }
+                }
+                transition={{ duration: SEGMENT_DURATION_S, ease: "easeOut" }}
+                onAnimationComplete={() => removeSegment(s.id)}
+                className={cn(
+                  "absolute top-0 bottom-0",
+                  isPlus ? "bg-emerald-500" : "bg-rose-500",
+                )}
+                style={{
+                  left: `${s.left * 100}%`,
+                }}
+              />
+            );
+          })}
         </AnimatePresence>
       </div>
     </div>
