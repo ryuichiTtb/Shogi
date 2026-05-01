@@ -4,29 +4,96 @@ import { cn } from "@/lib/utils";
 import type { CardInstance } from "@/lib/shogi/cards/types";
 import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
 
+export type CardViewSize = "sm" | "md" | "lg" | "xl";
+
 interface CardViewProps {
   card: CardInstance;
   faceDown?: boolean;
   onClick?: () => void;
   disabled?: boolean;
-  size?: "sm" | "md" | "lg";
+  size?: CardViewSize;
   selected?: boolean;
-  // true のとき横幅を親に合わせる(縦並び・中央揃えで使用)
   fullWidth?: boolean;
 }
 
 // "sm" はサムネイル(裏向きの相手手札用、縦長)
 // "md" / "lg" は表向きの手札(横長、コスト+アイコン+名前+説明)
-const SIZE_CLASS = {
+// "xl" はドロー演出用の中央拡大表示(Issue #78)
+const SIZE_CLASS: Record<CardViewSize, string> = {
   sm: "w-12 h-16 text-[10px]",
   md: "w-32 h-[80px] text-[13px]",
   lg: "w-40 h-24 text-sm",
+  xl: "w-72 h-44 text-base",
 };
 
-const ICON_SIZE_CLASS = {
+const FULL_WIDTH_HEIGHT: Record<CardViewSize, string> = {
+  sm: "h-16",
+  md: "h-[80px]",
+  lg: "h-24",
+  xl: "h-44",
+};
+
+const FULL_WIDTH_TEXT: Record<CardViewSize, string> = {
+  sm: "text-[10px]",
+  md: "text-[13px]",
+  lg: "text-sm",
+  xl: "text-base",
+};
+
+const ICON_SIZE_CLASS: Record<CardViewSize, string> = {
   sm: "text-base",
   md: "text-3xl",
   lg: "text-4xl",
+  xl: "text-7xl",
+};
+
+const LEFT_W_CLASS: Record<CardViewSize, string> = {
+  sm: "w-10",
+  md: "w-10",
+  lg: "w-10",
+  xl: "w-20",
+};
+
+const COST_TEXT_CLASS: Record<CardViewSize, string> = {
+  sm: "text-xs",
+  md: "text-xs",
+  lg: "text-xs",
+  xl: "text-2xl",
+};
+
+const NAME_TEXT_CLASS: Record<CardViewSize, string> = {
+  sm: "",
+  md: "",
+  lg: "",
+  xl: "text-2xl",
+};
+
+const DESC_TEXT_CLASS: Record<CardViewSize, string> = {
+  sm: "text-[10px]",
+  md: "text-[11px]",
+  lg: "text-[11px]",
+  xl: "text-base",
+};
+
+const TRAP_BADGE_TEXT_CLASS: Record<CardViewSize, string> = {
+  sm: "text-[8px]",
+  md: "text-[8px]",
+  lg: "text-[8px]",
+  xl: "text-sm",
+};
+
+const PADDING_CLASS: Record<CardViewSize, string> = {
+  sm: "p-1",
+  md: "p-2",
+  lg: "p-2",
+  xl: "p-4",
+};
+
+const GAP_CLASS: Record<CardViewSize, string> = {
+  sm: "gap-1",
+  md: "gap-2",
+  lg: "gap-2",
+  xl: "gap-3",
 };
 
 export function CardView({
@@ -46,7 +113,7 @@ export function CardView({
         className={cn(
           "rounded-md border-2 border-indigo-700 bg-gradient-to-br from-indigo-700 to-indigo-900",
           "flex items-center justify-center text-white/80 font-bold shrink-0",
-          fullWidth ? cn("w-full", size === "sm" ? "h-16" : size === "md" ? "h-[80px]" : "h-24") : SIZE_CLASS[size],
+          fullWidth ? cn("w-full", FULL_WIDTH_HEIGHT[size]) : SIZE_CLASS[size],
           fullWidth && "text-2xl",
         )}
         aria-label="伏せられたカード"
@@ -57,10 +124,9 @@ export function CardView({
   }
 
   const sizeClass = fullWidth
-    ? cn("w-full", size === "sm" ? "h-16 text-[10px]" : size === "md" ? "h-[80px] text-[13px]" : "h-24 text-sm")
+    ? cn("w-full", FULL_WIDTH_HEIGHT[size], FULL_WIDTH_TEXT[size])
     : SIZE_CLASS[size];
 
-  // 横長レイアウト: 左にコスト+アイコン、右に名前+説明
   return (
     <button
       type="button"
@@ -68,7 +134,9 @@ export function CardView({
       disabled={disabled}
       className={cn(
         "rounded-md border-2 bg-card text-card-foreground shadow-sm shrink-0",
-        "flex flex-row items-stretch gap-2 p-2 text-left transition-all",
+        "flex flex-row items-stretch text-left transition-all",
+        PADDING_CLASS[size],
+        GAP_CLASS[size],
         sizeClass,
         disabled
           ? "opacity-50 cursor-not-allowed border-border"
@@ -79,10 +147,11 @@ export function CardView({
       aria-label={`${def.name} (コスト${def.cost})`}
     >
       {/* 左: コストとアイコン */}
-      <div className="flex flex-col items-center justify-center gap-0.5 shrink-0 w-10">
+      <div className={cn("flex flex-col items-center justify-center gap-0.5 shrink-0", LEFT_W_CLASS[size])}>
         <span
           className={cn(
-            "rounded-full px-2 leading-tight font-bold text-xs tabular-nums",
+            "rounded-full px-2 leading-tight font-bold tabular-nums",
+            COST_TEXT_CLASS[size],
             def.kind === "trap"
               ? "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200"
               : "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
@@ -97,14 +166,19 @@ export function CardView({
       {/* 右: 名前 + 説明 + (TRAPバッジ) */}
       <div className="flex-1 min-w-0 flex flex-col justify-center gap-0.5">
         <div className="flex items-center gap-1">
-          <span className="font-bold leading-tight truncate">{def.name}</span>
+          <span className={cn("font-bold leading-tight truncate", NAME_TEXT_CLASS[size])}>{def.name}</span>
           {def.kind === "trap" && (
-            <span className="text-[8px] bg-purple-200 dark:bg-purple-900/60 text-purple-900 dark:text-purple-100 px-1 rounded font-bold leading-tight shrink-0">
+            <span
+              className={cn(
+                "bg-purple-200 dark:bg-purple-900/60 text-purple-900 dark:text-purple-100 px-1 rounded font-bold leading-tight shrink-0",
+                TRAP_BADGE_TEXT_CLASS[size],
+              )}
+            >
               TRAP
             </span>
           )}
         </div>
-        <div className="text-[11px] text-muted-foreground leading-tight line-clamp-2">
+        <div className={cn("text-muted-foreground leading-tight line-clamp-2", DESC_TEXT_CLASS[size])}>
           {def.description}
         </div>
       </div>
