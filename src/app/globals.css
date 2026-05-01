@@ -199,3 +199,13 @@
 .animate-trap-trigger {
   animation: trap-trigger-flash 1.6s ease-out forwards;
 }
+
+/* カード将棋: ドロー演出完了時に手札の対象カードがふわっと光る (Issue #78) */
+@keyframes hand-card-flash {
+  0%   { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0); }
+  35%  { box-shadow: 0 0 24px 6px rgba(251, 191, 36, 0.85); }
+  100% { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0); }
+}
+.animate-hand-card-flash {
+  animation: hand-card-flash 0.9s ease-out forwards;
+}
