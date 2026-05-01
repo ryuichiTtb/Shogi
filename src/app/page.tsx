@@ -96,19 +96,19 @@ export default function Home() {
         <p className="text-xs sm:text-sm text-muted-foreground">AIと対局しよう</p>
       </div>
 
-      <div className="flex-1 flex flex-col max-w-2xl mx-auto w-full px-4 pb-2 sm:pb-4 space-y-2 sm:space-y-4 min-h-0">
+      <div className="flex-1 flex flex-col max-w-2xl mx-auto w-full px-4 pb-2 sm:pb-4 space-y-2 min-h-0">
         {/* モード選択 */}
         <ModeSelector mode={selectedMode} onChange={setSelectedMode} className="shrink-0" />
 
         {/* 難易度・キャラクター選択 (モバイル時 padding を詰める) */}
-        <Card className="shrink-0">
-          <CardHeader className="pb-1 sm:pb-2 pt-3 sm:pt-3">
+        <Card size="sm" className="shrink-0">
+          <CardHeader className="pb-0 pt-0">
             <CardTitle className="text-sm sm:text-base flex items-center gap-2">
               <Swords className="w-4 h-4" />
               対局相手を選ぶ
             </CardTitle>
           </CardHeader>
-          <CardContent className="pb-2 sm:pb-3">
+          <CardContent className="pb-0">
             {/* モバイル: コンパクトリスト / デスクトップ: カードグリッド */}
             <div className="sm:hidden flex flex-col gap-1">
               {CHARACTERS.map((character) => {
@@ -189,11 +189,11 @@ export default function Home() {
         </Card>
 
         {/* 手番選択 (モバイル時 padding を詰める) */}
-        <Card className="shrink-0">
-          <CardHeader className="pb-1 sm:pb-2 pt-3 sm:pt-3">
+        <Card size="sm" className="shrink-0">
+          <CardHeader className="pb-0 pt-0">
             <CardTitle className="text-sm sm:text-base">手番を選ぶ</CardTitle>
           </CardHeader>
-          <CardContent className="pb-2 sm:pb-3">
+          <CardContent className="pb-0">
             {/* モバイル: コンパクト横並び / デスクトップ: カードグリッド */}
             <div className="sm:hidden flex gap-2">
               {colorOptions.map(({ value, icon, label }) => (
