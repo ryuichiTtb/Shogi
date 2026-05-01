@@ -349,30 +349,54 @@
   animation: card-rarity-epic-pulse 1.8s ease-in-out infinite;
 }
 
-/* --- 斜め閃光 (shine): 極細の光が高頻度で走る (super_rare / epic 共通)
- * - 角度 135deg のバンドを translate(対角線) で動かす = 視覚的に45度の閃光
- * - 太さ 4% (48%-52%) で極細
- * - 周期 2.0s、移動区間 30-95% (= 1.3s 移動) でゆっくり通過、高頻度に走る
+/* --- 斜め閃光 (shine): ホログラフィックカードの常套手段、二重層+envelope
+ *
+ * 二層構造で立体感とゴージャス感を演出:
+ * 1. ::before (ソフト層): 太めで blur したクリーミーな光 + 色付きハロー
+ * 2. ::after  (シャープ層): 細い白のコア
+ *
+ * envelope (opacity fade in/out) で「フッと現れ、スーッと消える」滑らかさ。
+ * ループ感を消すため移動と不透明度を別タイミングで切替。
+ *
+ * 角度 135deg + 対角線 translate で視覚的に45度の閃光に。
  */
 @keyframes card-rarity-shine {
-  0%, 30% { transform: translate(-115%, -115%); }
-  95%     { transform: translate(115%, 115%); }
-  100%    { transform: translate(115%, 115%); }
+  0%, 25%   { transform: translate(-130%, -130%); opacity: 0; }
+  50%       { opacity: 1; }
+  90%       { transform: translate(130%, 130%); opacity: 0; }
+  100%      { transform: translate(130%, 130%); opacity: 0; }
 }
+.card-rarity-shine::before,
 .card-rarity-shine::after {
   content: "";
   position: absolute;
   top: 0; left: 0;
   width: 100%; height: 100%;
+  pointer-events: none;
+  transform: translate(-130%, -130%);
+  animation: card-rarity-shine 2.4s ease-in-out infinite;
+}
+/* ソフト層: 太め+blur、淡いゴールド寄りハロー */
+.card-rarity-shine::before {
   background: linear-gradient(
     135deg,
-    transparent 48%,
-    rgba(255, 255, 255, 0.90) 50%,
-    transparent 52%
+    transparent 38%,
+    rgba(255, 240, 200, 0.20) 44%,
+    rgba(255, 255, 255, 0.55) 50%,
+    rgba(255, 240, 200, 0.20) 56%,
+    transparent 62%
   );
-  transform: translate(-115%, -115%);
-  animation: card-rarity-shine 2.0s ease-in-out infinite;
-  pointer-events: none;
+  filter: blur(3px);
+  z-index: 4;
+}
+/* シャープ層: 極細の純白コア */
+.card-rarity-shine::after {
+  background: linear-gradient(
+    135deg,
+    transparent 47.5%,
+    rgba(255, 255, 255, 0.98) 50%,
+    transparent 52.5%
+  );
   z-index: 5;
 }
 
