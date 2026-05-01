@@ -168,6 +168,9 @@ export function CardView({
     : SIZE_CLASS[size];
 
   const isAnimated = size !== "sm" && !disabled;
+  // 暗色背景が当たるレア度 (rare 以上、かつ animated 時) はコスト背景・説明文も
+  // ダークモード用の色に強制切替して可読性を担保。
+  const hasRarityBg = isAnimated && def.rarity !== "common";
 
   return (
     <button
@@ -218,8 +221,12 @@ export function CardView({
             "rounded-full px-2 leading-tight font-bold tabular-nums",
             COST_TEXT_CLASS[size],
             def.kind === "trap"
-              ? "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200"
-              : "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
+              ? hasRarityBg
+                ? "bg-purple-900/50 text-purple-200"
+                : "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200"
+              : hasRarityBg
+                ? "bg-amber-900/50 text-amber-200"
+                : "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
           )}
         >
           {def.cost}
@@ -243,7 +250,13 @@ export function CardView({
             </span>
           )}
         </div>
-        <div className={cn("text-muted-foreground leading-tight line-clamp-2", DESC_TEXT_CLASS[size])}>
+        <div
+          className={cn(
+            "leading-tight line-clamp-2",
+            hasRarityBg ? "text-slate-300" : "text-muted-foreground",
+            DESC_TEXT_CLASS[size],
+          )}
+        >
           {def.description}
         </div>
       </div>

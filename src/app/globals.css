@@ -227,9 +227,15 @@
  * 3. brushed metal 縞   : 細い斜めライン (静的、金属表面のヘアライン)
  * 4. ベースカラーグラデ : 色味自体が斜めに揺らぐ(宝石の色変化)
  *
- * 4 レイヤーの background-position を1つの ease-in-out 周期で
- * 行きつ戻りつさせ、ループ境目のジャンプを排除。
+ * ライトモードでも暗色ベースで見栄えを保つため、background-color を
+ * slate-900 で明示固定+明色テキストを強制適用。
  */
+.card-rarity-bg-rare,
+.card-rarity-bg-super-rare,
+.card-rarity-bg-epic {
+  background-color: rgb(15, 23, 42);  /* slate-900 (ライト/ダーク共通の暗色ベース) */
+  color: rgb(241, 245, 249);          /* slate-100 (明色テキスト) */
+}
 @keyframes card-rarity-bg-dynamic {
   0%, 100% {
     background-position:
@@ -247,7 +253,7 @@
   }
 }
 .card-rarity-bg-rare {
-  background:
+  background-image:
     /* ハイライトスポット (白) */
     radial-gradient(
       ellipse 55% 60% at 50% 50%,
@@ -283,7 +289,7 @@
   animation: card-rarity-bg-dynamic 5.5s ease-in-out infinite;
 }
 .card-rarity-bg-super-rare {
-  background:
+  background-image:
     /* ハイライトスポット (白) */
     radial-gradient(
       ellipse 55% 60% at 50% 50%,
@@ -317,7 +323,7 @@
   animation: card-rarity-bg-dynamic 4.8s ease-in-out infinite;
 }
 .card-rarity-bg-epic {
-  background:
+  background-image:
     /* ハイライトスポット (白) */
     radial-gradient(
       ellipse 55% 60% at 50% 50%,
