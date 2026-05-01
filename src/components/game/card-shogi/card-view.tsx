@@ -15,14 +15,6 @@ const RARITY_FRAME_CLASS: Record<CardRarity, string> = {
   epic: "border-violet-500",
 };
 
-// レア度別グロー (globals.css 定義)。sm サイズと disabled では適用しない。
-const RARITY_ANIM_CLASS: Record<CardRarity, string> = {
-  common: "",
-  rare: "card-rarity-rare",
-  super_rare: "card-rarity-super-rare",
-  epic: "card-rarity-epic",
-};
-
 // 斜め閃光 (左上→右下にスーッと光る)。super_rare と epic のみ適用。
 const RARITY_HAS_SHINE: Record<CardRarity, boolean> = {
   common: false,
@@ -187,9 +179,8 @@ export function CardView({
         sizeClass,
         // 枠色 = レア度
         RARITY_FRAME_CLASS[def.rarity],
-        // レア度グロー (sm では OFF、disabled では OFF)
-        isAnimated && RARITY_ANIM_CLASS[def.rarity],
-        // 動的グラデ背景 (rare/super_rare/epic)
+        // 動的グラデ背景 + グロー pulse (rare/super_rare/epic、CSS で
+        // animation を 1 プロパティに統合済み。sm/disabled では OFF)
         isAnimated && RARITY_BG_CLASS[def.rarity],
         // 斜め閃光 (super_rare/epic)
         isAnimated && RARITY_HAS_SHINE[def.rarity] && "card-rarity-shine",

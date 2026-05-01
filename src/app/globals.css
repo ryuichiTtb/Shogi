@@ -264,7 +264,9 @@
     );
   background-size: 8px 8px, 200% 100%;
   background-repeat: repeat, repeat;
-  animation: card-rarity-bg-slide 3.5s linear infinite;
+  animation:
+    card-rarity-bg-slide 3.5s linear infinite,
+    card-rarity-rare-pulse 2.6s ease-in-out infinite;
 }
 .card-rarity-bg-super-rare {
   background-image:
@@ -286,7 +288,9 @@
     );
   background-size: 8px 8px, 200% 100%;
   background-repeat: repeat, repeat;
-  animation: card-rarity-bg-slide 3.0s linear infinite;
+  animation:
+    card-rarity-bg-slide 3.0s linear infinite,
+    card-rarity-super-rare-pulse 2.0s ease-in-out infinite;
 }
 .card-rarity-bg-epic {
   background-image:
@@ -308,34 +312,28 @@
     );
   background-size: 8px 8px, 200% 100%;
   background-repeat: repeat, repeat;
-  animation: card-rarity-bg-slide 2.5s linear infinite;
+  animation:
+    card-rarity-bg-slide 2.5s linear infinite,
+    card-rarity-epic-pulse 1.8s ease-in-out infinite;
 }
 
-/* --- レア (rare) --- */
+/* --- レア度別の box-shadow グロー pulse keyframes
+ * (適用クラス側 .card-rarity-bg-* に animation を統合済み。
+ *  別 class で animation を指定すると CSS cascade で上書きされて
+ *  background-slide が無効化される問題があるため、ここでは keyframes
+ *  だけ定義する)
+ */
 @keyframes card-rarity-rare-pulse {
   0%, 100% { box-shadow: 0 0 4px 1px rgba(56, 189, 248, 0.25); }
   50%      { box-shadow: 0 0 9px 2px rgba(56, 189, 248, 0.45); }
 }
-.card-rarity-rare {
-  animation: card-rarity-rare-pulse 2.6s ease-in-out infinite;
-}
-
-/* --- 激レア (super_rare): ゴールドグロー --- */
 @keyframes card-rarity-super-rare-pulse {
   0%, 100% { box-shadow: 0 0 8px 1px rgba(251, 191, 36, 0.45); }
   50%      { box-shadow: 0 0 16px 3px rgba(251, 191, 36, 0.70); }
 }
-.card-rarity-super-rare {
-  animation: card-rarity-super-rare-pulse 2.0s ease-in-out infinite;
-}
-
-/* --- 究極 (epic): パープルグロー --- */
 @keyframes card-rarity-epic-pulse {
   0%, 100% { box-shadow: 0 0 12px 2px rgba(168, 85, 247, 0.55); }
   50%      { box-shadow: 0 0 22px 4px rgba(168, 85, 247, 0.80); }
-}
-.card-rarity-epic {
-  animation: card-rarity-epic-pulse 1.8s ease-in-out infinite;
 }
 
 /* --- 斜め閃光 (shine): ホログラフィックカードの常套手段、二重層+envelope
