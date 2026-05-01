@@ -59,6 +59,10 @@ interface CardShogiGameStateInternal {
   promotionPendingMove: Move | null;
   cardState: CardGameState;
   eventLog: GameEvent[];
+  // Issue #78: ドロー演出中フラグ。DRAW_CARD で true、演出完了時の COMMIT_DRAW で false。
+  // true の間は currentPlayer 反転を保留し、AI 自動応手をブロックする。
+  isDrawing: boolean;
+  pendingDrawPlayer: Player | null;
 }
 
 // 移動 + マナチャージ + トラップフィルタ を一括適用。
@@ -392,12 +396,13 @@ function reducer(
       if (state.gameState.currentPlayer !== action.player) return state;
       // 王手中はドロー禁止 (P10: 王手回避以外の手は禁止)
       if (isInCheck(state.gameState, action.player, CARD_SHOGI_VARIANT)) return state;
+      // 既にドロー演出中なら無視 (連発防止)
+      if (state.isDrawing) return state;
       const [top, ...rest] = deck;
-      const opponent: Player = action.player === "sente" ? "gote" : "sente";
+      // Issue #78: ドロー = 1手相当だが、currentPlayer 反転は演出完了時の COMMIT_DRAW まで保留。
+      // これにより演出中は currentPlayer === playerColor のままで AI 自動応手がブロックされる。
       return {
         ...state,
-        // ドロー = 1手相当。currentPlayer を反転 + lastTurnStartedAt をクリア (B1)
-        gameState: { ...state.gameState, currentPlayer: opponent },
         cardState: {
           ...state.cardState,
           mana: {
@@ -409,10 +414,6 @@ function reducer(
             ...state.cardState.hand,
             [action.player]: [...state.cardState.hand[action.player], top],
           },
-          lastTurnStartedAt: {
-            ...state.cardState.lastTurnStartedAt,
-            [action.player]: null,
-          },
         },
         // 駒選択状態もクリア
         selectedSquare: null,
@@ -422,6 +423,27 @@ function reducer(
           ...state.eventLog,
           { kind: "drawEvent", player: action.player, instance: top, at: Date.now() },
         ],
+        isDrawing: true,
+        pendingDrawPlayer: action.player,
+      };
+    }
+
+    case "COMMIT_DRAW": {
+      if (!state.isDrawing || !state.pendingDrawPlayer) return state;
+      const drawer = state.pendingDrawPlayer;
+      const opponent: Player = drawer === "sente" ? "gote" : "sente";
+      return {
+        ...state,
+        gameState: { ...state.gameState, currentPlayer: opponent },
+        cardState: {
+          ...state.cardState,
+          lastTurnStartedAt: {
+            ...state.cardState.lastTurnStartedAt,
+            [drawer]: null,
+          },
+        },
+        isDrawing: false,
+        pendingDrawPlayer: null,
       };
     }
 
@@ -644,6 +666,8 @@ export function useCardShogiGame({
     promotionPendingMove: null,
     cardState: initialCardState,
     eventLog: [],
+    isDrawing: false,
+    pendingDrawPlayer: null,
   });
 
   const aiPlayer: Player = gameConfig.playerColor === "sente" ? "gote" : "sente";
@@ -666,7 +690,9 @@ export function useCardShogiGame({
       gameState.status !== "active" ||
       gameState.currentPlayer !== aiPlayer ||
       state.isAiThinking ||
-      state.cardState.pendingCard !== null
+      state.cardState.pendingCard !== null ||
+      // Issue #78: ドロー演出中は AI 思考をブロック (COMMIT_DRAW 後に再評価される)
+      state.isDrawing
     ) {
       return;
     }
@@ -692,7 +718,7 @@ export function useCardShogiGame({
       }, 500);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.gameState.currentPlayer, state.gameState.status, state.cardState.pendingCard]);
+  }, [state.gameState.currentPlayer, state.gameState.status, state.cardState.pendingCard, state.isDrawing]);
 
   // DB 保存(state 変更を監視して、最新の moveCount で保存)
   const lastSavedMoveCountRef = useRef(initialState.moveCount);
@@ -839,6 +865,11 @@ export function useCardShogiGame({
     dispatch({ type: "DRAW_CARD", player: gameConfig.playerColor });
   }, [gameConfig.playerColor]);
 
+  // Issue #78: ドロー演出完了時に呼ぶ。currentPlayer を相手に渡し AI 思考を解禁する。
+  const finalizeDraw = useCallback(() => {
+    dispatch({ type: "COMMIT_DRAW" });
+  }, []);
+
   const beginPlayCard = useCallback(
     (instanceId: string) => {
       dispatch({ type: "BEGIN_PLAY_CARD", player: gameConfig.playerColor, instanceId });
@@ -875,9 +906,11 @@ export function useCardShogiGame({
     undo,
     deselect,
     drawCard,
+    finalizeDraw,
     beginPlayCard,
     selectCardTarget,
     confirmPlayCard,
     cancelPlayCard,
+    isDrawing: state.isDrawing,
   };
 }
