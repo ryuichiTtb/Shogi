@@ -209,3 +209,398 @@
 .animate-hand-card-flash {
   animation: hand-card-flash 0.9s ease-out forwards;
 }
+
+/* カード将棋: レア度別ビジュアル演出 (Issue #104)
+ * - common:     演出なし
+ * - rare:       軽い青グロー pulse
+ * - super_rare: ゴールドグロー pulse + 斜め閃光 (shine)
+ * - epic:       パープルグロー pulse + 斜め閃光 (shine) + 紫/青/赤オーブ
+ */
+
+/* --- 動的グラデ背景 (rare/super_rare/epic): 横スライドする繰り返しグラデ
+ *
+ * 2 レイヤー構成:
+ * 1. brushed metal 縞 : 細い斜めライン (静的、金属表面のヘアライン)
+ * 2. 横方向グラデ      : 5 stop で左右対称(両端同色)の繰り返しパターン。
+ *                        background-size 200% を 1 周期分(-100% → 0%)横に
+ *                        スライドさせるとループ継ぎ目なく光が左→右へ流れる。
+ *
+ * ライトモードでも暗色ベースで見栄えを保つため、background-color を
+ * slate-900 で明示固定+明色テキストを強制適用。
+ */
+.card-rarity-bg-rare,
+.card-rarity-bg-super-rare,
+.card-rarity-bg-epic {
+  background-color: rgb(15, 23, 42);  /* slate-900 (ライト/ダーク共通の暗色ベース) */
+  color: rgb(241, 245, 249);          /* slate-100 (明色テキスト) */
+  /* カードサイズに比例した装飾スケール (基準: catalog の size="md")。
+   * 同じカードがサイズ違いで表示されるとき、背景バンドの幅・閃光のぼかし・
+   * オーブの大きさ等が「カードに対する見た目の比率」を保って拡縮されるように、
+   * 全装飾の寸法を var(--card-rarity-scale) 倍で計算する。
+   * size 別の値は [data-card-size] セレクタで上書き(下記)。
+   */
+  --card-rarity-scale: 1;
+  --card-rarity-period: calc(360px * var(--card-rarity-scale));
+  --card-rarity-tile: calc(var(--card-rarity-period) * 1.41421356);
+}
+/* card-view.tsx 側で button に data-card-size={size} を付与している。
+ * sm (48×64) は装飾自体が OFF なので未指定。md は 1.0 がデフォルトのまま。
+ */
+[data-card-size="lg"] { --card-rarity-scale: 1.25; }   /* 160/128 */
+[data-card-size="xl"] { --card-rarity-scale: 4.5; }    /* 576/128 */
+/* 斜めバンド(135deg)を「横」にスライドさせる設計。
+ *
+ * 1. background-size: 各 rarity 側で 1 タイルを √2 × 360px ≈ 509.117px の
+ *    正方形に固定。タイルの幅・高さ方向それぞれの 135deg 投影距離が
+ *    509.117 × cos45° = 360px = 1 周期 となるため、タイル境界の
+ *    上下左右で位相が完全連続し、要素サイズに依存していた「十字の境目」
+ *    が消える。
+ *
+ * 2. background-position: X 方向のみ -1 タイル分(-509.117px)動かす。
+ *    Y 方向は 0 で固定するため見た目は「斜めバンドが水平に流れる」。
+ *    1 タイル分ジャストで折り返すのでループ位相が完全一致し、
+ *    「カタッと先頭に戻る」段差も発生しない。
+ *
+ * brushed metal 縞 (1 つ目のレイヤー) は静止させたいので 0 0 のまま。
+ */
+@keyframes card-rarity-bg-slide {
+  0%   { background-position: 0px 0px, 0px 0px; }
+  100% {
+    background-position:
+      0px 0px,
+      calc(var(--card-rarity-tile) * -1) 0px;
+  }
+}
+.card-rarity-bg-rare {
+  background-image:
+    /* brushed metal 縞(静止)。細密ヘアラインなのでスケール対象外 */
+    repeating-linear-gradient(
+      45deg,
+      rgba(186, 230, 253, 0.10),
+      rgba(186, 230, 253, 0.10) 1px,
+      transparent 1px,
+      transparent 5px
+    ),
+    /* 斜め繰り返しグラデ(135deg)。stops を全て scale 倍にしてバンド幅も拡縮 */
+    repeating-linear-gradient(
+      135deg,
+      rgba(56, 189, 248, 0.25) 0px,
+      rgba(56, 189, 248, 0.25) calc(50px * var(--card-rarity-scale)),
+      rgba(186, 230, 253, 0.55) calc(130px * var(--card-rarity-scale)),  /* H1 ピーク(明水色) */
+      rgba(56, 189, 248, 0.25) calc(210px * var(--card-rarity-scale)),
+      rgba(99, 102, 241, 0.50) calc(290px * var(--card-rarity-scale)),    /* H2 ピーク(indigo) */
+      rgba(56, 189, 248, 0.25) var(--card-rarity-period)
+    );
+  background-size: 8px 8px, var(--card-rarity-tile) var(--card-rarity-tile);
+  animation:
+    card-rarity-bg-slide 5.5s linear infinite,
+    card-rarity-rare-pulse 2.6s ease-in-out infinite;
+}
+.card-rarity-bg-super-rare {
+  background-image:
+    repeating-linear-gradient(
+      45deg,
+      rgba(254, 240, 138, 0.13),
+      rgba(254, 240, 138, 0.13) 1px,
+      transparent 1px,
+      transparent 5px
+    ),
+    /* 斜め繰り返しグラデ: ゴールド系(白系 + deep amber 交互) */
+    repeating-linear-gradient(
+      135deg,
+      rgba(251, 191, 36, 0.25) 0px,
+      rgba(251, 191, 36, 0.25) calc(50px * var(--card-rarity-scale)),
+      rgba(255, 248, 200, 0.60) calc(130px * var(--card-rarity-scale)),   /* H1 ピーク(白系) */
+      rgba(251, 191, 36, 0.25) calc(210px * var(--card-rarity-scale)),
+      rgba(217, 119, 6, 0.55) calc(290px * var(--card-rarity-scale)),     /* H2 ピーク(deep amber) */
+      rgba(251, 191, 36, 0.25) var(--card-rarity-period)
+    );
+  background-size: 8px 8px, var(--card-rarity-tile) var(--card-rarity-tile);
+  animation:
+    card-rarity-bg-slide 5.0s linear infinite,
+    card-rarity-super-rare-pulse 2.0s ease-in-out infinite;
+}
+.card-rarity-bg-epic {
+  background-image:
+    repeating-linear-gradient(
+      45deg,
+      rgba(233, 213, 255, 0.15),
+      rgba(233, 213, 255, 0.15) 1px,
+      transparent 1px,
+      transparent 5px
+    ),
+    /* 斜め繰り返しグラデ: パープル系(pink + blue 交互) */
+    repeating-linear-gradient(
+      135deg,
+      rgba(168, 85, 247, 0.30) 0px,
+      rgba(168, 85, 247, 0.30) calc(50px * var(--card-rarity-scale)),
+      rgba(244, 114, 182, 0.60) calc(130px * var(--card-rarity-scale)),   /* H1 ピーク(pink) */
+      rgba(168, 85, 247, 0.30) calc(210px * var(--card-rarity-scale)),
+      rgba(96, 165, 250, 0.55) calc(290px * var(--card-rarity-scale)),    /* H2 ピーク(blue) */
+      rgba(168, 85, 247, 0.30) var(--card-rarity-period)
+    );
+  background-size: 8px 8px, var(--card-rarity-tile) var(--card-rarity-tile);
+  animation:
+    card-rarity-bg-slide 4.5s linear infinite,
+    card-rarity-epic-pulse 1.8s ease-in-out infinite;
+}
+
+/* --- レア度別の box-shadow グロー pulse keyframes
+ * (適用クラス側 .card-rarity-bg-* に animation を統合済み。
+ *  別 class で animation を指定すると CSS cascade で上書きされて
+ *  background-slide が無効化される問題があるため、ここでは keyframes
+ *  だけ定義する)
+ */
+@keyframes card-rarity-rare-pulse {
+  0%, 100% { box-shadow: 0 0 4px 1px rgba(56, 189, 248, 0.25); }
+  50%      { box-shadow: 0 0 9px 2px rgba(56, 189, 248, 0.45); }
+}
+@keyframes card-rarity-super-rare-pulse {
+  0%, 100% { box-shadow: 0 0 8px 1px rgba(251, 191, 36, 0.45); }
+  50%      { box-shadow: 0 0 16px 3px rgba(251, 191, 36, 0.70); }
+}
+@keyframes card-rarity-epic-pulse {
+  0%, 100% { box-shadow: 0 0 12px 2px rgba(168, 85, 247, 0.55); }
+  50%      { box-shadow: 0 0 22px 4px rgba(168, 85, 247, 0.80); }
+}
+
+/* --- 斜め閃光 (shine): ホログラフィックカードの常套手段、二重層+envelope
+ *
+ * 二層構造で立体感とゴージャス感を演出:
+ * 1. ::before (ソフト層): 太めで blur したクリーミーな光 + 色付きハロー
+ * 2. ::after  (シャープ層): 細い白のコア
+ *
+ * envelope (opacity fade in/out) で「フッと現れ、スーッと消える」滑らかさ。
+ * ループ感を消すため移動と不透明度を別タイミングで切替。
+ *
+ * 角度 135deg + 対角線 translate で視覚的に45度の閃光に。
+ */
+@keyframes card-rarity-shine {
+  0%, 20%   { transform: translate(-130%, -130%); opacity: 0; }
+  50%       { opacity: 1; }
+  95%       { transform: translate(130%, 130%); opacity: 0; }
+  100%      { transform: translate(130%, 130%); opacity: 0; }
+}
+.card-rarity-shine::before,
+.card-rarity-shine::after {
+  content: "";
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  transform: translate(-130%, -130%);
+  animation: card-rarity-shine 3.2s ease-in-out infinite;
+}
+/* ソフト層: 太め+blur、淡いゴールド寄りハロー
+ * width/height は親要素 100% で自動追従、stops は % なのでカードサイズに比例して
+ * 帯幅も拡大。blur 量だけ絶対 px なので scale 倍にしてカード比率を維持する。
+ */
+.card-rarity-shine::before {
+  background: linear-gradient(
+    135deg,
+    transparent 38%,
+    rgba(255, 240, 200, 0.20) 44%,
+    rgba(255, 255, 255, 0.55) 50%,
+    rgba(255, 240, 200, 0.20) 56%,
+    transparent 62%
+  );
+  filter: blur(calc(3px * var(--card-rarity-scale, 1)));
+  z-index: 4;
+}
+/* シャープ層: 極細の純白コア */
+.card-rarity-shine::after {
+  background: linear-gradient(
+    135deg,
+    transparent 47.5%,
+    rgba(255, 255, 255, 0.98) 50%,
+    transparent 52.5%
+  );
+  z-index: 5;
+}
+
+/* --- 手札ホバー時のフォーカス強調 (使用可能カードのみ)
+ *
+ * 使えるカードを示すため、暖色(黄)のリング + 薄い黄色オーバーレイ +
+ * わずかな lift で「これからプレイできるカード」感を出す。
+ *
+ * 設計上の制約:
+ *   レアカード(rare/super_rare/epic)には card-rarity-*-pulse という
+ *   keyframes が常時 box-shadow を更新し続けている。box-shadow で
+ *   hover を表現しようとすると CSS animation の値に毎フレーム
+ *   上書きされて hover 効果が見えない。
+ *
+ * よって以下を組み合わせる(いずれも box-shadow と独立):
+ *   1. outline           — 外側の黄色リング (animation 非干渉)
+ *   2. filter:drop-shadow — 外側のソフトな黄色グロー (animation 非干渉)
+ *   3. .card-hover-overlay — JSX に挿入した専用 span を opacity で
+ *      フェードインさせる薄い黄色フィルム。z-index は閃光の上、
+ *      コンテンツの下に挟むことでテキストの可読性を保ったまま
+ *      背景にだけ暖色を被せる。擬似要素を使わないので shine の
+ *      ::before/::after と衝突しない。
+ *
+ * disabled の手札にはホバー演出を適用しない (:not(:disabled))。
+ */
+.card-hover-focus {
+  outline: 2px solid transparent;
+  outline-offset: 1px;
+  transition: outline-color 0.18s ease, transform 0.18s ease, filter 0.18s ease;
+}
+.card-hover-focus:not(:disabled):hover {
+  transform: translateY(-2px);
+  outline-color: rgba(250, 204, 21, 0.78);
+  filter: drop-shadow(0 4px 14px rgba(250, 204, 21, 0.40));
+}
+.card-hover-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  /* 閃光 (shine ::after = z:5) より上、コンテンツ (z:10) より下に挟む */
+  z-index: 6;
+  background: linear-gradient(
+    180deg,
+    rgba(250, 204, 21, 0.22) 0%,
+    rgba(250, 204, 21, 0.06) 100%
+  );
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+.card-hover-focus:not(:disabled):hover .card-hover-overlay {
+  opacity: 1;
+}
+
+/* --- 究極のオーブ: 多色グラデ + 色相回転で輝きが動的に変化する光球
+ * - コア白 → 隣接色ハロー → メイン色 → 外周深色 の 4 stop 多色グラデで宝石感
+ * - box-shadow で外側に強いオーラ(発光感)
+ * - 軌道アニメ(opacity/scale 不規則切替で電撃 blink)+ orb-hue-shift で
+ *   色相 ±40deg、彩度 1.0〜1.5 を独立周期で揺らす → 輝きが動的に変化
+ */
+.card-rarity-orb {
+  position: absolute;
+  /* オーブ径もカードサイズに比例して拡縮。基準 14px (size="md")。 */
+  width: calc(14px * var(--card-rarity-scale, 1));
+  height: calc(14px * var(--card-rarity-scale, 1));
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0;
+}
+/* 各オーブは「別系統の差し色レイヤー」を 2 つメインカラーグラデに重ね、
+ * 色合いに幅を持たせる(オフセット配置で円の中で色が偏在して見える)。
+ */
+.card-rarity-orb-purple {
+  background:
+    /* 差し色1: ターコイズ系(対比的アクセント) */
+    radial-gradient(circle at 25% 30%, rgba(94, 234, 212, 0.65) 0%, transparent 70%),
+    /* 差し色2: 青系(隣接寄り) */
+    radial-gradient(circle at 80% 70%, rgba(96, 165, 250, 0.70) 0%, transparent 70%),
+    /* 差し色3: 黄系(暖色アクセント) */
+    radial-gradient(circle at 50% 95%, rgba(253, 224, 71, 0.60) 0%, transparent 65%),
+    /* メイン: ピンク → ライト紫 → 紫 */
+    radial-gradient(circle,
+      rgba(255, 255, 255, 1) 0%,
+      rgba(244, 114, 182, 0.80) 18%,
+      rgba(216, 180, 254, 0.85) 38%,
+      rgba(168, 85, 247, 0.65) 65%,
+      transparent 100%
+    );
+  box-shadow:
+    0 0 calc(10px * var(--card-rarity-scale, 1)) calc(3px * var(--card-rarity-scale, 1)) rgba(168, 85, 247, 0.85),
+    0 0 calc(22px * var(--card-rarity-scale, 1)) calc(6px * var(--card-rarity-scale, 1)) rgba(168, 85, 247, 0.45);
+}
+.card-rarity-orb-blue {
+  background:
+    /* 差し色1: ライム系(対比的) */
+    radial-gradient(circle at 30% 70%, rgba(190, 242, 100, 0.62) 0%, transparent 70%),
+    /* 差し色2: 紫系(隣接寄り) */
+    radial-gradient(circle at 75% 25%, rgba(192, 132, 252, 0.70) 0%, transparent 70%),
+    /* 差し色3: オレンジ系(暖色アクセント) */
+    radial-gradient(circle at 50% 95%, rgba(251, 146, 60, 0.60) 0%, transparent 65%),
+    /* メイン: シアン → ライト青 → 青 */
+    radial-gradient(circle,
+      rgba(255, 255, 255, 1) 0%,
+      rgba(165, 243, 252, 0.80) 18%,
+      rgba(147, 197, 253, 0.85) 38%,
+      rgba(59, 130, 246, 0.65) 65%,
+      transparent 100%
+    );
+  box-shadow:
+    0 0 calc(10px * var(--card-rarity-scale, 1)) calc(3px * var(--card-rarity-scale, 1)) rgba(59, 130, 246, 0.85),
+    0 0 calc(22px * var(--card-rarity-scale, 1)) calc(6px * var(--card-rarity-scale, 1)) rgba(59, 130, 246, 0.45);
+}
+.card-rarity-orb-red {
+  background:
+    /* 差し色1: ティール系(対比的) */
+    radial-gradient(circle at 75% 65%, rgba(45, 212, 191, 0.62) 0%, transparent 70%),
+    /* 差し色2: マゼンタ/ピンク系(隣接寄り) */
+    radial-gradient(circle at 25% 25%, rgba(244, 114, 182, 0.70) 0%, transparent 70%),
+    /* 差し色3: 緑系(寒色アクセント) */
+    radial-gradient(circle at 50% 95%, rgba(74, 222, 128, 0.60) 0%, transparent 65%),
+    /* メイン: オレンジ → ライト赤 → 赤 */
+    radial-gradient(circle,
+      rgba(255, 255, 255, 1) 0%,
+      rgba(254, 215, 170, 0.80) 18%,
+      rgba(252, 165, 165, 0.85) 38%,
+      rgba(239, 68, 68, 0.65) 65%,
+      transparent 100%
+    );
+  box-shadow:
+    0 0 calc(10px * var(--card-rarity-scale, 1)) calc(3px * var(--card-rarity-scale, 1)) rgba(239, 68, 68, 0.85),
+    0 0 calc(22px * var(--card-rarity-scale, 1)) calc(6px * var(--card-rarity-scale, 1)) rgba(239, 68, 68, 0.45);
+}
+
+/* オーブの色相回転 + 彩度揺らぎ (軌道アニメと独立周期、色味の動的変化を演出)
+ * 振れ幅 ±90° で大きく回し、紫オーブが時に黄/緑寄りに、青オーブがマゼンタや
+ * 緑に、赤オーブが黄/緑/紫に変化するなど、色相環の広い範囲を巡る。
+ */
+@keyframes card-rarity-orb-hue {
+  0%, 100% { filter: blur(0.5px) hue-rotate(0deg)    saturate(1.0); }
+  25%      { filter: blur(0.5px) hue-rotate(80deg)   saturate(1.50); }
+  50%      { filter: blur(0.5px) hue-rotate(-90deg)  saturate(1.55); }
+  75%      { filter: blur(0.5px) hue-rotate(45deg)   saturate(1.35); }
+}
+
+/* 位置と scale は 0%/50%/100% の 3 点に絞り、間は線形に連続補間させる
+ * (中間の値が滞留しないため、止まる感がなくふわふわ流れる)。
+ * opacity だけ 5 点で段階フェードして滑らかに現れて消える。
+ */
+@keyframes card-rarity-orb-1 {
+  0%   { left: 8%;  top: 85%; transform: scale(0.7); opacity: 0; }
+  20%  { opacity: 0.85; }
+  50%  { left: 36%; top: 30%; transform: scale(1.1); opacity: 1; }
+  80%  { opacity: 0.55; }
+  100% { left: 68%; top: 92%; transform: scale(0.7); opacity: 0; }
+}
+@keyframes card-rarity-orb-2 {
+  0%   { left: 92%; top: 78%; transform: scale(0.7); opacity: 0; }
+  20%  { opacity: 0.85; }
+  50%  { left: 56%; top: 24%; transform: scale(1.1); opacity: 1; }
+  80%  { opacity: 0.55; }
+  100% { left: 16%; top: 90%; transform: scale(0.7); opacity: 0; }
+}
+@keyframes card-rarity-orb-3 {
+  0%   { left: 50%; top: 95%; transform: scale(0.7); opacity: 0; }
+  20%  { opacity: 0.85; }
+  50%  { left: 72%; top: 30%; transform: scale(1.1); opacity: 1; }
+  80%  { opacity: 0.55; }
+  100% { left: 28%; top: 6%;  transform: scale(0.7); opacity: 0; }
+}
+/* delay は JSX 側から --orb-delay / --orb-delay-hue で個別に渡せる。
+ * カードサイズが大きい (size="xl" 等) ときは同じ軌道 class を異なる delay で
+ * 複数のオーブに割り当てて、画面内の粒数を増やす。
+ */
+.card-rarity-orb-1 {
+  animation:
+    card-rarity-orb-1 4.8s ease-in-out infinite var(--orb-delay, 0s),
+    card-rarity-orb-hue 3.5s ease-in-out infinite var(--orb-delay-hue, 0s);
+}
+.card-rarity-orb-2 {
+  animation:
+    card-rarity-orb-2 5.2s ease-in-out infinite var(--orb-delay, 0.6s),
+    card-rarity-orb-hue 3.8s ease-in-out infinite var(--orb-delay-hue, 0.4s);
+}
+.card-rarity-orb-3 {
+  animation:
+    card-rarity-orb-3 5.6s ease-in-out infinite var(--orb-delay, 1.2s),
+    card-rarity-orb-hue 4.0s ease-in-out infinite var(--orb-delay-hue, 0.9s);
+}

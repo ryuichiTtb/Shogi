@@ -1,10 +1,35 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import type { CardInstance } from "@/lib/shogi/cards/types";
+import type { CardInstance, CardRarity } from "@/lib/shogi/cards/types";
 import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
 
 export type CardViewSize = "sm" | "md" | "lg" | "xl";
+
+// 枠色 = レア度 (Issue #104)
+//   common: シルバー / rare: ブルー / super_rare: ゴールド / epic: パープル
+const RARITY_FRAME_CLASS: Record<CardRarity, string> = {
+  common: "border-slate-400 dark:border-slate-500",
+  rare: "border-sky-500",
+  super_rare: "border-amber-400",
+  epic: "border-violet-500",
+};
+
+// 斜め閃光 (左上→右下にスーッと光る)。super_rare と epic のみ適用。
+const RARITY_HAS_SHINE: Record<CardRarity, boolean> = {
+  common: false,
+  rare: false,
+  super_rare: true,
+  epic: true,
+};
+
+// レア度別の動的グラデ背景 (rare/super_rare/epic のみ。globals.css 定義)
+const RARITY_BG_CLASS: Record<CardRarity, string> = {
+  common: "",
+  rare: "card-rarity-bg-rare",
+  super_rare: "card-rarity-bg-super-rare",
+  epic: "card-rarity-bg-epic",
+};
 
 interface CardViewProps {
   card: CardInstance;
@@ -77,8 +102,8 @@ const DESC_TEXT_CLASS: Record<CardViewSize, string> = {
 
 const TRAP_BADGE_TEXT_CLASS: Record<CardViewSize, string> = {
   sm: "text-[8px]",
-  md: "text-[8px]",
-  lg: "text-[8px]",
+  md: "text-[10px]",
+  lg: "text-[10px]",
   xl: "text-base",
 };
 
@@ -101,6 +126,45 @@ const FACEDOWN_SYMBOL_CLASS: Record<CardViewSize, string> = {
   md: "text-2xl",
   lg: "text-2xl",
   xl: "text-9xl",
+};
+
+/* epic オーブの size 別配置。
+ * カタログ md=3個 を基準に、カードが大きいほど粒数を増やす。
+ * 軌道 keyframes は orb-1/2/3 の 3 種しかないので、xl では同じ軌道を
+ * 異なる delay で再利用して画面に分散させる。
+ *   orbit: 既存の軌道(left/top の % 経路)
+ *   color: 配色 class
+ *   delay / delayHue: それぞれ位置アニメと色相揺らぎの開始ずれ (秒)
+ */
+type OrbVariant = {
+  orbit: 1 | 2 | 3;
+  color: "purple" | "blue" | "red";
+  delay: number;
+  delayHue: number;
+};
+const EPIC_ORBS_BY_SIZE: Record<CardViewSize, OrbVariant[]> = {
+  sm: [],
+  md: [
+    { orbit: 1, color: "purple", delay: 0.0, delayHue: 0.0 },
+    { orbit: 2, color: "blue",   delay: 0.6, delayHue: 0.4 },
+    { orbit: 3, color: "red",    delay: 1.2, delayHue: 0.9 },
+  ],
+  lg: [
+    { orbit: 1, color: "purple", delay: 0.0, delayHue: 0.0 },
+    { orbit: 2, color: "blue",   delay: 0.6, delayHue: 0.4 },
+    { orbit: 3, color: "red",    delay: 1.2, delayHue: 0.9 },
+    { orbit: 2, color: "purple", delay: 2.6, delayHue: 1.6 },
+  ],
+  xl: [
+    { orbit: 1, color: "purple", delay: 0.0, delayHue: 0.0 },
+    { orbit: 2, color: "blue",   delay: 0.6, delayHue: 0.4 },
+    { orbit: 3, color: "red",    delay: 1.2, delayHue: 0.9 },
+    { orbit: 1, color: "blue",   delay: 1.8, delayHue: 1.3 },
+    { orbit: 2, color: "red",    delay: 2.4, delayHue: 1.7 },
+    { orbit: 3, color: "purple", delay: 3.0, delayHue: 2.2 },
+    { orbit: 1, color: "red",    delay: 3.6, delayHue: 2.6 },
+    { orbit: 2, color: "purple", delay: 4.2, delayHue: 3.0 },
+  ],
 };
 
 export function CardView({
@@ -134,35 +198,84 @@ export function CardView({
     ? cn("w-full", FULL_WIDTH_HEIGHT[size], FULL_WIDTH_TEXT[size])
     : SIZE_CLASS[size];
 
+  // disabled でも背景グラデ・閃光・オーブのレア度演出は維持し、saturate を
+  // 落として「使えないが豪華さは保つ」表現にする (sm はサムネイル用なので OFF)。
+  const isAnimated = size !== "sm";
+  // 暗色背景が当たるレア度 (rare 以上、かつ animated 時) はコスト背景・説明文も
+  // ダークモード用の色に強制切替して可読性を担保。
+  const hasRarityBg = isAnimated && def.rarity !== "common";
+
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
       data-card-id={card.instanceId}
+      data-rarity={def.rarity}
+      data-card-size={size}
       className={cn(
-        "rounded-md border-2 bg-card text-card-foreground shadow-sm shrink-0",
+        "relative overflow-hidden rounded-md border-2 bg-card text-card-foreground shadow-sm shrink-0",
         "flex flex-row items-stretch text-left transition-all",
         PADDING_CLASS[size],
         GAP_CLASS[size],
         sizeClass,
+        // 枠色 = レア度
+        RARITY_FRAME_CLASS[def.rarity],
+        // 動的グラデ背景 + グロー pulse (rare/super_rare/epic、CSS で
+        // animation を 1 プロパティに統合済み。sm/disabled では OFF)
+        isAnimated && RARITY_BG_CLASS[def.rarity],
+        // 斜め閃光 (super_rare/epic)
+        isAnimated && RARITY_HAS_SHINE[def.rarity] && "card-rarity-shine",
+        // 非活性: 鮮やかさだけ落としてレア度演出は維持(opacity ではなく
+        // saturate を使うことで動的グラデ・オーブの形状感は残す)。
+        // 活性: card-hover-focus で暖色リング+lift のフォーカス強調を付与。
         disabled
-          ? "opacity-50 cursor-not-allowed border-border"
-          : "cursor-pointer hover:border-primary hover:shadow-md",
-        selected && "border-primary ring-2 ring-primary",
-        def.kind === "trap" ? "border-purple-500" : "border-amber-500",
+          ? "opacity-70 saturate-50 cursor-not-allowed"
+          : "cursor-pointer card-hover-focus",
+        // 選択時は ring で強調(枠のレア度色は維持)
+        selected && "ring-2 ring-primary ring-offset-1 ring-offset-background",
       )}
       aria-label={`${def.name} (コスト${def.cost})`}
     >
+      {/* ホバーフォーカス用の薄黄色オーバーレイ。常に DOM に置き、:hover で
+        * opacity をフェードイン (CSS 側 .card-hover-focus:hover .card-hover-overlay)。
+        * disabled では :not(:disabled):hover が成立しないので透明のまま。 */}
+      <span className="card-hover-overlay" aria-hidden />
+      {/* オーブ (epic のみ): 紫・青・赤の光球が舞う。粒数はカードサイズに比例 */}
+      {def.rarity === "epic" && isAnimated &&
+        EPIC_ORBS_BY_SIZE[size].map((orb, i) => (
+          <span
+            key={i}
+            className={cn(
+              "card-rarity-orb",
+              `card-rarity-orb-${orb.color}`,
+              `card-rarity-orb-${orb.orbit}`,
+            )}
+            style={{
+              ["--orb-delay" as string]: `${orb.delay}s`,
+              ["--orb-delay-hue" as string]: `${orb.delayHue}s`,
+            }}
+            aria-hidden
+          />
+        ))}
       {/* 左: コストとアイコン */}
-      <div className={cn("flex flex-col items-center justify-center gap-0.5 shrink-0", LEFT_W_CLASS[size])}>
+      <div
+        className={cn(
+          "relative z-10 flex flex-col items-center justify-center gap-0.5 shrink-0",
+          LEFT_W_CLASS[size],
+        )}
+      >
         <span
           className={cn(
             "rounded-full px-2 leading-tight font-bold tabular-nums",
             COST_TEXT_CLASS[size],
             def.kind === "trap"
-              ? "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200"
-              : "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
+              ? hasRarityBg
+                ? "bg-purple-900/50 text-purple-200"
+                : "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200"
+              : hasRarityBg
+                ? "bg-amber-900/50 text-amber-200"
+                : "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
           )}
         >
           {def.cost}
@@ -172,21 +285,27 @@ export function CardView({
         </span>
       </div>
       {/* 右: 名前 + 説明 + (TRAPバッジ) */}
-      <div className="flex-1 min-w-0 flex flex-col justify-center gap-0.5">
+      <div className="relative z-10 flex-1 min-w-0 flex flex-col justify-center gap-0.5">
         <div className="flex items-center gap-1">
           <span className={cn("font-bold leading-tight truncate", NAME_TEXT_CLASS[size])}>{def.name}</span>
           {def.kind === "trap" && (
             <span
               className={cn(
-                "bg-purple-200 dark:bg-purple-900/60 text-purple-900 dark:text-purple-100 px-1 rounded font-bold leading-tight shrink-0",
+                "bg-emerald-600 text-white px-1.5 rounded font-bold leading-tight shrink-0 shadow-sm",
                 TRAP_BADGE_TEXT_CLASS[size],
               )}
             >
-              TRAP
+              トラップ
             </span>
           )}
         </div>
-        <div className={cn("text-muted-foreground leading-tight line-clamp-2", DESC_TEXT_CLASS[size])}>
+        <div
+          className={cn(
+            "leading-tight line-clamp-2",
+            hasRarityBg ? "text-slate-300" : "text-muted-foreground",
+            DESC_TEXT_CLASS[size],
+          )}
+        >
           {def.description}
         </div>
       </div>

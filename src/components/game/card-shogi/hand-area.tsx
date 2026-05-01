@@ -66,8 +66,10 @@ export function HandArea({
     <div
       className={cn(
         "flex gap-2",
-        layout === "horizontal" && "flex-row overflow-x-auto pb-1",
-        layout === "vertical" && "flex-col overflow-y-auto pr-1",
+        // 上余白(pt-2): hover で各カードが translateY(-2px) で浮くため、
+        // 上余白がないと一番上(または一番手前)のカードが見切れる。
+        layout === "horizontal" && "flex-row overflow-x-auto pt-2 pb-1",
+        layout === "vertical" && "flex-col overflow-y-auto pt-2 pr-1",
       )}
       style={{ touchAction: layout === "vertical" ? "pan-y" : "pan-x" }}
     >
