@@ -18,82 +18,89 @@ interface CardViewProps {
 
 // "sm" はサムネイル(裏向きの相手手札用、縦長)
 // "md" / "lg" は表向きの手札(横長、コスト+アイコン+名前+説明)
-// "xl" はドロー演出用の中央拡大表示(Issue #78)
+// "xl" はドロー演出用の中央拡大表示(Issue #78、576x352px)
 const SIZE_CLASS: Record<CardViewSize, string> = {
   sm: "w-12 h-16 text-[10px]",
   md: "w-32 h-[80px] text-[13px]",
   lg: "w-40 h-24 text-sm",
-  xl: "w-72 h-44 text-base",
+  xl: "w-[36rem] h-[22rem] text-2xl",
 };
 
 const FULL_WIDTH_HEIGHT: Record<CardViewSize, string> = {
   sm: "h-16",
   md: "h-[80px]",
   lg: "h-24",
-  xl: "h-44",
+  xl: "h-[22rem]",
 };
 
 const FULL_WIDTH_TEXT: Record<CardViewSize, string> = {
   sm: "text-[10px]",
   md: "text-[13px]",
   lg: "text-sm",
-  xl: "text-base",
+  xl: "text-2xl",
 };
 
 const ICON_SIZE_CLASS: Record<CardViewSize, string> = {
   sm: "text-base",
   md: "text-3xl",
   lg: "text-4xl",
-  xl: "text-7xl",
+  xl: "text-9xl",
 };
 
 const LEFT_W_CLASS: Record<CardViewSize, string> = {
   sm: "w-10",
   md: "w-10",
   lg: "w-10",
-  xl: "w-20",
+  xl: "w-40",
 };
 
 const COST_TEXT_CLASS: Record<CardViewSize, string> = {
   sm: "text-xs",
   md: "text-xs",
   lg: "text-xs",
-  xl: "text-2xl",
+  xl: "text-4xl",
 };
 
 const NAME_TEXT_CLASS: Record<CardViewSize, string> = {
   sm: "",
   md: "",
   lg: "",
-  xl: "text-2xl",
+  xl: "text-4xl",
 };
 
 const DESC_TEXT_CLASS: Record<CardViewSize, string> = {
   sm: "text-[10px]",
   md: "text-[11px]",
   lg: "text-[11px]",
-  xl: "text-base",
+  xl: "text-2xl",
 };
 
 const TRAP_BADGE_TEXT_CLASS: Record<CardViewSize, string> = {
   sm: "text-[8px]",
   md: "text-[8px]",
   lg: "text-[8px]",
-  xl: "text-sm",
+  xl: "text-base",
 };
 
 const PADDING_CLASS: Record<CardViewSize, string> = {
   sm: "p-1",
   md: "p-2",
   lg: "p-2",
-  xl: "p-4",
+  xl: "p-6",
 };
 
 const GAP_CLASS: Record<CardViewSize, string> = {
   sm: "gap-1",
   md: "gap-2",
   lg: "gap-2",
-  xl: "gap-3",
+  xl: "gap-5",
+};
+
+const FACEDOWN_SYMBOL_CLASS: Record<CardViewSize, string> = {
+  sm: "text-2xl",
+  md: "text-2xl",
+  lg: "text-2xl",
+  xl: "text-9xl",
 };
 
 export function CardView({
@@ -114,7 +121,7 @@ export function CardView({
           "rounded-md border-2 border-indigo-700 bg-gradient-to-br from-indigo-700 to-indigo-900",
           "flex items-center justify-center text-white/80 font-bold shrink-0",
           fullWidth ? cn("w-full", FULL_WIDTH_HEIGHT[size]) : SIZE_CLASS[size],
-          fullWidth && "text-2xl",
+          fullWidth && FACEDOWN_SYMBOL_CLASS[size],
         )}
         aria-label="伏せられたカード"
       >
