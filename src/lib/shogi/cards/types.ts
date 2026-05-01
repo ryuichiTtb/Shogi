@@ -65,6 +65,8 @@ export interface CardGameState {
 export type CardAction =
   | { type: "CHARGE_MANA"; player: Player; amount: number; reason: "turn" | "card" }
   | { type: "DRAW_CARD"; player: Player }
+  // ドロー演出完了時に呼ぶ。currentPlayer を相手に渡し、isDrawing をクリア。
+  | { type: "COMMIT_DRAW" }
   | { type: "BEGIN_PLAY_CARD"; player: Player; instanceId: string }
   | { type: "SELECT_CARD_TARGET"; target: CardTarget }
   | { type: "CONFIRM_PLAY_CARD" }

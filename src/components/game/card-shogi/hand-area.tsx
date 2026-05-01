@@ -18,6 +18,8 @@ interface HandAreaProps {
   disabled?: boolean;
   // true のとき各カードを横幅一杯に展開(vertical layout で使用)
   fullWidth?: boolean;
+  // Issue #78: 直前にドローしたカードを一瞬光らせる (instanceId 一致のカードに animate-hand-card-flash を付与)
+  flashCardId?: string | null;
 }
 
 export function HandArea({
@@ -30,6 +32,7 @@ export function HandArea({
   emptyLabel = "手札なし",
   disabled = false,
   fullWidth = false,
+  flashCardId = null,
 }: HandAreaProps) {
   if (hand.length === 0) {
     return <div className="text-xs text-muted-foreground py-2 px-3">{emptyLabel}</div>;
@@ -71,15 +74,20 @@ export function HandArea({
       {hand.map((c) => {
         const def = CARD_DEFS[c.defId];
         const cardDisabled = disabled || currentMana < def.cost;
+        const isFresh = c.instanceId === flashCardId;
         return (
-          <CardView
+          <div
             key={c.instanceId}
-            card={c}
-            size={size}
-            disabled={cardDisabled}
-            fullWidth={fullWidth}
-            onClick={() => onCardClick?.(c.instanceId)}
-          />
+            className={cn("rounded-md", isFresh && "animate-hand-card-flash")}
+          >
+            <CardView
+              card={c}
+              size={size}
+              disabled={cardDisabled}
+              fullWidth={fullWidth}
+              onClick={() => onCardClick?.(c.instanceId)}
+            />
+          </div>
         );
       })}
     </div>

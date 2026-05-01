@@ -151,8 +151,9 @@ function DrawFlightInner({
     >
       <motion.div
         animate={{
-          rotateY: [0, 540, 540, 1080],
-          // rotateZ で時計回りの円運動 (山札→中央 1周、中央→手札 1周、計2周)
+          // 山札→中央でフリップ (0→540, 1.5周)、中央→手札では rotateY を維持して表向きのまま
+          rotateY: [0, 540, 540, 540],
+          // rotateZ は時計回りに継続 (山札→中央 1周、中央→手札 1周、計2周)
           rotateZ: [0, 360, 360, 720],
         }}
         transition={{

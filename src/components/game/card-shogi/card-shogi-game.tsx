@@ -78,6 +78,8 @@ export function CardShogiGame({
   // Issue #78: ドロー演出 (山札→中央→手札)。演出完了まで自分の手番継続・操作ロック。
   const [drawFlight, setDrawFlight] = useState<{ card: CardInstance; key: number } | null>(null);
   const isDrawAnimating = drawFlight !== null;
+  // 演出完了直後に手札の対象カードを一瞬光らせる (Issue #78)
+  const [freshlyDrawnId, setFreshlyDrawnId] = useState<string | null>(null);
   // 各レイアウトの山札・手札 DOM ref。表示中のものから矩形を取得する。
   const ownDeckPileTabletRef = useRef<HTMLDivElement>(null);
   const ownDeckPileMobileRef = useRef<HTMLDivElement>(null);
@@ -133,6 +135,7 @@ export function CardShogiGame({
     undo,
     deselect,
     drawCard,
+    finalizeDraw,
     beginPlayCard,
     confirmPlayCard,
     cancelPlayCard,
@@ -288,6 +291,19 @@ export function CardShogiGame({
     return cardState.hand[playerColor].filter((c) => c.instanceId !== drawFlight.card.instanceId);
   }, [cardState.hand, playerColor, drawFlight]);
 
+  // ドロー演出完了: currentPlayer を相手に渡し、手札の対象カードを一瞬フラッシュさせる
+  const handleDrawFlightComplete = useCallback(() => {
+    const id = drawFlight?.card.instanceId ?? null;
+    setDrawFlight(null);
+    finalizeDraw();
+    if (id) {
+      setFreshlyDrawnId(id);
+      window.setTimeout(() => {
+        setFreshlyDrawnId((prev) => (prev === id ? null : prev));
+      }, 900);
+    }
+  }, [drawFlight, finalizeDraw]);
+
   // ----- レイアウト用ヘルパ -----
 
   const opponentManaGauge = (
@@ -392,6 +408,7 @@ export function CardShogiGame({
       onCardClick={handleBeginPlayCard}
       size="md"
       disabled={handDisabled}
+      flashCardId={freshlyDrawnId}
     />
   );
 
@@ -677,6 +694,7 @@ export function CardShogiGame({
             currentMana={cardState.mana[playerColor]}
             size="md"
             disabled={handDisabled}
+            flashCardId={freshlyDrawnId}
             onCardClick={(id) => {
               handleBeginPlayCard(id);
               setDrawerOpen(false);
@@ -757,6 +775,7 @@ export function CardShogiGame({
               size="md"
               disabled={handDisabled}
               fullWidth
+              flashCardId={freshlyDrawnId}
               onCardClick={handleBeginPlayCard}
             />
           </div>
@@ -896,7 +915,7 @@ export function CardShogiGame({
         flightKey={drawFlight?.key ?? null}
         deckRectGetter={getDeckRect}
         handRectGetter={getHandRect}
-        onComplete={() => setDrawFlight(null)}
+        onComplete={handleDrawFlightComplete}
       />
     </div>
   );
