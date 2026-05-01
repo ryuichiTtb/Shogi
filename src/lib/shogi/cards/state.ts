@@ -3,8 +3,8 @@
 import type { Player } from "@/lib/shogi/types";
 import type { CardGameState, CardId, CardInstance } from "./types";
 import {
-  PHASE0_INITIAL_MANA,
-  PHASE0_MANA_CAP,
+  INITIAL_MANA,
+  MANA_CAP,
 } from "./definitions";
 
 export interface DeckSpec {
@@ -23,8 +23,8 @@ export function createInitialCardState(deckSpec: DeckSpec[]): CardGameState {
   const goteHand = goteDeck.splice(0, 2);
 
   return {
-    mana: { ...PHASE0_INITIAL_MANA },
-    manaCap: PHASE0_MANA_CAP,
+    mana: { ...INITIAL_MANA },
+    manaCap: MANA_CAP,
     hand: { sente: senteHand, gote: goteHand },
     deck: { sente: senteDeck, gote: goteDeck },
     graveyard: { sente: [], gote: [] },
@@ -69,7 +69,7 @@ export function deserializeCardState(data: unknown): CardGameState {
   const obj = data as Partial<CardGameState>;
   return {
     mana: obj.mana ?? { sente: 0, gote: 0 },
-    manaCap: obj.manaCap ?? PHASE0_MANA_CAP,
+    manaCap: obj.manaCap ?? MANA_CAP,
     hand: obj.hand ?? { sente: [], gote: [] },
     deck: obj.deck ?? { sente: [], gote: [] },
     graveyard: obj.graveyard ?? { sente: [], gote: [] },

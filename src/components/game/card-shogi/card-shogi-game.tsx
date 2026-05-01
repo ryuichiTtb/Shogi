@@ -32,7 +32,7 @@ import { getVariantById } from "@/lib/shogi/variants/index";
 import type { Difficulty, GameConfig, GameState, Move, Player, Position } from "@/lib/shogi/types";
 import type { CommentaryEvent } from "@/app/actions/commentary";
 import type { CardGameState, CardInstance } from "@/lib/shogi/cards/types";
-import { CARD_DEFS, PHASE0_DRAW_COST } from "@/lib/shogi/cards/definitions";
+import { CARD_DEFS, DRAW_COST } from "@/lib/shogi/cards/definitions";
 import { createGame } from "@/app/actions/game";
 
 import { ManaGauge } from "./mana-gauge";
@@ -42,6 +42,7 @@ import { DeckPile } from "./deck-pile";
 import { CardPlayDialog, CardTargetingNotice } from "./card-play-dialog";
 import { DrawFlightCard } from "./draw-flight-card";
 import { ManaFlightLayer, type ManaFlightItem } from "./mana-flight";
+import { FastMoveBadgeLayer, type FastMoveBadgeItem } from "./fast-move-badge";
 
 interface SerializableGameConfig {
   variantId: string;
@@ -94,6 +95,9 @@ export function CardShogiGame({
   // マナ増減の浮遊テキスト (Issue #77)。各イベントを起点 UI 付近で表示する。
   const [manaFlights, setManaFlights] = useState<ManaFlightItem[]>([]);
   const manaFlightIdRef = useRef(0);
+  // 早指し時のバッジ。マナ +N と同じ駒位置イベントから派生し、駒の少し下に表示。
+  const [fastMoveBadges, setFastMoveBadges] = useState<FastMoveBadgeItem[]>([]);
+  const fastMoveBadgeIdRef = useRef(0);
   // カード使用時、reducer がカードを hand から削除する前に DOMRect を保管する。
   // cardPlayEvent / trapSetEvent / マナUP の manaChargeEvent(reason: card) の起点として使う。
   const playedCardRectRef = useRef<{ id: string; rect: DOMRect } | null>(null);
@@ -254,6 +258,17 @@ export function CardShogiGame({
     setManaFlights((prev) => prev.filter((f) => f.id !== id));
   }, []);
 
+  const triggerFastMoveBadge = useCallback((rect: DOMRect | null) => {
+    if (!rect) return;
+    fastMoveBadgeIdRef.current += 1;
+    const id = fastMoveBadgeIdRef.current;
+    setFastMoveBadges((prev) => [...prev, { id, rect }]);
+  }, []);
+
+  const removeFastMoveBadge = useCallback((id: number) => {
+    setFastMoveBadges((prev) => prev.filter((b) => b.id !== id));
+  }, []);
+
   // 表示中の手札の中から該当カード DOM を見つけて DOMRect を返す。
   const findVisibleCardRect = useCallback((instanceId: string): DOMRect | null => {
     if (typeof document === "undefined") return null;
@@ -297,7 +312,7 @@ export function CardShogiGame({
             setDrawFlight({ card: ev.instance, key: Date.now() });
           }
           // Issue #77: 山札の位置で -5 マナ表示
-          triggerManaFlight(-PHASE0_DRAW_COST, getDeckRect());
+          triggerManaFlight(-DRAW_COST, getDeckRect());
           break;
         case "cardPlayEvent": {
           playSfx("card_play");
@@ -325,6 +340,7 @@ export function CardShogiGame({
             }
             const rect = moveTo ? getBoardSquareRect(moveTo.row, moveTo.col) : null;
             triggerManaFlight(ev.amount, rect);
+            if (ev.fastMove) triggerFastMoveBadge(rect);
           } else {
             // カード由来 (マナUP等): 直前に使用したカードの位置 (なければ手札中央)
             const cached = playedCardRectRef.current;
@@ -354,7 +370,7 @@ export function CardShogiGame({
       }
     }
     lastEventIndexRef.current = eventLog.length;
-  }, [eventLog, isReady, playSfx, playerColor, triggerManaFlight, getDeckRect, getHandRect, getBoardSquareRect]);
+  }, [eventLog, isReady, playSfx, playerColor, triggerManaFlight, triggerFastMoveBadge, getDeckRect, getHandRect, getBoardSquareRect]);
 
   // Issue #78: 演出中は盤面・手札・カード操作・背景クリックをロックする
   const handleSquareClick = useCallback(
@@ -1022,6 +1038,9 @@ export function CardShogiGame({
 
       {/* Issue #77: マナ加減算の浮遊テキスト (起点 UI 付近に表示) */}
       <ManaFlightLayer items={manaFlights} onComplete={removeManaFlight} />
+
+      {/* Issue #81: 早指し時に駒の少し下に表示するバッジ */}
+      <FastMoveBadgeLayer items={fastMoveBadges} onComplete={removeFastMoveBadge} />
     </div>
   );
 }

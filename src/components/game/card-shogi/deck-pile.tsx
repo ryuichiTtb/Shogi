@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { PHASE0_DRAW_COST } from "@/lib/shogi/cards/definitions";
+import { DRAW_COST } from "@/lib/shogi/cards/definitions";
 
 interface DeckPileProps {
   count: number;
@@ -98,10 +98,10 @@ export function DeckPile({
               "flex items-center gap-0.5 rounded-full px-1 leading-tight font-bold tabular-nums text-[10px]",
               "bg-cyan-100 text-cyan-900 dark:bg-cyan-900/60 dark:text-cyan-100",
             )}
-            title={`ドローコスト: マナ ${PHASE0_DRAW_COST}`}
+            title={`ドローコスト: マナ ${DRAW_COST}`}
           >
             <span aria-hidden>💎</span>
-            <span>×{PHASE0_DRAW_COST}</span>
+            <span>×{DRAW_COST}</span>
           </span>
         )}
         <span className="text-[11px] font-bold leading-tight">山札 ×{count}</span>
@@ -175,7 +175,7 @@ export function DeckPile({
           isEmpty
             ? "山札 (空)"
             : interactable
-              ? `山札からドロー (残${count}枚、コスト${PHASE0_DRAW_COST})`
+              ? `山札からドロー (残${count}枚、コスト${DRAW_COST})`
               : `山札 (残${count}枚)`
         }
       >
@@ -187,10 +187,10 @@ export function DeckPile({
               "bg-cyan-100 text-cyan-900 dark:bg-cyan-900/60 dark:text-cyan-100",
               size === "sm" ? "text-[8px]" : "text-[10px]",
             )}
-            title={`ドローコスト: マナ ${PHASE0_DRAW_COST}`}
+            title={`ドローコスト: マナ ${DRAW_COST}`}
           >
             <span aria-hidden>💎</span>
-            <span>× {PHASE0_DRAW_COST}</span>
+            <span>× {DRAW_COST}</span>
           </span>
         )}
 
