@@ -235,7 +235,7 @@ export function CardView({
           {def.kind === "trap" && (
             <span
               className={cn(
-                "bg-purple-600 text-white px-1.5 rounded font-bold leading-tight shrink-0 shadow-sm",
+                "bg-emerald-600 text-white px-1.5 rounded font-bold leading-tight shrink-0 shadow-sm",
                 TRAP_BADGE_TEXT_CLASS[size],
               )}
             >
