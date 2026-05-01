@@ -198,7 +198,9 @@ export function CardView({
     ? cn("w-full", FULL_WIDTH_HEIGHT[size], FULL_WIDTH_TEXT[size])
     : SIZE_CLASS[size];
 
-  const isAnimated = size !== "sm" && !disabled;
+  // disabled でも背景グラデ・閃光・オーブのレア度演出は維持し、saturate を
+  // 落として「使えないが豪華さは保つ」表現にする (sm はサムネイル用なので OFF)。
+  const isAnimated = size !== "sm";
   // 暗色背景が当たるレア度 (rare 以上、かつ animated 時) はコスト背景・説明文も
   // ダークモード用の色に強制切替して可読性を担保。
   const hasRarityBg = isAnimated && def.rarity !== "common";
@@ -224,9 +226,12 @@ export function CardView({
         isAnimated && RARITY_BG_CLASS[def.rarity],
         // 斜め閃光 (super_rare/epic)
         isAnimated && RARITY_HAS_SHINE[def.rarity] && "card-rarity-shine",
+        // 非活性: 鮮やかさだけ落としてレア度演出は維持(opacity ではなく
+        // saturate を使うことで動的グラデ・オーブの形状感は残す)。
+        // 活性: card-hover-focus で暖色リング+lift のフォーカス強調を付与。
         disabled
-          ? "opacity-50 cursor-not-allowed"
-          : "cursor-pointer hover:shadow-md",
+          ? "opacity-70 saturate-50 cursor-not-allowed"
+          : "cursor-pointer card-hover-focus",
         // 選択時は ring で強調(枠のレア度色は維持)
         selected && "ring-2 ring-primary ring-offset-1 ring-offset-background",
       )}
