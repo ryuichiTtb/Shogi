@@ -211,64 +211,103 @@
 }
 
 /* カード将棋: レア度別ビジュアル演出 (Issue #104)
- * - common: 演出なし
- * - rare:       淡い青のグロー pulse
- * - super_rare: 紫のグロー pulse (中強度)
- * - epic:       金のグロー pulse + sparkle (強)
+ * - common:     演出なし
+ * - rare:       軽い青グロー pulse
+ * - super_rare: ゴールドグロー pulse + 斜め閃光 (shine)
+ * - epic:       パープルグロー pulse + 斜め閃光 (shine) + 紫/青/赤オーブ
  */
 
+/* --- レア (rare) --- */
 @keyframes card-rarity-rare-pulse {
-  0%, 100% { box-shadow: 0 0 6px 1px rgba(56, 189, 248, 0.30); }
-  50%      { box-shadow: 0 0 12px 2px rgba(56, 189, 248, 0.55); }
+  0%, 100% { box-shadow: 0 0 4px 1px rgba(56, 189, 248, 0.25); }
+  50%      { box-shadow: 0 0 9px 2px rgba(56, 189, 248, 0.45); }
 }
 .card-rarity-rare {
-  animation: card-rarity-rare-pulse 2.4s ease-in-out infinite;
+  animation: card-rarity-rare-pulse 2.6s ease-in-out infinite;
 }
 
+/* --- 激レア (super_rare): ゴールドグロー --- */
 @keyframes card-rarity-super-rare-pulse {
-  0%, 100% { box-shadow: 0 0 8px 1px rgba(217, 70, 239, 0.35); }
-  50%      { box-shadow: 0 0 16px 3px rgba(217, 70, 239, 0.60); }
+  0%, 100% { box-shadow: 0 0 8px 1px rgba(251, 191, 36, 0.45); }
+  50%      { box-shadow: 0 0 16px 3px rgba(251, 191, 36, 0.70); }
 }
 .card-rarity-super-rare {
   animation: card-rarity-super-rare-pulse 2.0s ease-in-out infinite;
 }
 
+/* --- 究極 (epic): パープルグロー --- */
 @keyframes card-rarity-epic-pulse {
-  0%, 100% {
-    box-shadow:
-      0 0 12px 2px rgba(251, 191, 36, 0.50),
-      0 0 6px 1px rgba(255, 235, 150, 0.40);
-  }
-  50% {
-    box-shadow:
-      0 0 22px 4px rgba(251, 191, 36, 0.75),
-      0 0 12px 2px rgba(255, 235, 150, 0.60);
-  }
-}
-@keyframes card-rarity-epic-sparkle {
-  0%, 100% { opacity: 0.30; transform: scale(0.7) rotate(0deg); }
-  50%      { opacity: 1.00; transform: scale(1.2) rotate(180deg); }
+  0%, 100% { box-shadow: 0 0 12px 2px rgba(168, 85, 247, 0.55); }
+  50%      { box-shadow: 0 0 22px 4px rgba(168, 85, 247, 0.80); }
 }
 .card-rarity-epic {
   animation: card-rarity-epic-pulse 1.8s ease-in-out infinite;
 }
-.card-rarity-epic::before,
-.card-rarity-epic::after {
-  content: "✦";
+
+/* --- 斜め閃光 (shine): 左上→右下にスーッと光る (super_rare / epic 共通) --- */
+@keyframes card-rarity-shine {
+  0%, 65% { transform: translateX(-110%); }
+  90%     { transform: translateX(110%); }
+  100%    { transform: translateX(110%); }
+}
+.card-rarity-shine::after {
+  content: "";
   position: absolute;
-  font-size: 11px;
-  color: rgba(251, 191, 36, 0.95);
-  text-shadow: 0 0 6px rgba(251, 191, 36, 0.85);
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: linear-gradient(
+    115deg,
+    transparent 38%,
+    rgba(255, 255, 255, 0.55) 50%,
+    transparent 62%
+  );
+  transform: translateX(-110%);
+  animation: card-rarity-shine 4.0s ease-in-out infinite;
   pointer-events: none;
-  animation: card-rarity-epic-sparkle 1.6s ease-in-out infinite;
+  z-index: 5;
 }
-.card-rarity-epic::before {
-  top: -5px;
-  right: 6px;
-  animation-delay: 0s;
+
+/* --- 究極のオーブ: 紫/青/赤の光球がふわふわ漂う --- */
+.card-rarity-orb {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 1;
+  filter: blur(1.5px);
+  opacity: 0;
 }
-.card-rarity-epic::after {
-  bottom: -5px;
-  left: 6px;
-  animation-delay: 0.8s;
+.card-rarity-orb-purple {
+  background: radial-gradient(circle, rgba(216, 180, 254, 1) 0%, rgba(168, 85, 247, 0.5) 60%, transparent 100%);
 }
+.card-rarity-orb-blue {
+  background: radial-gradient(circle, rgba(147, 197, 253, 1) 0%, rgba(59, 130, 246, 0.5) 60%, transparent 100%);
+}
+.card-rarity-orb-red {
+  background: radial-gradient(circle, rgba(252, 165, 165, 1) 0%, rgba(239, 68, 68, 0.5) 60%, transparent 100%);
+}
+@keyframes card-rarity-orb-1 {
+  0%   { left: 8%;  top: 78%; opacity: 0; }
+  20%  { opacity: 0.95; }
+  50%  { left: 28%; top: 22%; opacity: 1.0; }
+  80%  { opacity: 0.65; }
+  100% { left: 55%; top: 88%; opacity: 0; }
+}
+@keyframes card-rarity-orb-2 {
+  0%   { left: 88%; top: 70%; opacity: 0; }
+  25%  { opacity: 0.85; }
+  55%  { left: 52%; top: 28%; opacity: 1.0; }
+  80%  { opacity: 0.55; }
+  100% { left: 18%; top: 82%; opacity: 0; }
+}
+@keyframes card-rarity-orb-3 {
+  0%   { left: 50%; top: 92%; opacity: 0; }
+  25%  { opacity: 0.85; }
+  55%  { left: 75%; top: 38%; opacity: 1.0; }
+  78%  { opacity: 0.55; }
+  100% { left: 30%; top: 8%;  opacity: 0; }
+}
+.card-rarity-orb-1 { animation: card-rarity-orb-1 4.6s ease-in-out infinite; }
+.card-rarity-orb-2 { animation: card-rarity-orb-2 5.1s ease-in-out infinite 0.7s; }
+.card-rarity-orb-3 { animation: card-rarity-orb-3 5.6s ease-in-out infinite 1.5s; }
