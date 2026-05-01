@@ -86,6 +86,10 @@ function DrawFlightInner({
     const centerX = (winW - CARD_W) / 2;
     const centerY = (winH - CARD_H) / 2;
 
+    // モバイル等で 576x352 がそのまま入らない場合、ビューポートにフィットする倍率まで縮小。
+    // transform: scale なので 高解像度フォントを保ったまま縮小描画される (ボケなし)。
+    const centerScale = Math.min(1, (winW * 0.92) / CARD_W, (winH * 0.85) / CARD_H);
+
     const startX = deckRect ? deckRect.x + deckRect.width / 2 - CARD_W / 2 : centerX;
     const startY = deckRect ? deckRect.y + deckRect.height / 2 - CARD_H / 2 : centerY;
     const startScale = deckRect ? Math.max(0.15, deckRect.width / CARD_W) : 0.2;
@@ -103,12 +107,12 @@ function DrawFlightInner({
       endScale = 0.2;
     }
 
-    return { startX, startY, centerX, centerY, endX, endY, startScale, endScale };
+    return { startX, startY, centerX, centerY, endX, endY, startScale, centerScale, endScale };
   });
 
   if (!coords) return null;
 
-  const { startX, startY, centerX, centerY, endX, endY, startScale, endScale } = coords;
+  const { startX, startY, centerX, centerY, endX, endY, startScale, centerScale, endScale } = coords;
 
   const t1 = FADE_IN_MS / TOTAL_MS;
   const t2 = (FADE_IN_MS + HOLD_MS) / TOTAL_MS;
@@ -132,7 +136,7 @@ function DrawFlightInner({
       animate={{
         left: [startX, centerX, centerX, endX],
         top: [startY, centerY, centerY, endY],
-        scale: [startScale, 1, 1, endScale],
+        scale: [startScale, centerScale, centerScale, endScale],
         opacity: [0, 1, 1, 0],
       }}
       transition={{
