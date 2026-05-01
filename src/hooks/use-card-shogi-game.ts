@@ -673,16 +673,17 @@ export function useCardShogiGame({
 
   const aiPlayer: Player = gameConfig.playerColor === "sente" ? "gote" : "sente";
 
-  // currentPlayer が自分に戻ってきたタイミングで早指しタイマーを開始
+  // 番が回ってきた時点で早指しタイマーを開始する。
+  // 自分・AI 双方に適用しないと AI 側だけ常に通常チャージ(+1)扱いになる。
   useEffect(() => {
+    const cp = state.gameState.currentPlayer;
     if (
       state.gameState.status === "active" &&
-      state.gameState.currentPlayer === gameConfig.playerColor &&
-      state.cardState.lastTurnStartedAt[gameConfig.playerColor] === null
+      state.cardState.lastTurnStartedAt[cp] === null
     ) {
-      dispatch({ type: "RESET_TURN_TIMER", player: gameConfig.playerColor });
+      dispatch({ type: "RESET_TURN_TIMER", player: cp });
     }
-  }, [state.gameState.currentPlayer, state.gameState.status, gameConfig.playerColor, state.cardState.lastTurnStartedAt]);
+  }, [state.gameState.currentPlayer, state.gameState.status, state.cardState.lastTurnStartedAt]);
 
   // AI 自動応手
   useEffect(() => {
