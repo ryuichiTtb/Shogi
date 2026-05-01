@@ -31,7 +31,7 @@ import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
 import { getVariantById } from "@/lib/shogi/variants/index";
 import type { Difficulty, GameConfig, GameState, Move, Player, Position } from "@/lib/shogi/types";
 import type { CommentaryEvent } from "@/app/actions/commentary";
-import type { CardGameState } from "@/lib/shogi/cards/types";
+import type { CardGameState, CardInstance } from "@/lib/shogi/cards/types";
 import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
 import { createGame } from "@/app/actions/game";
 
@@ -40,6 +40,7 @@ import { HandArea } from "./hand-area";
 import { TrapSlot } from "./trap-slot";
 import { DeckPile } from "./deck-pile";
 import { CardPlayDialog, CardTargetingNotice } from "./card-play-dialog";
+import { DrawFlightCard, type DrawFlightMode } from "./draw-flight-card";
 
 interface SerializableGameConfig {
   variantId: string;
@@ -74,6 +75,17 @@ export function CardShogiGame({
   const [commentEvent, setCommentEvent] = useState<CommentaryEvent | null>(null);
   const [overlayEvent, setOverlayEvent] = useState<{ event: OverlayEvent; key: number; trapName?: string } | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Issue #78: ドロー演出 (山札→中央→手札方向)
+  const [drawFlight, setDrawFlight] = useState<{ card: CardInstance; key: number } | null>(null);
+  // Issue #78: 演出パターン比較用 dev トグル (最終 PR では1つに絞り、トグルは削除予定)
+  const [animationMode, setAnimationMode] = useState<DrawFlightMode>("directional");
+  // 各レイアウトの山札・手札 DOM ref。表示中のものから矩形を取得する。
+  const ownDeckPileTabletRef = useRef<HTMLDivElement>(null);
+  const ownDeckPileMobileRef = useRef<HTMLDivElement>(null);
+  const ownDeckPileXlRef = useRef<HTMLDivElement>(null);
+  const ownHandTabletRef = useRef<HTMLDivElement>(null);
+  const ownHandMobileBtnRef = useRef<HTMLDivElement>(null);
+  const ownHandXlRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const { squareSize, isMobile, viewportHeight } = useCardBoardSize();
@@ -193,6 +205,10 @@ export function CardShogiGame({
       switch (ev.kind) {
         case "drawEvent":
           playSfx("card_draw");
+          // Issue #78: 自分のドローのみ中央演出 (AI ドローは Phase 0 では発生しない想定だが防御的に絞る)
+          if (ev.player === playerColor) {
+            setDrawFlight({ card: ev.instance, key: Date.now() });
+          }
           break;
         case "cardPlayEvent":
           playSfx("card_play");
@@ -216,7 +232,29 @@ export function CardShogiGame({
       }
     }
     lastEventIndexRef.current = eventLog.length;
-  }, [eventLog, isReady, playSfx]);
+  }, [eventLog, isReady, playSfx, playerColor]);
+
+  // 表示中の山札ラッパーから矩形を取得 (xl 以上 → タブレット → モバイル の順に visibility 判定)
+  const getDeckRect = useCallback((): DOMRect | null => {
+    for (const ref of [ownDeckPileXlRef, ownDeckPileTabletRef, ownDeckPileMobileRef]) {
+      const el = ref.current;
+      if (el && el.offsetParent !== null) {
+        return el.getBoundingClientRect();
+      }
+    }
+    return null;
+  }, []);
+
+  // 表示中の手札ラッパーから矩形を取得 (モバイルでドロワー閉のとき手札ボタン位置に着地)
+  const getHandRect = useCallback((): DOMRect | null => {
+    for (const ref of [ownHandXlRef, ownHandTabletRef, ownHandMobileBtnRef]) {
+      const el = ref.current;
+      if (el && el.offsetParent !== null) {
+        return el.getBoundingClientRect();
+      }
+    }
+    return null;
+  }, []);
 
   // ----- レイアウト用ヘルパ -----
 
@@ -523,8 +561,8 @@ export function CardShogiGame({
       >
         <Badge className="shrink-0" variant="default">▲ 自分</Badge>
         {ownTrapSlot}
-        <div className="flex-1 min-w-0">{ownHand}</div>
-        {ownDeckPile}
+        <div ref={ownHandTabletRef} className="flex-1 min-w-0">{ownHand}</div>
+        <div ref={ownDeckPileTabletRef} className="shrink-0">{ownDeckPile}</div>
         <div className="shrink-0">{ownManaGauge}</div>
         <div className="shrink-0 ml-2 border-l pl-2">
           <GameControls
@@ -563,20 +601,22 @@ export function CardShogiGame({
           </div>
           {/* 段2: 手札ボタン + マナゲージ (flex-1 で残り高さを取る) */}
           <div className="flex-1 flex items-center gap-2">
-            <Button
-              size="sm"
-              variant={drawerOpen ? "outline" : "default"}
-              className="h-9 gap-1 text-xs shrink-0"
-              onClick={() => setDrawerOpen((v) => !v)}
-            >
-              {drawerOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
-              手札 {cardState.hand[playerColor].length}
-            </Button>
+            <div ref={ownHandMobileBtnRef} className="shrink-0">
+              <Button
+                size="sm"
+                variant={drawerOpen ? "outline" : "default"}
+                className="h-9 gap-1 text-xs"
+                onClick={() => setDrawerOpen((v) => !v)}
+              >
+                {drawerOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+                手札 {cardState.hand[playerColor].length}
+              </Button>
+            </div>
             <div className="flex-1 min-w-0">{ownManaGaugeCompact}</div>
           </div>
         </div>
         {/* 中央: 山札 (左2段の高さに合わせて伸びる) */}
-        <div className="shrink-0 flex">{ownDeckPileMobile}</div>
+        <div ref={ownDeckPileMobileRef} className="shrink-0 flex">{ownDeckPileMobile}</div>
         {/* 右: トラップ */}
         <div className="shrink-0 flex">{ownTrapSlotMobile}</div>
       </section>
@@ -660,7 +700,7 @@ export function CardShogiGame({
           <Badge variant="default" className="self-center shrink-0">▲ 自分</Badge>
           <div className="shrink-0 w-full">{ownManaGauge}</div>
           <div className="flex gap-2 shrink-0 w-full">
-            <div className="flex-1 min-w-0">
+            <div ref={ownDeckPileXlRef} className="flex-1 min-w-0">
               <DeckPile
                 count={cardState.deck[playerColor].length}
                 canDraw={cardState.mana[playerColor] >= 5 && isPlayerTurn && isGameActive && !inCheck}
@@ -676,7 +716,7 @@ export function CardShogiGame({
             </div>
           </div>
           <div className="text-xs text-muted-foreground font-medium shrink-0 text-center">手札 {cardState.hand[playerColor].length}枚</div>
-          <div className="flex-1 min-h-0 overflow-y-auto">
+          <div ref={ownHandXlRef} className="flex-1 min-h-0 overflow-y-auto">
             <HandArea
               hand={cardState.hand[playerColor]}
               currentMana={cardState.mana[playerColor]}
@@ -816,6 +856,40 @@ export function CardShogiGame({
         pendingCard={cardState.pendingCard}
         onCancel={cancelPlayCard}
       />
+
+      {/* Issue #78: ドロー中央演出 */}
+      <DrawFlightCard
+        cardInstance={drawFlight?.card ?? null}
+        flightKey={drawFlight?.key ?? null}
+        mode={animationMode}
+        deckRectGetter={getDeckRect}
+        handRectGetter={getHandRect}
+        onComplete={() => setDrawFlight(null)}
+      />
+
+      {/* Issue #78: 演出パターン比較 dev トグル (最終 PR で削除予定) */}
+      <div
+        className="fixed top-1 right-1 z-[70] flex items-center gap-1 rounded border bg-card/95 px-2 py-1 text-[10px] shadow-md"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <span className="text-muted-foreground">演出</span>
+        <Button
+          size="sm"
+          variant={animationMode === "directional" ? "default" : "outline"}
+          className="h-5 px-1.5 text-[10px]"
+          onClick={() => setAnimationMode("directional")}
+        >
+          A
+        </Button>
+        <Button
+          size="sm"
+          variant={animationMode === "tracking" ? "default" : "outline"}
+          className="h-5 px-1.5 text-[10px]"
+          onClick={() => setAnimationMode("tracking")}
+        >
+          B
+        </Button>
+      </div>
     </div>
   );
 }
