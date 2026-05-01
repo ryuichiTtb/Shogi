@@ -102,7 +102,7 @@ export default function Home() {
 
         {/* 難易度・キャラクター選択 (モバイル時 padding を詰める) */}
         <Card className="shrink-0">
-          <CardHeader className="pb-1 sm:pb-3 pt-3 sm:pt-6">
+          <CardHeader className="pb-1 sm:pb-2 pt-3 sm:pt-3">
             <CardTitle className="text-sm sm:text-base flex items-center gap-2">
               <Swords className="w-4 h-4" />
               対局相手を選ぶ
@@ -159,7 +159,7 @@ export default function Home() {
                     key={character.id}
                     onClick={() => setSelectedDifficulty(character.difficulty)}
                     className={cn(
-                      "relative p-4 rounded-xl border-2 text-left transition-all",
+                      "relative p-3 rounded-xl border-2 text-left transition-all",
                       "hover:shadow-md cursor-pointer",
                       isSelected
                         ? "border-primary bg-primary/5 shadow-sm"
@@ -169,16 +169,16 @@ export default function Home() {
                     {isSelected && (
                       <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-primary" />
                     )}
-                    <div className="text-3xl mb-2">{character.avatarEmoji}</div>
+                    <div className="text-3xl mb-1">{character.avatarEmoji}</div>
                     <div className="font-bold text-sm">{character.name}</div>
-                    <div className="text-xs text-muted-foreground mb-2">{character.title}</div>
+                    <div className="text-xs text-muted-foreground mb-1">{character.title}</div>
                     <Badge
                       variant="outline"
                       className={cn("text-xs", diffInfo.color)}
                     >
                       {diffInfo.label}
                     </Badge>
-                    <p className="text-xs text-muted-foreground mt-1">
+                    <p className="text-xs text-muted-foreground mt-0.5">
                       {diffInfo.description}
                     </p>
                   </button>
@@ -190,7 +190,7 @@ export default function Home() {
 
         {/* 手番選択 (モバイル時 padding を詰める) */}
         <Card className="shrink-0">
-          <CardHeader className="pb-1 sm:pb-3 pt-3 sm:pt-6">
+          <CardHeader className="pb-1 sm:pb-2 pt-3 sm:pt-3">
             <CardTitle className="text-sm sm:text-base">手番を選ぶ</CardTitle>
           </CardHeader>
           <CardContent className="pb-2 sm:pb-3">
@@ -220,14 +220,14 @@ export default function Home() {
                   key={value}
                   onClick={() => setSelectedColor(value)}
                   className={cn(
-                    "p-4 rounded-xl border-2 text-center transition-all cursor-pointer",
+                    "p-3 rounded-xl border-2 text-center transition-all cursor-pointer",
                     "hover:shadow-md",
                     selectedColor === value
                       ? "border-primary bg-primary/5"
                       : "border-border hover:border-primary/40"
                   )}
                 >
-                  <div className="text-2xl mb-1">{icon}</div>
+                  <div className="text-2xl mb-0.5">{icon}</div>
                   <div className="font-medium text-sm">{label}</div>
                   <div className="text-xs text-muted-foreground">{desc}</div>
                 </button>
