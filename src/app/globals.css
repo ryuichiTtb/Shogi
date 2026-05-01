@@ -234,21 +234,25 @@
   background-color: rgb(15, 23, 42);  /* slate-900 (ライト/ダーク共通の暗色ベース) */
   color: rgb(241, 245, 249);          /* slate-100 (明色テキスト) */
 }
-/* repeating-linear-gradient は 135deg 方向に内蔵で無限繰り返しするため
- * タイル境界の概念がなく継ぎ目が出ない。1 パターン 360px を 360px 動かす
- * ことで継ぎ目なくループする斜めスライドを実現。
+/* repeating-linear-gradient(135deg) は 135deg 方向に 360px 周期で繰り返す。
  *
- * パターン構成(360px 周期):
- *   0-80px   : 主色帯(0.25 = 黒透け 75%)
- *   80-140px : H1 ハイライト(60px 幅、110px でピーク)
- *   140-220px: 主色帯
- *   220-280px: H2 ハイライト(60px 幅、250px でピーク)
- *   280-360px: 主色帯
- * → 主色帯 78%、ハイライト帯 22% で黒ベース多め
+ * background-position を (X, Y) シフトすると 135deg 方向への投影距離は
+ * (X + Y) / √2 となるので、ちょうど 1 周期分動かすには
+ * X = Y = 360 / √2 = 254.5584... px が必要。
+ *
+ * 360px 360px 動かしていた前回までは (360+360)/√2 ≈ 509px ≈ 1.41 周期分
+ * になっており、ループ境目で位相が約 0.4 周期分ズレて「カタッと戻る」
+ * 現象が発生していた。
+ *
+ * calc(360px / 1.41421356) で 1 周期分を厳密に計算しジャンプを解消する。
  */
 @keyframes card-rarity-bg-slide {
   0%   { background-position: 0px 0px, 0px 0px; }
-  100% { background-position: 0px 0px, -360px -360px; }
+  100% {
+    background-position:
+      0px 0px,
+      calc(360px / -1.41421356) calc(360px / -1.41421356);
+  }
 }
 .card-rarity-bg-rare {
   background-image:
