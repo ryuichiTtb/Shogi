@@ -441,7 +441,7 @@ export function CardShogiGame({
   const ownDeckPile = (
     <DeckPile
       count={cardState.deck[playerColor].length}
-      canDraw={cardState.mana[playerColor] >= 5 && isPlayerTurn && isGameActive && !inCheck && !isDrawAnimating}
+      canDraw={cardState.mana[playerColor] >= DRAW_COST && isPlayerTurn && isGameActive && !inCheck && !isDrawAnimating}
       onDraw={drawCard}
       size="md"
       showDrawCost
@@ -453,7 +453,7 @@ export function CardShogiGame({
   const ownDeckPileMobile = (
     <DeckPile
       count={cardState.deck[playerColor].length}
-      canDraw={cardState.mana[playerColor] >= 5 && isPlayerTurn && isGameActive && !inCheck && !isDrawAnimating}
+      canDraw={cardState.mana[playerColor] >= DRAW_COST && isPlayerTurn && isGameActive && !inCheck && !isDrawAnimating}
       onDraw={drawCard}
       size="md"
       showDrawCost
@@ -871,7 +871,7 @@ export function CardShogiGame({
             <div ref={ownDeckPileXlRef} className="flex-1 min-w-0">
               <DeckPile
                 count={cardState.deck[playerColor].length}
-                canDraw={cardState.mana[playerColor] >= 5 && isPlayerTurn && isGameActive && !inCheck && !isDrawAnimating}
+                canDraw={cardState.mana[playerColor] >= DRAW_COST && isPlayerTurn && isGameActive && !inCheck && !isDrawAnimating}
                 onDraw={drawCard}
                 size="lg"
                 showDrawCost
