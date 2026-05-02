@@ -609,12 +609,54 @@
  * 採用案決定後、`card-back-mock-*` のうち採用したものだけを正式名にリネームし、
  * 残りはこのセクションごと削除する。 */
 
+/* 案 A: 玉将エンブレム
+ *   - 60° 角度の細い金色斜線 (repeating-linear-gradient で全面に並べる)
+ *   - 別レイヤーの広い光帯 (sheen) が 3.5s で左→右に通過し、斜線を閃光のように光らせる
+ *   - 中央エンブレムは 6s で opacity を 0.78↔1.0 で脈動 */
+.card-back-mock-emblem-stripes {
+  background-image: repeating-linear-gradient(
+    60deg,
+    transparent 0,
+    transparent 20px,
+    rgba(251, 191, 36, 0.32) 20px,
+    rgba(251, 191, 36, 0.32) 21px
+  );
+}
+.card-back-mock-emblem-shine {
+  background: linear-gradient(
+    100deg,
+    transparent 0%, transparent 40%,
+    rgba(251, 224, 130, 0.55) 50%,
+    transparent 60%, transparent 100%
+  );
+  background-size: 220% 100%;
+  background-position: 110% 0;
+  animation: card-back-mock-emblem-shine-anim 3.5s ease-in-out infinite;
+}
+@keyframes card-back-mock-emblem-shine-anim {
+  0%   { background-position: 110% 0; }
+  55%  { background-position: -10% 0; }
+  100% { background-position: -10% 0; }
+}
+.card-back-mock-emblem-pulse {
+  animation: card-back-mock-emblem-pulse-anim 6s ease-in-out infinite;
+}
+@keyframes card-back-mock-emblem-pulse-anim {
+  0%, 100% { opacity: 0.78; }
+  50%      { opacity: 1; }
+}
+
 /* 案 B: 青海波 + 金箔
- *   - 青海波 SVG タイル (20×10) を repeat
+ *   - 青海波 SVG タイル (20×10) を repeat、ゆっくり左→右にスライド
  *   - sheen は左→右の薄ゴールド光沢 */
 .card-back-mock-seigaiha-pattern {
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 10' width='20' height='10'><g fill='none' stroke='%23fbbf24' stroke-opacity='0.28' stroke-width='0.6'><path d='M0 10 A10 10 0 0 1 20 10'/><path d='M-10 5 A10 10 0 0 1 10 5'/><path d='M10 5 A10 10 0 0 1 30 5'/></g></svg>");
   background-size: 20px 10px;
+  animation: card-back-mock-seigaiha-pattern-slide 18s linear infinite;
+}
+@keyframes card-back-mock-seigaiha-pattern-slide {
+  from { background-position: 0 0; }
+  to   { background-position: 20px 0; }
 }
 .card-back-mock-seigaiha-sheen {
   background: linear-gradient(
@@ -653,7 +695,9 @@
 
 /* 案 E: 駒型タイル + 斜め金線
  *   - repeating-linear-gradient で全面 18px 周期の細ストライプを並べ
- *     45度方向にゆっくりスライドさせる */
+ *     右上方向 (45° の伸びる方向) にゆっくり流す
+ *   - bg-position を負方向に動かすと、画像が左下にずれて見え、結果として
+ *     ストライプが右に流れて見える */
 .card-back-mock-diagonal-stripes {
   background-image: repeating-linear-gradient(
     45deg,
@@ -666,5 +710,5 @@
 }
 @keyframes card-back-mock-diagonal-slide {
   from { background-position: 0 0; }
-  to   { background-position: 32px -32px; }
+  to   { background-position: -32px 32px; }
 }

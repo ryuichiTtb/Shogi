@@ -25,7 +25,7 @@ export function CardBackSeigaiha({ size = "md", fullWidth = false, className }: 
     <div
       className={cn(
         "relative overflow-hidden rounded-md border-2 border-amber-400/70 shrink-0",
-        "bg-[#142a55]",
+        "bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-950",
         sizeCls,
         className,
       )}

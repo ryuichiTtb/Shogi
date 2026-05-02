@@ -33,8 +33,8 @@ export function CardBackMinimal({ size = "md", fullWidth = false, className }: P
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-md border-2 border-slate-300/70 shrink-0",
-        "bg-gradient-to-br from-zinc-900 via-zinc-950 to-black",
+        "relative overflow-hidden rounded-md border-2 border-amber-400/70 shrink-0",
+        "bg-gradient-to-br from-amber-800 via-zinc-900 to-black",
         sizeCls,
         className,
       )}
@@ -43,16 +43,16 @@ export function CardBackMinimal({ size = "md", fullWidth = false, className }: P
       {/* 内側の細枠 (ゴールド) */}
       <div className="absolute inset-[3px] rounded-sm border border-amber-300/35 pointer-events-none" aria-hidden />
       {/* 四隅の菱形 */}
-      <span className="absolute top-1 left-1 w-1.5 h-1.5 rotate-45 bg-amber-300/60" aria-hidden />
-      <span className="absolute top-1 right-1 w-1.5 h-1.5 rotate-45 bg-amber-300/60" aria-hidden />
-      <span className="absolute bottom-1 left-1 w-1.5 h-1.5 rotate-45 bg-amber-300/60" aria-hidden />
-      <span className="absolute bottom-1 right-1 w-1.5 h-1.5 rotate-45 bg-amber-300/60" aria-hidden />
-      {/* 中央: 大きな駒シルエット */}
+      <span className="absolute top-1 left-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
+      <span className="absolute top-1 right-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
+      <span className="absolute bottom-1 left-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
+      <span className="absolute bottom-1 right-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
+      {/* 中央: 大きな駒シルエット (ゴールド線) */}
       <div className="absolute inset-0 flex items-center justify-center">
         <KomaShape
           className={D_SHAPE_CLASS[size]}
-          fillClassName="fill-zinc-950/40"
-          strokeClassName="stroke-slate-200"
+          fillClassName="fill-zinc-950/50"
+          strokeClassName="stroke-amber-300"
           strokeWidth={2}
         />
       </div>
