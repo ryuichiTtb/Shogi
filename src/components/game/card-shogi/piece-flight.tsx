@@ -32,10 +32,13 @@ interface PieceFlightProps {
 
 // 駒のサイズ。盤面マス・持ち駒アイコンと比して見栄えするよう中間サイズ
 const PIECE_SIZE = 56;
-// 移動全体の所要時間 (Issue #82: 0.5s)
-const TOTAL_MS = 500;
-// 回転数 (Issue #82 ユーザー指示: 4 周)
-const ROTATIONS = 4;
+// Issue #82 ユーザー指示: 移動速度一定 (距離 / 秒) + 回転量も距離不問で一定。
+// 距離が長いほど duration が長くなり、短いほど短くなる。回転数は固定。
+const SPEED_PX_PER_SEC = 1800;
+// 距離 0 付近でも瞬時にならないよう最小 duration を確保
+const MIN_DURATION_MS = 180;
+// 回転数 (距離不問で固定)
+const ROTATIONS = 2;
 // 保険タイマーの余裕
 const FALLBACK_PADDING_MS = 500;
 
@@ -73,6 +76,12 @@ function PieceFlightInner({
   playerColor: Player;
   onComplete: () => void;
 }) {
+  // 距離に応じた duration を算出 (移動速度 SPEED_PX_PER_SEC 一定)
+  const dx = spec.toX - spec.fromX;
+  const dy = spec.toY - spec.fromY;
+  const distance = Math.hypot(dx, dy);
+  const durationMs = Math.max(MIN_DURATION_MS, (distance / SPEED_PX_PER_SEC) * 1000);
+
   // タブ非アクティブ時の onAnimationComplete 遅延に備えた保険タイマー
   const completedRef = useRef(false);
   const handleComplete = useCallback(() => {
@@ -82,9 +91,9 @@ function PieceFlightInner({
   }, [onComplete]);
 
   useEffect(() => {
-    const id = window.setTimeout(handleComplete, TOTAL_MS + FALLBACK_PADDING_MS);
+    const id = window.setTimeout(handleComplete, durationMs + FALLBACK_PADDING_MS);
     return () => window.clearTimeout(id);
-  }, [handleComplete]);
+  }, [handleComplete, durationMs]);
 
   return (
     <motion.div
@@ -99,7 +108,7 @@ function PieceFlightInner({
         rotate: 360 * ROTATIONS,
       }}
       transition={{
-        duration: TOTAL_MS / 1000,
+        duration: durationMs / 1000,
         // Issue #82 ユーザー指示: 移動・回転とも等速 (linear)
         ease: "linear",
       }}
