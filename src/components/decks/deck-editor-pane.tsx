@@ -25,7 +25,7 @@ import { RARITY_INFO } from "@/lib/shogi/cards/labels";
 import type { CardId, CardRarity } from "@/lib/shogi/cards/types";
 import { OwnedCardPicker } from "./owned-card-picker";
 import { ConfirmDialog } from "./confirm-dialog";
-import { DeckCardTile, DeckTileControls, TileBadge } from "./deck-card-tile";
+import { DeckCardTile } from "./deck-card-tile";
 
 interface DeckEditorPaneProps {
   deck: DeckDetail;
@@ -95,10 +95,6 @@ export function DeckEditorPane({
       }
       return next;
     });
-  }
-
-  function removeEntry(cardId: CardId) {
-    setEntries((prev) => prev.filter((e) => e.cardId !== cardId));
   }
 
   function handleSave() {
@@ -288,38 +284,22 @@ export function DeckEditorPane({
           <div className="flex-1 min-h-0 overflow-y-auto p-2">
             {entries.length === 0 ? (
               <p className="text-xs text-muted-foreground text-center py-6">
-                右の所持カードから「+」で追加してください
+                右の所持カードをクリックして追加してください
               </p>
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 pb-2">
-                {entries.map((e) => {
-                  const info = ownership.get(e.cardId);
-                  const limit = info ? perCardLimit(info) : 0;
-                  return (
+                {entries.flatMap((e) =>
+                  Array.from({ length: e.count }, (_, i) => (
                     <DeckCardTile
-                      key={e.cardId}
+                      key={`${e.cardId}-${i}`}
+                      instanceKey={i}
                       cardId={e.cardId}
-                      topBadge={
-                        <TileBadge className="bg-primary text-primary-foreground border-primary">
-                          ×{e.count}
-                        </TileBadge>
-                      }
-                      controls={
-                        <DeckTileControls
-                          count={e.count}
-                          canIncrement={
-                            e.count < limit &&
-                            validation.totalCount < DECK_TOTAL_MAX
-                          }
-                          disabled={isPending}
-                          onIncrement={() => changeCount(e.cardId, 1)}
-                          onDecrement={() => changeCount(e.cardId, -1)}
-                          onRemove={() => removeEntry(e.cardId)}
-                        />
-                      }
+                      disabled={isPending}
+                      onClick={() => changeCount(e.cardId, -1)}
+                      title="クリックで編成から外す"
                     />
-                  );
-                })}
+                  )),
+                )}
               </div>
             )}
           </div>

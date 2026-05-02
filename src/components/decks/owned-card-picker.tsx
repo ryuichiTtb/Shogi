@@ -11,7 +11,7 @@ import {
 } from "@/lib/shogi/cards/deck-rules";
 import type { CardId, CardRarity } from "@/lib/shogi/cards/types";
 import type { OwnedCardSummary } from "@/app/actions/deck";
-import { DeckCardTile, OwnedTileControls, TileBadge } from "./deck-card-tile";
+import { DeckCardTile, TileBadge } from "./deck-card-tile";
 
 interface OwnedCardPickerProps {
   ownedCards: OwnedCardSummary[];
@@ -113,40 +113,38 @@ export function OwnedCardPicker({
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 pb-2">
             {filtered.map((c) => {
               const current = currentCountByCard.get(c.cardId) ?? 0;
+              // 残り = 所持 - 編成中
+              const remaining = c.owned - current;
               const cap = RARITY_MAX_PER_DECK[c.rarity];
-              const limit = cap === null ? c.owned : Math.min(c.owned, cap);
-              const atCardLimit = current >= limit;
-              const canAdd = !totalAtMax && !atCardLimit;
+              const atRarityCap = cap !== null && current >= cap;
+              const noStock = remaining <= 0;
+              const cantAdd = noStock || atRarityCap || totalAtMax;
 
-              const reason = totalAtMax
-                ? `デッキ合計 ${DECK_TOTAL_MAX} 枚に達しています`
-                : atCardLimit
-                  ? cap !== null && c.owned >= cap
-                    ? `${RARITY_INFO[c.rarity].label}は ${cap} 枚まで`
-                    : `所持枚数 ${c.owned} 枚に達しています`
-                  : undefined;
+              const reason = noStock
+                ? "残り 0 枚 (所持枚数すべて編成済み)"
+                : atRarityCap
+                  ? `${RARITY_INFO[c.rarity].label}は ${cap} 枚まで`
+                  : totalAtMax
+                    ? `デッキ合計 ${DECK_TOTAL_MAX} 枚に達しています`
+                    : "クリックでデッキに追加";
 
               return (
                 <DeckCardTile
                   key={c.cardId}
                   cardId={c.cardId}
+                  disabled={disabled || cantAdd}
+                  onClick={() => onAdd(c.cardId)}
+                  title={reason}
                   topBadge={
-                    current > 0 ? (
-                      <TileBadge className="bg-primary text-primary-foreground border-primary">
-                        編成中 ×{current}
-                      </TileBadge>
-                    ) : undefined
-                  }
-                  controls={
-                    <OwnedTileControls
-                      owned={c.owned}
-                      current={current}
-                      cap={cap}
-                      canAdd={canAdd}
-                      disabled={disabled}
-                      reason={reason}
-                      onAdd={() => onAdd(c.cardId)}
-                    />
+                    <TileBadge
+                      className={cn(
+                        noStock
+                          ? "bg-muted text-muted-foreground border-border"
+                          : "bg-primary text-primary-foreground border-primary",
+                      )}
+                    >
+                      ×{remaining}
+                    </TileBadge>
                   }
                 />
               );
