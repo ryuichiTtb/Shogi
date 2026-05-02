@@ -25,6 +25,11 @@ interface ShogiBoardProps {
   isMobile: boolean;
   // カード将棋: 歩戻し等のターゲット選択時にハイライトするマス。標準将棋では未指定。
   cardTargetSquares?: Position[];
+  // カード将棋: no_promote の永続「成り不可」マーク位置 (両プレイヤー分をまとめて指定)。
+  noPromoteSquares?: Position[];
+  // カード将棋 (Issue #82): 駒フライト中、着地点の駒を非表示にするためのマス。
+  // 指定したマスの駒は visibility: hidden で消す (レイアウトは保持)。
+  hiddenSquares?: Position[];
 }
 
 // 先手目線のラベル
@@ -49,6 +54,8 @@ export const ShogiBoard = forwardRef<ShogiBoardHandle, ShogiBoardProps>(function
     squareSize,
     isMobile,
     cardTargetSquares,
+    noPromoteSquares,
+    hiddenSquares,
   },
   forwardedRef,
 ) {
@@ -69,6 +76,12 @@ export const ShogiBoard = forwardRef<ShogiBoardHandle, ShogiBoardProps>(function
   );
   const cardTargetSet = new Set(
     (cardTargetSquares ?? []).map((p) => `${p.row}-${p.col}`)
+  );
+  const noPromoteSet = new Set(
+    (noPromoteSquares ?? []).map((p) => `${p.row}-${p.col}`)
+  );
+  const hiddenSet = new Set(
+    (hiddenSquares ?? []).map((p) => `${p.row}-${p.col}`)
   );
 
   const isGote = playerColor === "gote";
@@ -141,6 +154,8 @@ export const ShogiBoard = forwardRef<ShogiBoardHandle, ShogiBoardProps>(function
                 selectedSquare?.col === colIdx;
               const isLegalTarget = legalMoveSet.has(`${rowIdx}-${colIdx}`);
               const isCardTarget = cardTargetSet.has(`${rowIdx}-${colIdx}`);
+              const isNoPromote = noPromoteSet.has(`${rowIdx}-${colIdx}`);
+              const isHidden = hiddenSet.has(`${rowIdx}-${colIdx}`);
               const isLastMoveSq = isLastMoveSquare(rowIdx, colIdx);
               const isKingInCheck =
                 inCheck &&
@@ -206,9 +221,12 @@ export const ShogiBoard = forwardRef<ShogiBoardHandle, ShogiBoardProps>(function
                     </div>
                   )}
 
-                  {/* 駒 */}
+                  {/* 駒 (Issue #82: hiddenSquares 指定時はフライト中につき非表示) */}
                   {piece && (
-                    <div className="absolute inset-0">
+                    <div
+                      className="absolute inset-0"
+                      style={isHidden ? { opacity: 0, pointerEvents: "none" } : undefined}
+                    >
                       <ShogiPiece
                         piece={piece}
                         isSelected={isSelected}
@@ -216,6 +234,26 @@ export const ShogiBoard = forwardRef<ShogiBoardHandle, ShogiBoardProps>(function
                         playerColor={playerColor}
                         squareSize={squareSize}
                       />
+                    </div>
+                  )}
+
+                  {/* no_promote 永続マーク (紫枠 + 🚫) */}
+                  {isNoPromote && (
+                    <div
+                      className="absolute inset-0 pointer-events-none z-20 ring-2 ring-inset ring-purple-500 dark:ring-purple-300"
+                      aria-label="成り不可"
+                    >
+                      <span
+                        className="absolute leading-none select-none"
+                        style={{
+                          right: 1,
+                          top: 1,
+                          fontSize: Math.max(10, squareSize * 0.32),
+                          filter: "drop-shadow(0 0 2px rgba(168,85,247,0.9))",
+                        }}
+                      >
+                        🚫
+                      </span>
                     </div>
                   )}
                 </div>

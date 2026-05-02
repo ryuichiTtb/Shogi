@@ -3,7 +3,7 @@
 // Phase 0 暫定実装。Phase A 以降でカード追加・効果追加に伴い拡張する。
 // イベント駆動設計(設計ドキュメント 2.6)の足がかりとして、状態遷移は GameEvent として記録する。
 
-import type { Player, Move } from "@/lib/shogi/types";
+import type { GameState, Player, Move } from "@/lib/shogi/types";
 
 export type CardKind = "normal" | "trap";
 
@@ -13,6 +13,8 @@ export type CardId =
   | "mana_up"
   | "pawn_return"
   | "no_promote"
+  | "double_pawn"
+  | "piece_return"
   | "sample_normal_common"
   | "sample_normal_rare"
   | "sample_normal_super_rare"
@@ -35,6 +37,16 @@ export type CardStatus = "draft" | "preparing" | "active" | "deprecated";
 // 採用フェーズ(設計ドキュメント 2.5)
 export type CardPhase = "0" | "A" | "B" | "C";
 
+// 使用条件判定(マナ以外の独自条件)。true=使用可 / false=非活性。
+// CARD_USE_CONDITIONS で defId 別に登録 (Server→Client 境界で serialize できないため
+// CardDefinition には含めない)。未登録 defId は常に使用可と見なす。
+// Issue #82: pawn_return / double_pawn / piece_return 等で使用。Issue #115 で正式化予定。
+export type CardUseCondition = (
+  gameState: GameState,
+  player: Player,
+  cardState: CardGameState,
+) => boolean;
+
 export interface CardDefinition {
   id: CardId;
   kind: CardKind;
@@ -53,6 +65,9 @@ export interface CardDefinition {
   phase?: CardPhase;
   // 詳細仕様(マスターカタログ詳細ページ表示用、改行・箇条書き可)
   detailDescription?: string;
+  // 使用条件の説明文(マスターカタログ詳細ページで「使用条件」枠に表示)。
+  // 実際の判定ロジックは CARD_USE_CONDITIONS 側に持つ。表示と判定の整合は手動管理。
+  useConditionDescription?: string;
   // 追加日(ISO 日付文字列、例: "2026-04-30")
   addedAt?: string;
   // 関連 Issue 番号
@@ -81,6 +96,14 @@ export interface PendingCard {
   target?: CardTarget;
 }
 
+// 「成り不可」マーク (no_promote 永続効果)。
+// 各プレイヤーが「成り不可」状態を持つ自分の駒の現在位置を保持。
+// 駒が動いたら座標を追従、駒が取られた / 持ち駒に戻った場合は削除 (案A 仕様)。
+export interface PieceMark {
+  row: number;
+  col: number;
+}
+
 export interface CardGameState {
   mana: Record<Player, number>;
   manaCap: number;
@@ -91,6 +114,8 @@ export interface CardGameState {
   pendingCard: PendingCard | null;
   // 早指し判定用に、各プレイヤーの「今の番が始まった瞬間」のタイムスタンプを保持
   lastTurnStartedAt: Record<Player, number | null>;
+  // no_promote の永続マーク。各プレイヤーの「成り不可」駒の現在位置リスト。
+  noPromoteMarks: Record<Player, PieceMark[]>;
 }
 
 export type CardAction =
@@ -101,6 +126,10 @@ export type CardAction =
   | { type: "BEGIN_PLAY_CARD"; player: Player; instanceId: string }
   | { type: "SELECT_CARD_TARGET"; target: CardTarget }
   | { type: "CONFIRM_PLAY_CARD" }
+  // カード使用演出 (中央フライト表示) 完了時に呼ぶ。currentPlayer を相手に渡し
+  // 自分側の lastTurnStartedAt をクリア。これまでは CONFIRM_PLAY_CARD 時に
+  // 即座に反転していたが、AI が演出中に動き出してしまうため演出完了まで保留する。
+  | { type: "COMMIT_PLAY_CARD" }
   | { type: "CANCEL_PLAY_CARD" }
   | { type: "SET_TRAP"; player: Player; instanceId: string }
   | { type: "TRIGGER_TRAP"; player: Player; reason: TrapTrigger }
