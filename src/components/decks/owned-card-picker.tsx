@@ -48,7 +48,7 @@ export function OwnedCardPicker({
   const totalAtMax = totalCount >= DECK_TOTAL_MAX;
 
   return (
-    <div className="flex flex-col min-h-0">
+    <div className="flex flex-col min-h-0" data-deck-pane="owned">
       <header className="p-2 border-b shrink-0 flex flex-col gap-2">
         <h3 className="text-xs font-semibold">所持カード ({ownedCards.length} 種)</h3>
         <div className="flex items-center gap-1.5 flex-wrap">

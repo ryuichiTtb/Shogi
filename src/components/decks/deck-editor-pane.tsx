@@ -241,8 +241,26 @@ export function DeckEditorPane({
   const handleRemoveFromDeck = useCallback(
     (cardId: CardId, fromRect: DOMRect) => {
       if (isPending) return;
-      // 所持タイルは state 変更前後ともに DOM 上に存在するので先に測定
-      const toRect = findTileRect("owned", cardId, "single");
+      // 所持タイルは state 変更前後ともに DOM 上に存在するので先に測定。
+      // フィルタにより該当カードが非表示の場合はタイルが存在しないので、
+      // 所持パネル中央へのフォールバックを使う (適当な位置に飛ばすだけで OK)。
+      let toRect = findTileRect("owned", cardId, "single");
+      if (!toRect) {
+        const pane = document.querySelector(
+          '[data-deck-pane="owned"]',
+        ) as HTMLElement | null;
+        if (pane) {
+          const r = pane.getBoundingClientRect();
+          const w = fromRect.width;
+          const h = fromRect.height;
+          toRect = new DOMRect(
+            r.left + (r.width - w) / 2,
+            r.top + (r.height - h) / 2,
+            w,
+            h,
+          );
+        }
+      }
 
       setEntries((prev) => {
         const idx = prev.findIndex((e) => e.cardId === cardId);
