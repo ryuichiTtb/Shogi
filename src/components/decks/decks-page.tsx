@@ -25,16 +25,19 @@ interface DecksPageProps {
 
 export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
   const router = useRouter();
+  // initialDecks は初期値のみ採用。以後は optimistic 更新と onChanged パッチで
+  // ローカル管理する。useEffect で initialDecks に毎回同期すると、
+  // router.refresh() の RSC が (エッジ伝播ラグや並行 refresh の race で) stale
+  // で返ってきたとき optimistic を打ち消してしまい「使用中ラベルが元に戻る」
+  // 不具合の原因になっていた。
   const [decks, setDecks] = useState<DeckSummary[]>(initialDecks);
-  // サーバ側の更新 (revalidatePath → router.refresh) を取り込む
-  useEffect(() => {
-    setDecks(initialDecks);
-  }, [initialDecks]);
 
   const [selectedId, setSelectedId] = useState<string | null>(
     initialDecks.find((d) => d.isDefault)?.id ?? initialDecks[0]?.id ?? null,
   );
   const [detail, setDetail] = useState<DeckDetail | null>(null);
+  // 操作失敗を画面下部に表示するためのエラーメッセージ。null=非表示。
+  const [actionError, setActionError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   // 新規デッキの草稿。null=非アクティブ、""〜=入力中。
@@ -102,7 +105,7 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
     setDraftError(null);
     try {
       const newId = await createDeck(trimmed);
-      // Optimistic: 一覧に即追加し選択。サーバ refetch 後に再 sync される。
+      // Optimistic: 一覧に即追加し選択。サーバ側の DB と一致するので追加 sync 不要。
       setDecks((prev) => [
         ...prev,
         {
@@ -152,9 +155,10 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
     // Optimistic: 即時に使用中フラグを切替 (UI 上で「使用中 ↔ 選択」が瞬時に
     // 入れ替わる)。currentDetail (= 編集エリアの deck) も同期しないと、
     // エディタ側の deck.isDefault が古いままで「削除」ボタン等の活性が
-    // 連動しない。サーバーが失敗したら両方 revert。
+    // 連動しない。サーバーが失敗したら両方 revert + actionError を表示。
     const prevDecks = decks;
     const prevDetail = detail;
+    setActionError(null);
     setDecks((prev) => prev.map((d) => ({ ...d, isDefault: d.id === deckId })));
     setDetail((prev) =>
       prev ? { ...prev, isDefault: prev.id === deckId } : prev,
@@ -167,6 +171,11 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
       console.error("setDefaultDeck failed", e);
       setDecks(prevDecks);
       setDetail(prevDetail);
+      setActionError(
+        e instanceof Error
+          ? `使用中の切替に失敗しました: ${e.message}`
+          : "使用中の切替に失敗しました。再度お試しください。",
+      );
     } finally {
       setPendingDefaultId(null);
     }
@@ -183,6 +192,7 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
     const prevDecks = decks;
     const prevSelectedId = selectedId;
     const prevDetail = detail;
+    setActionError(null);
     // 次に選択するデッキ (削除対象を除いた先頭。なければ null)
     const next = prevDecks.find((d) => d.id !== targetId);
     setDecks((p) => p.filter((d) => d.id !== targetId));
@@ -196,6 +206,11 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
       setDecks(prevDecks);
       setSelectedId(prevSelectedId);
       setDetail(prevDetail);
+      setActionError(
+        e instanceof Error
+          ? `削除に失敗しました: ${e.message}`
+          : "削除に失敗しました。再度お試しください。",
+      );
     }
   }
 
@@ -249,6 +264,24 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
                 isOnlyDeck={decks.length <= 1}
                 onChanged={(nextDetail) => {
                   setDetail(nextDetail);
+                  // useEffect [initialDecks] による自動 sync を撤去したので、
+                  // 編集ペインで保存・rename された結果を decks にも明示的に
+                  // パッチする (totalCount / name / isDefault の整合)。
+                  setDecks((prev) =>
+                    prev.map((d) =>
+                      d.id === nextDetail.id
+                        ? {
+                            ...d,
+                            name: nextDetail.name,
+                            isDefault: nextDetail.isDefault,
+                            totalCount: nextDetail.entries.reduce(
+                              (s, e) => s + e.count,
+                              0,
+                            ),
+                          }
+                        : d,
+                    ),
+                  );
                   refresh();
                 }}
                 onDeleted={handleDeleteCurrent}
@@ -263,6 +296,21 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
           </div>
         </div>
       </div>
+      {actionError && (
+        <div
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 max-w-md w-[90vw] rounded-md border border-destructive/40 bg-destructive/10 text-destructive px-3 py-2 text-xs shadow-lg flex items-start gap-2"
+          role="alert"
+        >
+          <span className="flex-1">{actionError}</span>
+          <button
+            type="button"
+            onClick={() => setActionError(null)}
+            className="shrink-0 underline hover:no-underline"
+          >
+            閉じる
+          </button>
+        </div>
+      )}
       <ConfirmDialog
         open={pendingSelect !== null}
         onOpenChange={(o) => {
