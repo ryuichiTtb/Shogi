@@ -4,9 +4,8 @@ import { useCallback, useMemo, useRef, useState, useTransition } from "react";
 import { flushSync } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Trash2, Save, Pencil } from "lucide-react";
+import { Save } from "lucide-react";
 import {
-  renameDeck,
   saveDeckEntries,
   type DeckDetail,
   type DeckEntrySummary,
@@ -22,7 +21,6 @@ import {
 import { RARITY_INFO } from "@/lib/shogi/cards/labels";
 import type { CardId, CardRarity } from "@/lib/shogi/cards/types";
 import { OwnedCardPicker } from "./owned-card-picker";
-import { ConfirmDialog } from "./confirm-dialog";
 import { DeckCardTile, type DeckArea } from "./deck-card-tile";
 import { DeckFlightLayer, type DeckFlightItem } from "./deck-flight-layer";
 
@@ -36,17 +34,13 @@ interface DeckFlight extends DeckFlightItem {
 interface DeckEditorPaneProps {
   deck: DeckDetail;
   ownedCards: OwnedCardSummary[];
-  isOnlyDeck: boolean;
   onChanged: (next: DeckDetail) => void;
-  onDeleted: () => void;
 }
 
 export function DeckEditorPane({
   deck,
   ownedCards,
-  isOnlyDeck,
   onChanged,
-  onDeleted,
 }: DeckEditorPaneProps) {
   const [entries, setEntries] = useState<DeckEntrySummary[]>(deck.entries);
   // タイルごとに stable な slot ID を持たせる。クリックされたタイル自身が
@@ -57,9 +51,6 @@ export function DeckEditorPane({
     () => buildSlotIdsFromEntries(deck.entries, slotCounterRef),
   );
   const [isPending, startTransition] = useTransition();
-  const [name, setName] = useState(deck.name);
-  const [isRenaming, setIsRenaming] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const ownership = useMemo(() => {
@@ -99,33 +90,6 @@ export function DeckEditorPane({
         setActionError(e instanceof Error ? e.message : String(e));
       }
     });
-  }
-
-  function handleRename() {
-    const trimmed = name.trim();
-    if (trimmed === deck.name) {
-      setIsRenaming(false);
-      return;
-    }
-    setActionError(null);
-    startTransition(async () => {
-      try {
-        await renameDeck(deck.id, trimmed);
-        onChanged({ ...deck, name: trimmed, entries });
-        setIsRenaming(false);
-      } catch (e) {
-        setActionError(e instanceof Error ? e.message : String(e));
-        setName(deck.name);
-      }
-    });
-  }
-
-  function handleDelete() {
-    setConfirmDelete(false);
-    setActionError(null);
-    // 親 (DecksPage) が optimistic に一覧から除去 + 非同期で deleteDeck を実行する。
-    // 当コンポーネントは onDeleted 直後に unmount されるためここで await しない。
-    onDeleted();
   }
 
   // 編成中の各 cardId の現在枚数 (UI 用)
@@ -305,56 +269,10 @@ export function DeckEditorPane({
   return (
     // 親 (DecksPage) が DeckEditorFrame でフレームを提供するので、ここでは
     // フラグメントで内側 (header / body / dialog) のみ返す。
+    // デッキ名・rename・削除はデッキ一覧側 (DeckListPane) で管理する。
     <>
-      {/* ヘッダ: デッキ名 + 操作 */}
+      {/* ヘッダ: サマリ + 保存ボタン */}
       <div className="p-3 border-b flex flex-col gap-2 shrink-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          {isRenaming ? (
-            <input
-              type="text"
-              value={name}
-              autoFocus
-              maxLength={30}
-              onChange={(e) => setName(e.target.value)}
-              onBlur={handleRename}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleRename();
-                if (e.key === "Escape") {
-                  setName(deck.name);
-                  setIsRenaming(false);
-                }
-              }}
-              className="h-8 px-2 rounded-md border border-input bg-background text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring/50 flex-1 min-w-0"
-            />
-          ) : (
-            <button
-              type="button"
-              onClick={() => setIsRenaming(true)}
-              className="text-base font-semibold inline-flex items-center gap-1.5 hover:text-primary transition-colors cursor-pointer min-w-0"
-            >
-              <span className="truncate">{deck.name}</span>
-              <Pencil className="w-3.5 h-3.5 shrink-0 opacity-50" />
-            </button>
-          )}
-          <div className="flex-1" />
-          <Button
-            size="sm"
-            variant="destructive"
-            onClick={() => setConfirmDelete(true)}
-            disabled={isPending || isOnlyDeck || deck.isDefault}
-            title={
-              isOnlyDeck
-                ? "最後のデッキは削除できません"
-                : deck.isDefault
-                  ? "使用中のデッキは削除できません"
-                  : undefined
-            }
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            削除
-          </Button>
-        </div>
-
         <DeckSummaryBar
           total={validation.totalCount}
           rarityCounts={rarityCounts}
@@ -456,16 +374,6 @@ export function DeckEditorPane({
       </div>
 
       <DeckFlightLayer flights={flights} onComplete={handleFlightComplete} />
-
-      <ConfirmDialog
-        open={confirmDelete}
-        onOpenChange={setConfirmDelete}
-        title="デッキを削除しますか?"
-        description={`「${deck.name}」を削除します。この操作は取り消せません。`}
-        confirmLabel="削除"
-        confirmVariant="destructive"
-        onConfirm={handleDelete}
-      />
     </>
   );
 }

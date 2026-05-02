@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { Plus } from "lucide-react";
+import { Check, Pencil, Plus, Trash2, X } from "lucide-react";
 import type { DeckSummary } from "@/app/actions/deck";
 
 interface DeckListPaneProps {
@@ -15,6 +15,10 @@ interface DeckListPaneProps {
   draftBusy: boolean;
   // 「選択」ボタン操作中の deckId。連打抑止に使う。
   pendingDefaultId: string | null;
+  // インライン rename ターゲット。null=非アクティブ。
+  renameTarget:
+    | { id: string; value: string; error: string | null; busy: boolean }
+    | null;
   // 詳細 fetch 中 / 使用中切替中など、一覧操作を一時的にロックするフラグ。
   disabled?: boolean;
   // ラッパー div の className 上書き。Dialog 内に埋め込むときは
@@ -26,6 +30,11 @@ interface DeckListPaneProps {
   onDraftChange: (value: string) => void;
   onDraftCommit: () => void;
   onDraftCancel: () => void;
+  onRequestRename: (id: string) => void;
+  onRenameChange: (value: string) => void;
+  onRenameCommit: () => void;
+  onRenameCancel: () => void;
+  onRequestDelete: (id: string) => void;
 }
 
 export function DeckListPane({
@@ -35,6 +44,7 @@ export function DeckListPane({
   draftError,
   draftBusy,
   pendingDefaultId,
+  renameTarget,
   disabled = false,
   className,
   onSelect,
@@ -43,7 +53,16 @@ export function DeckListPane({
   onDraftChange,
   onDraftCommit,
   onDraftCancel,
+  onRequestRename,
+  onRenameChange,
+  onRenameCommit,
+  onRenameCancel,
+  onRequestDelete,
 }: DeckListPaneProps) {
+  const isOnlyDeck = decks.length <= 1;
+  // 他 row が rename 中なら、自身の操作 (select / default 切替 / rename / delete) は不可。
+  const someoneRenaming = renameTarget !== null;
+
   return (
     <div
       className={cn(
@@ -57,7 +76,7 @@ export function DeckListPane({
           size="sm"
           variant="outline"
           onClick={onRequestNew}
-          disabled={disabled || draftName !== null}
+          disabled={disabled || draftName !== null || someoneRenaming}
         >
           <Plus className="w-3.5 h-3.5" />
           新規
@@ -106,59 +125,159 @@ export function DeckListPane({
         {decks.map((deck) => {
           const active = deck.id === selectedId;
           const isPendingDefault = pendingDefaultId === deck.id;
+          const isRenamingThis =
+            renameTarget !== null && renameTarget.id === deck.id;
+          // 他 row が rename 中なら、この row の操作はロック。
+          const rowDisabled =
+            disabled || (someoneRenaming && !isRenamingThis);
           return (
             <li key={deck.id}>
-              {/* row 全体は <button> 入れ子を避けるため <div>。
-                  左側 (デッキ名) は edit 用の選択 trigger、右側は 使用中ラベル
-                  もしくは「選択」ボタン (= setDefaultDeck の trigger)。 */}
               <div
                 className={cn(
-                  "w-full px-3 py-2 rounded-md border-2 transition-all flex items-center gap-2",
+                  "w-full px-3 py-2 rounded-md border-2 transition-all flex items-center gap-1.5",
                   active
                     ? "border-primary bg-primary/5"
                     : "border-transparent",
-                  !disabled && !active && "hover:border-border hover:bg-muted/50",
+                  !rowDisabled &&
+                    !active &&
+                    !isRenamingThis &&
+                    "hover:border-border hover:bg-muted/50",
                 )}
               >
-                <button
-                  type="button"
-                  onClick={() => onSelect(deck.id)}
-                  disabled={disabled}
-                  className={cn(
-                    "flex-1 min-w-0 text-left",
-                    disabled ? "cursor-not-allowed" : "cursor-pointer",
-                  )}
-                >
-                  <div className="font-medium text-sm truncate">{deck.name}</div>
-                  {/* 枚数はデスクトップのみ表示。モバイルは縦幅優先で省略。 */}
-                  <div className="hidden lg:block text-xs text-muted-foreground mt-0.5">
-                    {deck.totalCount} 枚
+                {isRenamingThis ? (
+                  <div className="flex-1 min-w-0">
+                    <input
+                      type="text"
+                      value={renameTarget.value}
+                      autoFocus
+                      maxLength={30}
+                      disabled={renameTarget.busy}
+                      onChange={(e) => onRenameChange(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          onRenameCommit();
+                        } else if (e.key === "Escape") {
+                          e.preventDefault();
+                          onRenameCancel();
+                        }
+                      }}
+                      className={cn(
+                        "w-full h-7 px-2 rounded-md border border-input bg-background text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+                        renameTarget.busy && "opacity-50",
+                      )}
+                    />
+                    {renameTarget.error && (
+                      <p className="text-xs text-destructive mt-1">
+                        {renameTarget.error}
+                      </p>
+                    )}
                   </div>
-                </button>
-                {deck.isDefault ? (
-                  <Badge
-                    variant="outline"
-                    className="text-[10px] px-1.5 py-0 bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-200 dark:border-emerald-800 shrink-0"
-                  >
-                    使用中
-                  </Badge>
                 ) : (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => onSelectDefault(deck.id)}
-                    disabled={
-                      disabled || isPendingDefault || deck.totalCount === 0
-                    }
-                    title={
-                      deck.totalCount === 0
-                        ? "0枚のデッキは使用中にできません"
-                        : undefined
-                    }
-                    className="shrink-0 h-7 px-2 text-xs"
+                  <button
+                    type="button"
+                    onClick={() => onSelect(deck.id)}
+                    disabled={rowDisabled}
+                    className={cn(
+                      "flex-1 min-w-0 text-left",
+                      rowDisabled ? "cursor-not-allowed" : "cursor-pointer",
+                    )}
                   >
-                    {isPendingDefault ? "..." : "選択"}
-                  </Button>
+                    <div className="font-medium text-sm truncate">
+                      {deck.name}
+                    </div>
+                    {/* 枚数はデスクトップのみ表示。モバイルは縦幅優先で省略。 */}
+                    <div className="hidden lg:block text-xs text-muted-foreground mt-0.5">
+                      {deck.totalCount} 枚
+                    </div>
+                  </button>
+                )}
+
+                {/* 通常モード: 使用中バッジ or 選択ボタン */}
+                {!isRenamingThis &&
+                  (deck.isDefault ? (
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] px-1.5 py-0 bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-200 dark:border-emerald-800 shrink-0"
+                    >
+                      使用中
+                    </Badge>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onSelectDefault(deck.id)}
+                      disabled={
+                        rowDisabled ||
+                        isPendingDefault ||
+                        deck.totalCount === 0
+                      }
+                      title={
+                        deck.totalCount === 0
+                          ? "0枚のデッキは使用中にできません"
+                          : undefined
+                      }
+                      className="shrink-0 h-7 px-2 text-xs"
+                    >
+                      {isPendingDefault ? "..." : "選択"}
+                    </Button>
+                  ))}
+
+                {/* 編集 / 削除アイコン。rename モードでは ✓/✗ に切替。 */}
+                {isRenamingThis ? (
+                  <>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      onClick={onRenameCommit}
+                      disabled={renameTarget.busy}
+                      title="名前を保存"
+                      className="shrink-0"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      onClick={onRenameCancel}
+                      disabled={renameTarget.busy}
+                      title="キャンセル"
+                      className="shrink-0"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      onClick={() => onRequestRename(deck.id)}
+                      disabled={rowDisabled}
+                      title="名前を変更"
+                      className="shrink-0"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      onClick={() => onRequestDelete(deck.id)}
+                      disabled={
+                        rowDisabled || deck.isDefault || isOnlyDeck
+                      }
+                      title={
+                        deck.isDefault
+                          ? "使用中のデッキは削除できません"
+                          : isOnlyDeck
+                            ? "最後のデッキは削除できません"
+                            : "デッキを削除"
+                      }
+                      className="shrink-0 text-destructive hover:text-destructive"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </>
                 )}
               </div>
             </li>

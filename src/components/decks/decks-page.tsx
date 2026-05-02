@@ -19,6 +19,7 @@ import {
   createDeck,
   deleteDeck,
   getDeckDetail,
+  renameDeck,
   setDefaultDeck,
   type DeckDetail,
   type DeckSummary,
@@ -64,11 +65,23 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
   // モバイル用デッキピッカー (Dialog) の開閉。
   const [pickerOpen, setPickerOpen] = useState(false);
 
+  // 一覧 row のインライン rename。null=非アクティブ。
+  const [renameTarget, setRenameTarget] = useState<
+    { id: string; value: string; error: string | null; busy: boolean } | null
+  >(null);
+
+  // 一覧 row の削除確認ダイアログ。null=非表示。
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
   // detail が古い (別デッキ選択直後で fetch 未完了) ときは null として扱う。
   const currentDetail = detail && detail.id === selectedId ? detail : null;
   // 詳細 fetch 中 / 使用中切替の最中は一覧側の操作を抑止する。
   const isLoadingDetail = selectedId !== null && currentDetail === null;
-  const listLocked = isLoadingDetail || pendingDefaultId !== null || draftBusy;
+  const listLocked =
+    isLoadingDetail ||
+    pendingDefaultId !== null ||
+    draftBusy ||
+    renameTarget?.busy === true;
 
   useEffect(() => {
     if (!selectedId) return;
@@ -197,21 +210,21 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
     tryChangeSelection(deckId, true);
   }
 
-  // 削除: 確認後に optimistic で一覧から除去 → 失敗時 revert。
-  async function handleDeleteCurrent() {
-    if (selectedId === null) return;
-    const targetId = selectedId;
+  // 削除 (id 指定)。確認ダイアログ確定後に呼ぶ。optimistic で一覧から除去 →
+  // 失敗時 revert。selectedId が削除対象のときだけ次のデッキへ切替。
+  async function handleDeleteById(id: string) {
     const prevDecks = decks;
     const prevSelectedId = selectedId;
     const prevDetail = detail;
     setActionError(null);
-    // 次に選択するデッキ (削除対象を除いた先頭。なければ null)
-    const next = prevDecks.find((d) => d.id !== targetId);
-    setDecks((p) => p.filter((d) => d.id !== targetId));
-    setSelectedId(next?.id ?? null);
-    setDetail(null);
+    const next = prevDecks.find((d) => d.id !== id);
+    setDecks((p) => p.filter((d) => d.id !== id));
+    if (selectedId === id) {
+      setSelectedId(next?.id ?? null);
+      setDetail(null);
+    }
     try {
-      await deleteDeck(targetId);
+      await deleteDeck(id);
       refresh();
     } catch (e) {
       console.error("deleteDeck failed", e);
@@ -224,6 +237,86 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
           : "削除に失敗しました。再度お試しください。",
       );
     }
+  }
+
+  // ----- rename / delete handlers (deck list 側) -----
+
+  function startRename(id: string) {
+    if (listLocked || renameTarget !== null) return;
+    const deck = decks.find((d) => d.id === id);
+    if (!deck) return;
+    setRenameTarget({ id, value: deck.name, error: null, busy: false });
+  }
+
+  function cancelRename() {
+    setRenameTarget(null);
+  }
+
+  function changeRenameValue(value: string) {
+    setRenameTarget((prev) =>
+      prev ? { ...prev, value, error: null } : prev,
+    );
+  }
+
+  async function commitRename() {
+    if (renameTarget === null) return;
+    const { id, value } = renameTarget;
+    const trimmed = value.trim();
+    const deck = decks.find((d) => d.id === id);
+    if (!deck) {
+      cancelRename();
+      return;
+    }
+    if (trimmed === deck.name) {
+      cancelRename();
+      return;
+    }
+    if (trimmed.length === 0) {
+      setRenameTarget((prev) =>
+        prev ? { ...prev, error: "デッキ名を入力してください" } : prev,
+      );
+      return;
+    }
+    if (trimmed.length > 30) {
+      setRenameTarget((prev) =>
+        prev ? { ...prev, error: "デッキ名は 30 文字以内にしてください" } : prev,
+      );
+      return;
+    }
+    setRenameTarget((prev) => (prev ? { ...prev, busy: true } : prev));
+    try {
+      await renameDeck(id, trimmed);
+      setDecks((prev) =>
+        prev.map((d) => (d.id === id ? { ...d, name: trimmed } : d)),
+      );
+      setDetail((prev) =>
+        prev && prev.id === id ? { ...prev, name: trimmed } : prev,
+      );
+      cancelRename();
+      refresh();
+    } catch (e) {
+      setRenameTarget((prev) =>
+        prev
+          ? {
+              ...prev,
+              error: e instanceof Error ? e.message : String(e),
+              busy: false,
+            }
+          : prev,
+      );
+    }
+  }
+
+  function requestDelete(id: string) {
+    if (listLocked) return;
+    setConfirmDeleteId(id);
+  }
+
+  async function confirmDelete() {
+    if (confirmDeleteId === null) return;
+    const id = confirmDeleteId;
+    setConfirmDeleteId(null);
+    await handleDeleteById(id);
   }
 
   // 既存デッキ 0 件 & 草稿なしの完全空状態のみ初期画面を出す
@@ -252,6 +345,7 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
     draftBusy,
     pendingDefaultId,
     disabled: listLocked,
+    renameTarget,
     onSelectDefault: handleSelectDefault,
     onRequestNew: startNew,
     onDraftChange: (v: string) => {
@@ -260,6 +354,11 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
     },
     onDraftCommit: commitDraft,
     onDraftCancel: cancelDraft,
+    onRequestRename: startRename,
+    onRenameChange: changeRenameValue,
+    onRenameCommit: commitRename,
+    onRenameCancel: cancelRename,
+    onRequestDelete: requestDelete,
   } as const;
 
   return (
@@ -308,19 +407,16 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
                 key={selectedId}
                 deck={currentDetail}
                 ownedCards={ownedCards}
-                isOnlyDeck={decks.length <= 1}
                 onChanged={(nextDetail) => {
                   setDetail(nextDetail);
                   // useEffect [initialDecks] による自動 sync を撤去したので、
-                  // 編集ペインで保存・rename された結果を decks にも明示的に
-                  // パッチする (totalCount / name / isDefault の整合)。
+                  // 編集ペインで保存された結果を decks にも明示的にパッチする
+                  // (totalCount の整合)。
                   setDecks((prev) =>
                     prev.map((d) =>
                       d.id === nextDetail.id
                         ? {
                             ...d,
-                            name: nextDetail.name,
-                            isDefault: nextDetail.isDefault,
                             totalCount: nextDetail.entries.reduce(
                               (s, e) => s + e.count,
                               0,
@@ -331,7 +427,6 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
                   );
                   refresh();
                 }}
-                onDeleted={handleDeleteCurrent}
               />
             ) : selectedId === null ? (
               <div className="flex-1 min-h-0 flex items-center justify-center text-sm text-muted-foreground">
@@ -385,6 +480,21 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
         confirmLabel="破棄して切替"
         confirmVariant="destructive"
         onConfirm={confirmDiscardAndSelect}
+      />
+      <ConfirmDialog
+        open={confirmDeleteId !== null}
+        onOpenChange={(o) => {
+          if (!o) setConfirmDeleteId(null);
+        }}
+        title="デッキを削除しますか?"
+        description={
+          confirmDeleteId
+            ? `「${decks.find((d) => d.id === confirmDeleteId)?.name ?? ""}」を削除します。この操作は取り消せません。`
+            : ""
+        }
+        confirmLabel="削除"
+        confirmVariant="destructive"
+        onConfirm={confirmDelete}
       />
     </>
   );
