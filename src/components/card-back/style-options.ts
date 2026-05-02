@@ -25,24 +25,25 @@ interface CardBackStyleEntry {
 }
 
 export const CARD_BACK_STYLES: Record<CardBackStyle, CardBackStyleEntry> = {
-  emblem: {
-    label: "玉将エンブレム",
-    description: "深紺グラデ + 45° の金色斜線。閃光が左→右に通過する。",
-    Component: CardBackEmblem,
-  },
   seigaiha: {
     label: "青海波",
-    description: "藍ベースに青海波の和柄。薄ゴールドの sheen が通過する。",
+    description: "金箔の波柄が広がる、和の落ち着きある一品。",
     Component: CardBackSeigaiha,
   },
+  emblem: {
+    label: "黄金閃光",
+    description: "金色の斜線に閃光がきらめく、華やかなデザイン。",
+    Component: CardBackEmblem,
+  },
   minimal: {
-    label: "黒漆ミニマル",
-    description: "黒ベース + 左上の金ラジアル。控えめで上質な印象。",
+    label: "漆黒",
+    description: "黒地に金の輝きをあしらった、上品でシックな佇まい。",
     Component: CardBackMinimal,
   },
 };
 
-export const CARD_BACK_STYLE_LIST: CardBackStyle[] = ["emblem", "seigaiha", "minimal"];
+// 設定画面はこの順序で並べる (デフォルトを先頭に)。
+export const CARD_BACK_STYLE_LIST: CardBackStyle[] = ["seigaiha", "emblem", "minimal"];
 
 export function isValidCardBackStyle(value: unknown): value is CardBackStyle {
   return value === "emblem" || value === "seigaiha" || value === "minimal";
