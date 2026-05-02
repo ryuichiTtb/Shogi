@@ -10,7 +10,7 @@ import { createGame } from "@/app/actions/game";
 import type { Difficulty, Player } from "@/lib/shogi/types";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { History, Swords, Layers } from "lucide-react";
+import { History, Swords, Layers, Eye } from "lucide-react";
 import { ThemeSelector } from "@/components/game/theme-selector";
 import { ModeSelector, type GameMode } from "@/components/home/mode-selector";
 
@@ -269,7 +269,17 @@ export default function Home() {
               <Layers className="w-4 h-4" />
               カード一覧
             </Link>
-            {/* 将来: デッキ編成 / ガチャ ボタンを追加 (別Issue) */}
+            {/* Issue #110 検討中: 採用案決定後にこのリンクとモックページは削除する */}
+            <Link
+              href="/card-back-mocks"
+              className={cn(
+                "flex items-center justify-center gap-1.5 py-2.5 rounded-lg border-2 border-dashed border-border",
+                "bg-card text-sm font-medium text-muted-foreground hover:border-primary/40 transition-colors",
+              )}
+            >
+              <Eye className="w-4 h-4" />
+              裏面モック (検討中)
+            </Link>
           </div>
         )}
 
