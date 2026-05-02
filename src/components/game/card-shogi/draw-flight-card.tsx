@@ -24,6 +24,9 @@ const FADE_IN_MS = 500;
 const HOLD_MS = 1500;
 const FADE_OUT_MS = 300;
 const TOTAL_MS = FADE_IN_MS + HOLD_MS + FADE_OUT_MS;
+// Issue #82: 中央→手札の最終 100ms で一気にフェードアウト
+// (途中までは不透明のまま、終端で急速に消える)
+const FADE_OUT_TAIL_MS = 100;
 
 // 中央到着直後にカード上を斜めに走るシマー (光) と、周辺を一瞬光らせる黄金グロウ
 const FLASH_DELAY_S = FADE_IN_MS / 1000;
@@ -133,6 +136,8 @@ function DrawFlightInner({
 
   const t1 = FADE_IN_MS / TOTAL_MS;
   const t2 = (FADE_IN_MS + HOLD_MS) / TOTAL_MS;
+  // フェード開始タイミング (TOTAL の終端 FADE_OUT_TAIL_MS 手前)
+  const tFadeStart = (TOTAL_MS - FADE_OUT_TAIL_MS) / TOTAL_MS;
 
   // 回転 (Issue #82 ユーザー指示で更新):
   //   rotateY:
@@ -140,7 +145,7 @@ function DrawFlightInner({
   //     中央以降は 900° のまま維持 (表向きのまま手札へ)
   //   rotateZ:
   //     0 → 中央 で 2周 (=720°)
-  //     中央 → 手札 で +4周 (=+1440°、累積 2160°)
+  //     中央 → 手札 で +3周 (=+1080°、累積 1800°)
   // 表/裏切替は子要素の backface-visibility hidden で自動。
   // 注意: filter 系プロパティ(drop-shadow 等)は preserve-3d を flatten させるため
   //       外側 motion.div には付けず、内側面に box-shadow ベースの shadow-2xl を当てる。
@@ -156,14 +161,19 @@ function DrawFlightInner({
         left: [startX, centerX, centerX, endX],
         top: [startY, centerY, centerY, endY],
         scale: [startScale, centerScale, centerScale, endScale],
-        // Issue #82: 中央→手札のフェードアウトを撤廃 (手札到着まで不透明のまま)。
-        // 手札に到着した瞬間に setDrawFlight(null) で消える。
-        opacity: [0, 1, 1, 1],
+        // Issue #82: 中央→手札の途中までは不透明のまま、終端 (最後 FADE_OUT_TAIL_MS)
+        //           で一気にフェードアウト。
+        opacity: [0, 1, 1, 1, 0],
       }}
       transition={{
         duration: TOTAL_MS / 1000,
         times: [0, t1, t2, 1],
         ease: ["easeOut", "linear", "linear"],
+        opacity: {
+          duration: TOTAL_MS / 1000,
+          times: [0, t1, t2, tFadeStart, 1],
+          ease: ["easeOut", "linear", "linear", "linear"],
+        },
       }}
       onAnimationComplete={handleComplete}
       style={{
@@ -178,8 +188,8 @@ function DrawFlightInner({
         animate={{
           // 山札→中央で 2.5周 (0→900°)、中央以降は維持 (表向きのまま手札へ)
           rotateY: [0, 900, 900, 900],
-          // 山札→中央 で 2周 (0→720°)、中央→手札 で +4周 (720°→2160°)
-          rotateZ: [0, 720, 720, 2160],
+          // 山札→中央 で 2周 (0→720°)、中央→手札 で +3周 (720°→1800°)
+          rotateZ: [0, 720, 720, 1800],
         }}
         transition={{
           duration: TOTAL_MS / 1000,
