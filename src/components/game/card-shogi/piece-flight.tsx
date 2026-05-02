@@ -32,10 +32,10 @@ interface PieceFlightProps {
 
 // 駒のサイズ。盤面マス・持ち駒アイコンと比して見栄えするよう中間サイズ
 const PIECE_SIZE = 56;
-// 移動全体の所要時間
-const TOTAL_MS = 900;
-// 回転数 (3 周)
-const ROTATIONS = 3;
+// 移動全体の所要時間 (Issue #82: 0.5s に短縮)
+const TOTAL_MS = 500;
+// 回転数 (短時間でも視認しやすいよう 2 周に調整)
+const ROTATIONS = 2;
 // 保険タイマーの余裕
 const FALLBACK_PADDING_MS = 500;
 

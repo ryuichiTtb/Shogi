@@ -341,39 +341,13 @@ export function CardShogiGame({
 
   const handleConfirmPlayCard = useCallback(() => {
     cachePendingCardRect();
-    // Issue #82: 駒移動アニメ用に、適用前にしか取れない rect を先にキャッシュ。
-    // - 二歩指し: from = 持ち駒「歩」位置 (適用後 0 枚になると DOM が消える)
-    //              to   = 盤面選択マス位置
-    // - 歩戻し / 駒戻し: from = 盤面選択マス位置 (戻る駒種は適用前の盤上の駒種から決定)
-    //                    to   = 適用後の持ち駒位置 (cardPlayEvent エフェクトで補完)
-    pendingPieceFlightRef.current = null;
-    const pc = cardState.pendingCard;
-    if (pc && pc.target?.kind === "square") {
-      const def = CARD_DEFS[pc.instance.defId];
-      const target = pc.target;
-      if (def.effectId === "double_pawn") {
-        const fromRect = findVisibleCapturedPieceRect(playerColor, "pawn");
-        const toRect = getBoardSquareRect(target.row, target.col);
-        if (fromRect && toRect) {
-          pendingPieceFlightRef.current = { pieceType: "pawn", fromRect, toRect };
-        }
-      } else if (def.effectId === "pawn_return" || def.effectId === "piece_return") {
-        const fromRect = getBoardSquareRect(target.row, target.col);
-        const piece = gameState.board[target.row]?.[target.col];
-        if (fromRect && piece) {
-          pendingPieceFlightRef.current = {
-            pieceType: unpromotePieceType(piece.type),
-            fromRect,
-            toRect: null,
-          };
-        }
-      }
-    }
+    // Issue #82: 駒フライト用 rect キャッシュは handleSquareClick 側 (盤面ターゲット
+    // 選択時) で行う。target が要らないカードはここで通過するだけ。
     confirmPlayCard();
     // Issue #106: モバイル手札ドロワーは「使用する」確定時に閉じる
     // (キャンセル時は開いたままにし、再度カードを選び直しやすくする)
     setDrawerOpen(false);
-  }, [cachePendingCardRect, confirmPlayCard, cardState.pendingCard, gameState.board, playerColor, findVisibleCapturedPieceRect, getBoardSquareRect]);
+  }, [cachePendingCardRect, confirmPlayCard]);
 
   // カードイベント由来の SE 再生・画面演出・マナ浮遊テキストを eventLog の差分監視で発火
   useEffect(() => {
@@ -520,9 +494,45 @@ export function CardShogiGame({
       if (isDrawAnimating || isPlayingCard) return;
       // 歩戻し等のターゲット選択フェーズで盤面クリックが confirm に直結するため、ここでも矩形を捕捉
       if (cardState.pendingCard) cachePendingCardRect();
+
+      // Issue #82: ターゲット選択フェーズでは盤面クリックが SELECT_CARD_TARGET 経由で
+      // reducer 内で CONFIRM_PLAY_CARD を即時再帰実行するため、handleConfirmPlayCard
+      // を経由しない。駒フライト用 rect キャッシュはこの時点で取る必要がある。
+      if (cardState.pendingCard && cardState.pendingCard.phase === "selectTarget") {
+        const def = CARD_DEFS[cardState.pendingCard.instance.defId];
+        pendingPieceFlightRef.current = null;
+        if (def.effectId === "double_pawn") {
+          const fromRect = findVisibleCapturedPieceRect(playerColor, "pawn");
+          const toRect = getBoardSquareRect(pos.row, pos.col);
+          if (fromRect && toRect) {
+            pendingPieceFlightRef.current = { pieceType: "pawn", fromRect, toRect };
+          }
+        } else if (def.effectId === "pawn_return" || def.effectId === "piece_return") {
+          const fromRect = getBoardSquareRect(pos.row, pos.col);
+          const piece = gameState.board[pos.row]?.[pos.col];
+          if (fromRect && piece) {
+            pendingPieceFlightRef.current = {
+              pieceType: unpromotePieceType(piece.type),
+              fromRect,
+              toRect: null,
+            };
+          }
+        }
+      }
+
       selectSquare(pos);
     },
-    [isDrawAnimating, isPlayingCard, selectSquare, cardState.pendingCard, cachePendingCardRect],
+    [
+      isDrawAnimating,
+      isPlayingCard,
+      selectSquare,
+      cardState.pendingCard,
+      cachePendingCardRect,
+      playerColor,
+      gameState.board,
+      findVisibleCapturedPieceRect,
+      getBoardSquareRect,
+    ],
   );
   const handleHandPieceClick = useCallback(
     (piece: Parameters<typeof selectHandPiece>[0]) => {
