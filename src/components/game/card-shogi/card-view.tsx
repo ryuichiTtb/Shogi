@@ -237,11 +237,13 @@ export function CardView({
         isAnimated && RARITY_BG_CLASS[def.rarity],
         // 斜め閃光 (super_rare/epic)
         isAnimated && RARITY_HAS_SHINE[def.rarity] && "card-rarity-shine",
-        // disabled (マナ不足等の使用不可): 彩度ゼロ + opacity 50% で「使えない」と分かる
+        // disabled (マナ不足等の使用不可): 彩度を 40% まで下げて opacity も落とし
+        //   「使えない」感を出す。完全モノクロにはせず、レア度の枠色や動的
+        //   グラデを薄く残すことでレア/究極レア等の判別を可能にする。
         // inactive (相手番等の操作不可): 通常表示のまま、ホバー演出だけ抑止
         // 活性: card-hover-focus で暖色リング+lift のフォーカス強調
         disabled
-          ? "opacity-50 saturate-0 cursor-not-allowed"
+          ? "opacity-55 saturate-[40%] cursor-not-allowed"
           : inactive
             ? "cursor-default"
             : "cursor-pointer card-hover-focus",
