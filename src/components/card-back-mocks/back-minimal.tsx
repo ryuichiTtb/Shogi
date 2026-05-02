@@ -1,6 +1,6 @@
 // 案 D: 黒漆ミニマル
-//   - 漆黒グラデ + シルバー線画
-//   - 中央: 大きな駒シルエット (末広がり、文字なし、シルバー線)
+//   - 黒ベースに、左上から黄色→金茶のラジアルグラデ + 中央寄りに白ハイライト
+//   - 中央: 大きな駒シルエット (金属グラデ + キラッと sheen)
 //   - 装飾: 二重細枠 + 四隅の菱形
 //   - アニメ: 縁が 8s で薄シマー
 import { cn } from "@/lib/utils";
@@ -34,7 +34,7 @@ export function CardBackMinimal({ size = "md", fullWidth = false, className }: P
     <div
       className={cn(
         "relative overflow-hidden rounded-md border-2 border-amber-400/70 shrink-0",
-        "bg-gradient-to-br from-amber-800 via-zinc-900 to-black",
+        "card-back-mock-minimal-bg",
         sizeCls,
         className,
       )}
@@ -47,14 +47,9 @@ export function CardBackMinimal({ size = "md", fullWidth = false, className }: P
       <span className="absolute top-1 right-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
       <span className="absolute bottom-1 left-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
       <span className="absolute bottom-1 right-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
-      {/* 中央: 大きな駒シルエット (ゴールド線) */}
+      {/* 中央: 大きな駒シルエット (金属グラデ + キラッと sheen) */}
       <div className="absolute inset-0 flex items-center justify-center">
-        <KomaShape
-          className={D_SHAPE_CLASS[size]}
-          fillClassName="fill-zinc-950/50"
-          strokeClassName="stroke-amber-300"
-          strokeWidth={2}
-        />
+        <KomaShape className={D_SHAPE_CLASS[size]} strokeWidth={2} />
       </div>
       {/* シマー (縁が薄く流れる光沢) */}
       <div className="absolute inset-0 card-back-mock-minimal-shimmer pointer-events-none" aria-hidden />

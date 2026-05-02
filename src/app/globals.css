@@ -675,7 +675,27 @@
   100% { background-position: -10% 0; }
 }
 
-/* 案 D: 黒漆ミニマル — 縁が薄く流れるシマー */
+/* 案 D: 黒漆ミニマル
+ *   - ベースは黒。左上 (0,0) から黄色→金茶へのラジアルグラデを 50% で減衰させ、
+ *     左上だけが金色に光って見える効果を出す。
+ *   - 30% 25% 付近に控えめな白ハイライトを別レイヤーで重ね、金属の照り感を加える。
+ *   - 縁が薄く流れるシマーは別 class. */
+.card-back-mock-minimal-bg {
+  background:
+    radial-gradient(
+      circle at 30% 25%,
+      rgba(255, 255, 255, 0.18) 0%,
+      transparent 28%
+    ),
+    radial-gradient(
+      circle at 0% 0%,
+      #facc15 0%,
+      #ca8a04 18%,
+      #78350f 38%,
+      transparent 55%
+    ),
+    #000000;
+}
 .card-back-mock-minimal-shimmer {
   background: linear-gradient(
     115deg,

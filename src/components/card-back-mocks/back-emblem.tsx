@@ -48,8 +48,6 @@ export function CardBackEmblem({ size = "md", fullWidth = false, className }: Pr
       >
         <KomaShape
           className={MOCK_CENTER_SHAPE_CLASS[size]}
-          fillClassName="fill-amber-400/10"
-          strokeClassName="stroke-amber-300"
           strokeWidth={3}
         />
       </div>

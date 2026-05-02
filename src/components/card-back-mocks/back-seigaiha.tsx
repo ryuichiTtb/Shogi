@@ -39,8 +39,6 @@ export function CardBackSeigaiha({ size = "md", fullWidth = false, className }: 
       <div className="absolute inset-0 flex items-center justify-center">
         <KomaShape
           className={MOCK_CENTER_SHAPE_CLASS[size]}
-          fillClassName="fill-[#0a1c40]"
-          strokeClassName="stroke-amber-300"
           strokeWidth={3}
         />
       </div>
