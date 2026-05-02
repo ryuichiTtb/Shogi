@@ -15,6 +15,8 @@ interface DeckListPaneProps {
   draftBusy: boolean;
   // 「選択」ボタン操作中の deckId。連打抑止に使う。
   pendingDefaultId: string | null;
+  // 詳細 fetch 中 / 使用中切替中など、一覧操作を一時的にロックするフラグ。
+  disabled?: boolean;
   onSelect: (id: string) => void;
   onSelectDefault: (id: string) => void;
   onRequestNew: () => void;
@@ -30,6 +32,7 @@ export function DeckListPane({
   draftError,
   draftBusy,
   pendingDefaultId,
+  disabled = false,
   onSelect,
   onSelectDefault,
   onRequestNew,
@@ -45,7 +48,7 @@ export function DeckListPane({
           size="sm"
           variant="outline"
           onClick={onRequestNew}
-          disabled={draftName !== null}
+          disabled={disabled || draftName !== null}
         >
           <Plus className="w-3.5 h-3.5" />
           新規
@@ -104,13 +107,18 @@ export function DeckListPane({
                   "w-full px-3 py-2 rounded-md border-2 transition-all flex items-center gap-2",
                   active
                     ? "border-primary bg-primary/5"
-                    : "border-transparent hover:border-border hover:bg-muted/50",
+                    : "border-transparent",
+                  !disabled && !active && "hover:border-border hover:bg-muted/50",
                 )}
               >
                 <button
                   type="button"
                   onClick={() => onSelect(deck.id)}
-                  className="flex-1 min-w-0 text-left cursor-pointer"
+                  disabled={disabled}
+                  className={cn(
+                    "flex-1 min-w-0 text-left",
+                    disabled ? "cursor-not-allowed" : "cursor-pointer",
+                  )}
                 >
                   <div className="font-medium text-sm truncate">{deck.name}</div>
                   <div className="text-xs text-muted-foreground mt-0.5">
@@ -129,7 +137,7 @@ export function DeckListPane({
                     size="sm"
                     variant="outline"
                     onClick={() => onSelectDefault(deck.id)}
-                    disabled={isPendingDefault}
+                    disabled={disabled || isPendingDefault}
                     className="shrink-0 h-7 px-2 text-xs"
                   >
                     {isPendingDefault ? "..." : "選択"}

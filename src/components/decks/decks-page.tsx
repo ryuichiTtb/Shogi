@@ -52,6 +52,9 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
 
   // detail が古い (別デッキ選択直後で fetch 未完了) ときは null として扱う。
   const currentDetail = detail && detail.id === selectedId ? detail : null;
+  // 詳細 fetch 中 / 使用中切替の最中は一覧側の操作を抑止する。
+  const isLoadingDetail = selectedId !== null && currentDetail === null;
+  const listLocked = isLoadingDetail || pendingDefaultId !== null || draftBusy;
 
   useEffect(() => {
     if (!selectedId) return;
@@ -191,6 +194,7 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
             draftError={draftError}
             draftBusy={draftBusy}
             pendingDefaultId={pendingDefaultId}
+            disabled={listLocked}
             onSelect={tryChangeSelection}
             onSelectDefault={handleSelectDefault}
             onRequestNew={startNew}

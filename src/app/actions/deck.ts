@@ -89,13 +89,15 @@ export interface OwnedCardSummary {
   owned: number;
 }
 
-// 自分のデッキ一覧 + 各デッキの合計枚数を返す
+// 自分のデッキ一覧 + 各デッキの合計枚数を返す。
+// 並び順は createdAt 昇順のみ。isDefault による先頭固定はしない (使用中切替で
+// 並び順が変わると UX が悪いため)。
 export async function listDecksForCurrentUser(): Promise<DeckSummary[]> {
   const user = await ensureDefaultUser();
   const decks = await prisma.deck.findMany({
     where: { userId: user.id },
     include: { entries: true },
-    orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+    orderBy: { createdAt: "asc" },
   });
   return decks.map((d) => ({
     id: d.id,
