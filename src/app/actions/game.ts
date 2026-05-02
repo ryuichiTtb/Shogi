@@ -15,21 +15,6 @@ import {
 import { ensureDefaultUser } from "@/lib/auth/default-user";
 import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
 
-// Issue #104 検証用: 対局画面でレア度別の見た目(背景バンド・閃光・オーブ)を
-// 確認できるよう、マスターカタログのサンプル 8 枚を山札に強制的に挿入する。
-// 各カードは effectId: "noop" なのでゲーム進行への影響はない。
-// 検証完了後はこの定数とマージ処理を削除すれば本番デッキ構成に戻る。
-const SAMPLE_CARD_IDS: DeckSpec["defId"][] = [
-  "sample_normal_common",
-  "sample_normal_rare",
-  "sample_normal_super_rare",
-  "sample_normal_epic",
-  "sample_trap_common",
-  "sample_trap_rare",
-  "sample_trap_super_rare",
-  "sample_trap_epic",
-];
-
 // card-shogi variant 用: ユーザーのデフォルトデッキから DeckSpec を取得
 async function loadDeckSpecForUser(userId: string): Promise<DeckSpec[]> {
   const deck = await prisma.deck.findFirst({
@@ -73,30 +58,8 @@ export async function createGame(
   // card-shogi variant の場合は cardState を初期化
   let initialCardState: unknown = undefined;
   if (variantId === "card-shogi") {
-    const baseDeckSpec = await loadDeckSpecForUser(user.id);
-    // Issue #104 検証用: 既存 DeckEntry に sample_* が含まれていても重複させない
-    // ように除外してから、サンプル 8 種を各 1 枚追加する。
-    const deckSpec: DeckSpec[] = [
-      ...baseDeckSpec.filter((s) => !SAMPLE_CARD_IDS.includes(s.defId)),
-      ...SAMPLE_CARD_IDS.map((id) => ({ defId: id, count: 1 })),
-    ];
+    const deckSpec: DeckSpec[] = await loadDeckSpecForUser(user.id);
     const cardState = createInitialCardState(deckSpec);
-    // Issue #82 検証用: 開発中カードを両プレイヤーの初期手札に 2 枚ずつ追加。
-    // 各カードのリリース判定後も、新カード追加検証で使い回せるように TEST_CARD_IDS を差し替える形で運用。
-    // 全カードリリース時(本Issue完了時)にこのブロック自体を削除する。
-    const TEST_CARD_IDS = ["double_pawn", "piece_return"] as const;
-    let testCounter = 0;
-    for (const p of ["sente", "gote"] as const) {
-      for (const cardId of TEST_CARD_IDS) {
-        for (let i = 0; i < 2; i++) {
-          testCounter++;
-          cardState.hand[p].push({
-            instanceId: `${p}-${cardId}-test-${testCounter}`,
-            defId: cardId,
-          });
-        }
-      }
-    }
     initialCardState = serializeCardState(cardState);
   }
 

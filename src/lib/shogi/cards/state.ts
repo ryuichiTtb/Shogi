@@ -44,7 +44,11 @@ function buildDeck(player: Player, deckSpec: DeckSpec[]): CardInstance[] {
       cards.push({ instanceId: `${player}-${defId}-${counter}`, defId });
     }
   }
-  // Phase 0 では shuffle なし(決定的)。Phase A で疑似乱数導入予定。
+  // Fisher-Yates: sente/gote それぞれ独立にシャッフルする (両者で順序は揃わない)。
+  for (let i = cards.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [cards[i], cards[j]] = [cards[j], cards[i]];
+  }
   return cards;
 }
 
