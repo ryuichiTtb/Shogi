@@ -1,0 +1,438 @@
+"use client";
+
+import { useMemo, useState, useTransition } from "react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import { Trash2, Save, Pencil, Star, Minus, Plus, X } from "lucide-react";
+import {
+  deleteDeck,
+  renameDeck,
+  saveDeckEntries,
+  setDefaultDeck,
+  type DeckDetail,
+  type DeckEntrySummary,
+  type OwnedCardSummary,
+} from "@/app/actions/deck";
+import {
+  DECK_TOTAL_MAX,
+  RARITY_MAX_PER_DECK,
+  countByRarity,
+  validateDeckEntries,
+  type CardOwnershipInfo,
+} from "@/lib/shogi/cards/deck-rules";
+import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
+import { RARITY_INFO } from "@/lib/shogi/cards/labels";
+import type { CardId, CardRarity } from "@/lib/shogi/cards/types";
+import { OwnedCardPicker } from "./owned-card-picker";
+import { ConfirmDialog } from "./confirm-dialog";
+
+interface DeckEditorPaneProps {
+  deck: DeckDetail;
+  ownedCards: OwnedCardSummary[];
+  isOnlyDeck: boolean;
+  onChanged: (next: DeckDetail) => void;
+  onDeleted: () => void;
+}
+
+export function DeckEditorPane({
+  deck,
+  ownedCards,
+  isOnlyDeck,
+  onChanged,
+  onDeleted,
+}: DeckEditorPaneProps) {
+  const [entries, setEntries] = useState<DeckEntrySummary[]>(deck.entries);
+  const [isPending, startTransition] = useTransition();
+  const [name, setName] = useState(deck.name);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const ownership = useMemo(() => {
+    const m = new Map<CardId, CardOwnershipInfo>();
+    for (const o of ownedCards) {
+      m.set(o.cardId, { rarity: o.rarity, owned: o.owned });
+    }
+    return m;
+  }, [ownedCards]);
+
+  const validation = useMemo(
+    () => validateDeckEntries(entries, ownership),
+    [entries, ownership],
+  );
+
+  const rarityCounts = useMemo(
+    () => countByRarity(entries, ownership),
+    [entries, ownership],
+  );
+
+  const dirty = useMemo(() => {
+    if (entries.length !== deck.entries.length) return true;
+    const map = new Map(deck.entries.map((e) => [e.cardId, e.count]));
+    for (const e of entries) {
+      if (map.get(e.cardId) !== e.count) return true;
+    }
+    return false;
+  }, [entries, deck.entries]);
+
+  function changeCount(cardId: CardId, delta: number) {
+    setEntries((prev) => {
+      const next = [...prev];
+      const idx = next.findIndex((e) => e.cardId === cardId);
+      const info = ownership.get(cardId);
+      const limit = info ? perCardLimit(info) : 0;
+
+      if (idx === -1) {
+        if (delta <= 0 || limit <= 0) return prev;
+        return [...prev, { cardId, count: 1 }];
+      }
+      const newCount = next[idx].count + delta;
+      if (newCount <= 0) {
+        next.splice(idx, 1);
+      } else {
+        next[idx] = { ...next[idx], count: Math.min(newCount, limit) };
+      }
+      return next;
+    });
+  }
+
+  function removeEntry(cardId: CardId) {
+    setEntries((prev) => prev.filter((e) => e.cardId !== cardId));
+  }
+
+  function handleSave() {
+    setActionError(null);
+    startTransition(async () => {
+      try {
+        await saveDeckEntries(deck.id, entries);
+        onChanged({ ...deck, entries, totalCount: validation.totalCount });
+      } catch (e) {
+        setActionError(e instanceof Error ? e.message : String(e));
+      }
+    });
+  }
+
+  function handleRename() {
+    const trimmed = name.trim();
+    if (trimmed === deck.name) {
+      setIsRenaming(false);
+      return;
+    }
+    setActionError(null);
+    startTransition(async () => {
+      try {
+        await renameDeck(deck.id, trimmed);
+        onChanged({ ...deck, name: trimmed, entries });
+        setIsRenaming(false);
+      } catch (e) {
+        setActionError(e instanceof Error ? e.message : String(e));
+        setName(deck.name);
+      }
+    });
+  }
+
+  function handleSetDefault() {
+    setActionError(null);
+    startTransition(async () => {
+      try {
+        await setDefaultDeck(deck.id);
+        onChanged({ ...deck, isDefault: true, entries });
+      } catch (e) {
+        setActionError(e instanceof Error ? e.message : String(e));
+      }
+    });
+  }
+
+  function handleDelete() {
+    setConfirmDelete(false);
+    setActionError(null);
+    startTransition(async () => {
+      try {
+        await deleteDeck(deck.id);
+        onDeleted();
+      } catch (e) {
+        setActionError(e instanceof Error ? e.message : String(e));
+      }
+    });
+  }
+
+  // 編成中の各 cardId の現在枚数 (UI 用)
+  const currentCountByCard = useMemo(() => {
+    const m = new Map<CardId, number>();
+    for (const e of entries) m.set(e.cardId, e.count);
+    return m;
+  }, [entries]);
+
+  return (
+    <div className="rounded-lg border bg-card flex flex-col min-h-0 flex-1">
+      {/* ヘッダ: デッキ名 + 操作 */}
+      <div className="p-3 border-b flex flex-col gap-2 shrink-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          {isRenaming ? (
+            <input
+              type="text"
+              value={name}
+              autoFocus
+              maxLength={30}
+              onChange={(e) => setName(e.target.value)}
+              onBlur={handleRename}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleRename();
+                if (e.key === "Escape") {
+                  setName(deck.name);
+                  setIsRenaming(false);
+                }
+              }}
+              className="h-8 px-2 rounded-md border border-input bg-background text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring/50 flex-1 min-w-0"
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsRenaming(true)}
+              className="text-base font-semibold inline-flex items-center gap-1.5 hover:text-primary transition-colors cursor-pointer min-w-0"
+            >
+              <span className="truncate">{deck.name}</span>
+              <Pencil className="w-3.5 h-3.5 shrink-0 opacity-50" />
+            </button>
+          )}
+          {deck.isDefault && (
+            <Badge
+              variant="outline"
+              className="text-[10px] px-1.5 py-0 bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-200 dark:border-emerald-800"
+            >
+              使用中
+            </Badge>
+          )}
+          <div className="flex-1" />
+          {!deck.isDefault && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleSetDefault}
+              disabled={isPending || dirty}
+              title={dirty ? "保存してから使用中に設定できます" : undefined}
+            >
+              <Star className="w-3.5 h-3.5" />
+              使用中にする
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() => setConfirmDelete(true)}
+            disabled={isPending || isOnlyDeck || deck.isDefault}
+            title={
+              isOnlyDeck
+                ? "最後のデッキは削除できません"
+                : deck.isDefault
+                  ? "使用中のデッキは削除できません"
+                  : undefined
+            }
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            削除
+          </Button>
+        </div>
+
+        <DeckSummaryBar
+          total={validation.totalCount}
+          rarityCounts={rarityCounts}
+        />
+
+        {validation.errors.length > 0 && (
+          <div className="text-xs text-destructive space-y-0.5">
+            {validation.errors.map((err, i) => (
+              <p key={i}>• {err}</p>
+            ))}
+          </div>
+        )}
+        {actionError && (
+          <p className="text-xs text-destructive">{actionError}</p>
+        )}
+
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            onClick={handleSave}
+            disabled={isPending || !dirty || !validation.ok}
+          >
+            <Save className="w-3.5 h-3.5" />
+            {isPending ? "保存中..." : dirty ? "保存" : "保存済み"}
+          </Button>
+          {dirty && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setEntries(deck.entries);
+                setActionError(null);
+              }}
+              disabled={isPending}
+            >
+              変更を破棄
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* 本体: 現在のデッキ + 所持カード */}
+      <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x">
+        {/* 現在のデッキ */}
+        <section className="flex flex-col min-h-0">
+          <header className="p-2 border-b shrink-0">
+            <h3 className="text-xs font-semibold">
+              現在のデッキ ({entries.length} 種 / {validation.totalCount} 枚)
+            </h3>
+          </header>
+          <div className="flex-1 min-h-0 overflow-y-auto p-2">
+            {entries.length === 0 ? (
+              <p className="text-xs text-muted-foreground text-center py-6">
+                右の所持カードから「+」で追加してください
+              </p>
+            ) : (
+              <ul className="space-y-1">
+                {entries.map((e) => {
+                  const def = CARD_DEFS[e.cardId];
+                  const info = ownership.get(e.cardId);
+                  const limit = info ? perCardLimit(info) : 0;
+                  return (
+                    <li
+                      key={e.cardId}
+                      className="flex items-center gap-2 px-2 py-1.5 rounded-md border bg-background"
+                    >
+                      <span className="text-base shrink-0" aria-hidden>
+                        {def.icon}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-medium truncate">
+                            {def.name}
+                          </span>
+                          <RarityBadge rarity={def.rarity} />
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        <Button
+                          size="icon-xs"
+                          variant="ghost"
+                          onClick={() => changeCount(e.cardId, -1)}
+                          disabled={isPending}
+                          aria-label="1枚減らす"
+                        >
+                          <Minus />
+                        </Button>
+                        <span className="w-6 text-center text-sm font-semibold tabular-nums">
+                          {e.count}
+                        </span>
+                        <Button
+                          size="icon-xs"
+                          variant="ghost"
+                          onClick={() => changeCount(e.cardId, 1)}
+                          disabled={
+                            isPending ||
+                            e.count >= limit ||
+                            validation.totalCount >= DECK_TOTAL_MAX
+                          }
+                          aria-label="1枚増やす"
+                        >
+                          <Plus />
+                        </Button>
+                        <Button
+                          size="icon-xs"
+                          variant="ghost"
+                          onClick={() => removeEntry(e.cardId)}
+                          disabled={isPending}
+                          aria-label="削除"
+                        >
+                          <X />
+                        </Button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </section>
+
+        {/* 所持カード */}
+        <section className="flex flex-col min-h-0">
+          <OwnedCardPicker
+            ownedCards={ownedCards}
+            currentCountByCard={currentCountByCard}
+            totalCount={validation.totalCount}
+            disabled={isPending}
+            onAdd={(cardId) => changeCount(cardId, 1)}
+          />
+        </section>
+      </div>
+
+      <ConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title="デッキを削除しますか?"
+        description={`「${deck.name}」を削除します。この操作は取り消せません。`}
+        confirmLabel="削除"
+        confirmVariant="destructive"
+        onConfirm={handleDelete}
+      />
+    </div>
+  );
+}
+
+function perCardLimit(info: CardOwnershipInfo): number {
+  const cap = RARITY_MAX_PER_DECK[info.rarity];
+  return cap === null ? info.owned : Math.min(info.owned, cap);
+}
+
+function RarityBadge({ rarity }: { rarity: CardRarity }) {
+  const info = RARITY_INFO[rarity];
+  return (
+    <Badge
+      variant="outline"
+      className={cn("text-[9px] px-1 py-0 leading-tight", info.className)}
+    >
+      {info.label}
+    </Badge>
+  );
+}
+
+interface DeckSummaryBarProps {
+  total: number;
+  rarityCounts: Record<CardRarity, number>;
+}
+
+function DeckSummaryBar({ total, rarityCounts }: DeckSummaryBarProps) {
+  const overTotal = total > DECK_TOTAL_MAX;
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs">
+      <span
+        className={cn(
+          "font-semibold tabular-nums",
+          overTotal ? "text-destructive" : "text-foreground",
+        )}
+      >
+        合計 {total} / {DECK_TOTAL_MAX} 枚
+      </span>
+      <span className="text-muted-foreground">|</span>
+      {(["common", "rare", "super_rare", "epic"] as CardRarity[]).map((r) => {
+        const count = rarityCounts[r];
+        const cap = RARITY_MAX_PER_DECK[r];
+        const over = cap !== null && count > cap;
+        return (
+          <span
+            key={r}
+            className={cn(
+              "tabular-nums",
+              over ? "text-destructive font-semibold" : "text-muted-foreground",
+            )}
+          >
+            {RARITY_INFO[r].label}: {count}
+            {cap !== null && `/${cap}`}
+          </span>
+        );
+      })}
+    </div>
+  );
+}

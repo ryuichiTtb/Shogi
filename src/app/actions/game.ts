@@ -12,8 +12,7 @@ import {
   deserializeCardState,
   type DeckSpec,
 } from "@/lib/shogi/cards/state";
-
-const DEFAULT_PLAYER_ID = "default-player";
+import { ensureDefaultUser } from "@/lib/auth/default-user";
 
 // Issue #104 検証用: 対局画面でレア度別の見た目(背景バンド・閃光・オーブ)を
 // 確認できるよう、マスターカタログのサンプル 8 枚を山札に強制的に挿入する。
@@ -29,16 +28,6 @@ const SAMPLE_CARD_IDS: DeckSpec["defId"][] = [
   "sample_trap_super_rare",
   "sample_trap_epic",
 ];
-
-// デフォルトユーザーを確保（認証実装前の仮実装）
-async function ensureDefaultUser() {
-  const user = await prisma.user.upsert({
-    where: { id: DEFAULT_PLAYER_ID },
-    create: { id: DEFAULT_PLAYER_ID, name: "Player" },
-    update: {},
-  });
-  return user;
-}
 
 // card-shogi variant 用: ユーザーのデフォルトデッキから DeckSpec を取得
 async function loadDeckSpecForUser(userId: string): Promise<DeckSpec[]> {
