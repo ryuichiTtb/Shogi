@@ -4,60 +4,84 @@
 
 ---
 
-## 🔁 セッション引継ぎメモ (2026-05-02 EOS)
+## 🔁 セッション引継ぎメモ (2026-05-02 EOS — Vol.2)
 
 別セッションでこのプランを再開する際は、まずこのセクションを通読してください。
 
-### ブランチ・push 状態
-- **ブランチ**: `feature/#82` (origin/main 起点)
-- **未push のコミットなし** — `origin/feature/#82` と同期済み
-- 最新コミット: `8a59f79 fix: カード使用演出中は AI 自動応手・ユーザー操作をブロック`
+### ブランチ・PR・push 状態
+- **ブランチ**: `feature/#82` (origin/main 起点で開始 → 途中で `origin/main` を merge して同期済み)
+- **未push コミットなし** — `origin/feature/#82` と同期済み
+- 最新コミット: `70e0c8a fix: 手札スクロールが効かない稀ケースを堅牢化 (Issue #82)`
+- このセッションの最後に **PR を作成 → main へマージ** 完了予定。次セッションは `main` を起点に新ブランチを切ってください。
 
 ### Issue 状態
 | Issue | タイトル | 状態 | 補足 |
 |---|---|---|---|
-| #82 | カード将棋: カード初版の内容確定 | open / 進行中 | スコープを #80 統合で実装込みに拡張済 |
-| #80 | カード将棋: 全カード(11種)の効果実装 | open | 本文に「**🔀 #82 に統合**」明記、トレース用に open 残置 |
+| #82 | カード将棋: カード初版の内容確定 | open / 継続 | スコープを #80 統合で実装込みに拡張済。本セッションでは Step1〜3 + 周辺改善を実施 |
+| #80 | カード将棋: 全カード(11種)の効果実装 | open | #82 に統合済 |
 | #112 | カード更新履歴メタ追加 | open / 別セッション対応中 | **本セッション内では触らない** |
-| #113 | カタログフィルタを複数選択化 | open / 別セッション対応中 | **本セッション内では触らない** |
-| #115 | カード共通項目の拡張 | open / 未着手 | #82 完了後に着手予定。`useConditions` / `targetingFilter` / `relatedCards` の構造化 |
+| #113 | カタログフィルタを複数選択化 | merged (origin/main 同期済) | 本ブランチに取り込み済 |
+| #115 | カード共通項目の拡張 | open / 一部前倒し済 | `useCondition` / `useConditionDescription` 部分は本Issueで先取り。残り (`targetingFilter` / `relatedCards`) は #115 で |
+| #116 | カード将棋 初期手札ドロー演出と山札30枚化 | open / 未着手 | 本セッションで起票。次セッション以降で別途対応 |
 
 ### カード仕様確定状況(進捗トラッカー本体は下記)
 | # | カード | 状態 |
 |---|---|---|
 | 1 | `mana_up` | 廃止 (deprecated) |
-| 2 | `pawn_return` | リリース (cost 1) |
+| 2 | `pawn_return` | リリース (cost 1, 歩・と金両対応) |
 | 3 | `no_promote` | リリース (永続成り不可付与、案A) |
-| 4 | `double_pawn` | **リリース** (2026-05-02) |
+| 4 | `double_pawn` | リリース (2026-05-02) |
+| 5 | `piece_return` | **リリース** (2026-05-02) |
 
-### `double_pawn` (二歩指し) について — **リリース済 (2026-05-02)**
-- 仕様: 持ち駒の歩 1 枚を、自分の未成り歩がいる列の空マスに打つ。二歩禁則のみ解除、行きどころのない歩 / 打ち歩詰め禁則は維持。
-- cost 3 / rarity rare / icon 🎴 / status active
-- 実装ファイル:
-  - [`src/lib/shogi/cards/types.ts`](../../src/lib/shogi/cards/types.ts) — `CardId` に `"double_pawn"` 追加
-  - [`src/lib/shogi/cards/definitions.ts`](../../src/lib/shogi/cards/definitions.ts) — カード定義
-  - [`src/lib/shogi/cards/effects.ts`](../../src/lib/shogi/cards/effects.ts) — `applyDoublePawn` / `isDoublePawnLegalSquare`
-  - [`src/hooks/use-card-shogi-game.ts`](../../src/hooks/use-card-shogi-game.ts) — `canUseDoublePawn` / BEGIN_PLAY_CARD ガード / SELECT_SQUARE フィルタ / CONFIRM_PLAY_CARD 配線
-  - [`src/components/game/card-shogi/card-shogi-game.tsx`](../../src/components/game/card-shogi/card-shogi-game.tsx) — `cardTargetSquares` ハイライト + `unusableCardIds` 計算
-  - [`src/components/game/card-shogi/hand-area.tsx`](../../src/components/game/card-shogi/hand-area.tsx) — `unusableCardIds` prop 追加
+### 本セッション (Vol.2) の主な完了事項
+
+**Step 1 — カード使用条件の共通項目化**
+- `CardDefinition` から関数フィールドを切り出し `CARD_USE_CONDITIONS` Map にまとめた (Server→Client 境界の serialize 制約のため)
+- `pawn_return` / `double_pawn` / `piece_return` に `useCondition` を適用
+- `unusableCardIds` 計算と `BEGIN_PLAY_CARD` reducer ガードを共通化
+
+**Step 2 — `piece_return` (駒戻し) を実装**
+- 玉以外の自分の駒1枚を持ち駒に戻す。成駒は unpromote。ピン駒不可。
+- cost 3 / rarity rare / icon ↩️ (歩戻しと同アイコン許容)
+- 検証用ハックを `TEST_CARD_IDS` 配列ベースに汎用化 (`double_pawn` + `piece_return` を両プレイヤー初期手札に 2 枚ずつ)
+
+**仕様変更 — 王手中もカード使用許可**
+- 「王手中はカード使用不可」を撤廃
+- 王手回避になる選択肢があるカードのみ使用可、配置先も王手回避になるマスのみ
+- ヘルパ: `simulateCardEffect` / `getCheckEscapingSquares`
+
+**Step 3 — 駒移動アニメーション基盤**
+- 新規 `PieceFlight` コンポーネント (回転しながら from→to へ飛ぶ)
+- 演出順は **カード使用 → 駒フライト → 中央カード演出 → 手番交代** の3段
+- 着地点(to)はフライト中だけ `opacity: 0` で隠し、到着で再表示
+- `flushSync` で効果適用前に hide を確実に反映 → 隙間ゼロ
+- 移動速度 1800 px/s 一定 + 回転 0.1s/回転 一定 (絶対速度)
+- フライト中の駒サイズ 84px、文字サイズも `squareSize` prop 経由で比例
+
+**ドロー演出 (DrawFlightCard) のチューニング**
+- タイミング: 山札→中央 500ms / ホールド 1500ms / 中央→手札 300ms (合計 2300ms)
+- rotateY: 0→中央 2.5 周 / 中央以降維持
+- rotateZ: 0→中央 2 周 / 中央→手札 +3 周 (累積 1800°)
+- ease: easeOut → linear → linear (中央→手札も等速化)
+- フェードアウトは「中央→手札の最終 100ms」だけ急速にかける形に変更
+- ドロー完了時に手札スクロールを最後尾へ移動 (PC 縦 / モバイル 横)
+
+**周辺改善**
+- カード詳細ページに「使用条件」枠を追加 (`useConditionDescription`)
+- pendingCard / isDrawing / isPlayingCard の状態漏れを横断点検し reducer + UI hook + canDraw 式の3レイヤーで防御
+- 歩戻しの detailDescription を実装に整合 (歩・と金両対応)
+- 駒戻しの「ピン駒不可」を平易な表現に書き直し
+- `mana_up` の `description:` コロン抜け typo 修正
 
 ### 検証用ハック(本Issue完了時に削除すること)
-- [`src/app/actions/game.ts`](../../src/app/actions/game.ts) `createGame` 関数内に **両プレイヤーの初期手札に `double_pawn` を 2 枚ずつ追加するブロック** を入れている
-  - 該当箇所のコメント: `// Issue #82 検証用: double_pawn (二歩指し) を両プレイヤーの初期手札に 2 枚追加。`
-  - **本Issue完了時にこのブロックを削除する**
-  - コミット `3948726` で追加済
-
-### このセッションで対応した「カード使用演出中の AI ブロック」修正 (`8a59f79`)
-- 既存のドロー演出 (`isDrawing` → `COMMIT_DRAW`) と同じパターンで、カード使用演出中の AI 思考とユーザー操作をブロックする実装。
-- 状態: `isPlayingCard: boolean` / `pendingPlayCardOpponent: Player | null` を内部 state に追加
-- アクション: `COMMIT_PLAY_CARD` を `CardAction` に追加
-- 動作: `CONFIRM_PLAY_CARD` で `currentPlayer` 反転を保留し、`handlePlayFlightComplete` で `finalizePlayCard` を呼んでから `COMMIT_PLAY_CARD` で反転
+- [`src/app/actions/game.ts`](../../src/app/actions/game.ts) `createGame` 関数内に **`TEST_CARD_IDS = ["double_pawn", "piece_return"]` を両プレイヤーの初期手札に 2 枚ずつ追加するブロック** がある。
+- 6枚目以降のカードを検証する際は `TEST_CARD_IDS` を差し替える運用。
+- **本Issue完了時 (全カードリリース時) にブロック自体を削除する**
 
 ### 次セッションで進めるアクション
-1. **検証用ハックの扱いをユーザーに確認**
-   - `src/app/actions/game.ts` の `double_pawn` 初期手札投入ブロックを削除するか、5枚目以降の検証でも汎用化して残すか
-2. **5枚目のカードの構想ヒアリング**(設計書 3.3 案: 桂馬戻り / 香戻り / 2手指し / チェンジ・ザ・ワールド / 時間UP/DOWN / トラップ破壊 / 持ち駒破壊 / 王手駒取り / 状態異常解除 など)
-3. ドラフト → 微調整 → 実装 → UI演出 → Vercel preview 検証 → リリース判定 のサイクルを回す
+1. **6枚目のカードの構想ヒアリング**(設計書 3.3 案: 桂馬戻り / 香戻り は `piece_return` で吸収済、残り候補は 2手指し / チェンジ・ザ・ワールド / 時間UP/DOWN / トラップ破壊 / 持ち駒破壊 / 王手駒取り / 状態異常解除 など)
+2. ドラフト → 微調整 → 実装 → UI演出 → Vercel preview 検証 → リリース判定 のサイクルを回す
+3. 余力次第で Issue #116 (初期手札3枚ドロー演出 + 山札30枚化) に着手 — 別セッション・別ブランチ推奨
 
 ---
 
@@ -210,9 +234,12 @@
 | 1 | `mana_up` | マナUP | normal | common | 2 | **廃止 (deprecated)** — 2026-05-02、マナでマナを増やす設計の意義が薄いため |
 | 2 | `pawn_return` | 歩戻し | normal | common | **1** (旧3) | **リリース** — 2026-05-02、コスト 3→1 に変更 (他項目は現状維持) |
 | 3 | `no_promote` | 成り無効化 | trap | rare | 4 | **リリース** — 2026-05-02、効果を「成り宣言を1回無効化」→「成り不可状態を永続付与(取られたら消失=案A)」に変更。実装込みで完結 |
-| 4 | `double_pawn` | 二歩指し | normal | rare | 3 | **リリース** — 2026-05-02、二歩禁則のみ解除して同列追加配置。配置先ハイライト + 使用条件未達カードを非活性化。AI 思考をカード使用演出完了まで保留する fix も含む。検証用初期手札ハックは要削除 |
+| 4 | `double_pawn` | 二歩指し | normal | rare | 3 | **リリース** — 2026-05-02、二歩禁則のみ解除して同列追加配置。配置先ハイライト + 使用条件未達カードを非活性化。AI 思考をカード使用演出完了まで保留する fix も含む |
+| 5 | `piece_return` | 駒戻し | normal | rare | 3 | **リリース** — 2026-05-02 (Vol.2)、玉以外の自分の駒を持ち駒に戻す (歩戻しの上位互換)。成駒は unpromote。ピン駒不可。駒移動アニメ (PieceFlight) 演出付き |
 
 > カード確定ごとに行を追加していく。状態欄は `ドラフト中 / 確定 / preparing登録済 / 仕様確定リリース / 廃止` 等。
+>
+> 検証用ハック (`TEST_CARD_IDS`) は本Issue完了時に削除する。6枚目以降の検証では同配列を差し替える運用。
 
 ## Verification (Issue 完了時)
 
