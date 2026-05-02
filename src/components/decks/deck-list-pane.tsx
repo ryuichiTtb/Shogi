@@ -9,26 +9,80 @@ import type { DeckSummary } from "@/app/actions/deck";
 interface DeckListPaneProps {
   decks: DeckSummary[];
   selectedId: string | null;
+  // 新規デッキ草稿: null=非アクティブ、""〜=入力中。
+  draftName: string | null;
+  draftError: string | null;
+  draftBusy: boolean;
   onSelect: (id: string) => void;
   onRequestNew: () => void;
+  onDraftChange: (value: string) => void;
+  onDraftCommit: () => void;
+  onDraftCancel: () => void;
 }
 
 export function DeckListPane({
   decks,
   selectedId,
+  draftName,
+  draftError,
+  draftBusy,
   onSelect,
   onRequestNew,
+  onDraftChange,
+  onDraftCommit,
+  onDraftCancel,
 }: DeckListPaneProps) {
   return (
     <div className="rounded-lg border bg-card flex flex-col min-h-0">
       <div className="p-3 border-b flex items-center justify-between shrink-0">
         <h2 className="text-sm font-semibold">デッキ一覧</h2>
-        <Button size="sm" variant="outline" onClick={onRequestNew}>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={onRequestNew}
+          disabled={draftName !== null}
+        >
           <Plus className="w-3.5 h-3.5" />
           新規
         </Button>
       </div>
       <ul className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1">
+        {draftName !== null && (
+          <li>
+            <div className="px-3 py-2 rounded-md border-2 border-primary bg-primary/5">
+              <input
+                type="text"
+                value={draftName}
+                autoFocus
+                maxLength={30}
+                disabled={draftBusy}
+                placeholder="デッキ名 (Enter で確定 / Esc で破棄)"
+                onChange={(e) => onDraftChange(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    onDraftCommit();
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    onDraftCancel();
+                  }
+                }}
+                onBlur={() => {
+                  // 空のまま入力欄を離れたら破棄。文字が入っていれば残す
+                  // (ユーザーは Enter で確定 / 別デッキ選択で確認ダイアログを出す)。
+                  if (draftName.trim() === "") onDraftCancel();
+                }}
+                className={cn(
+                  "w-full h-8 px-2 rounded-md border border-input bg-background text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+                  draftBusy && "opacity-50",
+                )}
+              />
+              {draftError && (
+                <p className="text-xs text-destructive mt-1">{draftError}</p>
+              )}
+            </div>
+          </li>
+        )}
         {decks.map((deck) => {
           const active = deck.id === selectedId;
           return (

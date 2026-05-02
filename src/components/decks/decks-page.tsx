@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import { DeckListPane } from "./deck-list-pane";
 import { DeckEditorPane } from "./deck-editor-pane";
-import { NewDeckDialog } from "./new-deck-dialog";
+import { ConfirmDialog } from "./confirm-dialog";
 import {
   createDeck,
   getDeckDetail,
@@ -22,16 +22,27 @@ interface DecksPageProps {
 
 export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
   const router = useRouter();
-  const [decks] = useState<DeckSummary[]>(initialDecks);
+  const [decks, setDecks] = useState<DeckSummary[]>(initialDecks);
+  // サーバ側の更新 (revalidatePath → router.refresh) を取り込む
+  useEffect(() => {
+    setDecks(initialDecks);
+  }, [initialDecks]);
+
   const [selectedId, setSelectedId] = useState<string | null>(
     initialDecks.find((d) => d.isDefault)?.id ?? initialDecks[0]?.id ?? null,
   );
   const [detail, setDetail] = useState<DeckDetail | null>(null);
-  const [showNewDialog, setShowNewDialog] = useState(false);
   const [, startTransition] = useTransition();
 
+  // 新規デッキの草稿。null=非アクティブ、""〜=入力中。
+  const [draftName, setDraftName] = useState<string | null>(null);
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const [draftBusy, setDraftBusy] = useState(false);
+
+  // 草稿入力中に他デッキを選択した際の確認ダイアログ
+  const [pendingSelectId, setPendingSelectId] = useState<string | null>(null);
+
   // detail が古い (別デッキ選択直後で fetch 未完了) ときは null として扱う。
-  // これで「detail を effect で同期クリア」する必要がなくなる。
   const currentDetail = detail && detail.id === selectedId ? detail : null;
   const loadingDetail = selectedId !== null && currentDetail === null;
 
@@ -52,28 +63,83 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
     });
   }
 
-  async function handleCreate(name: string) {
-    const id = await createDeck(name);
-    setShowNewDialog(false);
-    setSelectedId(id);
-    refresh();
+  function startNew() {
+    if (draftName !== null) return;
+    setDraftName("");
+    setDraftError(null);
   }
 
-  if (decks.length === 0) {
+  function cancelDraft() {
+    setDraftName(null);
+    setDraftError(null);
+    setDraftBusy(false);
+  }
+
+  async function commitDraft() {
+    if (draftName === null) return;
+    const trimmed = draftName.trim();
+    if (trimmed.length === 0) {
+      // 空のまま確定 → 破棄扱い
+      cancelDraft();
+      return;
+    }
+    if (trimmed.length > 30) {
+      setDraftError("デッキ名は 30 文字以内にしてください");
+      return;
+    }
+    setDraftBusy(true);
+    setDraftError(null);
+    try {
+      const newId = await createDeck(trimmed);
+      // Optimistic: 一覧に即追加し選択。サーバ refetch 後に再 sync される。
+      setDecks((prev) => [
+        ...prev,
+        {
+          id: newId,
+          name: trimmed,
+          isDefault: prev.length === 0,
+          totalCount: 0,
+          createdAt: new Date(),
+        },
+      ]);
+      setSelectedId(newId);
+      cancelDraft();
+      refresh();
+    } catch (e) {
+      setDraftError(e instanceof Error ? e.message : String(e));
+      setDraftBusy(false);
+    }
+  }
+
+  // 別デッキ選択ガード: 入力中の草稿があれば確認ダイアログ
+  function tryChangeSelection(targetId: string) {
+    if (draftBusy) return;
+    if (draftName !== null && draftName.trim() !== "") {
+      setPendingSelectId(targetId);
+      return;
+    }
+    if (draftName !== null) cancelDraft();
+    setSelectedId(targetId);
+  }
+
+  function confirmDiscardAndSelect() {
+    if (pendingSelectId === null) return;
+    cancelDraft();
+    setSelectedId(pendingSelectId);
+    setPendingSelectId(null);
+  }
+
+  // 既存デッキ 0 件 & 草稿なしの完全空状態のみ初期画面を出す
+  if (decks.length === 0 && draftName === null) {
     return (
       <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-4 text-center">
         <p className="text-sm text-muted-foreground">
           デッキがまだありません。新規デッキを作成してください。
         </p>
-        <Button onClick={() => setShowNewDialog(true)}>
+        <Button onClick={startNew}>
           <Plus className="w-4 h-4" />
           新規デッキを作成
         </Button>
-        <NewDeckDialog
-          open={showNewDialog}
-          onOpenChange={setShowNewDialog}
-          onSubmit={handleCreate}
-        />
       </div>
     );
   }
@@ -85,8 +151,17 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
           <DeckListPane
             decks={decks}
             selectedId={selectedId}
-            onSelect={setSelectedId}
-            onRequestNew={() => setShowNewDialog(true)}
+            draftName={draftName}
+            draftError={draftError}
+            draftBusy={draftBusy}
+            onSelect={tryChangeSelection}
+            onRequestNew={startNew}
+            onDraftChange={(v) => {
+              setDraftName(v);
+              setDraftError(null);
+            }}
+            onDraftCommit={commitDraft}
+            onDraftCancel={cancelDraft}
           />
         </div>
         <div className="min-h-0 flex flex-col">
@@ -113,10 +188,16 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
           )}
         </div>
       </div>
-      <NewDeckDialog
-        open={showNewDialog}
-        onOpenChange={setShowNewDialog}
-        onSubmit={handleCreate}
+      <ConfirmDialog
+        open={pendingSelectId !== null}
+        onOpenChange={(o) => {
+          if (!o) setPendingSelectId(null);
+        }}
+        title="未保存の新規デッキを破棄しますか?"
+        description={`入力中の「${draftName ?? ""}」は保存されず破棄されます。`}
+        confirmLabel="破棄して切替"
+        confirmVariant="destructive"
+        onConfirm={confirmDiscardAndSelect}
       />
     </>
   );
