@@ -108,8 +108,8 @@ function DeckFlightSingle({
     >
       <motion.div
         // rotateY: なし (常に表向き)
-        // rotateZ: 3 回転 (画面平面のスピン)
-        animate={{ rotateZ: [0, 540, 1080] }}
+        // rotateZ: 2 回転 (画面平面のスピン)
+        animate={{ rotateZ: [0, 360, 720] }}
         transition={{
           duration: FLIGHT_DURATION_MS / 1000,
           times: [0, 0.5, 1],
