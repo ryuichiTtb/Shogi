@@ -2,6 +2,70 @@
 
 > このファイルは Issue #82 の作業計画書です。Web版 Claude Code 等から作業を継続する際の引継ぎ資料として、リポジトリ内に保管しています。
 
+---
+
+## 🔁 セッション引継ぎメモ (2026-05-02 EOS)
+
+別セッションでこのプランを再開する際は、まずこのセクションを通読してください。
+
+### ブランチ・push 状態
+- **ブランチ**: `feature/#82` (origin/main 起点)
+- **未push のコミットなし** — `origin/feature/#82` と同期済み
+- 最新コミット: `8a59f79 fix: カード使用演出中は AI 自動応手・ユーザー操作をブロック`
+
+### Issue 状態
+| Issue | タイトル | 状態 | 補足 |
+|---|---|---|---|
+| #82 | カード将棋: カード初版の内容確定 | open / 進行中 | スコープを #80 統合で実装込みに拡張済 |
+| #80 | カード将棋: 全カード(11種)の効果実装 | open | 本文に「**🔀 #82 に統合**」明記、トレース用に open 残置 |
+| #112 | カード更新履歴メタ追加 | open / 別セッション対応中 | **本セッション内では触らない** |
+| #113 | カタログフィルタを複数選択化 | open / 別セッション対応中 | **本セッション内では触らない** |
+| #115 | カード共通項目の拡張 | open / 未着手 | #82 完了後に着手予定。`useConditions` / `targetingFilter` / `relatedCards` の構造化 |
+
+### カード仕様確定状況(進捗トラッカー本体は下記)
+| # | カード | 状態 |
+|---|---|---|
+| 1 | `mana_up` | 廃止 (deprecated) |
+| 2 | `pawn_return` | リリース (cost 1) |
+| 3 | `no_promote` | リリース (永続成り不可付与、案A) |
+| 4 | `double_pawn` | **実装完了 / Vercel preview 検証待ち / リリース判定未** |
+
+### 進行中の `double_pawn` (二歩指し) について
+- 仕様: 持ち駒の歩 1 枚を、自分の未成り歩がいる列の空マスに打つ。二歩禁則のみ解除、行きどころのない歩 / 打ち歩詰め禁則は維持。
+- cost 3 / rarity rare / icon 🎴 / status active
+- 実装ファイル:
+  - [`src/lib/shogi/cards/types.ts`](../../src/lib/shogi/cards/types.ts) — `CardId` に `"double_pawn"` 追加
+  - [`src/lib/shogi/cards/definitions.ts`](../../src/lib/shogi/cards/definitions.ts) — カード定義
+  - [`src/lib/shogi/cards/effects.ts`](../../src/lib/shogi/cards/effects.ts) — `applyDoublePawn` / `isDoublePawnLegalSquare`
+  - [`src/hooks/use-card-shogi-game.ts`](../../src/hooks/use-card-shogi-game.ts) — `canUseDoublePawn` / BEGIN_PLAY_CARD ガード / SELECT_SQUARE フィルタ / CONFIRM_PLAY_CARD 配線
+  - [`src/components/game/card-shogi/card-shogi-game.tsx`](../../src/components/game/card-shogi/card-shogi-game.tsx) — `cardTargetSquares` ハイライト + `unusableCardIds` 計算
+  - [`src/components/game/card-shogi/hand-area.tsx`](../../src/components/game/card-shogi/hand-area.tsx) — `unusableCardIds` prop 追加
+
+### 検証用ハック(本Issue完了時に削除すること)
+- [`src/app/actions/game.ts`](../../src/app/actions/game.ts) `createGame` 関数内に **両プレイヤーの初期手札に `double_pawn` を 2 枚ずつ追加するブロック** を入れている
+  - 該当箇所のコメント: `// Issue #82 検証用: double_pawn (二歩指し) を両プレイヤーの初期手札に 2 枚追加。`
+  - **本Issue完了時にこのブロックを削除する**
+  - コミット `3948726` で追加済
+
+### このセッションで対応した「カード使用演出中の AI ブロック」修正 (`8a59f79`)
+- 既存のドロー演出 (`isDrawing` → `COMMIT_DRAW`) と同じパターンで、カード使用演出中の AI 思考とユーザー操作をブロックする実装。
+- 状態: `isPlayingCard: boolean` / `pendingPlayCardOpponent: Player | null` を内部 state に追加
+- アクション: `COMMIT_PLAY_CARD` を `CardAction` に追加
+- 動作: `CONFIRM_PLAY_CARD` で `currentPlayer` 反転を保留し、`handlePlayFlightComplete` で `finalizePlayCard` を呼んでから `COMMIT_PLAY_CARD` で反転
+
+### 次セッションで進めるアクション
+1. **Vercel preview で `double_pawn` の動作確認**(ユーザーが実施)
+   - 確認ポイント:
+     - 使用条件未達(持ち駒の歩なし or 盤上に未成り歩なし)時にカードがグレーアウト
+     - 使用時、自分の歩がいる列の空マスが琥珀色でハイライト
+     - 行きどころのない歩 / 打ち歩詰め となるマスはハイライト対象外
+     - カード使用演出中、AI が動かない / ユーザー操作がロック
+2. **`double_pawn` のリリース判定** をユーザーから受ける
+3. リリース後、進捗トラッカーの状態を「リリース」に更新
+4. 5枚目のカードの構想ヒアリングへ進む(設計書 3.3 案: 桂馬戻り / 香戻り / 2手指し / チェンジ・ザ・ワールド / 時間UP/DOWN / トラップ破壊 / 持ち駒破壊 / 王手駒取り / 状態異常解除 など)
+
+---
+
 ## Context
 
 カード将棋の Phase A 以降に向けて、設計書 [`docs/card-shogi-design.md`](../card-shogi-design.md) 3.3 の「(案)」を確定版に書き換えるためのIssue。
@@ -151,7 +215,7 @@
 | 1 | `mana_up` | マナUP | normal | common | 2 | **廃止 (deprecated)** — 2026-05-02、マナでマナを増やす設計の意義が薄いため |
 | 2 | `pawn_return` | 歩戻し | normal | common | **1** (旧3) | **リリース** — 2026-05-02、コスト 3→1 に変更 (他項目は現状維持) |
 | 3 | `no_promote` | 成り無効化 | trap | rare | 4 | **リリース** — 2026-05-02、効果を「成り宣言を1回無効化」→「成り不可状態を永続付与(取られたら消失=案A)」に変更。実装込みで完結 |
-| 4 | `double_pawn` | 二歩指し | normal | rare | 3 | **実装完了 (preview待ち)** — 2026-05-02、二歩禁則を解除して同列に追加配置。配置先ハイライト + 使用条件未達カードを非活性化 |
+| 4 | `double_pawn` | 二歩指し | normal | rare | 3 | **実装完了 / Vercel preview 検証待ち** — 2026-05-02、二歩禁則のみ解除して同列追加配置。配置先ハイライト + 使用条件未達カードを非活性化。検証用に初期手札へ 2 枚仕込み済(完了後削除)。AI 思考をカード使用演出完了まで保留する fix も含む |
 
 > カード確定ごとに行を追加していく。状態欄は `ドラフト中 / 確定 / preparing登録済 / 仕様確定リリース / 廃止` 等。
 
