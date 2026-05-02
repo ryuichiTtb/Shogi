@@ -113,6 +113,7 @@ function PieceFlightInner({
         width: PIECE_SIZE,
         height: PIECE_SIZE,
         willChange: "transform",
+        zIndex: 55,
       }}
     >
       <div className="w-full h-full rounded-md shadow-2xl ring-2 ring-amber-300/80 bg-amber-50/30 flex items-center justify-center">

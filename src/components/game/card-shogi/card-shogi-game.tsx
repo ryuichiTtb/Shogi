@@ -116,7 +116,8 @@ export function CardShogiGame({
   // カード使用時、reducer がカードを hand から削除する前に DOMRect を保管する。
   // cardPlayEvent / trapSetEvent / マナUP の manaChargeEvent(reason: card) の起点として使う。
   const playedCardRectRef = useRef<{ id: string; rect: DOMRect } | null>(null);
-  // Issue #82: カード使用後の駒移動アニメ用 spec。中央フライト完了時にこれを使って PieceFlight を発火。
+  // Issue #82: カード使用後の駒移動アニメ用 spec。
+  // フロー(改): カード使用 → 駒フライト → 中央カード演出 → finalize
   const [pieceFlight, setPieceFlight] = useState<{ spec: PieceFlightSpec; key: number } | null>(null);
   const pieceFlightKeyRef = useRef(0);
   // 適用前にしか取れない rect (二歩指しの持ち駒位置 / 駒戻しの戻る駒種など) を保管。
@@ -125,6 +126,8 @@ export function CardShogiGame({
     fromRect: DOMRect;
     toRect: DOMRect | null; // 歩戻し / 駒戻しは適用後の持ち駒位置を後から補完
   } | null>(null);
+  // 駒フライト完了後に発火する中央カード演出の予約。
+  const pendingPlayFlightRef = useRef<{ card: CardInstance; isTrap: boolean } | null>(null);
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const { squareSize, isMobile, viewportHeight } = useCardBoardSize();
@@ -398,23 +401,57 @@ export function CardShogiGame({
             const rect = cached?.id === ev.instance.instanceId ? cached.rect : getHandRect();
             triggerManaFlight(-def.cost, rect);
           }
-          // Issue #106: カード使用時に中央へカード本体を表示 (自分プレイヤーのみ)
+          // Issue #82 (修正): フローを「駒フライト → 中央カード演出」に入れ替え。
+          // 駒移動カード(歩戻し / 駒戻し / 二歩指し)は先に駒フライトを発火し、
+          // 完了時に中央カード演出を発火する (handlePieceFlightComplete)。
+          // 駒移動を伴わないカードは従来通り中央カード演出を即発火。
           if (ev.player === playerColor) {
-            playFlightKeyRef.current += 1;
-            setPlayFlight({
-              card: ev.instance,
-              key: playFlightKeyRef.current,
-              isTrap: false,
-            });
-            // Issue #82: 駒戻し / 歩戻しは適用後の持ち駒位置を toRect として補完
             const pending = pendingPieceFlightRef.current;
-            if (pending && pending.toRect === null) {
-              const toRect = findVisibleCapturedPieceRect(playerColor, pending.pieceType);
-              if (toRect) {
-                pendingPieceFlightRef.current = { ...pending, toRect };
+            const cardInstance = ev.instance;
+            if (pending) {
+              // 歩戻し / 駒戻し: 適用後の持ち駒ボタンが新規追加された場合、
+              // useEffect 内ではまだ paint されていない可能性があるため
+              // requestAnimationFrame で1フレーム待ってから rect を取る。
+              pendingPieceFlightRef.current = null;
+              const launch = () => {
+                let toRect = pending.toRect;
+                if (toRect === null) {
+                  toRect = findVisibleCapturedPieceRect(playerColor, pending.pieceType);
+                }
+                if (toRect) {
+                  pieceFlightKeyRef.current += 1;
+                  setPieceFlight({
+                    spec: {
+                      pieceType: pending.pieceType,
+                      owner: playerColor,
+                      fromX: pending.fromRect.left + pending.fromRect.width / 2,
+                      fromY: pending.fromRect.top + pending.fromRect.height / 2,
+                      toX: toRect.left + toRect.width / 2,
+                      toY: toRect.top + toRect.height / 2,
+                    },
+                    key: pieceFlightKeyRef.current,
+                  });
+                  pendingPlayFlightRef.current = { card: cardInstance, isTrap: false };
+                } else {
+                  // toRect 取得失敗 → 中央カード演出のみ
+                  playFlightKeyRef.current += 1;
+                  setPlayFlight({ card: cardInstance, key: playFlightKeyRef.current, isTrap: false });
+                }
+              };
+              if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+                window.requestAnimationFrame(launch);
               } else {
-                pendingPieceFlightRef.current = null; // 取得失敗 → 駒フライトなし
+                launch();
               }
+            } else {
+              // 駒移動なしカード: 従来通り中央カード演出を即発火
+              playFlightKeyRef.current += 1;
+              setPlayFlight({
+                card: cardInstance,
+                key: playFlightKeyRef.current,
+                isTrap: false,
+              });
+              pendingPieceFlightRef.current = null;
             }
           }
           break;
@@ -512,35 +549,29 @@ export function CardShogiGame({
     return cardState.hand[playerColor].filter((c) => c.instanceId !== drawFlight.card.instanceId);
   }, [cardState.hand, playerColor, drawFlight]);
 
-  // Issue #106: カード使用演出は中央に固定出現するため startRect は不要
-  // Issue #82: 演出完了時に駒移動アニメ (PieceFlight) を発火 (該当カードのみ)。
-  //   駒フライト完了 (handlePieceFlightComplete) で COMMIT_PLAY_CARD を発行し、
-  //   currentPlayer を相手に渡して AI 自動応手を解禁する。
-  //   駒フライト不要なカード(マナUP / トラップなど)は即 finalize。
-  const handlePlayFlightComplete = useCallback(() => {
-    setPlayFlight(null);
-    const pending = pendingPieceFlightRef.current;
-    if (pending && pending.toRect) {
-      pieceFlightKeyRef.current += 1;
-      setPieceFlight({
-        spec: {
-          pieceType: pending.pieceType,
-          owner: playerColor,
-          fromX: pending.fromRect.left + pending.fromRect.width / 2,
-          fromY: pending.fromRect.top + pending.fromRect.height / 2,
-          toX: pending.toRect.left + pending.toRect.width / 2,
-          toY: pending.toRect.top + pending.toRect.height / 2,
-        },
-        key: pieceFlightKeyRef.current,
-      });
-      pendingPieceFlightRef.current = null;
-      return; // 駒フライト完了時に finalize する
-    }
-    finalizePlayCard();
-  }, [finalizePlayCard, playerColor]);
-
+  // Issue #82 (修正): フローを「カード使用 → 駒フライト → 中央カード演出 → finalize」へ。
+  // - cardPlayEvent エフェクト側で「駒フライト or 中央カード演出」のどちらを先に発火するか判断
+  // - 駒移動を伴うカードは駒フライトのみ発火し、handlePieceFlightComplete で中央カード演出を予約発火
+  // - 中央カード演出完了 (handlePlayFlightComplete) で finalize → COMMIT_PLAY_CARD
   const handlePieceFlightComplete = useCallback(() => {
     setPieceFlight(null);
+    const pendingPlay = pendingPlayFlightRef.current;
+    if (pendingPlay) {
+      playFlightKeyRef.current += 1;
+      setPlayFlight({
+        card: pendingPlay.card,
+        key: playFlightKeyRef.current,
+        isTrap: pendingPlay.isTrap,
+      });
+      pendingPlayFlightRef.current = null;
+    } else {
+      // 中央カード演出が予約されていない異常系: 直接 finalize
+      finalizePlayCard();
+    }
+  }, [finalizePlayCard]);
+
+  const handlePlayFlightComplete = useCallback(() => {
+    setPlayFlight(null);
     finalizePlayCard();
   }, [finalizePlayCard]);
 
