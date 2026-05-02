@@ -103,6 +103,15 @@ export default async function CardDetailPage({ params }: CardDetailPageProps) {
               </section>
             )}
 
+            {def.useConditionDescription && (
+              <section>
+                <h2 className="text-sm font-bold mb-1">使用条件</h2>
+                <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
+                  {def.useConditionDescription}
+                </p>
+              </section>
+            )}
+
             {/* メタ情報テーブル */}
             <section>
               <h2 className="text-sm font-bold mb-2">メタ情報</h2>

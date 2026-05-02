@@ -65,6 +65,9 @@ export interface CardDefinition {
   phase?: CardPhase;
   // 詳細仕様(マスターカタログ詳細ページ表示用、改行・箇条書き可)
   detailDescription?: string;
+  // 使用条件の説明文(マスターカタログ詳細ページで「使用条件」枠に表示)。
+  // 実際の判定ロジックは CARD_USE_CONDITIONS 側に持つ。表示と判定の整合は手動管理。
+  useConditionDescription?: string;
   // 追加日(ISO 日付文字列、例: "2026-04-30")
   addedAt?: string;
   // 関連 Issue 番号
