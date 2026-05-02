@@ -69,6 +69,10 @@ interface CardShogiGameStateInternal {
   // true の間は currentPlayer 反転を保留し、AI 自動応手をブロックする。
   isDrawing: boolean;
   pendingDrawPlayer: Player | null;
+  // カード使用演出中フラグ。CONFIRM_PLAY_CARD で true、演出完了時の COMMIT_PLAY_CARD で false。
+  // true の間は currentPlayer 反転を保留し、AI 自動応手・ユーザー操作をブロックする。
+  isPlayingCard: boolean;
+  pendingPlayCardOpponent: Player | null;
 }
 
 // 移動 + マナチャージ + トラップフィルタ を一括適用。
@@ -618,12 +622,11 @@ function reducer(
         return state;
       }
 
-      // カード使用 = 1手相当。currentPlayer を反転 + lastTurnStartedAt をクリア (B1)
-      nextGameState = { ...nextGameState, currentPlayer: opponent };
+      // カード使用 = 1手相当。currentPlayer 反転と lastTurnStartedAt クリアは
+      // 演出完了 (COMMIT_PLAY_CARD) まで保留する (AI が演出中に動かないようにする)。
       nextCardState = {
         ...nextCardState,
         pendingCard: null,
-        lastTurnStartedAt: { ...nextCardState.lastTurnStartedAt, [player]: null },
       };
 
       // pendingCard クリア + イベントログ
@@ -652,6 +655,27 @@ function reducer(
         selectedHandPiece: null,
         legalMoves: [],
         eventLog: [...state.eventLog, event],
+        isPlayingCard: true,
+        pendingPlayCardOpponent: opponent,
+      };
+    }
+
+    case "COMMIT_PLAY_CARD": {
+      if (!state.isPlayingCard || !state.pendingPlayCardOpponent) return state;
+      const opponent = state.pendingPlayCardOpponent;
+      const player: Player = opponent === "sente" ? "gote" : "sente";
+      return {
+        ...state,
+        gameState: { ...state.gameState, currentPlayer: opponent },
+        cardState: {
+          ...state.cardState,
+          lastTurnStartedAt: {
+            ...state.cardState.lastTurnStartedAt,
+            [player]: null,
+          },
+        },
+        isPlayingCard: false,
+        pendingPlayCardOpponent: null,
       };
     }
 
@@ -755,6 +779,8 @@ export function useCardShogiGame({
     eventLog: [],
     isDrawing: false,
     pendingDrawPlayer: null,
+    isPlayingCard: false,
+    pendingPlayCardOpponent: null,
   });
 
   const aiPlayer: Player = gameConfig.playerColor === "sente" ? "gote" : "sente";
@@ -780,7 +806,9 @@ export function useCardShogiGame({
       state.isAiThinking ||
       state.cardState.pendingCard !== null ||
       // Issue #78: ドロー演出中は AI 思考をブロック (COMMIT_DRAW 後に再評価される)
-      state.isDrawing
+      state.isDrawing ||
+      // Issue #82: カード使用演出中は AI 思考をブロック (COMMIT_PLAY_CARD 後に再評価)
+      state.isPlayingCard
     ) {
       return;
     }
@@ -976,6 +1004,11 @@ export function useCardShogiGame({
     dispatch({ type: "CONFIRM_PLAY_CARD" });
   }, []);
 
+  // Issue #82: カード使用演出完了時に呼ぶ。currentPlayer を相手に渡し AI 思考を解禁する。
+  const finalizePlayCard = useCallback(() => {
+    dispatch({ type: "COMMIT_PLAY_CARD" });
+  }, []);
+
   const cancelPlayCard = useCallback(() => {
     dispatch({ type: "CANCEL_PLAY_CARD" });
   }, []);
@@ -1001,7 +1034,9 @@ export function useCardShogiGame({
     beginPlayCard,
     selectCardTarget,
     confirmPlayCard,
+    finalizePlayCard,
     cancelPlayCard,
     isDrawing: state.isDrawing,
+    isPlayingCard: state.isPlayingCard,
   };
 }

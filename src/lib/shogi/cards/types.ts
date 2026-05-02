@@ -112,6 +112,10 @@ export type CardAction =
   | { type: "BEGIN_PLAY_CARD"; player: Player; instanceId: string }
   | { type: "SELECT_CARD_TARGET"; target: CardTarget }
   | { type: "CONFIRM_PLAY_CARD" }
+  // カード使用演出 (中央フライト表示) 完了時に呼ぶ。currentPlayer を相手に渡し
+  // 自分側の lastTurnStartedAt をクリア。これまでは CONFIRM_PLAY_CARD 時に
+  // 即座に反転していたが、AI が演出中に動き出してしまうため演出完了まで保留する。
+  | { type: "COMMIT_PLAY_CARD" }
   | { type: "CANCEL_PLAY_CARD" }
   | { type: "SET_TRAP"; player: Player; instanceId: string }
   | { type: "TRIGGER_TRAP"; player: Player; reason: TrapTrigger }

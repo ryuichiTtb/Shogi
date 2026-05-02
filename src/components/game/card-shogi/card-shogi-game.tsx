@@ -164,7 +164,9 @@ export function CardShogiGame({
     finalizeDraw,
     beginPlayCard,
     confirmPlayCard,
+    finalizePlayCard,
     cancelPlayCard,
+    isPlayingCard,
   } = useCardShogiGame({
     initialState: initialGameState,
     initialCardState,
@@ -406,34 +408,34 @@ export function CardShogiGame({
     lastEventIndexRef.current = eventLog.length;
   }, [eventLog, isReady, playSfx, playerColor, triggerManaFlight, triggerFastMoveBadge, getDeckRect, getHandRect, getBoardSquareRect]);
 
-  // Issue #78: 演出中は盤面・手札・カード操作・背景クリックをロックする
+  // Issue #78 / #82: 演出中(ドロー / カード使用)は盤面・手札・カード操作・背景クリックをロックする
   const handleSquareClick = useCallback(
     (pos: Position) => {
-      if (isDrawAnimating) return;
+      if (isDrawAnimating || isPlayingCard) return;
       // 歩戻し等のターゲット選択フェーズで盤面クリックが confirm に直結するため、ここでも矩形を捕捉
       if (cardState.pendingCard) cachePendingCardRect();
       selectSquare(pos);
     },
-    [isDrawAnimating, selectSquare, cardState.pendingCard, cachePendingCardRect],
+    [isDrawAnimating, isPlayingCard, selectSquare, cardState.pendingCard, cachePendingCardRect],
   );
   const handleHandPieceClick = useCallback(
     (piece: Parameters<typeof selectHandPiece>[0]) => {
-      if (isDrawAnimating) return;
+      if (isDrawAnimating || isPlayingCard) return;
       selectHandPiece(piece);
     },
-    [isDrawAnimating, selectHandPiece],
+    [isDrawAnimating, isPlayingCard, selectHandPiece],
   );
   const handleBeginPlayCard = useCallback(
     (id: string) => {
-      if (isDrawAnimating) return;
+      if (isDrawAnimating || isPlayingCard) return;
       beginPlayCard(id);
     },
-    [isDrawAnimating, beginPlayCard],
+    [isDrawAnimating, isPlayingCard, beginPlayCard],
   );
   const handleDeselect = useCallback(() => {
-    if (isDrawAnimating) return;
+    if (isDrawAnimating || isPlayingCard) return;
     deselect();
-  }, [isDrawAnimating, deselect]);
+  }, [isDrawAnimating, isPlayingCard, deselect]);
 
   // 演出中は最新ドローカードを手札表示から除外し、演出完了後に手札に現れたように見せる
   const displayedOwnHand = useMemo(() => {
@@ -442,7 +444,12 @@ export function CardShogiGame({
   }, [cardState.hand, playerColor, drawFlight]);
 
   // Issue #106: カード使用演出は中央に固定出現するため startRect は不要
-  const handlePlayFlightComplete = useCallback(() => setPlayFlight(null), []);
+  // Issue #82: 演出完了時に COMMIT_PLAY_CARD を発行し、currentPlayer を相手に渡して
+  //   AI 自動応手を解禁する。CONFIRM_PLAY_CARD ではターン反転を保留している。
+  const handlePlayFlightComplete = useCallback(() => {
+    setPlayFlight(null);
+    finalizePlayCard();
+  }, [finalizePlayCard]);
 
   // ドロー演出完了: currentPlayer を相手に渡し、手札の対象カードを一瞬フラッシュさせる
   const handleDrawFlightComplete = useCallback(() => {
@@ -478,7 +485,7 @@ export function CardShogiGame({
   const ownDeckPile = (
     <DeckPile
       count={cardState.deck[playerColor].length}
-      canDraw={cardState.mana[playerColor] >= DRAW_COST && isPlayerTurn && isGameActive && !inCheck && !isDrawAnimating}
+      canDraw={cardState.mana[playerColor] >= DRAW_COST && isPlayerTurn && isGameActive && !inCheck && !isDrawAnimating && !isPlayingCard}
       onDraw={drawCard}
       size="md"
       showDrawCost
@@ -490,7 +497,7 @@ export function CardShogiGame({
   const ownDeckPileMobile = (
     <DeckPile
       count={cardState.deck[playerColor].length}
-      canDraw={cardState.mana[playerColor] >= DRAW_COST && isPlayerTurn && isGameActive && !inCheck && !isDrawAnimating}
+      canDraw={cardState.mana[playerColor] >= DRAW_COST && isPlayerTurn && isGameActive && !inCheck && !isDrawAnimating && !isPlayingCard}
       onDraw={drawCard}
       size="md"
       showDrawCost
@@ -510,7 +517,7 @@ export function CardShogiGame({
 
   // 王手中はカード使用・ドロー禁止 (P10) → 駒指しでの王手回避のみ可能
   // ドロー演出中も操作ロック (Issue #78)
-  const handDisabled = !isPlayerTurn || !isGameActive || cardState.pendingCard !== null || inCheck || isDrawAnimating;
+  const handDisabled = !isPlayerTurn || !isGameActive || cardState.pendingCard !== null || inCheck || isDrawAnimating || isPlayingCard;
 
   // 待った可否 (P28): 駒指し2手以上 / 自分の手番 / AI 思考中でない / pendingCard 無し / 過去2手の間にカード操作なし
   const canUndo = useMemo(() => {
@@ -952,7 +959,7 @@ export function CardShogiGame({
             <div ref={ownDeckPileXlRef} className="flex-1 min-w-0">
               <DeckPile
                 count={cardState.deck[playerColor].length}
-                canDraw={cardState.mana[playerColor] >= DRAW_COST && isPlayerTurn && isGameActive && !inCheck && !isDrawAnimating}
+                canDraw={cardState.mana[playerColor] >= DRAW_COST && isPlayerTurn && isGameActive && !inCheck && !isDrawAnimating && !isPlayingCard}
                 onDraw={drawCard}
                 size="lg"
                 showDrawCost
