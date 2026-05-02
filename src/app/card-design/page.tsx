@@ -122,7 +122,7 @@ export default function CardDesignPage() {
                 className={cn(
                   "w-full text-left rounded-xl border-2 transition-all",
                   "bg-white dark:bg-slate-900/60 shadow-sm",
-                  "hover:border-lime-400/70 hover:shadow-md cursor-pointer",
+                  "hover:border-primary/60 hover:shadow-md cursor-pointer",
                   isSelected
                     ? "border-lime-400 ring-2 ring-lime-300/50"
                     : "border-border",
