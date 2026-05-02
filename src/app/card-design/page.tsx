@@ -4,7 +4,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Check } from "lucide-react";
 
 import { useCardBackStyle } from "@/components/card-back/card-back-provider";
 import {
@@ -134,7 +134,8 @@ export default function CardDesignPage() {
                       <div className="flex items-center gap-2">
                         <h2 className="text-base font-bold">{entry.label}</h2>
                         {isSelected && (
-                          <span className="bg-emerald-600 text-white px-1.5 rounded text-xs font-bold leading-tight shadow-sm">
+                          <span className="inline-flex items-center gap-1 bg-emerald-500 text-white px-2 py-0.5 rounded-md text-xs font-bold leading-tight shadow-md ring-2 ring-emerald-300/40">
+                            <Check className="w-3.5 h-3.5" strokeWidth={3} />
                             選択中
                           </span>
                         )}
