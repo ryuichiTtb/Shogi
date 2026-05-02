@@ -604,3 +604,99 @@
     card-rarity-orb-3 5.6s ease-in-out infinite var(--orb-delay, 1.2s),
     card-rarity-orb-hue 4.0s ease-in-out infinite var(--orb-delay-hue, 0.9s);
 }
+
+/* ===== Issue #110 カード裏面モック検討用スタイル =====
+ * 採用案決定後、`card-back-mock-*` のうち採用したものだけを正式名にリネームし、
+ * 残りはこのセクションごと削除する。 */
+
+/* 案 A: 玉将エンブレム
+ *   - 45° の細い金色斜線 (repeating-linear-gradient、左下→右上に伸びる) を静止配置
+ *   - 別レイヤーの広い光帯 (sheen) が 3.5s で左→右に通過し、斜線を閃光のように光らせる
+ *   - 中央エンブレムは 6s で opacity を 0.78↔1.0 で脈動 */
+.card-back-mock-emblem-stripes {
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent 0,
+    transparent 20px,
+    rgba(251, 191, 36, 0.32) 20px,
+    rgba(251, 191, 36, 0.32) 21px
+  );
+}
+.card-back-mock-emblem-shine {
+  background: linear-gradient(
+    100deg,
+    transparent 0%, transparent 40%,
+    rgba(251, 224, 130, 0.55) 50%,
+    transparent 60%, transparent 100%
+  );
+  background-size: 220% 100%;
+  background-position: 110% 0;
+  animation: card-back-mock-emblem-shine-anim 3.5s ease-in-out infinite;
+}
+@keyframes card-back-mock-emblem-shine-anim {
+  0%   { background-position: 110% 0; }
+  55%  { background-position: -10% 0; }
+  100% { background-position: -10% 0; }
+}
+/* 案 B: 青海波 + 金箔
+ *   - 青海波 SVG タイル (20×10) を repeat (静止)
+ *   - sheen は左→右の薄ゴールド光沢 */
+.card-back-mock-seigaiha-pattern {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 10' width='20' height='10'><g fill='none' stroke='%23fbbf24' stroke-opacity='0.28' stroke-width='0.6'><path d='M0 10 A10 10 0 0 1 20 10'/><path d='M-10 5 A10 10 0 0 1 10 5'/><path d='M10 5 A10 10 0 0 1 30 5'/></g></svg>");
+  background-size: 20px 10px;
+}
+.card-back-mock-seigaiha-sheen {
+  background: linear-gradient(
+    100deg,
+    transparent 0%, transparent 40%,
+    rgba(251, 191, 36, 0.22) 50%,
+    transparent 60%, transparent 100%
+  );
+  background-size: 220% 100%;
+  background-position: 110% 0;
+  animation: card-back-mock-seigaiha-sheen-anim 5s ease-in-out infinite;
+}
+@keyframes card-back-mock-seigaiha-sheen-anim {
+  0%   { background-position: 110% 0; }
+  60%  { background-position: -10% 0; }
+  100% { background-position: -10% 0; }
+}
+
+/* 案 D: 黒漆ミニマル
+ *   - ベースは黒。左上 (0,0) から黄色→金茶へのラジアルグラデを 50% で減衰させ、
+ *     左上だけが金色に光って見える効果を出す。
+ *   - 30% 25% 付近に控えめな白ハイライトを別レイヤーで重ね、金属の照り感を加える。
+ *   - 縁が薄く流れるシマーは別 class. */
+.card-back-mock-minimal-bg {
+  background:
+    radial-gradient(
+      circle at 30% 25%,
+      rgba(255, 255, 255, 0.16) 0%,
+      transparent 20%
+    ),
+    radial-gradient(
+      circle at 0% 0%,
+      #facc15 0%,
+      #ca8a04 14%,
+      #78350f 28%,
+      transparent 42%
+    ),
+    #000000;
+}
+.card-back-mock-minimal-shimmer {
+  background: linear-gradient(
+    115deg,
+    transparent 0%, transparent 45%,
+    rgba(255, 255, 255, 0.10) 50%,
+    transparent 55%, transparent 100%
+  );
+  background-size: 220% 100%;
+  background-position: 100% 0;
+  animation: card-back-mock-minimal-shine 8s ease-in-out infinite;
+}
+@keyframes card-back-mock-minimal-shine {
+  0%   { background-position: 110% 0; }
+  60%  { background-position: -10% 0; }
+  100% { background-position: -10% 0; }
+}
+
