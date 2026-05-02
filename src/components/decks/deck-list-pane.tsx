@@ -183,7 +183,10 @@ export function DeckListPane({
                       rowDisabled ? "cursor-not-allowed" : "cursor-pointer",
                     )}
                   >
-                    <div className="font-medium text-sm truncate">
+                    {/* デッキ名は折返し表示 (truncate ではなく break-words)。
+                        長い名前でもボタン横の使用/編集/削除と重ならないよう
+                        flex 親側で min-w-0 を維持して幅を絞っている。 */}
+                    <div className="font-medium text-sm break-words">
                       {deck.name}
                     </div>
                     {/* 枚数はデスクトップのみ表示。モバイルは縦幅優先で省略。 */}
@@ -193,7 +196,7 @@ export function DeckListPane({
                   </button>
                 )}
 
-                {/* 通常モード: 使用中バッジ or 選択ボタン */}
+                {/* 通常モード: 使用中バッジ or 使用ボタン */}
                 {!isRenamingThis &&
                   (deck.isDefault ? (
                     <Badge
@@ -219,7 +222,7 @@ export function DeckListPane({
                       }
                       className="shrink-0 h-7 px-2 text-xs"
                     >
-                      {isPendingDefault ? "..." : "選択"}
+                      {isPendingDefault ? "..." : "使用"}
                     </Button>
                   ))}
 

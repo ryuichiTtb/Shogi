@@ -363,7 +363,7 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
 
   return (
     <>
-      <div className="flex-1 min-h-0 flex flex-col gap-3 sm:gap-4 lg:grid lg:grid-cols-[280px_1fr]">
+      <div className="flex-1 min-h-0 flex flex-col gap-3 sm:gap-4 lg:grid lg:grid-cols-[560px_1fr]">
         {/* モバイル: 現在のデッキを示すトリガーボタン (タップで Dialog 起動) */}
         <button
           type="button"
