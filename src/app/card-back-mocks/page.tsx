@@ -4,9 +4,7 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
-import { CardBackEmblem } from "@/components/card-back-mocks/back-emblem";
 import { CardBackSeigaiha } from "@/components/card-back-mocks/back-seigaiha";
-import { CardBackManaCrystal } from "@/components/card-back-mocks/back-mana-crystal";
 import { CardBackMinimal } from "@/components/card-back-mocks/back-minimal";
 import { CardBackDiagonal } from "@/components/card-back-mocks/back-diagonal";
 import type { MockSize } from "@/components/card-back-mocks/sizes";
@@ -26,33 +24,21 @@ interface Variant {
 
 const VARIANTS: Variant[] = [
   {
-    key: "emblem",
-    label: "案 A: 玉将エンブレム",
-    desc: "深紺×ゴールド。中央に駒シルエット +「玉」。放射状の薄い光線が 40s でゆっくり回転、エンブレムは 6s で脈動。表面の super_rare(ゴールド枠)とトーン共有。",
-    Component: CardBackEmblem,
-  },
-  {
     key: "seigaiha",
     label: "案 B: 青海波 + 金箔",
-    desc: "藍ベースに青海波(波柄)を全面リピート。中央に駒シルエット +「将」。左→右の薄ゴールド sheen が 5s で通過。和の世界観強め、対局の格調を演出。",
+    desc: "藍ベースに青海波(波柄)を全面リピート。中央に駒シルエット(末広がり、文字なし)。左→右の薄ゴールド sheen が 5s で通過。和の世界観強め、対局の格調を演出。",
     Component: CardBackSeigaiha,
   },
   {
-    key: "mana-crystal",
-    label: "案 C: マナクリスタル",
-    desc: "深紫グラデ。中央から滲む光渦(24s 回転)+ 💎 菱形格子。中央 💎 が 4s で呼吸。マナ概念と直結、表面の epic(紫枠)と近い世界観。将棋感は薄め。",
-    Component: CardBackManaCrystal,
-  },
-  {
     key: "minimal",
-    label: "案 D: 黒漆「将」ミニマル",
-    desc: "漆黒+シルバー。筆文字「将」を中央配置、四隅に金菱形、内側ゴールド細枠。8s で薄シマー。最も控えめで sm でも崩れにくく、表面の派手演出と喧嘩しない。",
+    label: "案 D: 黒漆ミニマル",
+    desc: "漆黒×シルバー。中央に大きな駒シルエット(末広がり、文字なし、シルバー線)、四隅に金菱形、内側ゴールド細枠。8s で薄シマー。装飾控えめで sm でも崩れにくく、表面の派手演出と喧嘩しない。",
     Component: CardBackMinimal,
   },
   {
     key: "diagonal",
     label: "案 E: 駒型タイル + 斜め金線",
-    desc: "藍×金。45° 斜めの細いゴールドストライプが 10s でスライド、中央は駒シルエット +「歩」(common 寄りの中庸トーン)。将棋らしさと程よい動き。",
+    desc: "藍×金。45° 斜めの細いゴールドストライプが 10s でスライド、中央は駒シルエット(末広がり、文字なし)。将棋らしさと程よい動き。",
     Component: CardBackDiagonal,
   },
 ];
@@ -148,14 +134,14 @@ export default function CardBackMocksPage() {
               カード裏面モック
             </h1>
             <p className="text-xs sm:text-sm text-muted-foreground">
-              Issue #110 — 5 案を比較し採用案を決定する
+              Issue #110 — B / D / E の 3 案ブラッシュアップ版(駒シルエットは末広がり・文字なし)
             </p>
           </div>
         </header>
 
         <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
-          各案を sm / md / lg / xl と山札風(md・lg) で並べています。実際のカード演出は{" "}
-          <code className="px-1 rounded bg-muted">/</code> ホーム→対局画面 で確認してください。
+          各案を sm / md / lg / xl と山札風(md・lg) で並べています。中央の駒シルエットは
+          将来ユーザー設定でアイコン差し替え可能にする想定で、文字は入れていません。
           現状の裏面(山札 amber 系・相手手札 indigo 系)を置換する候補です。
         </p>
 

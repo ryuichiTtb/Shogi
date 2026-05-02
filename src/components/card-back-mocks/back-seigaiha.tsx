@@ -1,6 +1,6 @@
 // 案 B: 青海波 + 金箔
 //   - 藍ベース + 薄ゴールド線の青海波パターン全面リピート
-//   - 中央: 小さな駒シルエットに「将」
+//   - 中央: 駒シルエット (末広がり、文字なし)
 //   - アニメ: 左→右の sheen (光沢)
 import { cn } from "@/lib/utils";
 import { KomaShape } from "./koma-shape";
@@ -42,8 +42,6 @@ export function CardBackSeigaiha({ size = "md", fullWidth = false, className }: 
           fillClassName="fill-[#0a1c40]"
           strokeClassName="stroke-amber-300"
           strokeWidth={3}
-          glyph="将"
-          glyphClassName="fill-amber-200"
         />
       </div>
       {/* sheen (左→右の金色光沢) */}

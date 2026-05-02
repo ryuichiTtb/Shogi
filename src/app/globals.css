@@ -609,34 +609,6 @@
  * 採用案決定後、`card-back-mock-*` のうち採用したものだけを正式名にリネームし、
  * 残りはこのセクションごと削除する。 */
 
-@keyframes card-back-mock-rotate {
-  to { transform: rotate(360deg); }
-}
-
-/* 案 A: 玉将エンブレム */
-.card-back-mock-emblem-rays {
-  background: conic-gradient(
-    from 0deg,
-    transparent 0deg, rgba(251, 191, 36, 0.18) 5deg, transparent 10deg,
-    transparent 40deg, rgba(251, 191, 36, 0.12) 45deg, transparent 50deg,
-    transparent 80deg, rgba(251, 191, 36, 0.18) 85deg, transparent 90deg,
-    transparent 130deg, rgba(251, 191, 36, 0.12) 135deg, transparent 140deg,
-    transparent 175deg, rgba(251, 191, 36, 0.18) 180deg, transparent 185deg,
-    transparent 220deg, rgba(251, 191, 36, 0.12) 225deg, transparent 230deg,
-    transparent 265deg, rgba(251, 191, 36, 0.18) 270deg, transparent 275deg,
-    transparent 310deg, rgba(251, 191, 36, 0.12) 315deg, transparent 320deg,
-    transparent 360deg
-  );
-  animation: card-back-mock-rotate 40s linear infinite;
-}
-.card-back-mock-emblem-pulse {
-  animation: card-back-mock-emblem-pulse-anim 6s ease-in-out infinite;
-}
-@keyframes card-back-mock-emblem-pulse-anim {
-  0%, 100% { opacity: 0.78; }
-  50%      { opacity: 1; }
-}
-
 /* 案 B: 青海波 + 金箔
  *   - 青海波 SVG タイル (20×10) を repeat
  *   - sheen は左→右の薄ゴールド光沢 */
@@ -661,34 +633,7 @@
   100% { background-position: -10% 0; }
 }
 
-/* 案 C: マナクリスタル
- *   - 中央から滲む紫の光渦 (conic-gradient 回転)
- *   - 💎 (菱形) 格子パターン
- *   - 中央 💎 呼吸 (scale) */
-.card-back-mock-mana-vortex {
-  background: conic-gradient(
-    from 0deg,
-    rgba(167, 139, 250, 0.30),
-    rgba(91, 33, 182, 0.10),
-    rgba(167, 139, 250, 0.30),
-    rgba(91, 33, 182, 0.10),
-    rgba(167, 139, 250, 0.30)
-  );
-  animation: card-back-mock-rotate 24s linear infinite;
-}
-.card-back-mock-mana-grid {
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24'><polygon points='12,3 19,12 12,21 5,12' fill='%23a78bfa' fill-opacity='0.10' stroke='%23a78bfa' stroke-opacity='0.22' stroke-width='0.6'/></svg>");
-  background-size: 24px 24px;
-}
-.card-back-mock-mana-breathe {
-  animation: card-back-mock-mana-breathe-anim 4s ease-in-out infinite;
-}
-@keyframes card-back-mock-mana-breathe-anim {
-  0%, 100% { transform: scale(0.95); }
-  50%      { transform: scale(1.05); }
-}
-
-/* 案 D: 黒漆「将」ミニマル — 縁が薄く流れるシマー */
+/* 案 D: 黒漆ミニマル — 縁が薄く流れるシマー */
 .card-back-mock-minimal-shimmer {
   background: linear-gradient(
     115deg,

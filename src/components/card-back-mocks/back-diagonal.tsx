@@ -1,6 +1,6 @@
 // 案 E: 駒型タイル + 斜め金線
 //   - 藍ベース + 斜めの細い金ストライプ (動く)
-//   - 中央: 駒シルエット + 「歩」(common 寄りの中庸トーン)
+//   - 中央: 駒シルエット (末広がり、文字なし)
 //   - 四隅菱形装飾
 import { cn } from "@/lib/utils";
 import { KomaShape } from "./koma-shape";
@@ -45,8 +45,6 @@ export function CardBackDiagonal({ size = "md", fullWidth = false, className }: 
           fillClassName="fill-indigo-950/70"
           strokeClassName="stroke-amber-300"
           strokeWidth={3}
-          glyph="歩"
-          glyphClassName="fill-amber-200"
         />
       </div>
     </div>
