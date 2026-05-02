@@ -41,6 +41,7 @@ import { TrapSlot } from "./trap-slot";
 import { DeckPile } from "./deck-pile";
 import { CardPlayDialog, CardTargetingNotice } from "./card-play-dialog";
 import { DrawFlightCard } from "./draw-flight-card";
+import { CardPlayFlight } from "./card-play-flight";
 import { ManaFlightLayer, type ManaFlightItem } from "./mana-flight";
 import { FastMoveBadgeLayer, type FastMoveBadgeItem } from "./fast-move-badge";
 
@@ -80,6 +81,14 @@ export function CardShogiGame({
   // Issue #78: ドロー演出 (山札→中央→手札)。演出完了まで自分の手番継続・操作ロック。
   const [drawFlight, setDrawFlight] = useState<{ card: CardInstance; key: number } | null>(null);
   const isDrawAnimating = drawFlight !== null;
+  // Issue #106: カード使用/トラップセット時の中央演出 (手札→中央→フェードアウト)。
+  // ドロー演出と異なり手番をロックせず短時間 (~1.4s) で抜ける。
+  const [playFlight, setPlayFlight] = useState<{
+    card: CardInstance;
+    key: number;
+    startRect: DOMRect | null;
+    isTrap: boolean;
+  } | null>(null);
   // 演出完了直後に手札の対象カードを一瞬光らせる (Issue #78)
   const [freshlyDrawnId, setFreshlyDrawnId] = useState<string | null>(null);
   // 各レイアウトの山札・手札 DOM ref。表示中のものから矩形を取得する。
@@ -317,10 +326,19 @@ export function CardShogiGame({
         case "cardPlayEvent": {
           playSfx("card_play");
           const def = CARD_DEFS[ev.instance.defId];
+          const cached = playedCardRectRef.current;
+          const startRect = cached?.id === ev.instance.instanceId ? cached.rect : getHandRect();
           if (def.cost > 0) {
-            const cached = playedCardRectRef.current;
-            const rect = cached?.id === ev.instance.instanceId ? cached.rect : getHandRect();
-            triggerManaFlight(-def.cost, rect);
+            triggerManaFlight(-def.cost, startRect);
+          }
+          // Issue #106: カード使用時に中央へカード本体を表示 (自分プレイヤーのみ)
+          if (ev.player === playerColor) {
+            setPlayFlight({
+              card: ev.instance,
+              key: Date.now(),
+              startRect,
+              isTrap: false,
+            });
           }
           break;
         }
@@ -351,10 +369,19 @@ export function CardShogiGame({
         case "trapSetEvent": {
           playSfx("card_play");
           const def = CARD_DEFS[ev.instance.defId];
+          const cached = playedCardRectRef.current;
+          const startRect = cached?.id === ev.instance.instanceId ? cached.rect : getHandRect();
           if (def.cost > 0) {
-            const cached = playedCardRectRef.current;
-            const rect = cached?.id === ev.instance.instanceId ? cached.rect : getHandRect();
-            triggerManaFlight(-def.cost, rect);
+            triggerManaFlight(-def.cost, startRect);
+          }
+          // Issue #106: トラップセット時も中央へカード本体を表示
+          if (ev.player === playerColor) {
+            setPlayFlight({
+              card: { instanceId: ev.instance.instanceId, defId: ev.instance.defId },
+              key: Date.now(),
+              startRect,
+              isTrap: true,
+            });
           }
           break;
         }
@@ -406,6 +433,11 @@ export function CardShogiGame({
     if (!drawFlight) return cardState.hand[playerColor];
     return cardState.hand[playerColor].filter((c) => c.instanceId !== drawFlight.card.instanceId);
   }, [cardState.hand, playerColor, drawFlight]);
+
+  // Issue #106: カード使用演出の startRect は state からスナップショット参照する
+  const playFlightStartRect = playFlight?.startRect ?? null;
+  const getPlayFlightStartRect = useCallback(() => playFlightStartRect, [playFlightStartRect]);
+  const handlePlayFlightComplete = useCallback(() => setPlayFlight(null), []);
 
   // ドロー演出完了: currentPlayer を相手に渡し、手札の対象カードを一瞬フラッシュさせる
   const handleDrawFlightComplete = useCallback(() => {
@@ -1034,6 +1066,15 @@ export function CardShogiGame({
         deckRectGetter={getDeckRect}
         handRectGetter={getHandRect}
         onComplete={handleDrawFlightComplete}
+      />
+
+      {/* Issue #106: カード使用/トラップセット時の中央演出 (手札→中央→フェードアウト) */}
+      <CardPlayFlight
+        cardInstance={playFlight?.card ?? null}
+        flightKey={playFlight?.key ?? null}
+        startRectGetter={getPlayFlightStartRect}
+        isTrap={playFlight?.isTrap ?? false}
+        onComplete={handlePlayFlightComplete}
       />
 
       {/* Issue #77: マナ加減算の浮遊テキスト (起点 UI 付近に表示) */}
