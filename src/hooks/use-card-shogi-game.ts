@@ -33,6 +33,10 @@ import {
   applyTrapSet,
   applyTrapClear,
   consumeNormalCard,
+  hasNoPromoteMark,
+  addNoPromoteMark,
+  removeNoPromoteMark,
+  moveNoPromoteMark,
 } from "@/lib/shogi/cards/effects";
 
 type ShogiAction =
@@ -80,13 +84,28 @@ function makeMoveWithEffects(
   const opponent: Player = move.player === "sente" ? "gote" : "sente";
   const events: GameEvent[] = [];
 
-  // 1. トラップフィルタ: 相手のトラップが no_promote でこの手が成りなら、promote を強制 false
+  // 1. 成り宣言フィルタ
+  //   (a) 自分の駒に既に「成り不可」マークがあれば silent ブロック (新規トラップは発火させない)
+  //   (b) (a) でなく、相手が no_promote トラップをセット中なら新規発動
+  //       → 成りブロック + 移動先位置にマーク追加 + トラップ消費
   let finalMove = move;
   let cardStateNext = cardState;
+  let pendingMarkAdd: Position | null = null;
+
   const opponentTrap = cardState.trap[opponent];
-  if (move.promote && opponentTrap && opponentTrap.defId === "no_promote") {
+  const ownMarkAtFrom =
+    move.from !== undefined &&
+    move.from !== null &&
+    hasNoPromoteMark(cardState, move.player, move.from);
+
+  if (move.promote && ownMarkAtFrom) {
+    // 既マーク済み駒の成り宣言 → silent ブロック (トラップは無関係、消費しない)
+    finalMove = { ...move, promote: false };
+  } else if (move.promote && opponentTrap && opponentTrap.defId === "no_promote") {
+    // 新規発動: 成り宣言を無効化し、移動後位置に永続マーク付与、トラップ消費
     finalMove = { ...move, promote: false };
     cardStateNext = applyTrapClear(cardStateNext, opponent);
+    pendingMarkAdd = move.to;
     events.push({
       kind: "trapTriggerEvent",
       player: opponent,
@@ -98,10 +117,34 @@ function makeMoveWithEffects(
 
   // 2. 駒移動
   const nextGameState = applyMove(gameState, finalMove);
+
+  // 3. 成り不可マークの追従処理 (move 系のみ。drop は対象外)
+  if (finalMove.type === "move" && finalMove.from) {
+    // (a) 取られた相手駒のマークがあれば削除 (case A: 取られたら消失)
+    if (hasNoPromoteMark(cardStateNext, opponent, finalMove.to)) {
+      cardStateNext = removeNoPromoteMark(cardStateNext, opponent, finalMove.to);
+    }
+    // (b) 自分の駒のマークを from → to に移動
+    if (hasNoPromoteMark(cardStateNext, finalMove.player, finalMove.from)) {
+      cardStateNext = moveNoPromoteMark(
+        cardStateNext,
+        finalMove.player,
+        finalMove.from,
+        finalMove.to,
+      );
+    }
+  }
+
+  // 4. トラップ発動分のマーク追加 (成り宣言を無効化した直後の駒位置に付与)
+  if (pendingMarkAdd) {
+    cardStateNext = addNoPromoteMark(cardStateNext, finalMove.player, pendingMarkAdd);
+  }
+
+  // 5. ゲーム終了判定 + 移動イベントログ
   const evaluated = evaluateGameEnd(nextGameState, CARD_SHOGI_VARIANT);
   events.push({ kind: "moveEvent", move: finalMove, at: Date.now() });
 
-  // 3. マナチャージ(指した側、早指し判定)
+  // 6. マナチャージ(指した側、早指し判定)
   const lastStarted = cardStateNext.lastTurnStartedAt[move.player];
   const isFastMove =
     lastStarted !== null && Date.now() - lastStarted < FAST_THRESHOLD_MS;
@@ -199,7 +242,10 @@ function reducer(
         const piece = gameState.board[pos.row]?.[pos.col];
         if (piece && piece.owner === gameState.currentPlayer) {
           const moves = getPieceMoves(gameState, pos, gameState.currentPlayer, CARD_SHOGI_VARIANT);
-          const filtered = moves.filter((m) => !isKingInCheckAfterMove(gameState, m));
+          const noPromote = hasNoPromoteMark(state.cardState, gameState.currentPlayer, pos);
+          const filtered = moves
+            .filter((m) => !(noPromote && m.type === "move" && m.promote))
+            .filter((m) => !isKingInCheckAfterMove(gameState, m));
           return { ...state, selectedSquare: pos, legalMoves: filtered };
         }
         return { ...state, selectedSquare: null, legalMoves: [] };
@@ -530,15 +576,14 @@ function reducer(
         nextCardState = applyManaUp(afterConsume, player);
       } else if (def.effectId === "pawn_return") {
         if (!pending.target || pending.target.kind !== "square") return state;
-        const newGameState = applyPawnReturn(state.gameState, player, {
-          row: pending.target.row,
-          col: pending.target.col,
-        });
+        const targetPos = { row: pending.target.row, col: pending.target.col };
+        const newGameState = applyPawnReturn(state.gameState, player, targetPos);
         if (!newGameState) return state;
         nextGameState = newGameState;
         const afterConsume = consumeNormalCard(state.cardState, player, pending.instance.instanceId, def.cost);
         if (!afterConsume) return state;
-        nextCardState = afterConsume;
+        // 持ち駒に戻った駒は no_promote マークを失う (案A 仕様)
+        nextCardState = removeNoPromoteMark(afterConsume, player, targetPos);
       } else {
         return state;
       }
