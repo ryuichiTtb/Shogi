@@ -134,7 +134,7 @@ export default function CardDesignPage() {
                       <div className="flex items-center gap-2">
                         <h2 className="text-base font-bold">{entry.label}</h2>
                         {isSelected && (
-                          <span className="inline-flex items-center gap-1 bg-lime-400 text-lime-950 px-2 py-0.5 rounded-md text-xs font-bold leading-tight shadow-md ring-2 ring-lime-200/60">
+                          <span className="ml-auto inline-flex items-center gap-1 bg-lime-400 text-lime-950 px-2 py-0.5 rounded-md text-xs font-bold leading-tight shadow-md ring-2 ring-lime-200/60">
                             <Check className="w-3.5 h-3.5" strokeWidth={3} />
                             選択中
                           </span>
