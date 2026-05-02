@@ -150,9 +150,15 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
   async function runMakeDefault(deckId: string) {
     if (pendingDefaultId !== null) return;
     // Optimistic: 即時に使用中フラグを切替 (UI 上で「使用中 ↔ 選択」が瞬時に
-    // 入れ替わる)。サーバーが失敗したら revert。
+    // 入れ替わる)。currentDetail (= 編集エリアの deck) も同期しないと、
+    // エディタ側の deck.isDefault が古いままで「削除」ボタン等の活性が
+    // 連動しない。サーバーが失敗したら両方 revert。
     const prevDecks = decks;
+    const prevDetail = detail;
     setDecks((prev) => prev.map((d) => ({ ...d, isDefault: d.id === deckId })));
+    setDetail((prev) =>
+      prev ? { ...prev, isDefault: prev.id === deckId } : prev,
+    );
     setPendingDefaultId(deckId);
     try {
       await setDefaultDeck(deckId);
@@ -160,6 +166,7 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
     } catch (e) {
       console.error("setDefaultDeck failed", e);
       setDecks(prevDecks);
+      setDetail(prevDetail);
     } finally {
       setPendingDefaultId(null);
     }
