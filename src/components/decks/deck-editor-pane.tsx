@@ -52,6 +52,13 @@ export function DeckEditorPane({
   onDeleted,
 }: DeckEditorPaneProps) {
   const [entries, setEntries] = useState<DeckEntrySummary[]>(deck.entries);
+  // タイルごとに stable な slot ID を持たせる。クリックされたタイル自身が
+  // 取り除かれることで、後続タイルが layout アニメーションで詰める動きになる。
+  // entries (cardId, count) の DB 形と並走させて、保存時は count に集約する。
+  const slotCounterRef = useRef(0);
+  const [slotIdsByCard, setSlotIdsByCard] = useState<Map<CardId, number[]>>(
+    () => buildSlotIdsFromEntries(deck.entries, slotCounterRef),
+  );
   const [isPending, startTransition] = useTransition();
   const [name, setName] = useState(deck.name);
   const [isRenaming, setIsRenaming] = useState(false);
@@ -181,41 +188,42 @@ export function DeckEditorPane({
   const handleAddFromOwned = useCallback(
     (cardId: CardId, fromRect: DOMRect) => {
       if (isPending) return;
-      const oldCount = entries.find((e) => e.cardId === cardId)?.count ?? 0;
-      const destInstanceKey = oldCount; // 新タイルの instanceKey
+      const info = ownership.get(cardId);
+      if (!info) return;
+
+      // 追加可否を事前判定 (所持枚数 / レア度合計 / デッキ合計 の3壁)
+      const currentEntry = entries.find((e) => e.cardId === cardId);
+      const currentForCard = currentEntry?.count ?? 0;
+      if (currentForCard >= info.owned) return;
+      const cap = RARITY_MAX_PER_DECK[info.rarity];
+      if (cap !== null) {
+        let rarityTotal = 0;
+        for (const e of entries) {
+          const ei = ownership.get(e.cardId);
+          if (ei?.rarity === info.rarity) rarityTotal += e.count;
+        }
+        if (rarityTotal >= cap) return;
+      }
+      let total = 0;
+      for (const e of entries) total += e.count;
+      if (total >= DECK_TOTAL_MAX) return;
+
+      // 新スロット ID を発行 (= 新タイルの安定 key)
+      const newSlotId = ++slotCounterRef.current;
+      const destInstanceKey = newSlotId;
 
       // state を同期更新 → DOM 反映後に行先 rect を測定
       flushSync(() => {
         setEntries((prev) => {
-          const info = ownership.get(cardId);
-          if (!info) return prev;
-
-          // 所持枚数の壁
           const idx = prev.findIndex((e) => e.cardId === cardId);
-          const currentForCard = idx === -1 ? 0 : prev[idx].count;
-          if (currentForCard >= info.owned) return prev;
-
-          // レア度合計の壁
-          const cap = RARITY_MAX_PER_DECK[info.rarity];
-          if (cap !== null) {
-            let rarityTotal = 0;
-            for (const e of prev) {
-              const ei = ownership.get(e.cardId);
-              if (ei?.rarity === info.rarity) rarityTotal += e.count;
-            }
-            if (rarityTotal >= cap) return prev;
-          }
-
-          // デッキ合計の壁
-          let total = 0;
-          for (const e of prev) total += e.count;
-          if (total >= DECK_TOTAL_MAX) return prev;
-
-          if (idx === -1) {
-            return [...prev, { cardId, count: 1 }];
-          }
+          if (idx === -1) return [...prev, { cardId, count: 1 }];
           const next = [...prev];
           next[idx] = { ...next[idx], count: next[idx].count + 1 };
+          return next;
+        });
+        setSlotIdsByCard((prev) => {
+          const next = new Map(prev);
+          next.set(cardId, [...(next.get(cardId) ?? []), newSlotId]);
           return next;
         });
       });
@@ -247,7 +255,7 @@ export function DeckEditorPane({
 
   // 編成エリアでカードクリック → 所持エリアへ戻す
   const handleRemoveFromDeck = useCallback(
-    (cardId: CardId, fromRect: DOMRect) => {
+    (cardId: CardId, slotId: number, fromRect: DOMRect) => {
       if (isPending) return;
       // 所持タイルは state 変更前後ともに DOM 上に存在するので先に測定。
       // フィルタにより該当カードが非表示の場合はタイルが存在しないので、
@@ -270,6 +278,8 @@ export function DeckEditorPane({
         }
       }
 
+      // 後続タイルの layout アニメーションを発火させるため、クリックされた
+      // slotId 自体を slotIdsByCard から除去する (末尾を消すのではなく)。
       setEntries((prev) => {
         const idx = prev.findIndex((e) => e.cardId === cardId);
         if (idx === -1) return prev;
@@ -281,6 +291,18 @@ export function DeckEditorPane({
         }
         const next = [...prev];
         next[idx] = { ...next[idx], count: newCount };
+        return next;
+      });
+      setSlotIdsByCard((prev) => {
+        const slots = prev.get(cardId);
+        if (!slots) return prev;
+        const filtered = slots.filter((s) => s !== slotId);
+        const next = new Map(prev);
+        if (filtered.length === 0) {
+          next.delete(cardId);
+        } else {
+          next.set(cardId, filtered);
+        }
         return next;
       });
 
@@ -402,6 +424,7 @@ export function DeckEditorPane({
               variant="ghost"
               onClick={() => {
                 setEntries(deck.entries);
+                setSlotIdsByCard(buildSlotIdsFromEntries(deck.entries, slotCounterRef));
                 setActionError(null);
               }}
               disabled={isPending}
@@ -428,20 +451,23 @@ export function DeckEditorPane({
               </p>
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 pb-2">
-                {entries.flatMap((e) =>
-                  Array.from({ length: e.count }, (_, i) => (
+                {entries.flatMap((e) => {
+                  const slots = slotIdsByCard.get(e.cardId) ?? [];
+                  return slots.map((slotId) => (
                     <DeckCardTile
-                      key={`${e.cardId}-${i}`}
-                      instanceKey={i}
+                      key={`${e.cardId}-slot-${slotId}`}
+                      instanceKey={slotId}
                       cardId={e.cardId}
                       area="deck"
-                      ghosted={ghostedDeckTiles.has(`${e.cardId}:${i}`)}
+                      ghosted={ghostedDeckTiles.has(`${e.cardId}:${slotId}`)}
                       disabled={isPending}
-                      onClick={(rect) => handleRemoveFromDeck(e.cardId, rect)}
+                      onClick={(rect) =>
+                        handleRemoveFromDeck(e.cardId, slotId, rect)
+                      }
                       title="クリックで編成から外す"
                     />
-                  )),
-                )}
+                  ));
+                })}
               </div>
             )}
           </div>
@@ -473,6 +499,21 @@ export function DeckEditorPane({
       />
     </div>
   );
+}
+
+// entries (DB 形: cardId × count) から slotId 列を生成。slotCounterRef を
+// 進めて返るので、以後の追加で発行される slotId と衝突しない。
+function buildSlotIdsFromEntries(
+  entries: DeckEntrySummary[],
+  counterRef: { current: number },
+): Map<CardId, number[]> {
+  const m = new Map<CardId, number[]>();
+  for (const e of entries) {
+    const slots: number[] = [];
+    for (let i = 0; i < e.count; i++) slots.push(++counterRef.current);
+    m.set(e.cardId, slots);
+  }
+  return m;
 }
 
 interface DeckSummaryBarProps {
