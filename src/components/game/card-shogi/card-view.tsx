@@ -35,7 +35,11 @@ interface CardViewProps {
   card: CardInstance;
   faceDown?: boolean;
   onClick?: () => void;
+  // 物理的に使用不可 (マナ不足など): グレーアウト + クリック不可 + cursor-not-allowed
   disabled?: boolean;
+  // 文脈的に操作不可だが「使用不可ではない」(相手番・ドロー演出中など):
+  // グレーアウトせず通常表示のまま、ホバー演出だけ抑止しクリックを無効化
+  inactive?: boolean;
   size?: CardViewSize;
   selected?: boolean;
   fullWidth?: boolean;
@@ -175,6 +179,7 @@ export function CardView({
   faceDown = false,
   onClick,
   disabled = false,
+  inactive = false,
   size = "md",
   selected = false,
   fullWidth = false,
@@ -212,7 +217,9 @@ export function CardView({
   return (
     <button
       type="button"
-      onClick={onClick}
+      // inactive (相手番など) では HTML disabled を立てず onClick だけ無効化する。
+      // disabled を立てるとマナ不足と同じ grayout 表現になってしまうため。
+      onClick={inactive ? undefined : onClick}
       disabled={disabled}
       data-card-id={card.instanceId}
       data-rarity={def.rarity}
@@ -230,13 +237,14 @@ export function CardView({
         isAnimated && RARITY_BG_CLASS[def.rarity],
         // 斜め閃光 (super_rare/epic)
         isAnimated && RARITY_HAS_SHINE[def.rarity] && "card-rarity-shine",
-        // 非活性: ぱっと見で「使えない」と分かるよう、彩度をゼロにし
-        // opacity も下げてグレーアウトを強める。レア度演出 (動的グラデ・
-        // オーブの動き) は形状として残るが、彩度が落ちて主張は弱まる。
-        // 活性: card-hover-focus で暖色リング+lift のフォーカス強調を付与。
+        // disabled (マナ不足等の使用不可): 彩度ゼロ + opacity 50% で「使えない」と分かる
+        // inactive (相手番等の操作不可): 通常表示のまま、ホバー演出だけ抑止
+        // 活性: card-hover-focus で暖色リング+lift のフォーカス強調
         disabled
           ? "opacity-50 saturate-0 cursor-not-allowed"
-          : "cursor-pointer card-hover-focus",
+          : inactive
+            ? "cursor-default"
+            : "cursor-pointer card-hover-focus",
         // 選択時は ring で強調(枠のレア度色は維持)
         selected && "ring-2 ring-primary ring-offset-1 ring-offset-background",
       )}

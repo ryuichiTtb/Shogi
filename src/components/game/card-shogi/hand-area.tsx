@@ -75,7 +75,11 @@ export function HandArea({
     >
       {hand.map((c) => {
         const def = CARD_DEFS[c.defId];
-        const cardDisabled = disabled || currentMana < def.cost;
+        // マナ不足: 常にグレーアウト (操作不可かどうかに関わらず)
+        // マナ十分かつ全体 disabled (相手番など): 通常表示のまま操作だけ無効化 (= inactive)
+        const unaffordable = currentMana < def.cost;
+        const cardDisabled = unaffordable;
+        const cardInactive = !unaffordable && disabled;
         const isFresh = c.instanceId === flashCardId;
         return (
           <div
@@ -86,6 +90,7 @@ export function HandArea({
               card={c}
               size={size}
               disabled={cardDisabled}
+              inactive={cardInactive}
               fullWidth={fullWidth}
               onClick={() => onCardClick?.(c.instanceId)}
             />
