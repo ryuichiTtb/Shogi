@@ -1,12 +1,11 @@
 "use client";
 
-import { Loader2 } from "lucide-react";
+import { LoadingOverlay } from "@/components/loading-overlay";
 
 // デッキ詳細を読み込み中・別デッキ切替直後に表示する placeholder。
 // DeckEditorPane と同じレイアウト構造 (header + body grid) を再現することで、
-// 読み込み完了時に高さがジャンプしない。animate-pulse で読み込み中を示す。
-// さらに中央にくるくる回るスピナーをオーバーレイで重ね、進行中であることを
-// ハッキリ示す。
+// 読み込み完了時に高さがジャンプしない。animate-pulse + 共通 LoadingOverlay
+// (中央にスピナー) を重ねて、進行中であることをハッキリ示す。
 
 export function DeckEditorSkeleton() {
   return (
@@ -35,19 +34,7 @@ export function DeckEditorSkeleton() {
         <SkeletonSection labelW="w-28" />
       </div>
 
-      {/* 中央スピナー (回転アニメ)。aria-busy はフレーム親側で必要なら付与。 */}
-      <div
-        className="absolute inset-0 flex flex-col items-center justify-center gap-2 pointer-events-none"
-        aria-label="読み込み中"
-        role="status"
-      >
-        <div className="rounded-full bg-background/85 shadow-md p-3 backdrop-blur-sm">
-          <Loader2 className="w-7 h-7 text-primary animate-spin" />
-        </div>
-        <span className="text-xs text-muted-foreground bg-background/85 px-2 py-0.5 rounded-md">
-          読み込み中...
-        </span>
-      </div>
+      <LoadingOverlay show />
     </div>
   );
 }
