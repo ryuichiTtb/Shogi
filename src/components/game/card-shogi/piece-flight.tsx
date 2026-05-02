@@ -32,10 +32,10 @@ interface PieceFlightProps {
 
 // 駒のサイズ。盤面マス・持ち駒アイコンと比して見栄えするよう中間サイズ
 const PIECE_SIZE = 56;
-// 移動全体の所要時間 (Issue #82: 0.5s に短縮)
+// 移動全体の所要時間 (Issue #82: 0.5s)
 const TOTAL_MS = 500;
-// 回転数 (短時間でも視認しやすいよう 2 周に調整)
-const ROTATIONS = 2;
+// 回転数 (Issue #82 ユーザー指示: 4 周)
+const ROTATIONS = 4;
 // 保険タイマーの余裕
 const FALLBACK_PADDING_MS = 500;
 
@@ -92,18 +92,16 @@ function PieceFlightInner({
         x: spec.fromX - PIECE_SIZE / 2,
         y: spec.fromY - PIECE_SIZE / 2,
         rotate: 0,
-        scale: 1,
       }}
       animate={{
         x: spec.toX - PIECE_SIZE / 2,
         y: spec.toY - PIECE_SIZE / 2,
         rotate: 360 * ROTATIONS,
-        scale: [1, 1.15, 1],
       }}
       transition={{
         duration: TOTAL_MS / 1000,
-        ease: "easeInOut",
-        scale: { times: [0, 0.5, 1] },
+        // Issue #82 ユーザー指示: 移動・回転とも等速 (linear)
+        ease: "linear",
       }}
       onAnimationComplete={handleComplete}
       style={{
@@ -116,12 +114,10 @@ function PieceFlightInner({
         zIndex: 55,
       }}
     >
-      <div className="w-full h-full rounded-md shadow-2xl ring-2 ring-amber-300/80 bg-amber-50/30 flex items-center justify-center">
-        <ShogiPiece
-          piece={{ type: spec.pieceType, owner: spec.owner }}
-          playerColor={playerColor}
-        />
-      </div>
+      <ShogiPiece
+        piece={{ type: spec.pieceType, owner: spec.owner }}
+        playerColor={playerColor}
+      />
     </motion.div>
   );
 }
