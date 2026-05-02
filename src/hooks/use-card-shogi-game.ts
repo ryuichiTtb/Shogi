@@ -193,21 +193,6 @@ function isKingInCheckAfterMove(gameState: GameState, move: Move): boolean {
   return isInCheck(nextState, move.player, CARD_SHOGI_VARIANT);
 }
 
-// 二歩指し使用可否: 持ち駒に歩あり & 盤上に自分の未成り歩あり
-function canUseDoublePawn(gameState: GameState, player: Player): boolean {
-  const handPawnCount = gameState.hand[player]["pawn"] ?? 0;
-  if (handPawnCount <= 0) return false;
-  for (let r = 0; r < gameState.board.length; r++) {
-    for (let c = 0; c < gameState.board[r].length; c++) {
-      const piece = gameState.board[r][c];
-      if (piece && piece.owner === player && piece.type === "pawn") {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
 function reducer(
   state: CardShogiGameStateInternal,
   action: Action,
@@ -527,8 +512,8 @@ function reducer(
       if (!card) return state;
       const def = CARD_DEFS[card.defId];
       if (state.cardState.mana[action.player] < def.cost) return state;
-      // 二歩指しの使用条件: 持ち駒に歩あり & 盤上に自分の未成り歩あり
-      if (def.effectId === "double_pawn" && !canUseDoublePawn(state.gameState, action.player)) {
+      // カード固有の使用条件 (Issue #82)。useCondition 未定義のカードは常に使用可。
+      if (def.useCondition && !def.useCondition(state.gameState, action.player, state.cardState)) {
         return state;
       }
       // Issue #106: 全カードでまず確認ポップアップ (phase="confirm") を出し、

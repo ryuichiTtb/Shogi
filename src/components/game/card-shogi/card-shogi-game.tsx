@@ -579,27 +579,22 @@ export function CardShogiGame({
     [cardState.noPromoteMarks],
   );
 
-  // マナ以外の使用条件を満たさないカードIDを集計し、HandArea で非活性化する。
-  // 現状: 二歩指し (持ち駒に歩あり & 盤上に自分の未成り歩あり)
+  // マナ以外の使用条件を満たさないカードIDを集計し、HandArea で非活性化する (Issue #82)。
+  // 各カードの CardDefinition.useCondition を呼び、false を返したものを集める。
+  // 手札に存在する defId のみ評価する (毎フレーム全カードを舐める必要はない)。
   const unusableCardIds = useMemo(() => {
     const set = new Set<string>();
-    let hasOwnUnpromotedPawn = false;
-    for (let r = 0; r < 9; r++) {
-      for (let c = 0; c < 9; c++) {
-        const piece = gameState.board[r]?.[c];
-        if (piece && piece.owner === playerColor && piece.type === "pawn") {
-          hasOwnUnpromotedPawn = true;
-          break;
-        }
+    const seen = new Set<string>();
+    for (const inst of displayedOwnHand) {
+      if (seen.has(inst.defId)) continue;
+      seen.add(inst.defId);
+      const def = CARD_DEFS[inst.defId];
+      if (def.useCondition && !def.useCondition(gameState, playerColor, cardState)) {
+        set.add(inst.defId);
       }
-      if (hasOwnUnpromotedPawn) break;
-    }
-    const handPawnCount = gameState.hand[playerColor]["pawn"] ?? 0;
-    if (handPawnCount <= 0 || !hasOwnUnpromotedPawn) {
-      set.add("double_pawn");
     }
     return set;
-  }, [gameState.board, gameState.hand, playerColor]);
+  }, [displayedOwnHand, gameState, cardState, playerColor]);
 
   const ownHand = (
     <HandArea

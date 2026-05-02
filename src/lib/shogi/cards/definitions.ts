@@ -1,4 +1,33 @@
+import type { GameState, Player } from "@/lib/shogi/types";
 import type { CardDefinition, CardId } from "./types";
+
+// ----- 共通 useCondition ヘルパ -----
+
+// 自分の盤上に「歩 or と金」があるか (歩戻しの使用条件)
+function hasOwnPawnOnBoard(gameState: GameState, player: Player): boolean {
+  for (let r = 0; r < gameState.board.length; r++) {
+    for (let c = 0; c < gameState.board[r].length; c++) {
+      const piece = gameState.board[r][c];
+      if (piece && piece.owner === player && (piece.type === "pawn" || piece.type === "promoted_pawn")) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// 自分の盤上に「未成り歩」があるか (二歩指しの対象列判定の前提)
+function hasOwnUnpromotedPawnOnBoard(gameState: GameState, player: Player): boolean {
+  for (let r = 0; r < gameState.board.length; r++) {
+    for (let c = 0; c < gameState.board[r].length; c++) {
+      const piece = gameState.board[r][c];
+      if (piece && piece.owner === player && piece.type === "pawn") {
+        return true;
+      }
+    }
+  }
+  return false;
+}
 
 // Phase 0 暫定カード3種(設計ドキュメント 3.5)
 // 「状態のみ」「ターゲット選択あり」「トラップ」の3パターンを最小被覆。
@@ -38,6 +67,10 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
       "自分の盤上の歩(成り歩=と金は対象外)1枚を選び、持ち駒に戻す。\n\n- ターゲット: 自盤上の歩\n- 成った歩(と金)は対象外\n- 持ち駒に戻った歩は次ターン以降に通常通り打てる",
     addedAt: "2026-04-30",
     relatedIssues: [68, 80, 82],
+    // 自分の盤上に歩(と金含む)が1枚以上あれば使用可。
+    // ※ effects.ts の applyPawnReturn は pawn / promoted_pawn 両方を対象にしているため、それに合わせる。
+    //   detailDescription とは齟齬があるが整合は別途確認(Issue #82 内で要決定)。
+    useCondition: (gameState, player) => hasOwnPawnOnBoard(gameState, player),
   },
   double_pawn: {
     id: "double_pawn",
@@ -55,6 +88,12 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
       "持ち駒の歩 1枚を、自分の未成り歩がいる列の空マスに打つことで、二歩禁則を一時的に解除して同列に2枚目の歩を打てるカード。\n\n【使用条件】\n- 持ち駒に歩がある\n- 盤上に自分の未成り歩がある(と金は条件に含まれない)\n\n【配置可能マス】\n- 自分の未成り歩がある列の空マス\n- 行きどころのない歩(後手側1段目 / 先手側9段目)は不可\n- 打ち歩詰めとなるマスは不可(将棋の根本ルールとして禁則維持)\n\n【その他】\n- 同列に既に複数の歩がある状態でも使用可能(2枚目以降も同列に打てる)\n- 配置先のマスに駒がある場合は不可(空マスのみ)",
     addedAt: "2026-05-02",
     relatedIssues: [82],
+    // 持ち駒に歩あり & 盤上に自分の未成り歩あり (と金は対象列の起点にならない)
+    useCondition: (gameState, player) => {
+      const handPawnCount = gameState.hand[player]["pawn"] ?? 0;
+      if (handPawnCount <= 0) return false;
+      return hasOwnUnpromotedPawnOnBoard(gameState, player);
+    },
   },
 
   no_promote: {
