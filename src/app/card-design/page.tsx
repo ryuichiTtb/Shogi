@@ -122,9 +122,9 @@ export default function CardDesignPage() {
                 className={cn(
                   "w-full text-left rounded-xl border-2 transition-all",
                   "bg-white dark:bg-slate-900/60 shadow-sm",
-                  "hover:border-primary/60 hover:shadow-md cursor-pointer",
+                  "hover:border-lime-400/70 hover:shadow-md cursor-pointer",
                   isSelected
-                    ? "border-primary ring-2 ring-primary/30"
+                    ? "border-lime-400 ring-2 ring-lime-300/50"
                     : "border-border",
                 )}
               >
@@ -134,7 +134,7 @@ export default function CardDesignPage() {
                       <div className="flex items-center gap-2">
                         <h2 className="text-base font-bold">{entry.label}</h2>
                         {isSelected && (
-                          <span className="inline-flex items-center gap-1 bg-emerald-500 text-white px-2 py-0.5 rounded-md text-xs font-bold leading-tight shadow-md ring-2 ring-emerald-300/40">
+                          <span className="inline-flex items-center gap-1 bg-lime-400 text-lime-950 px-2 py-0.5 rounded-md text-xs font-bold leading-tight shadow-md ring-2 ring-lime-200/60">
                             <Check className="w-3.5 h-3.5" strokeWidth={3} />
                             選択中
                           </span>

@@ -26,17 +26,17 @@ interface CardBackStyleEntry {
 
 export const CARD_BACK_STYLES: Record<CardBackStyle, CardBackStyleEntry> = {
   seigaiha: {
-    label: "青海波",
+    label: "波",
     description: "金箔の波柄が広がる、和の落ち着きある一品。",
     Component: CardBackSeigaiha,
   },
   emblem: {
-    label: "黄金閃光",
+    label: "煌",
     description: "金色の斜線に閃光がきらめく、華やかなデザイン。",
     Component: CardBackEmblem,
   },
   minimal: {
-    label: "漆黒",
+    label: "漆",
     description: "黒地に金の輝きをあしらった、上品でシックな佇まい。",
     Component: CardBackMinimal,
   },
