@@ -3,6 +3,7 @@
 import { cn } from "@/lib/utils";
 import type { CardInstance, CardRarity } from "@/lib/shogi/cards/types";
 import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
+import { CardBack } from "@/components/card-back/card-back";
 
 export type CardViewSize = "sm" | "md" | "lg" | "xl";
 
@@ -128,13 +129,6 @@ const GAP_CLASS: Record<CardViewSize, string> = {
   xl: "gap-5",
 };
 
-const FACEDOWN_SYMBOL_CLASS: Record<CardViewSize, string> = {
-  sm: "text-2xl",
-  md: "text-2xl",
-  lg: "text-2xl",
-  xl: "text-9xl",
-};
-
 /* epic オーブの size 別配置。
  * カタログ md=3個 を基準に、カードが大きいほど粒数を増やす。
  * 軌道 keyframes は orb-1/2/3 の 3 種しかないので、xl では同じ軌道を
@@ -188,19 +182,7 @@ export function CardView({
   const def = CARD_DEFS[card.defId];
 
   if (faceDown) {
-    return (
-      <div
-        className={cn(
-          "rounded-md border-2 border-indigo-700 bg-gradient-to-br from-indigo-700 to-indigo-900",
-          "flex items-center justify-center text-white/80 font-bold shrink-0",
-          fullWidth ? cn("w-full", FULL_WIDTH_HEIGHT[size]) : SIZE_CLASS[size],
-          fullWidth && FACEDOWN_SYMBOL_CLASS[size],
-        )}
-        aria-label="伏せられたカード"
-      >
-        ♠
-      </div>
-    );
+    return <CardBack size={size} fullWidth={fullWidth} />;
   }
 
   const sizeClass = fullWidth

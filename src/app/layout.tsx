@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Noto_Sans_JP } from "next/font/google";
 import localFont from "next/font/local";
 import { ThemeProvider } from "@/components/theme-provider";
+import { CardBackProvider } from "@/components/card-back/card-back-provider";
 import { ServiceWorkerRegister } from "@/components/sw-register";
 import "./globals.css";
 
@@ -70,8 +71,10 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
         <ThemeProvider>
-          {children}
-          <ServiceWorkerRegister />
+          <CardBackProvider>
+            {children}
+            <ServiceWorkerRegister />
+          </CardBackProvider>
         </ThemeProvider>
       </body>
     </html>

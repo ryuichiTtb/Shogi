@@ -2,6 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { DRAW_COST } from "@/lib/shogi/cards/definitions";
+import { CardBack } from "@/components/card-back/card-back";
 
 interface DeckPileProps {
   count: number;
@@ -44,23 +45,21 @@ const STACK_OFFSET_Y = {
 };
 
 interface StackCardProps {
-  interactable: boolean;
+  size: "sm" | "md" | "lg";
   dimmed: boolean;
 }
 
-// 後ろのズレカード(クリック不可、装飾のみ)
-function StackCard({ interactable, dimmed }: StackCardProps) {
+// 後ろのズレカード(クリック不可、装飾のみ)。ユーザー設定の裏面スタイルを
+// 上面と同じく描画し、奥に行くほど暗く見えるよう brightness を落とす。
+function StackCard({ size, dimmed }: StackCardProps) {
   return (
-    <div
-      className={cn(
-        "absolute inset-0 rounded-md border-2 pointer-events-none",
-        // ズレカードは上面と同じ色味だが少し透明度を持たせて影感を出す
-        !interactable && !dimmed && "bg-gradient-to-br from-amber-800 to-amber-900 border-amber-800",
-        !interactable && dimmed && "bg-gradient-to-br from-amber-900 to-amber-950 border-amber-900",
-        interactable && "bg-gradient-to-br from-amber-600 to-amber-800 border-amber-400",
-      )}
-      aria-hidden
-    />
+    <div className="absolute inset-0 pointer-events-none" aria-hidden>
+      <CardBack
+        size={size}
+        fullWidth
+        className={cn("brightness-75 opacity-95", dimmed && "brightness-50 opacity-80")}
+      />
+    </div>
   );
 }
 
@@ -157,28 +156,26 @@ export function DeckPile({
               zIndex: i,
             }}
           >
-            <StackCard interactable={interactable} dimmed={dimmed} />
+            <StackCard size={size} dimmed={dimmed} />
           </div>
         );
       })}
 
-      {/* 上面カード(クリック可能) */}
+      {/* 上面カード(クリック可能)。
+          - 空: 従来の灰色プレースホルダ (裏面表示しない)
+          - それ以外: ユーザー設定の CardBack を背景にして上にテキストを重ねる */}
       <button
         type="button"
         onClick={onDraw}
         disabled={!interactable}
         className={cn(
-          "relative z-10 rounded-md border-2 transition-all w-full h-full",
-          "flex flex-col items-center justify-center text-white px-1",
+          "relative z-10 w-full h-full",
+          "flex flex-col items-center justify-center text-white px-1 transition-all",
           sizeClass,
-          // 山札が空: 灰色で「使えない感」を視覚的に表現
-          isEmpty && "bg-gradient-to-br from-slate-400 to-slate-600 border-slate-500 text-slate-100 cursor-not-allowed opacity-70",
-          // 通常時(マナ不足など): amber を抑えた中間色
-          !isEmpty && !interactable && !dimmed && "bg-gradient-to-br from-amber-700 to-amber-900 border-amber-800 cursor-not-allowed brightness-90",
-          // 相手手番中など: 活性色をベースに更に暗く (R18)
-          !isEmpty && !interactable && dimmed && "bg-gradient-to-br from-amber-800 to-amber-950 border-amber-900 cursor-not-allowed brightness-60 opacity-85",
-          // ドロー可能時: 明るいアンバー寄りグラデーション + グロー演出
-          interactable && "bg-gradient-to-br from-amber-500 to-amber-700 border-amber-300 cursor-pointer hover:scale-[1.03] animate-deck-draw",
+          isEmpty &&
+            "rounded-md border-2 bg-gradient-to-br from-slate-400 to-slate-600 border-slate-500 text-slate-100 cursor-not-allowed opacity-70",
+          !isEmpty && !interactable && "cursor-not-allowed",
+          interactable && "cursor-pointer hover:scale-[1.03] animate-deck-draw rounded-md",
         )}
         aria-label={
           isEmpty
@@ -188,11 +185,26 @@ export function DeckPile({
               : `山札 (残${count}枚)`
         }
       >
+        {/* 裏面 (CardBack) を背景として最下層に。空の時は非表示。 */}
+        {!isEmpty && (
+          <div className="absolute inset-0 pointer-events-none" aria-hidden>
+            <CardBack
+              size={size}
+              fullWidth
+              dimmed={!interactable && dimmed}
+              className={cn(
+                !interactable && !dimmed && "brightness-90",
+                interactable && "ring-2 ring-amber-300/80",
+              )}
+            />
+          </div>
+        )}
+
         {/* ドローコストを左上に「💎 × N」形式で表示 (空の時は不要なので非表示) */}
         {showDrawCost && !isEmpty && (
           <span
             className={cn(
-              "absolute top-0.5 left-0.5 flex items-center gap-0.5 rounded-full px-1.5 leading-tight font-bold tabular-nums",
+              "absolute top-0.5 left-0.5 z-10 flex items-center gap-0.5 rounded-full px-1.5 leading-tight font-bold tabular-nums",
               "bg-cyan-100 text-cyan-900 dark:bg-cyan-900/60 dark:text-cyan-100",
               size === "sm" ? "text-[8px]" : "text-[10px]",
             )}
@@ -203,13 +215,13 @@ export function DeckPile({
           </span>
         )}
 
-        <div className="opacity-90 leading-none font-medium mt-2">山札</div>
-        <div className="font-bold tabular-nums leading-none mt-1 text-base">× {count}</div>
+        <div className="relative z-10 opacity-90 leading-none font-medium mt-2 drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]">山札</div>
+        <div className="relative z-10 font-bold tabular-nums leading-none mt-1 text-base drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]">× {count}</div>
         {isEmpty && (
           <div className="mt-1 leading-none text-slate-200 text-[10px] font-bold">空</div>
         )}
         {interactable && (
-          <div className="mt-1 leading-none text-amber-300 text-[10px] font-bold animate-bounce">
+          <div className="relative z-10 mt-1 leading-none text-amber-200 text-[10px] font-bold animate-bounce drop-shadow-[0_1px_2px_rgba(0,0,0,0.7)]">
             DRAW!
           </div>
         )}
