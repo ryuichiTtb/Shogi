@@ -20,6 +20,8 @@ interface HandAreaProps {
   fullWidth?: boolean;
   // Issue #78: 直前にドローしたカードを一瞬光らせる (instanceId 一致のカードに animate-hand-card-flash を付与)
   flashCardId?: string | null;
+  // Issue #106: モバイル手札等の幅が狭いコンテキストで効果説明を非表示にする
+  hideCardDescription?: boolean;
 }
 
 export function HandArea({
@@ -33,6 +35,7 @@ export function HandArea({
   disabled = false,
   fullWidth = false,
   flashCardId = null,
+  hideCardDescription = false,
 }: HandAreaProps) {
   if (hand.length === 0) {
     return <div className="text-xs text-muted-foreground py-2 px-3">{emptyLabel}</div>;
@@ -92,6 +95,7 @@ export function HandArea({
               disabled={cardDisabled}
               inactive={cardInactive}
               fullWidth={fullWidth}
+              hideDescription={hideCardDescription}
               onClick={() => onCardClick?.(c.instanceId)}
             />
           </div>

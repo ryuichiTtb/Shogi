@@ -839,12 +839,16 @@ export function CardShogiGame({
           <Button size="sm" variant="ghost" onClick={() => setDrawerOpen(false)}>閉じる</Button>
         </div>
         <div className="p-3 overflow-x-auto">
+          {/* Issue #106: モバイル手札は幅が狭くトラップラベルとカード名が
+            * 被るため、効果記述は非表示。トラップ用バッジは CardView 側で
+            * カード名の下に再配置される。 */}
           <HandArea
             hand={displayedOwnHand}
             currentMana={cardState.mana[playerColor]}
             size="md"
             disabled={handDisabled}
             flashCardId={freshlyDrawnId}
+            hideCardDescription
             onCardClick={(id) => {
               handleBeginPlayCard(id);
               setDrawerOpen(false);

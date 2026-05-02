@@ -308,7 +308,9 @@ export function CardView({
       <div className="relative z-10 flex-1 min-w-0 flex flex-col justify-center gap-0.5">
         <div className="flex items-center gap-1">
           <span className={cn("font-bold leading-tight truncate", NAME_TEXT_CLASS[size])}>{def.name}</span>
-          {def.kind === "trap" && (
+          {/* hideDescription 時はカード名横にバッジを置かず、下段(説明位置)に
+            * 単独で配置する (モバイル手札で名前と被って見づらくなるため)。 */}
+          {def.kind === "trap" && !hideDescription && (
             <span
               className={cn(
                 "bg-emerald-600 text-white px-1.5 rounded font-bold leading-tight shrink-0 shadow-sm",
@@ -329,6 +331,17 @@ export function CardView({
           >
             {def.description}
           </div>
+        )}
+        {/* hideDescription 時のトラップカード: 元々説明があった位置にバッジを表示 */}
+        {hideDescription && def.kind === "trap" && (
+          <span
+            className={cn(
+              "bg-emerald-600 text-white px-1.5 rounded font-bold leading-tight shadow-sm self-start",
+              TRAP_BADGE_TEXT_CLASS[size],
+            )}
+          >
+            トラップ
+          </span>
         )}
       </div>
     </button>
