@@ -137,7 +137,14 @@ export function DeckListPane({
                     size="sm"
                     variant="outline"
                     onClick={() => onSelectDefault(deck.id)}
-                    disabled={disabled || isPendingDefault}
+                    disabled={
+                      disabled || isPendingDefault || deck.totalCount === 0
+                    }
+                    title={
+                      deck.totalCount === 0
+                        ? "0枚のデッキは使用中にできません"
+                        : undefined
+                    }
                     className="shrink-0 h-7 px-2 text-xs"
                   >
                     {isPendingDefault ? "..." : "選択"}

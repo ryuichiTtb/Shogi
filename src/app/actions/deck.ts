@@ -242,10 +242,14 @@ export async function setDefaultDeck(deckId: string): Promise<void> {
   const user = await ensureDefaultUser();
   const target = await prisma.deck.findFirst({
     where: { id: deckId, userId: user.id },
-    select: { id: true },
+    select: { id: true, entries: { select: { count: true } } },
   });
   if (!target) {
     throw new Error("デッキが見つかりません");
+  }
+  const total = target.entries.reduce((sum, e) => sum + e.count, 0);
+  if (total === 0) {
+    throw new Error("0枚のデッキは使用中にできません");
   }
   await prisma.$transaction([
     prisma.deck.updateMany({
