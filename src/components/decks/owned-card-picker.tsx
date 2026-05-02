@@ -18,7 +18,7 @@ interface OwnedCardPickerProps {
   currentCountByCard: Map<CardId, number>;
   totalCount: number;
   disabled?: boolean;
-  onAdd: (cardId: CardId) => void;
+  onAdd: (cardId: CardId, sourceRect: DOMRect) => void;
 }
 
 export function OwnedCardPicker({
@@ -132,8 +132,9 @@ export function OwnedCardPicker({
                 <DeckCardTile
                   key={c.cardId}
                   cardId={c.cardId}
+                  area="owned"
                   disabled={disabled || cantAdd}
-                  onClick={() => onAdd(c.cardId)}
+                  onClick={(rect) => onAdd(c.cardId, rect)}
                   title={reason}
                   topBadge={
                     <TileBadge

@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useCallback, useMemo, useRef, useState, useTransition } from "react";
+import { flushSync } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -25,7 +26,15 @@ import { RARITY_INFO } from "@/lib/shogi/cards/labels";
 import type { CardId, CardRarity } from "@/lib/shogi/cards/types";
 import { OwnedCardPicker } from "./owned-card-picker";
 import { ConfirmDialog } from "./confirm-dialog";
-import { DeckCardTile } from "./deck-card-tile";
+import { DeckCardTile, type DeckArea } from "./deck-card-tile";
+import { DeckFlightLayer, type DeckFlightItem } from "./deck-flight-layer";
+
+interface DeckFlight extends DeckFlightItem {
+  // 行先タイル (deck 側のとき) の identity。フライト中に重ねる元タイルを
+  // ghost (透明) にして、二重表示を防ぐために使う。
+  destArea: DeckArea;
+  destInstanceKey: number;
+}
 
 interface DeckEditorPaneProps {
   deck: DeckDetail;
@@ -75,27 +84,6 @@ export function DeckEditorPane({
     }
     return false;
   }, [entries, deck.entries]);
-
-  function changeCount(cardId: CardId, delta: number) {
-    setEntries((prev) => {
-      const next = [...prev];
-      const idx = next.findIndex((e) => e.cardId === cardId);
-      const info = ownership.get(cardId);
-      const limit = info ? perCardLimit(info) : 0;
-
-      if (idx === -1) {
-        if (delta <= 0 || limit <= 0) return prev;
-        return [...prev, { cardId, count: 1 }];
-      }
-      const newCount = next[idx].count + delta;
-      if (newCount <= 0) {
-        next.splice(idx, 1);
-      } else {
-        next[idx] = { ...next[idx], count: Math.min(newCount, limit) };
-      }
-      return next;
-    });
-  }
 
   function handleSave() {
     setActionError(null);
@@ -159,6 +147,115 @@ export function DeckEditorPane({
     for (const e of entries) m.set(e.cardId, e.count);
     return m;
   }, [entries]);
+
+  // -------------------- フライト演出 --------------------
+  const [flights, setFlights] = useState<DeckFlight[]>([]);
+  const flightIdRef = useRef(0);
+
+  const handleFlightComplete = useCallback((id: number) => {
+    setFlights((prev) => prev.filter((f) => f.id !== id));
+  }, []);
+
+  // フライト中の deck タイルは ghost (透明) にして重複表示を避ける。
+  const ghostedDeckTiles = useMemo(() => {
+    const s = new Set<string>();
+    for (const f of flights) {
+      if (f.destArea === "deck") {
+        s.add(`${f.cardId}:${f.destInstanceKey}`);
+      }
+    }
+    return s;
+  }, [flights]);
+
+  function findTileRect(
+    area: DeckArea,
+    cardId: CardId,
+    instanceKey: number | "single",
+  ): DOMRect | null {
+    const sel = `[data-deck-area="${area}"][data-card-id="${cardId}"][data-instance-key="${instanceKey}"]`;
+    const el = document.querySelector(sel) as HTMLElement | null;
+    return el ? el.getBoundingClientRect() : null;
+  }
+
+  // 所持エリアでカードクリック → 編成エリアへ追加
+  const handleAddFromOwned = useCallback(
+    (cardId: CardId, fromRect: DOMRect) => {
+      if (isPending) return;
+      const oldCount = entries.find((e) => e.cardId === cardId)?.count ?? 0;
+      const destInstanceKey = oldCount; // 新タイルの instanceKey
+
+      // state を同期更新 → DOM 反映後に行先 rect を測定
+      flushSync(() => {
+        setEntries((prev) => {
+          const info = ownership.get(cardId);
+          if (!info) return prev;
+          const cap = RARITY_MAX_PER_DECK[info.rarity];
+          const limit = cap === null ? info.owned : Math.min(info.owned, cap);
+          const idx = prev.findIndex((e) => e.cardId === cardId);
+          if (idx === -1) {
+            if (limit <= 0) return prev;
+            return [...prev, { cardId, count: 1 }];
+          }
+          if (prev[idx].count >= limit) return prev;
+          const next = [...prev];
+          next[idx] = { ...next[idx], count: next[idx].count + 1 };
+          return next;
+        });
+      });
+
+      const toRect = findTileRect("deck", cardId, destInstanceKey);
+      if (!toRect) return;
+      setFlights((prev) => [
+        ...prev,
+        {
+          id: ++flightIdRef.current,
+          cardId,
+          fromRect,
+          toRect,
+          destArea: "deck",
+          destInstanceKey,
+        },
+      ]);
+    },
+    [entries, isPending, ownership],
+  );
+
+  // 編成エリアでカードクリック → 所持エリアへ戻す
+  const handleRemoveFromDeck = useCallback(
+    (cardId: CardId, fromRect: DOMRect) => {
+      if (isPending) return;
+      // 所持タイルは state 変更前後ともに DOM 上に存在するので先に測定
+      const toRect = findTileRect("owned", cardId, "single");
+
+      setEntries((prev) => {
+        const idx = prev.findIndex((e) => e.cardId === cardId);
+        if (idx === -1) return prev;
+        const newCount = prev[idx].count - 1;
+        if (newCount <= 0) {
+          const next = [...prev];
+          next.splice(idx, 1);
+          return next;
+        }
+        const next = [...prev];
+        next[idx] = { ...next[idx], count: newCount };
+        return next;
+      });
+
+      if (!toRect) return;
+      setFlights((prev) => [
+        ...prev,
+        {
+          id: ++flightIdRef.current,
+          cardId,
+          fromRect,
+          toRect,
+          destArea: "owned",
+          destInstanceKey: 0,
+        },
+      ]);
+    },
+    [isPending],
+  );
 
   return (
     <div className="rounded-lg border bg-card flex flex-col min-h-0 flex-1">
@@ -294,8 +391,10 @@ export function DeckEditorPane({
                       key={`${e.cardId}-${i}`}
                       instanceKey={i}
                       cardId={e.cardId}
+                      area="deck"
+                      ghosted={ghostedDeckTiles.has(`${e.cardId}:${i}`)}
                       disabled={isPending}
-                      onClick={() => changeCount(e.cardId, -1)}
+                      onClick={(rect) => handleRemoveFromDeck(e.cardId, rect)}
                       title="クリックで編成から外す"
                     />
                   )),
@@ -312,10 +411,12 @@ export function DeckEditorPane({
             currentCountByCard={currentCountByCard}
             totalCount={validation.totalCount}
             disabled={isPending}
-            onAdd={(cardId) => changeCount(cardId, 1)}
+            onAdd={handleAddFromOwned}
           />
         </section>
       </div>
+
+      <DeckFlightLayer flights={flights} onComplete={handleFlightComplete} />
 
       <ConfirmDialog
         open={confirmDelete}
@@ -328,11 +429,6 @@ export function DeckEditorPane({
       />
     </div>
   );
-}
-
-function perCardLimit(info: CardOwnershipInfo): number {
-  const cap = RARITY_MAX_PER_DECK[info.rarity];
-  return cap === null ? info.owned : Math.min(info.owned, cap);
 }
 
 interface DeckSummaryBarProps {
