@@ -373,17 +373,6 @@ export function DeckEditorPane({
           rarityCounts={rarityCounts}
         />
 
-        {validation.errors.length > 0 && (
-          <div className="text-xs text-destructive space-y-0.5">
-            {validation.errors.map((err, i) => (
-              <p key={i}>• {err}</p>
-            ))}
-          </div>
-        )}
-        {actionError && (
-          <p className="text-xs text-destructive">{actionError}</p>
-        )}
-
         <div className="flex items-center gap-2">
           <Button
             size="sm"
@@ -407,6 +396,24 @@ export function DeckEditorPane({
               変更を破棄
             </Button>
           )}
+          {/* 縦幅ジャンプを避けるためボタン横に inline 表示。長文は truncate
+              + title でホバー全文表示。複数エラーは " / " で連結。 */}
+          {(() => {
+            const msgs = [
+              ...validation.errors,
+              ...(actionError ? [actionError] : []),
+            ];
+            if (msgs.length === 0) return null;
+            const text = msgs.join(" / ");
+            return (
+              <p
+                className="text-xs text-destructive min-w-0 flex-1 truncate"
+                title={text}
+              >
+                {text}
+              </p>
+            );
+          })()}
         </div>
       </div>
 
