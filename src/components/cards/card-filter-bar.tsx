@@ -40,7 +40,9 @@ export function CardFilterBar({ value, onChange }: CardFilterBarProps) {
         selected={value.status}
         allOptions={STATUS_OPTIONS}
         onToggle={(id) => onChange({ ...value, status: toggle(value.status, id) })}
-        onSelectAll={() => onChange({ ...value, status: new Set(STATUS_OPTIONS) })}
+        onToggleAll={() =>
+          onChange({ ...value, status: toggleAll(value.status, STATUS_OPTIONS) })
+        }
       />
       <FilterRow
         label="種別"
@@ -52,7 +54,9 @@ export function CardFilterBar({ value, onChange }: CardFilterBarProps) {
         selected={value.kind}
         allOptions={KIND_OPTIONS}
         onToggle={(id) => onChange({ ...value, kind: toggle(value.kind, id) })}
-        onSelectAll={() => onChange({ ...value, kind: new Set(KIND_OPTIONS) })}
+        onToggleAll={() =>
+          onChange({ ...value, kind: toggleAll(value.kind, KIND_OPTIONS) })
+        }
       />
       <FilterRow
         label="レア度"
@@ -64,7 +68,9 @@ export function CardFilterBar({ value, onChange }: CardFilterBarProps) {
         selected={value.rarity}
         allOptions={RARITY_OPTIONS}
         onToggle={(id) => onChange({ ...value, rarity: toggle(value.rarity, id) })}
-        onSelectAll={() => onChange({ ...value, rarity: new Set(RARITY_OPTIONS) })}
+        onToggleAll={() =>
+          onChange({ ...value, rarity: toggleAll(value.rarity, RARITY_OPTIONS) })
+        }
       />
     </div>
   );
@@ -80,13 +86,19 @@ function toggle<T>(set: ReadonlySet<T>, id: T): Set<T> {
   return next;
 }
 
+// 全 ON のときは全 OFF へ、それ以外は全 ON へ切り替える。
+function toggleAll<T>(set: ReadonlySet<T>, all: readonly T[]): Set<T> {
+  const allActive = all.every((id) => set.has(id));
+  return allActive ? new Set<T>() : new Set(all);
+}
+
 interface FilterRowProps<T extends string> {
   label: string;
   options: { id: T; label: string; className: string }[];
   selected: ReadonlySet<T>;
   allOptions: readonly T[];
   onToggle: (id: T) => void;
-  onSelectAll: () => void;
+  onToggleAll: () => void;
 }
 
 function FilterRow<T extends string>({
@@ -95,7 +107,7 @@ function FilterRow<T extends string>({
   selected,
   allOptions,
   onToggle,
-  onSelectAll,
+  onToggleAll,
 }: FilterRowProps<T>) {
   const allActive = allOptions.every((id) => selected.has(id));
   return (
@@ -104,10 +116,10 @@ function FilterRow<T extends string>({
       <div className="flex flex-wrap gap-1 sm:gap-1.5">
         <button
           type="button"
-          onClick={onSelectAll}
+          onClick={onToggleAll}
           className={cn(
             "cursor-pointer transition-all",
-            allActive ? "ring-2 ring-primary ring-offset-1 ring-offset-background" : "opacity-60 hover:opacity-100",
+            allActive ? "" : "opacity-40 hover:opacity-100",
           )}
           aria-pressed={allActive}
         >
@@ -127,7 +139,7 @@ function FilterRow<T extends string>({
               onClick={() => onToggle(opt.id)}
               className={cn(
                 "cursor-pointer transition-all",
-                active ? "ring-2 ring-primary ring-offset-1 ring-offset-background" : "opacity-60 hover:opacity-100",
+                active ? "" : "opacity-40 hover:opacity-100",
               )}
               aria-pressed={active}
             >
