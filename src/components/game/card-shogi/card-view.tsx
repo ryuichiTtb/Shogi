@@ -39,6 +39,9 @@ interface CardViewProps {
   size?: CardViewSize;
   selected?: boolean;
   fullWidth?: boolean;
+  // 効果説明テキストを非表示にする (Issue #106: ダイアログプレビュー等で
+  // 説明はダイアログ側に書く場合に重複を避けるため)
+  hideDescription?: boolean;
 }
 
 // "sm" はサムネイル(裏向きの相手手札用、縦長)
@@ -175,6 +178,7 @@ export function CardView({
   size = "md",
   selected = false,
   fullWidth = false,
+  hideDescription = false,
 }: CardViewProps) {
   const def = CARD_DEFS[card.defId];
 
@@ -300,15 +304,17 @@ export function CardView({
             </span>
           )}
         </div>
-        <div
-          className={cn(
-            "leading-tight line-clamp-2",
-            hasRarityBg ? "text-slate-300" : "text-muted-foreground",
-            DESC_TEXT_CLASS[size],
-          )}
-        >
-          {def.description}
-        </div>
+        {!hideDescription && (
+          <div
+            className={cn(
+              "leading-tight line-clamp-2",
+              hasRarityBg ? "text-slate-300" : "text-muted-foreground",
+              DESC_TEXT_CLASS[size],
+            )}
+          >
+            {def.description}
+          </div>
+        )}
       </div>
     </button>
   );
