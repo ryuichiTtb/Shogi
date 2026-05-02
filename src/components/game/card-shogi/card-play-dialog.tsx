@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import type { PendingCard } from "@/lib/shogi/cards/types";
 import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
+import { CardView } from "./card-view";
 
 interface CardPlayDialogProps {
   pendingCard: PendingCard | null;
@@ -28,13 +29,17 @@ export function CardPlayDialog({ pendingCard, onConfirm, onCancel }: CardPlayDia
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
-            {def.kind === "trap" ? "トラップをセット" : "カードを使用"} —{" "}
-            <span className="text-primary">{def.name}</span>
+            {def.kind === "trap" ? "トラップをセット" : "カードを使用"}
           </DialogTitle>
-          <DialogDescription className="text-sm whitespace-pre-line">
-            {`消費マナ: ${def.cost}\n${def.description}`}
+          <DialogDescription className="text-sm">
+            消費マナ: {def.cost}
           </DialogDescription>
         </DialogHeader>
+
+        {/* Issue #106: 効果テキストだけだとどのカードか分かりにくいため、カード本体も表示 */}
+        <div className="flex justify-center py-2">
+          <CardView card={pendingCard.instance} size="lg" />
+        </div>
 
         <DialogFooter className="flex-row gap-2 justify-end">
           <Button variant="outline" onClick={onCancel}>
