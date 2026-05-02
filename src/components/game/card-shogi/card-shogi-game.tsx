@@ -305,6 +305,9 @@ export function CardShogiGame({
   const handleConfirmPlayCard = useCallback(() => {
     cachePendingCardRect();
     confirmPlayCard();
+    // Issue #106: モバイル手札ドロワーは「使用する」確定時に閉じる
+    // (キャンセル時は開いたままにし、再度カードを選び直しやすくする)
+    setDrawerOpen(false);
   }, [cachePendingCardRect, confirmPlayCard]);
 
   // カードイベント由来の SE 再生・画面演出・マナ浮遊テキストを eventLog の差分監視で発火
@@ -849,10 +852,7 @@ export function CardShogiGame({
             disabled={handDisabled}
             flashCardId={freshlyDrawnId}
             hideCardDescription
-            onCardClick={(id) => {
-              handleBeginPlayCard(id);
-              setDrawerOpen(false);
-            }}
+            onCardClick={handleBeginPlayCard}
           />
         </div>
       </div>
