@@ -68,6 +68,7 @@ export function CapturedPieces({
               key={type}
               onClick={(e) => { if (isCurrentPlayer) { e.stopPropagation(); onPieceClick(type); } }}
               disabled={!isCurrentPlayer}
+              data-captured-piece={`${player}-${type}`}
               className={cn(
                 "captured-piece-btn relative rounded-sm flex items-center justify-center",
                 isCurrentPlayer && "cursor-pointer",

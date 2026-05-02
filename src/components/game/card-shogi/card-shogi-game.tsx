@@ -27,6 +27,7 @@ import { cn } from "@/lib/utils";
 import { getCharacterById } from "@/data/characters";
 import { gameResultText } from "@/lib/shogi/notation";
 import { isInCheck } from "@/lib/shogi/moves";
+import { unpromotePieceType } from "@/lib/shogi/variants/standard";
 import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
 import { getVariantById } from "@/lib/shogi/variants/index";
 import type { Difficulty, GameConfig, GameState, Move, Player, Position } from "@/lib/shogi/types";
@@ -44,6 +45,7 @@ import { DeckPile } from "./deck-pile";
 import { CardPlayDialog, CardTargetingNotice } from "./card-play-dialog";
 import { DrawFlightCard } from "./draw-flight-card";
 import { CardPlayFlight } from "./card-play-flight";
+import { PieceFlight, type PieceFlightSpec } from "./piece-flight";
 import { ManaFlightLayer, type ManaFlightItem } from "./mana-flight";
 import { FastMoveBadgeLayer, type FastMoveBadgeItem } from "./fast-move-badge";
 
@@ -114,6 +116,15 @@ export function CardShogiGame({
   // カード使用時、reducer がカードを hand から削除する前に DOMRect を保管する。
   // cardPlayEvent / trapSetEvent / マナUP の manaChargeEvent(reason: card) の起点として使う。
   const playedCardRectRef = useRef<{ id: string; rect: DOMRect } | null>(null);
+  // Issue #82: カード使用後の駒移動アニメ用 spec。中央フライト完了時にこれを使って PieceFlight を発火。
+  const [pieceFlight, setPieceFlight] = useState<{ spec: PieceFlightSpec; key: number } | null>(null);
+  const pieceFlightKeyRef = useRef(0);
+  // 適用前にしか取れない rect (二歩指しの持ち駒位置 / 駒戻しの戻る駒種など) を保管。
+  const pendingPieceFlightRef = useRef<{
+    pieceType: string;
+    fromRect: DOMRect;
+    toRect: DOMRect | null; // 歩戻し / 駒戻しは適用後の持ち駒位置を後から補完
+  } | null>(null);
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const { squareSize, isMobile, viewportHeight } = useCardBoardSize();
@@ -297,6 +308,25 @@ export function CardShogiGame({
     return null;
   }, []);
 
+  // 表示中の持ち駒(captured-piece ボタン)から DOMRect を返す。レイアウト切替で
+  // 複数描画されているうち visible なものを採用 (Issue #82)。
+  const findVisibleCapturedPieceRect = useCallback(
+    (player: Player, pieceType: string): DOMRect | null => {
+      if (typeof document === "undefined") return null;
+      const els = document.querySelectorAll<HTMLElement>(
+        `[data-captured-piece="${player}-${pieceType}"]`,
+      );
+      for (const el of els) {
+        if (el.offsetParent !== null) {
+          const rect = el.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) return rect;
+        }
+      }
+      return null;
+    },
+    [],
+  );
+
   // reducer が hand からカードを削除する前に、使用カードの矩形を捕捉する。
   // 後続イベント (cardPlayEvent / trapSetEvent / manaChargeEvent reason="card") で起点として参照される。
   const cachePendingCardRect = useCallback(() => {
@@ -308,11 +338,39 @@ export function CardShogiGame({
 
   const handleConfirmPlayCard = useCallback(() => {
     cachePendingCardRect();
+    // Issue #82: 駒移動アニメ用に、適用前にしか取れない rect を先にキャッシュ。
+    // - 二歩指し: from = 持ち駒「歩」位置 (適用後 0 枚になると DOM が消える)
+    //              to   = 盤面選択マス位置
+    // - 歩戻し / 駒戻し: from = 盤面選択マス位置 (戻る駒種は適用前の盤上の駒種から決定)
+    //                    to   = 適用後の持ち駒位置 (cardPlayEvent エフェクトで補完)
+    pendingPieceFlightRef.current = null;
+    const pc = cardState.pendingCard;
+    if (pc && pc.target?.kind === "square") {
+      const def = CARD_DEFS[pc.instance.defId];
+      const target = pc.target;
+      if (def.effectId === "double_pawn") {
+        const fromRect = findVisibleCapturedPieceRect(playerColor, "pawn");
+        const toRect = getBoardSquareRect(target.row, target.col);
+        if (fromRect && toRect) {
+          pendingPieceFlightRef.current = { pieceType: "pawn", fromRect, toRect };
+        }
+      } else if (def.effectId === "pawn_return" || def.effectId === "piece_return") {
+        const fromRect = getBoardSquareRect(target.row, target.col);
+        const piece = gameState.board[target.row]?.[target.col];
+        if (fromRect && piece) {
+          pendingPieceFlightRef.current = {
+            pieceType: unpromotePieceType(piece.type),
+            fromRect,
+            toRect: null,
+          };
+        }
+      }
+    }
     confirmPlayCard();
     // Issue #106: モバイル手札ドロワーは「使用する」確定時に閉じる
     // (キャンセル時は開いたままにし、再度カードを選び直しやすくする)
     setDrawerOpen(false);
-  }, [cachePendingCardRect, confirmPlayCard]);
+  }, [cachePendingCardRect, confirmPlayCard, cardState.pendingCard, gameState.board, playerColor, findVisibleCapturedPieceRect, getBoardSquareRect]);
 
   // カードイベント由来の SE 再生・画面演出・マナ浮遊テキストを eventLog の差分監視で発火
   useEffect(() => {
@@ -348,6 +406,16 @@ export function CardShogiGame({
               key: playFlightKeyRef.current,
               isTrap: false,
             });
+            // Issue #82: 駒戻し / 歩戻しは適用後の持ち駒位置を toRect として補完
+            const pending = pendingPieceFlightRef.current;
+            if (pending && pending.toRect === null) {
+              const toRect = findVisibleCapturedPieceRect(playerColor, pending.pieceType);
+              if (toRect) {
+                pendingPieceFlightRef.current = { ...pending, toRect };
+              } else {
+                pendingPieceFlightRef.current = null; // 取得失敗 → 駒フライトなし
+              }
+            }
           }
           break;
         }
@@ -445,10 +513,34 @@ export function CardShogiGame({
   }, [cardState.hand, playerColor, drawFlight]);
 
   // Issue #106: カード使用演出は中央に固定出現するため startRect は不要
-  // Issue #82: 演出完了時に COMMIT_PLAY_CARD を発行し、currentPlayer を相手に渡して
-  //   AI 自動応手を解禁する。CONFIRM_PLAY_CARD ではターン反転を保留している。
+  // Issue #82: 演出完了時に駒移動アニメ (PieceFlight) を発火 (該当カードのみ)。
+  //   駒フライト完了 (handlePieceFlightComplete) で COMMIT_PLAY_CARD を発行し、
+  //   currentPlayer を相手に渡して AI 自動応手を解禁する。
+  //   駒フライト不要なカード(マナUP / トラップなど)は即 finalize。
   const handlePlayFlightComplete = useCallback(() => {
     setPlayFlight(null);
+    const pending = pendingPieceFlightRef.current;
+    if (pending && pending.toRect) {
+      pieceFlightKeyRef.current += 1;
+      setPieceFlight({
+        spec: {
+          pieceType: pending.pieceType,
+          owner: playerColor,
+          fromX: pending.fromRect.left + pending.fromRect.width / 2,
+          fromY: pending.fromRect.top + pending.fromRect.height / 2,
+          toX: pending.toRect.left + pending.toRect.width / 2,
+          toY: pending.toRect.top + pending.toRect.height / 2,
+        },
+        key: pieceFlightKeyRef.current,
+      });
+      pendingPieceFlightRef.current = null;
+      return; // 駒フライト完了時に finalize する
+    }
+    finalizePlayCard();
+  }, [finalizePlayCard, playerColor]);
+
+  const handlePieceFlightComplete = useCallback(() => {
+    setPieceFlight(null);
     finalizePlayCard();
   }, [finalizePlayCard]);
 
@@ -1164,6 +1256,14 @@ export function CardShogiGame({
         flightKey={playFlight?.key ?? null}
         isTrap={playFlight?.isTrap ?? false}
         onComplete={handlePlayFlightComplete}
+      />
+
+      {/* Issue #82: 駒移動カード(歩戻し / 駒戻し / 二歩指し)の駒回転フライト演出 */}
+      <PieceFlight
+        spec={pieceFlight?.spec ?? null}
+        flightKey={pieceFlight?.key ?? null}
+        playerColor={playerColor}
+        onComplete={handlePieceFlightComplete}
       />
 
       {/* Issue #77: マナ加減算の浮遊テキスト (起点 UI 付近に表示) */}
