@@ -30,15 +30,15 @@ interface PieceFlightProps {
   onComplete: () => void;
 }
 
-// 駒のサイズ。盤面マス・持ち駒アイコンと比して見栄えするよう中間サイズ
-const PIECE_SIZE = 56;
+// 駒のサイズ (UX 検証中: 持ち駒・盤上駒の約 1.5 倍を試行)
+const PIECE_SIZE = 84;
 // Issue #82 ユーザー指示: 移動速度・回転速度ともに「速度一定」。
 // - 移動速度 1800 px/s
-// - 回転速度 0.2s / 1回転 = 5 回転/秒 (1800 deg/s)
+// - 回転速度 0.1s / 1回転 = 10 回転/秒
 // duration は距離に応じて可変、回転総量は duration から逆算 (時間に比例)。
 const SPEED_PX_PER_SEC = 1800;
-// 0.2s で 1 回転
-const ROTATION_SEC_PER_TURN = 0.2;
+// 0.1s で 1 回転
+const ROTATION_SEC_PER_TURN = 0.1;
 // 距離 0 付近でも瞬時にならないよう最小 duration を確保
 const MIN_DURATION_MS = 180;
 // 保険タイマーの余裕
