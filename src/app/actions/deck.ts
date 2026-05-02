@@ -8,7 +8,63 @@ import {
   type CardOwnershipInfo,
   type DeckEntryInput,
 } from "@/lib/shogi/cards/deck-rules";
+import { ALL_CARD_DEFS } from "@/lib/shogi/cards/definitions";
 import type { CardId, CardRarity } from "@/lib/shogi/cards/types";
+
+// シードを Vercel ビルドで走らせていないため、編成画面を開いたタイミングで
+// 「全 playable カードを各 OWNED_COUNT_PER_CARD 枚」に同期する。
+// 認証・ガチャ機能が入るまでの暫定処置。
+const OWNED_COUNT_PER_CARD = 10;
+
+async function ensureOwnedCardsForUser(userId: string): Promise<void> {
+  // Card マスタの存在を保証 (seed 未実行環境向け)。upsert なので副作用は冪等。
+  await Promise.all(
+    ALL_CARD_DEFS.map((def) =>
+      prisma.card.upsert({
+        where: { id: def.id },
+        create: {
+          id: def.id,
+          kind: def.kind,
+          name: def.name,
+          description: def.description,
+          cost: def.cost,
+          rarity: def.rarity,
+          effectId: def.effectId,
+          targeting: def.targeting,
+        },
+        update: {
+          kind: def.kind,
+          name: def.name,
+          description: def.description,
+          cost: def.cost,
+          rarity: def.rarity,
+          effectId: def.effectId,
+          targeting: def.targeting,
+        },
+      }),
+    ),
+  );
+
+  const playable = ALL_CARD_DEFS.filter((d) => d.status !== "deprecated");
+  await Promise.all(
+    playable.map((def) =>
+      prisma.playerCardCollection.upsert({
+        where: { userId_cardId: { userId, cardId: def.id } },
+        create: { userId, cardId: def.id, count: OWNED_COUNT_PER_CARD },
+        update: { count: OWNED_COUNT_PER_CARD },
+      }),
+    ),
+  );
+  // 廃止カードは所持から除去
+  await prisma.playerCardCollection.deleteMany({
+    where: {
+      userId,
+      cardId: {
+        in: ALL_CARD_DEFS.filter((d) => d.status === "deprecated").map((d) => d.id),
+      },
+    },
+  });
+}
 
 export interface DeckSummary {
   id: string;
@@ -71,9 +127,11 @@ export async function getDeckDetail(deckId: string): Promise<DeckDetail | null> 
   };
 }
 
-// 所持カード一覧 (Card join、count > 0 のみ)
+// 所持カード一覧 (Card join、count > 0 のみ)。
+// 呼出し時に最新の playable カード定義を 10 枚ずつ所持済みに揃える (暫定)。
 export async function listOwnedCardsForCurrentUser(): Promise<OwnedCardSummary[]> {
   const user = await ensureDefaultUser();
+  await ensureOwnedCardsForUser(user.id);
   const rows = await prisma.playerCardCollection.findMany({
     where: { userId: user.id, count: { gt: 0 } },
     include: { card: true },
