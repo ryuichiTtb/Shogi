@@ -120,15 +120,17 @@ export default function CardDesignPage() {
                 onClick={() => setStyle(styleKey)}
                 aria-pressed={isSelected}
                 className={cn(
-                  "w-full text-left rounded-xl border-2 transition-all",
-                  "bg-white dark:bg-slate-900/60 shadow-sm",
-                  "hover:border-primary/60 hover:shadow-md cursor-pointer",
+                  "relative w-full text-left rounded-xl border-2",
+                  "bg-white dark:bg-slate-900/60 shadow-sm cursor-pointer",
+                  // 対局画面の手札と同じホバー演出 (黄色 outline + translateY + drop-shadow + 暖色オーバーレイ)
+                  "card-hover-focus",
                   isSelected
                     ? "border-lime-400 ring-2 ring-lime-300/50"
                     : "border-border",
                 )}
               >
-                <div className="p-4 flex flex-col gap-3">
+                <span className="card-hover-overlay" aria-hidden />
+                <div className="relative z-10 p-4 flex flex-col gap-3">
                   <div className="flex items-start gap-2">
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
