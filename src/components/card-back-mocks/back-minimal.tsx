@@ -1,8 +1,9 @@
 // 案 D: 黒漆ミニマル
-//   - 黒ベースに、左上から黄色→金茶のラジアルグラデ + 中央寄りに白ハイライト
+//   - 黒ベース大目。左上から黄色→金茶のラジアルグラデ (42% で減衰) +
+//     中央寄りに控えめな白ハイライト (20% で減衰)
 //   - 中央: 大きな駒シルエット (金属グラデ + キラッと sheen)
 //   - 装飾: 二重細枠 + 四隅の菱形
-//   - アニメ: 7s で横に流れる薄ゴールド帯 + 8s で薄シマー
+//   - アニメ: 8s で薄シマー
 import { cn } from "@/lib/utils";
 import { KomaShape } from "./koma-shape";
 import {
@@ -40,8 +41,6 @@ export function CardBackMinimal({ size = "md", fullWidth = false, className }: P
       )}
       aria-label="伏せられたカード"
     >
-      {/* 横に流れる薄ゴールド帯 (背景の動きを足す) */}
-      <div className="absolute inset-0 card-back-mock-minimal-flow pointer-events-none" aria-hidden />
       {/* 内側の細枠 (ゴールド) */}
       <div className="absolute inset-[3px] rounded-sm border border-amber-300/35 pointer-events-none" aria-hidden />
       {/* 四隅の菱形 */}

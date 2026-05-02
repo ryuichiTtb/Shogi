@@ -7,7 +7,6 @@ import { ArrowLeft } from "lucide-react";
 import { CardBackEmblem } from "@/components/card-back-mocks/back-emblem";
 import { CardBackSeigaiha } from "@/components/card-back-mocks/back-seigaiha";
 import { CardBackMinimal } from "@/components/card-back-mocks/back-minimal";
-import { CardBackDiagonal } from "@/components/card-back-mocks/back-diagonal";
 import type { MockSize } from "@/components/card-back-mocks/sizes";
 
 export const metadata = {
@@ -27,26 +26,20 @@ const VARIANTS: Variant[] = [
   {
     key: "emblem",
     label: "案 A: 玉将エンブレム",
-    desc: "深紺グラデ + 60° の金色斜線(全面)。3.5s で広い閃光が左→右に通過し、斜線が呼応して光る。中央に駒シルエット(ゴールド線、文字なし)が 6s で脈動。",
+    desc: "深紺グラデ + 45° の金色斜線(左下→右上、静止)。3.5s で広い閃光が左→右に通過し、斜線が呼応して光る。中央に駒シルエット(金属グラデ)が 6s で脈動。内側ゴールド細枠 + 四隅菱形。",
     Component: CardBackEmblem,
   },
   {
     key: "seigaiha",
     label: "案 B: 青海波 + 金箔",
-    desc: "深紺グラデ(A/E と同系)に青海波(波柄)を全面リピート、18s で左→右にゆっくりスライド。中央に駒シルエット。5s で薄ゴールド sheen も通過。",
+    desc: "深紺グラデに青海波(波柄)を全面リピート(静止)。中央に駒シルエット。5s で薄ゴールド sheen が通過。内側ゴールド細枠 + 四隅菱形。",
     Component: CardBackSeigaiha,
   },
   {
     key: "minimal",
-    label: "案 D: 黄黒グラデ + 駒シルエット",
-    desc: "amber-800 → zinc-900 → 黒の対角グラデで明暗差を演出。中央に大きな駒シルエット(ゴールド線)、四隅に金菱形+内側ゴールド細枠、8s で薄シマー。",
+    label: "案 D: 黒漆ミニマル",
+    desc: "黒ベース(画面の 7 割超)+ 左上の小さな黄色→金茶ラジアル + 控えめな白ハイライト。中央に大きな駒シルエット(金属グラデ)、四隅に金菱形+内側ゴールド細枠。8s で薄シマー。",
     Component: CardBackMinimal,
-  },
-  {
-    key: "diagonal",
-    label: "案 E: 駒型タイル + 斜め金線",
-    desc: "藍グラデ×金。45° 斜めの細いゴールドストライプが 10s で右上方向(右に流れる向き)にスライド。中央は駒シルエット。",
-    Component: CardBackDiagonal,
   },
 ];
 
@@ -141,7 +134,7 @@ export default function CardBackMocksPage() {
               カード裏面モック
             </h1>
             <p className="text-xs sm:text-sm text-muted-foreground">
-              Issue #110 — A / B / D / E の 4 案ブラッシュアップ版(駒シルエットは末広がり・文字なし)
+              Issue #110 — A / B / D の 3 案 (E は A に集約のため廃止)
             </p>
           </div>
         </header>

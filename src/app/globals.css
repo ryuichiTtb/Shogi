@@ -610,23 +610,17 @@
  * 残りはこのセクションごと削除する。 */
 
 /* 案 A: 玉将エンブレム
- *   - 60° 角度の細い金色斜線 (repeating-linear-gradient で全面に並べる)
- *   - 斜線そのものが 14s で左→右に水平スライド (背景の流れを足す)
+ *   - 45° の細い金色斜線 (repeating-linear-gradient、左下→右上に伸びる) を静止配置
  *   - 別レイヤーの広い光帯 (sheen) が 3.5s で左→右に通過し、斜線を閃光のように光らせる
  *   - 中央エンブレムは 6s で opacity を 0.78↔1.0 で脈動 */
 .card-back-mock-emblem-stripes {
   background-image: repeating-linear-gradient(
-    60deg,
+    45deg,
     transparent 0,
     transparent 20px,
     rgba(251, 191, 36, 0.32) 20px,
     rgba(251, 191, 36, 0.32) 21px
   );
-  animation: card-back-mock-emblem-stripes-slide 14s linear infinite;
-}
-@keyframes card-back-mock-emblem-stripes-slide {
-  from { background-position: 0 0; }
-  to   { background-position: -48px 0; }
 }
 .card-back-mock-emblem-shine {
   background: linear-gradient(
@@ -653,16 +647,11 @@
 }
 
 /* 案 B: 青海波 + 金箔
- *   - 青海波 SVG タイル (20×10) を repeat、ゆっくり左→右にスライド
+ *   - 青海波 SVG タイル (20×10) を repeat (静止)
  *   - sheen は左→右の薄ゴールド光沢 */
 .card-back-mock-seigaiha-pattern {
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 10' width='20' height='10'><g fill='none' stroke='%23fbbf24' stroke-opacity='0.28' stroke-width='0.6'><path d='M0 10 A10 10 0 0 1 20 10'/><path d='M-10 5 A10 10 0 0 1 10 5'/><path d='M10 5 A10 10 0 0 1 30 5'/></g></svg>");
   background-size: 20px 10px;
-  animation: card-back-mock-seigaiha-pattern-slide 9s linear infinite;
-}
-@keyframes card-back-mock-seigaiha-pattern-slide {
-  from { background-position: 0 0; }
-  to   { background-position: 20px 0; }
 }
 .card-back-mock-seigaiha-sheen {
   background: linear-gradient(
@@ -690,33 +679,17 @@
   background:
     radial-gradient(
       circle at 30% 25%,
-      rgba(255, 255, 255, 0.18) 0%,
-      transparent 28%
+      rgba(255, 255, 255, 0.16) 0%,
+      transparent 20%
     ),
     radial-gradient(
       circle at 0% 0%,
       #facc15 0%,
-      #ca8a04 18%,
-      #78350f 38%,
-      transparent 55%
+      #ca8a04 14%,
+      #78350f 28%,
+      transparent 42%
     ),
     #000000;
-}
-/* 横に流れる薄い金色帯 (背景レイヤーの動きを足す) */
-.card-back-mock-minimal-flow {
-  background: linear-gradient(
-    90deg,
-    transparent 0%, transparent 40%,
-    rgba(252, 211, 77, 0.18) 50%,
-    transparent 60%, transparent 100%
-  );
-  background-size: 200% 100%;
-  background-position: 100% 0;
-  animation: card-back-mock-minimal-flow-anim 7s linear infinite;
-}
-@keyframes card-back-mock-minimal-flow-anim {
-  from { background-position: 100% 0; }
-  to   { background-position: -100% 0; }
 }
 .card-back-mock-minimal-shimmer {
   background: linear-gradient(
@@ -735,20 +708,3 @@
   100% { background-position: -10% 0; }
 }
 
-/* 案 E: 駒型タイル + 斜め金線
- *   - repeating-linear-gradient で全面 16px 周期の細ストライプを並べ
- *     横方向 (水平) にスライドさせる。45° のストライプが右にスーッと流れる見え方。 */
-.card-back-mock-diagonal-stripes {
-  background-image: repeating-linear-gradient(
-    45deg,
-    transparent 0,
-    transparent 14px,
-    rgba(251, 191, 36, 0.20) 14px,
-    rgba(251, 191, 36, 0.20) 16px
-  );
-  animation: card-back-mock-diagonal-slide 10s linear infinite;
-}
-@keyframes card-back-mock-diagonal-slide {
-  from { background-position: 0 0; }
-  to   { background-position: -48px 0; }
-}

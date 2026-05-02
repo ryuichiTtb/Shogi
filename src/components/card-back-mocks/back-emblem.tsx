@@ -1,7 +1,8 @@
 // 案 A: 玉将エンブレム (改訂版)
 //   - 深紺グラデ + ゴールドアクセント
 //   - 中央: 駒シルエット (末広がり、文字なし、ゴールド線)
-//   - 装飾: 金色の斜線(複数本)+ 斜線を流れる閃光 (sheen)
+//   - 装飾: 45° 金色斜線 (静止、左下→右上) + 斜線を流れる閃光 (sheen)
+//   - 装飾(枠): 内側ゴールド細枠 + 四隅菱形 (D 案と統一感)
 //   - アニメ: エンブレムが 6s で脈動 + 閃光は 3.5s で左→右に流れる
 import { cn } from "@/lib/utils";
 import { KomaShape } from "./koma-shape";
@@ -39,6 +40,13 @@ export function CardBackEmblem({ size = "md", fullWidth = false, className }: Pr
         className="absolute inset-0 card-back-mock-emblem-shine pointer-events-none"
         aria-hidden
       />
+      {/* 内側の細枠 (ゴールド) */}
+      <div className="absolute inset-[3px] rounded-sm border border-amber-300/35 pointer-events-none" aria-hidden />
+      {/* 四隅の菱形 */}
+      <span className="absolute top-1 left-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
+      <span className="absolute top-1 right-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
+      <span className="absolute bottom-1 left-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
+      <span className="absolute bottom-1 right-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
       {/* 中央エンブレム (脈動) */}
       <div
         className={cn(

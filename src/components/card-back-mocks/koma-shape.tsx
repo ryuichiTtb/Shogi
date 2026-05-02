@@ -55,12 +55,13 @@ export function KomaShape({
     >
       {isMetallic && (
         <defs>
-          {/* 左上の明るい金 → 右下の黒寄り、4 ストップで金属感を出す */}
+          {/* 左上の明るい金 → 右下の黒、4 ストップで金属感。明部は維持し
+              暗部を amber-900→黒で深く落として透過感を消す。 */}
           <linearGradient id={gradientId} x1="0.15" y1="0" x2="0.85" y2="1">
             <stop offset="0%" stopColor="#fef3c7" />
             <stop offset="22%" stopColor="#fcd34d" />
-            <stop offset="58%" stopColor="#b45309" />
-            <stop offset="100%" stopColor="#1c1917" />
+            <stop offset="60%" stopColor="#78350f" />
+            <stop offset="100%" stopColor="#000000" />
           </linearGradient>
           {/* 駒形でクリップ (sheen が外にはみ出さないように) */}
           <clipPath id={clipId}>
@@ -97,7 +98,7 @@ export function KomaShape({
             />
             <animate
               attributeName="opacity"
-              values="0; 0; 0.6; 0; 0"
+              values="0; 0; 0.4; 0; 0"
               keyTimes="0; 0.05; 0.25; 0.5; 1"
               dur="4.5s"
               repeatCount="indefinite"
