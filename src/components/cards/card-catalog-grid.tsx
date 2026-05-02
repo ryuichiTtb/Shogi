@@ -3,6 +3,11 @@
 import { useState, useMemo } from "react";
 import { CardCatalogTile } from "./card-catalog-tile";
 import { CardFilterBar, type CardFilterValue } from "./card-filter-bar";
+import {
+  KIND_OPTIONS,
+  RARITY_OPTIONS,
+  STATUS_OPTIONS,
+} from "@/lib/shogi/cards/labels";
 import type { CardDefinition } from "@/lib/shogi/cards/types";
 
 interface CardCatalogGridProps {
@@ -10,9 +15,9 @@ interface CardCatalogGridProps {
 }
 
 const INITIAL_FILTER: CardFilterValue = {
-  status: "all",
-  kind: "all",
-  rarity: "all",
+  status: new Set(STATUS_OPTIONS),
+  kind: new Set(KIND_OPTIONS),
+  rarity: new Set(RARITY_OPTIONS),
 };
 
 // フィルタ欄は親 flex の shrink-0 で上部固定、
@@ -22,9 +27,9 @@ export function CardCatalogGrid({ cards }: CardCatalogGridProps) {
 
   const filtered = useMemo(() => {
     return cards.filter((c) => {
-      if (filter.status !== "all" && c.status !== filter.status) return false;
-      if (filter.kind !== "all" && c.kind !== filter.kind) return false;
-      if (filter.rarity !== "all" && c.rarity !== filter.rarity) return false;
+      if (!filter.status.has(c.status)) return false;
+      if (!filter.kind.has(c.kind)) return false;
+      if (!filter.rarity.has(c.rarity)) return false;
       return true;
     });
   }, [cards, filter]);
