@@ -23,7 +23,7 @@ const subscribe = () => () => {};
 const getClientSnapshot = () => true;
 const getServerSnapshot = () => false;
 
-const FLIGHT_DURATION_MS = 480;
+const FLIGHT_DURATION_MS = 320;
 
 // 編成エリア ↔ 所持エリア のフライト演出。
 // 起点タイルと終点タイルの bounding rect を受け取り、
