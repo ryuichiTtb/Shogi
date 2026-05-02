@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import { DeckListPane } from "./deck-list-pane";
 import { DeckEditorPane } from "./deck-editor-pane";
+import { DeckEditorSkeleton } from "./deck-editor-skeleton";
 import { ConfirmDialog } from "./confirm-dialog";
 import {
   createDeck,
@@ -51,7 +52,6 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
 
   // detail が古い (別デッキ選択直後で fetch 未完了) ときは null として扱う。
   const currentDetail = detail && detail.id === selectedId ? detail : null;
-  const loadingDetail = selectedId !== null && currentDetail === null;
 
   useEffect(() => {
     if (!selectedId) return;
@@ -203,27 +203,33 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
           />
         </div>
         <div className="min-h-0 flex flex-col">
-          {selectedId && currentDetail ? (
-            <DeckEditorPane
-              key={selectedId}
-              deck={currentDetail}
-              ownedCards={ownedCards}
-              isOnlyDeck={decks.length <= 1}
-              onChanged={(nextDetail) => {
-                setDetail(nextDetail);
-                refresh();
-              }}
-              onDeleted={() => {
-                const next = decks.find((d) => d.id !== selectedId);
-                setSelectedId(next?.id ?? null);
-                refresh();
-              }}
-            />
-          ) : (
-            <div className="flex-1 min-h-0 flex items-center justify-center text-sm text-muted-foreground">
-              {loadingDetail ? "読み込み中..." : "デッキを選択してください"}
-            </div>
-          )}
+          {/* フレーム自体は常に描画。中身だけを「内容/スケルトン/未選択」で切替。
+              これで読み込み中もエリアが消えず、高さもジャンプしない。 */}
+          <div className="rounded-lg border bg-card flex flex-col min-h-0 flex-1">
+            {selectedId && currentDetail ? (
+              <DeckEditorPane
+                key={selectedId}
+                deck={currentDetail}
+                ownedCards={ownedCards}
+                isOnlyDeck={decks.length <= 1}
+                onChanged={(nextDetail) => {
+                  setDetail(nextDetail);
+                  refresh();
+                }}
+                onDeleted={() => {
+                  const next = decks.find((d) => d.id !== selectedId);
+                  setSelectedId(next?.id ?? null);
+                  refresh();
+                }}
+              />
+            ) : selectedId === null ? (
+              <div className="flex-1 min-h-0 flex items-center justify-center text-sm text-muted-foreground">
+                デッキを選択してください
+              </div>
+            ) : (
+              <DeckEditorSkeleton />
+            )}
+          </div>
         </div>
       </div>
       <ConfirmDialog

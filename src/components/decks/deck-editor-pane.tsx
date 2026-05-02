@@ -309,7 +309,9 @@ export function DeckEditorPane({
   );
 
   return (
-    <div className="rounded-lg border bg-card flex flex-col min-h-0 flex-1">
+    // 親 (DecksPage) が DeckEditorFrame でフレームを提供するので、ここでは
+    // フラグメントで内側 (header / body / dialog) のみ返す。
+    <>
       {/* ヘッダ: デッキ名 + 操作 */}
       <div className="p-3 border-b flex flex-col gap-2 shrink-0">
         <div className="flex items-center gap-2 flex-wrap">
@@ -470,7 +472,7 @@ export function DeckEditorPane({
         confirmVariant="destructive"
         onConfirm={handleDelete}
       />
-    </div>
+    </>
   );
 }
 
