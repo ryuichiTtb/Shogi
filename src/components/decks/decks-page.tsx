@@ -40,8 +40,11 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
   const [draftError, setDraftError] = useState<string | null>(null);
   const [draftBusy, setDraftBusy] = useState(false);
 
-  // 草稿入力中に他デッキを選択した際の確認ダイアログ
-  const [pendingSelectId, setPendingSelectId] = useState<string | null>(null);
+  // 草稿入力中に他デッキを選択した際の確認ダイアログ。
+  // makeDefault=true なら「選択」ボタン由来 (確定後に setDefaultDeck も実行)。
+  const [pendingSelect, setPendingSelect] = useState<
+    { id: string; makeDefault: boolean } | null
+  >(null);
 
   // 「選択」ボタン押下中の deckId (setDefaultDeck 中の連打抑止)
   const [pendingDefaultId, setPendingDefaultId] = useState<string | null>(null);
@@ -115,39 +118,51 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
     }
   }
 
-  // 別デッキ選択ガード: 入力中の草稿があれば確認ダイアログ
-  function tryChangeSelection(targetId: string) {
-    if (draftBusy) return;
+  // 別デッキ選択ガード: 入力中の草稿があれば確認ダイアログ。
+  // makeDefault=true は「選択」ボタン由来 (= 編集選択 + setDefaultDeck)。
+  function tryChangeSelection(targetId: string, makeDefault = false) {
+    if (draftBusy || pendingDefaultId !== null) return;
     if (draftName !== null && draftName.trim() !== "") {
-      setPendingSelectId(targetId);
+      setPendingSelect({ id: targetId, makeDefault });
       return;
     }
     if (draftName !== null) cancelDraft();
-    setSelectedId(targetId);
+    applySelection(targetId, makeDefault);
+  }
+
+  function applySelection(deckId: string, makeDefault: boolean) {
+    setSelectedId(deckId);
+    if (makeDefault) void runMakeDefault(deckId);
   }
 
   function confirmDiscardAndSelect() {
-    if (pendingSelectId === null) return;
+    if (pendingSelect === null) return;
     cancelDraft();
-    setSelectedId(pendingSelectId);
-    setPendingSelectId(null);
+    const { id, makeDefault } = pendingSelect;
+    setPendingSelect(null);
+    applySelection(id, makeDefault);
   }
 
-  async function handleSelectDefault(deckId: string) {
+  async function runMakeDefault(deckId: string) {
     if (pendingDefaultId !== null) return;
+    // Optimistic: 即時に使用中フラグを切替 (UI 上で「使用中 ↔ 選択」が瞬時に
+    // 入れ替わる)。サーバーが失敗したら revert。
+    const prevDecks = decks;
+    setDecks((prev) => prev.map((d) => ({ ...d, isDefault: d.id === deckId })));
     setPendingDefaultId(deckId);
     try {
       await setDefaultDeck(deckId);
-      // Optimistic: 全デッキの isDefault を更新
-      setDecks((prev) =>
-        prev.map((d) => ({ ...d, isDefault: d.id === deckId })),
-      );
       refresh();
     } catch (e) {
       console.error("setDefaultDeck failed", e);
+      setDecks(prevDecks);
     } finally {
       setPendingDefaultId(null);
     }
+  }
+
+  function handleSelectDefault(deckId: string) {
+    tryChangeSelection(deckId, true);
   }
 
   // 既存デッキ 0 件 & 草稿なしの完全空状態のみ初期画面を出す
@@ -212,9 +227,9 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
         </div>
       </div>
       <ConfirmDialog
-        open={pendingSelectId !== null}
+        open={pendingSelect !== null}
         onOpenChange={(o) => {
-          if (!o) setPendingSelectId(null);
+          if (!o) setPendingSelect(null);
         }}
         title="未保存の新規デッキを破棄しますか?"
         description={`入力中の「${draftName ?? ""}」は保存されず破棄されます。`}

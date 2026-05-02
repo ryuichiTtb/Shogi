@@ -3,7 +3,6 @@
 import { useCallback, useMemo, useRef, useState, useTransition } from "react";
 import { flushSync } from "react-dom";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { Trash2, Save, Pencil } from "lucide-react";
 import {
@@ -340,14 +339,6 @@ export function DeckEditorPane({
               <span className="truncate">{deck.name}</span>
               <Pencil className="w-3.5 h-3.5 shrink-0 opacity-50" />
             </button>
-          )}
-          {deck.isDefault && (
-            <Badge
-              variant="outline"
-              className="text-[10px] px-1.5 py-0 bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-200 dark:border-emerald-800"
-            >
-              使用中
-            </Badge>
           )}
           <div className="flex-1" />
           <Button
