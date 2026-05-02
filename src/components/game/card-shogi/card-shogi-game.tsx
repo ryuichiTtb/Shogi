@@ -553,6 +553,13 @@ export function CardShogiGame({
     }
     return [];
   }, [cardState.pendingCard, gameState.board, playerColor]);
+
+  // no_promote の永続マーク (両プレイヤー分をまとめて盤面に渡す)
+  const noPromoteSquares: Position[] = useMemo(
+    () => [...cardState.noPromoteMarks.sente, ...cardState.noPromoteMarks.gote],
+    [cardState.noPromoteMarks],
+  );
+
   const ownHand = (
     <HandArea
       hand={displayedOwnHand}
@@ -672,6 +679,7 @@ export function CardShogiGame({
               squareSize={squareSize}
               isMobile={isMobile}
               cardTargetSquares={cardTargetSquares}
+              noPromoteSquares={noPromoteSquares}
             />
             <BoardOverlay
               key={overlayEvent?.key}
@@ -976,6 +984,7 @@ export function CardShogiGame({
               squareSize={squareSize}
               isMobile={isMobile}
               cardTargetSquares={cardTargetSquares}
+              noPromoteSquares={noPromoteSquares}
             />
             <BoardOverlay
               key={overlayEvent?.key}
