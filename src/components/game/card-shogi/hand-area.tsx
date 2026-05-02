@@ -22,6 +22,9 @@ interface HandAreaProps {
   flashCardId?: string | null;
   // Issue #106: モバイル手札等の幅が狭いコンテキストで効果説明を非表示にする
   hideCardDescription?: boolean;
+  // 二歩指し等、マナ以外の使用条件を満たさないカードIDを非活性化する。
+  // マナ不足と同じ disabled 表示にする(条件詳細はカード説明を参照)。
+  unusableCardIds?: Set<string>;
 }
 
 export function HandArea({
@@ -36,6 +39,7 @@ export function HandArea({
   fullWidth = false,
   flashCardId = null,
   hideCardDescription = false,
+  unusableCardIds,
 }: HandAreaProps) {
   if (hand.length === 0) {
     return <div className="text-xs text-muted-foreground py-2 px-3">{emptyLabel}</div>;
@@ -79,10 +83,12 @@ export function HandArea({
       {hand.map((c) => {
         const def = CARD_DEFS[c.defId];
         // マナ不足: 常にグレーアウト (操作不可かどうかに関わらず)
-        // マナ十分かつ全体 disabled (相手番など): 通常表示のまま操作だけ無効化 (= inactive)
+        // 条件未達 (二歩指し等): 同様にグレーアウト
+        // マナ十分・条件達成かつ全体 disabled (相手番など): 通常表示のまま操作だけ無効化 (= inactive)
         const unaffordable = currentMana < def.cost;
-        const cardDisabled = unaffordable;
-        const cardInactive = !unaffordable && disabled;
+        const conditionUnmet = unusableCardIds?.has(c.defId) ?? false;
+        const cardDisabled = unaffordable || conditionUnmet;
+        const cardInactive = !cardDisabled && disabled;
         const isFresh = c.instanceId === flashCardId;
         return (
           <div

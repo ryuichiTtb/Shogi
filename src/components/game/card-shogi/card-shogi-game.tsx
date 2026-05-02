@@ -33,6 +33,7 @@ import type { Difficulty, GameConfig, GameState, Move, Player, Position } from "
 import type { CommentaryEvent } from "@/app/actions/commentary";
 import type { CardGameState, CardInstance } from "@/lib/shogi/cards/types";
 import { CARD_DEFS, DRAW_COST } from "@/lib/shogi/cards/definitions";
+import { isDoublePawnLegalSquare } from "@/lib/shogi/cards/effects";
 import { createGame } from "@/app/actions/game";
 
 import { ManaGauge } from "./mana-gauge";
@@ -551,14 +552,47 @@ export function CardShogiGame({
       }
       return targets;
     }
+    if (def.effectId === "double_pawn") {
+      const targets: Position[] = [];
+      for (let r = 0; r < 9; r++) {
+        for (let c = 0; c < 9; c++) {
+          if (isDoublePawnLegalSquare(gameState, playerColor, { row: r, col: c })) {
+            targets.push({ row: r, col: c });
+          }
+        }
+      }
+      return targets;
+    }
     return [];
-  }, [cardState.pendingCard, gameState.board, playerColor]);
+  }, [cardState.pendingCard, gameState, playerColor]);
 
   // no_promote の永続マーク (両プレイヤー分をまとめて盤面に渡す)
   const noPromoteSquares: Position[] = useMemo(
     () => [...cardState.noPromoteMarks.sente, ...cardState.noPromoteMarks.gote],
     [cardState.noPromoteMarks],
   );
+
+  // マナ以外の使用条件を満たさないカードIDを集計し、HandArea で非活性化する。
+  // 現状: 二歩指し (持ち駒に歩あり & 盤上に自分の未成り歩あり)
+  const unusableCardIds = useMemo(() => {
+    const set = new Set<string>();
+    let hasOwnUnpromotedPawn = false;
+    for (let r = 0; r < 9; r++) {
+      for (let c = 0; c < 9; c++) {
+        const piece = gameState.board[r]?.[c];
+        if (piece && piece.owner === playerColor && piece.type === "pawn") {
+          hasOwnUnpromotedPawn = true;
+          break;
+        }
+      }
+      if (hasOwnUnpromotedPawn) break;
+    }
+    const handPawnCount = gameState.hand[playerColor]["pawn"] ?? 0;
+    if (handPawnCount <= 0 || !hasOwnUnpromotedPawn) {
+      set.add("double_pawn");
+    }
+    return set;
+  }, [gameState.board, gameState.hand, playerColor]);
 
   const ownHand = (
     <HandArea
@@ -568,6 +602,7 @@ export function CardShogiGame({
       size="md"
       disabled={handDisabled}
       flashCardId={freshlyDrawnId}
+      unusableCardIds={unusableCardIds}
     />
   );
 
@@ -861,6 +896,7 @@ export function CardShogiGame({
             flashCardId={freshlyDrawnId}
             hideCardDescription
             onCardClick={handleBeginPlayCard}
+            unusableCardIds={unusableCardIds}
           />
         </div>
       </div>
@@ -939,6 +975,7 @@ export function CardShogiGame({
               fullWidth
               flashCardId={freshlyDrawnId}
               onCardClick={handleBeginPlayCard}
+              unusableCardIds={unusableCardIds}
             />
           </div>
           <div className="shrink-0 pt-2 border-t flex justify-center">
