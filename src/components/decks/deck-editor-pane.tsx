@@ -220,6 +220,14 @@ export function DeckEditorPane({
         });
       });
 
+      // 新タイルが画面外 (= 編成エリアが overflow している) ならスクロールして
+      // 可視範囲に収める。block:"nearest" で必要な分だけスクロール、
+      // behavior:"instant" でこの後の rect 測定に間に合わせる。
+      const newTile = document.querySelector(
+        `[data-deck-area="deck"][data-card-id="${cardId}"][data-instance-key="${destInstanceKey}"]`,
+      ) as HTMLElement | null;
+      newTile?.scrollIntoView({ block: "nearest", behavior: "instant" });
+
       const toRect = findTileRect("deck", cardId, destInstanceKey);
       if (!toRect) return;
       setFlights((prev) => [
