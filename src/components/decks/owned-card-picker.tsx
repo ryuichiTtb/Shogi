@@ -16,6 +16,7 @@ import { DeckCardTile, TileBadge } from "./deck-card-tile";
 interface OwnedCardPickerProps {
   ownedCards: OwnedCardSummary[];
   currentCountByCard: Map<CardId, number>;
+  rarityCounts: Record<CardRarity, number>;
   totalCount: number;
   disabled?: boolean;
   onAdd: (cardId: CardId, sourceRect: DOMRect) => void;
@@ -24,6 +25,7 @@ interface OwnedCardPickerProps {
 export function OwnedCardPicker({
   ownedCards,
   currentCountByCard,
+  rarityCounts,
   totalCount,
   disabled = false,
   onAdd,
@@ -116,14 +118,17 @@ export function OwnedCardPicker({
               // 残り = 所持 - 編成中
               const remaining = c.owned - current;
               const cap = RARITY_MAX_PER_DECK[c.rarity];
-              const atRarityCap = cap !== null && current >= cap;
+              // 「同名カードあたり」ではなく「デッキ内のそのレア度合計」が
+              // 上限に達しているかを判定する。
+              const rarityTotal = rarityCounts[c.rarity];
+              const atRarityCap = cap !== null && rarityTotal >= cap;
               const noStock = remaining <= 0;
               const cantAdd = noStock || atRarityCap || totalAtMax;
 
               const reason = noStock
                 ? "残り 0 枚 (所持枚数すべて編成済み)"
                 : atRarityCap
-                  ? `${RARITY_INFO[c.rarity].label}は ${cap} 枚まで`
+                  ? `${RARITY_INFO[c.rarity].label}は合計 ${cap} 枚まで`
                   : totalAtMax
                     ? `デッキ合計 ${DECK_TOTAL_MAX} 枚に達しています`
                     : "クリックでデッキに追加";

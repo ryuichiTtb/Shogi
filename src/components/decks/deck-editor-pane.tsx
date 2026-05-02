@@ -189,14 +189,31 @@ export function DeckEditorPane({
         setEntries((prev) => {
           const info = ownership.get(cardId);
           if (!info) return prev;
-          const cap = RARITY_MAX_PER_DECK[info.rarity];
-          const limit = cap === null ? info.owned : Math.min(info.owned, cap);
+
+          // 所持枚数の壁
           const idx = prev.findIndex((e) => e.cardId === cardId);
+          const currentForCard = idx === -1 ? 0 : prev[idx].count;
+          if (currentForCard >= info.owned) return prev;
+
+          // レア度合計の壁
+          const cap = RARITY_MAX_PER_DECK[info.rarity];
+          if (cap !== null) {
+            let rarityTotal = 0;
+            for (const e of prev) {
+              const ei = ownership.get(e.cardId);
+              if (ei?.rarity === info.rarity) rarityTotal += e.count;
+            }
+            if (rarityTotal >= cap) return prev;
+          }
+
+          // デッキ合計の壁
+          let total = 0;
+          for (const e of prev) total += e.count;
+          if (total >= DECK_TOTAL_MAX) return prev;
+
           if (idx === -1) {
-            if (limit <= 0) return prev;
             return [...prev, { cardId, count: 1 }];
           }
-          if (prev[idx].count >= limit) return prev;
           const next = [...prev];
           next[idx] = { ...next[idx], count: next[idx].count + 1 };
           return next;
@@ -409,6 +426,7 @@ export function DeckEditorPane({
           <OwnedCardPicker
             ownedCards={ownedCards}
             currentCountByCard={currentCountByCard}
+            rarityCounts={rarityCounts}
             totalCount={validation.totalCount}
             disabled={isPending}
             onAdd={handleAddFromOwned}
