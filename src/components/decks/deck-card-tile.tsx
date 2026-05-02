@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef } from "react";
+import { motion } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
 import { CardView } from "@/components/game/card-shogi/card-view";
 import { cn } from "@/lib/utils";
@@ -48,8 +49,12 @@ export function DeckCardTile({
   }
 
   return (
-    <div
+    <motion.div
       ref={ref}
+      // layout="position" により、リスト前後関係の変化に追従してタイルが
+      // スムーズに移動する。サイズ変化はしないので "position" 限定で十分。
+      layout="position"
+      transition={{ duration: 0.24, ease: "easeOut" }}
       className={cn(
         "relative transition-opacity",
         ghosted && "opacity-0",
@@ -74,7 +79,7 @@ export function DeckCardTile({
           {topBadge}
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }
 
