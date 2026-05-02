@@ -37,13 +37,15 @@
 
 ## 確定済み方針 (2026-05-02 ユーザー判断)
 
-- **スコープ**: 設計書更新 + `definitions.ts` への確定カード `status: "preparing"` 登録まで(効果実装は Issue #80)
+- **スコープ (2026-05-02 拡張)**: **Issue #80 を統合し、仕様確定 + 効果実装 + UI演出まで本Issueで完結させる**
+  - 当初は「設計書更新 + `definitions.ts` への確定カード `status: "preparing"` 登録まで」だったが、仕様だけ決めて実装を別Issueに送る運用は細かい修正・改善がしづらいため統合
+  - 各カードは `status: "active"` で本実装まで実施
 - **レア度**: **4段階で確定** (`common / rare / super_rare / epic` ⇄ `ノーマル / レア / 激レア / 究極`)
 - **採用カード**: **ゼロベースで再選定**(設計書 3.3 案は参考)
-- **進行スタイル**: 1枚ずつの「構想 → ドラフト → 確定 → preparing登録 → 最終チェック → リリース判定」サイクル
+- **進行スタイル**: **1枚ずつ「採用判断 → 仕様確定 → 実装 → UI演出 → Vercel preview 確認 → リリース判定」を最後まで完結させてから次のカードへ**
 - **既存サンプルカード (`sample_normal_*` / `sample_trap_*` 8種) の扱い**: 本Issueでは触らない(レア度ビジュアル検証用として残置)
 - **設計書 3.3 書き換えタイミング**: **A案 一括書き換え** — 全カード確定後にまとめて 3.3 節を書き直す
-- **「リリース判定」の意味**: 本Issueでは **仕様確定の承認のみ**。`status: "preparing"` のままで完了とし、効果実装と `active` 化は Issue #80 で行う
+- **「リリース判定」の意味**: 本Issueでは **仕様確定 + 実装完了の承認**(`status: "active"` で動作している状態)
 
 ## 進め方: カード1枚ごとのサイクル
 
@@ -84,29 +86,41 @@
 - ユーザーが内容を確認・微調整して確定指示を出す
 - 数往復になることを許容
 
-#### (4) コード反映 (preparing 登録)
-- [`src/lib/shogi/cards/types.ts`](../../src/lib/shogi/cards/types.ts): `CardId` ユニオンに ID を追加
+#### (4) コード反映 — 仕様 (`definitions.ts`)
+- [`src/lib/shogi/cards/types.ts`](../../src/lib/shogi/cards/types.ts): `CardId` ユニオンに ID を追加(新規カードのみ)
 - [`src/lib/shogi/cards/definitions.ts`](../../src/lib/shogi/cards/definitions.ts): 以下で登録
-  - `status: "preparing"`、`phase: "A"`、`effectId: "noop"`(Issue #80 で実効果に差し替え)
+  - `status: "active"`、`phase: "A"` (Phase 0 既存3種は `phase: "0"` 維持)、`effectId` は実装に合わせる
   - 確定した cost / rarity / targeting / description / detailDescription
-  - `addedAt: <そのカード追加日>`、`relatedIssues: [82]`
+  - `addedAt: <そのカード追加日>`、`relatedIssues: [82]`(必要に応じて関連Issue追加)
   - icon は仮の絵文字を当てる(後ほど画像化想定)
-- `pnpm typecheck` 通過確認
+
+#### (5) コード反映 — 効果ロジック実装
+- [`src/lib/shogi/cards/effects.ts`](../../src/lib/shogi/cards/effects.ts): カードの純粋関数を実装
+- 必要なら [`src/lib/shogi/cards/types.ts`](../../src/lib/shogi/cards/types.ts) に新しい状態フィールドを追加
+- [`src/lib/shogi/cards/state.ts`](../../src/lib/shogi/cards/state.ts): 状態追加時は `createInitialCardState` / `serializeCardState` / `deserializeCardState` も更新(DB 往復対応)
+- [`src/hooks/use-card-shogi-game.ts`](../../src/hooks/use-card-shogi-game.ts): 効果適用フックの分岐追加
+- 必要なら [`src/lib/shogi/rules.ts`](../../src/lib/shogi/rules.ts) など盤面ロジックに介入(成り判定に効果反映 等)
+
+#### (6) コード反映 — UI 演出 (必要なカードのみ)
+- カード使用時の演出(既存の早指し演出やマナアニメと整合)
+- 永続効果がある場合(成り無効化マーク 等)は盤面駒に視覚マーカーを追加
+- framer-motion で 1〜2秒のアニメーションが基本
+
+#### (7) typecheck / commit / push
+- `npx tsc --noEmit` 通過確認
 - ブランチに commit & push (memory: 「コミット & プッシュは事前確認不要」)
-  - 1コミット = 1カード単位を基本(必要に応じてリファクタを混ぜず分離)
-- Vercel preview で `/cards` 画面に preparing として表示されることを確認(memory: 「ローカル dev server は基本起動しない、Vercel preview で検証」)
+  - コミットは「仕様 / 効果ロジック / UI演出」の単位で分割推奨(変更が小さい場合は1コミットでも可)
+- Vercel preview で `/cards` と対局画面の両方で動作確認(memory: 「ローカル dev server は基本起動しない、Vercel preview で検証」)
 
-#### (5) ユーザー最終チェック
-- ユーザーが Vercel preview の `/cards` 画面でカード表示を確認
+#### (8) ユーザー最終チェック
+- ユーザーが Vercel preview の `/cards` 画面でカード表示と、対局画面で効果動作を確認
 
-#### (6) リリース判定
+#### (9) リリース判定
 - ユーザーがいずれかを判定:
-  - **調整** → (2)に戻ってドラフト微修正・コード再反映
-  - **リリース(本Issueとしての仕様確定)** → そのカードは完了。`status: "preparing"` のまま次のカードへ進む
-- ※ ここでの「リリース」= 本Issueにおける仕様確定の承認。effectId 実装と `active` への昇格は Issue #80 で実施
-  - もしユーザーの意図する「リリース」が active 化(効果実装込み)を含む場合は、Issue #80 のスコープを本Issueに取り込むか別判断が必要(着手時にユーザー確認)
+  - **調整** → 該当ステップに戻って修正
+  - **リリース** → そのカードは完了。`status: "active"` で次のカードへ進む
 
-#### (7) サイクル継続 / 完了判定
+#### (10) サイクル継続 / 完了判定
 - ユーザーが「次のカード」と指示 → 新しいカードで Step 1(1) に戻る
 - ユーザーが「カード追加完了」と指示 → Step Final へ
 
@@ -141,15 +155,19 @@
 
 ## Verification (Issue 完了時)
 
-- [ ] 全採用カードが [`definitions.ts`](../../src/lib/shogi/cards/definitions.ts) に `status: "preparing"` で登録済み
-- [ ] `pnpm typecheck` パス
-- [ ] Vercel preview の `/cards` 画面で全 preparing カードが表示されている
+- [ ] 全採用カードが [`definitions.ts`](../../src/lib/shogi/cards/definitions.ts) に `status: "active"` で登録済み(廃止カードは `deprecated`)
+- [ ] 各カードの効果ロジックが `effects.ts` 等に実装され、対局画面で動作する
+- [ ] `npx tsc --noEmit` パス
+- [ ] Vercel preview の `/cards` 画面で全 active カードが表示されている
+- [ ] Vercel preview の対局画面で全カードの効果・UI演出が確認できる
 - [ ] [`docs/card-shogi-design.md`](../card-shogi-design.md) 3.3 から「(案)」が外れ、確定版になっている
 - [ ] Phase 0 既存3種の cost / rarity が設計書とコードで一致
 - [ ] レア度名称が 設計書 ⇄ [`labels.ts`](../../src/lib/shogi/cards/labels.ts) で一致
-- [ ] Issue #82 の受け入れ条件:
-  - 全採用カードの 効果・コスト・レア度・説明 が確定
+- [ ] Issue #82 の受け入れ条件 (拡張版):
+  - 全採用カードの 効果・コスト・レア度・説明・実装 が確定 / 実装済み
   - 設計書 3.3 から「(案)」が外れている
+  - Vercel preview で全カードの動作確認完了
+- [ ] Issue #80 の取り扱いをユーザーに確認(クローズ / open維持の判断)
 
 ## ExitPlanMode 後の最初のアクション
 
