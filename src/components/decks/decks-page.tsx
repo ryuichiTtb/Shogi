@@ -10,6 +10,7 @@ import { DeckEditorSkeleton } from "./deck-editor-skeleton";
 import { ConfirmDialog } from "./confirm-dialog";
 import {
   createDeck,
+  deleteDeck,
   getDeckDetail,
   setDefaultDeck,
   type DeckDetail,
@@ -168,6 +169,29 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
     tryChangeSelection(deckId, true);
   }
 
+  // 削除: 確認後に optimistic で一覧から除去 → 失敗時 revert。
+  async function handleDeleteCurrent() {
+    if (selectedId === null) return;
+    const targetId = selectedId;
+    const prevDecks = decks;
+    const prevSelectedId = selectedId;
+    const prevDetail = detail;
+    // 次に選択するデッキ (削除対象を除いた先頭。なければ null)
+    const next = prevDecks.find((d) => d.id !== targetId);
+    setDecks((p) => p.filter((d) => d.id !== targetId));
+    setSelectedId(next?.id ?? null);
+    setDetail(null);
+    try {
+      await deleteDeck(targetId);
+      refresh();
+    } catch (e) {
+      console.error("deleteDeck failed", e);
+      setDecks(prevDecks);
+      setSelectedId(prevSelectedId);
+      setDetail(prevDetail);
+    }
+  }
+
   // 既存デッキ 0 件 & 草稿なしの完全空状態のみ初期画面を出す
   if (decks.length === 0 && draftName === null) {
     return (
@@ -220,11 +244,7 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
                   setDetail(nextDetail);
                   refresh();
                 }}
-                onDeleted={() => {
-                  const next = decks.find((d) => d.id !== selectedId);
-                  setSelectedId(next?.id ?? null);
-                  refresh();
-                }}
+                onDeleted={handleDeleteCurrent}
               />
             ) : selectedId === null ? (
               <div className="flex-1 min-h-0 flex items-center justify-center text-sm text-muted-foreground">

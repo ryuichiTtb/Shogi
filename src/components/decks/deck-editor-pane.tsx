@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Trash2, Save, Pencil } from "lucide-react";
 import {
-  deleteDeck,
   renameDeck,
   saveDeckEntries,
   type DeckDetail,
@@ -124,14 +123,9 @@ export function DeckEditorPane({
   function handleDelete() {
     setConfirmDelete(false);
     setActionError(null);
-    startTransition(async () => {
-      try {
-        await deleteDeck(deck.id);
-        onDeleted();
-      } catch (e) {
-        setActionError(e instanceof Error ? e.message : String(e));
-      }
-    });
+    // 親 (DecksPage) が optimistic に一覧から除去 + 非同期で deleteDeck を実行する。
+    // 当コンポーネントは onDeleted 直後に unmount されるためここで await しない。
+    onDeleted();
   }
 
   // 編成中の各 cardId の現在枚数 (UI 用)
