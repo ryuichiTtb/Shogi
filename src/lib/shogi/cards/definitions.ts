@@ -3,6 +3,8 @@ import type { CardDefinition, CardId } from "./types";
 // Phase 0 暫定カード3種(設計ドキュメント 3.5)
 // 「状態のみ」「ターゲット選択あり」「トラップ」の3パターンを最小被覆。
 export const CARD_DEFS: Record<CardId, CardDefinition> = {
+  // Issue #82 で廃止。「マナを使ってマナを増やす」という設計の意義が薄いと判断。
+  // 効果コード(applyManaUp / use-card-shogi-game の effectId 分岐)の最終撤去は #80 で扱う。
   mana_up: {
     id: "mana_up",
     kind: "normal",
@@ -13,10 +15,10 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
     effectId: "mana_up",
     targeting: "none",
     icon: "💎",
-    status: "active",
+    status: "deprecated",
     phase: "0",
     detailDescription:
-      "使用すると即時にマナを +3 する。\n\n- ターゲット選択なし\n- マナ上限(現状20)を超えてチャージしない\n- 1ターン中の使用上限なし(マナ消費分は支払う必要あり)",
+      "使用すると即時にマナを +3 する。\n\n- ターゲット選択なし\n- マナ上限(現状20)を超えてチャージしない\n- 1ターン中の使用上限なし(マナ消費分は支払う必要あり)\n\n【廃止】Issue #82 のカード初版検討で廃止判断。マナ消費でマナを増やす設計の意義が薄いため。",
     addedAt: "2026-04-30",
     relatedIssues: [68, 80, 82],
   },

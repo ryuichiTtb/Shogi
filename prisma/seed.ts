@@ -64,25 +64,42 @@ async function main() {
     console.log(`  - Deck (既存): ${defaultDeck.id}`);
   }
 
+  // 廃止カードは DeckEntry / PlayerCardCollection には投入しない(Card マスタには履歴として残す)
+  const playableDefs = ALL_CARD_DEFS.filter((d) => d.status !== "deprecated");
+
   // 4. DeckEntry を 各カード2枚ずつ計6枚で構成(設計ドキュメント 3.5)
-  for (const def of ALL_CARD_DEFS) {
+  for (const def of playableDefs) {
     await prisma.deckEntry.upsert({
       where: { deckId_cardId: { deckId: defaultDeck.id, cardId: def.id } },
       create: { deckId: defaultDeck.id, cardId: def.id, count: 2 },
       update: { count: 2 },
     });
   }
-  console.log(`  - DeckEntry: ${ALL_CARD_DEFS.length} 種を各2枚`);
+  // 既に投入済みの廃止カード DeckEntry を掃除
+  const removedDeckEntries = await prisma.deckEntry.deleteMany({
+    where: {
+      deckId: defaultDeck.id,
+      cardId: { in: ALL_CARD_DEFS.filter((d) => d.status === "deprecated").map((d) => d.id) },
+    },
+  });
+  console.log(`  - DeckEntry: ${playableDefs.length} 種を各2枚 (廃止 ${removedDeckEntries.count} 件削除)`);
 
   // 5. PlayerCardCollection (所持カード) を全種2枚で初期化(将来のガチャ・編成画面用)
-  for (const def of ALL_CARD_DEFS) {
+  for (const def of playableDefs) {
     await prisma.playerCardCollection.upsert({
       where: { userId_cardId: { userId: DEFAULT_PLAYER_ID, cardId: def.id } },
       create: { userId: DEFAULT_PLAYER_ID, cardId: def.id, count: 2 },
       update: { count: 2 },
     });
   }
-  console.log(`  - PlayerCardCollection: ${ALL_CARD_DEFS.length} 種を各2枚`);
+  // 既に投入済みの廃止カード PlayerCardCollection を掃除
+  const removedCollections = await prisma.playerCardCollection.deleteMany({
+    where: {
+      userId: DEFAULT_PLAYER_ID,
+      cardId: { in: ALL_CARD_DEFS.filter((d) => d.status === "deprecated").map((d) => d.id) },
+    },
+  });
+  console.log(`  - PlayerCardCollection: ${playableDefs.length} 種を各2枚 (廃止 ${removedCollections.count} 件削除)`);
 
   console.log("✓ Seed completed");
 }

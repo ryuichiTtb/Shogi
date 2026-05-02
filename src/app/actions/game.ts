@@ -12,6 +12,7 @@ import {
   deserializeCardState,
   type DeckSpec,
 } from "@/lib/shogi/cards/state";
+import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
 
 const DEFAULT_PLAYER_ID = "default-player";
 
@@ -49,10 +50,14 @@ async function loadDeckSpecForUser(userId: string): Promise<DeckSpec[]> {
   if (!deck) {
     throw new Error(`No default deck found for user ${userId}. Run "npx prisma db seed".`);
   }
-  return deck.entries.map((e) => ({
-    defId: e.cardId as DeckSpec["defId"],
-    count: e.count,
-  }));
+  // 廃止カード(status: "deprecated")が DB の DeckEntry に残っていても初期デッキには含めない。
+  // seed 再実行で削除されるはずだが、未再実行の環境向けのランタイムガード。
+  return deck.entries
+    .filter((e) => CARD_DEFS[e.cardId as DeckSpec["defId"]]?.status !== "deprecated")
+    .map((e) => ({
+      defId: e.cardId as DeckSpec["defId"],
+      count: e.count,
+    }));
 }
 
 // 新規ゲームを作成
