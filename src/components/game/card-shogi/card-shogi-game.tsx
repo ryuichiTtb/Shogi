@@ -33,7 +33,8 @@ import type { Difficulty, GameConfig, GameState, Move, Player, Position } from "
 import type { CommentaryEvent } from "@/app/actions/commentary";
 import type { CardGameState, CardInstance } from "@/lib/shogi/cards/types";
 import { CARD_DEFS, CARD_USE_CONDITIONS, DRAW_COST } from "@/lib/shogi/cards/definitions";
-import { isDoublePawnLegalSquare, isPieceReturnLegalSquare } from "@/lib/shogi/cards/effects";
+import { isDoublePawnLegalSquare, isPieceReturnLegalSquare, simulateCardEffect, getCheckEscapingSquares } from "@/lib/shogi/cards/effects";
+import type { CardId } from "@/lib/shogi/cards/types";
 import { createGame } from "@/app/actions/game";
 
 import { ManaGauge } from "./mana-gauge";
@@ -525,9 +526,11 @@ export function CardShogiGame({
     />
   );
 
-  // 王手中はカード使用・ドロー禁止 (P10) → 駒指しでの王手回避のみ可能
-  // ドロー演出中も操作ロック (Issue #78)
-  const handDisabled = !isPlayerTurn || !isGameActive || cardState.pendingCard !== null || inCheck || isDrawAnimating || isPlayingCard;
+  // 手札の操作可否 (Issue #82 で王手仕様変更):
+  // - 王手中も「王手回避になるカードのみ使用可」とする方針に変更したため、inCheck で
+  //   一律 disabled にはしない。個別カードの非活性化は unusableCardIds 側で制御する。
+  // - ドロー演出中・カード使用演出中・別カード使用中は引き続き全体ロック
+  const handDisabled = !isPlayerTurn || !isGameActive || cardState.pendingCard !== null || isDrawAnimating || isPlayingCard;
 
   // 待った可否 (P28): 駒指し2手以上 / 自分の手番 / AI 思考中でない / pendingCard 無し / 過去2手の間にカード操作なし
   const canUndo = useMemo(() => {
@@ -557,8 +560,8 @@ export function CardShogiGame({
   const cardTargetSquares: Position[] = useMemo(() => {
     if (!cardState.pendingCard || cardState.pendingCard.phase !== "selectTarget") return [];
     const def = CARD_DEFS[cardState.pendingCard.instance.defId];
+    let targets: Position[] = [];
     if (def.effectId === "pawn_return") {
-      const targets: Position[] = [];
       for (let r = 0; r < 9; r++) {
         for (let c = 0; c < 9; c++) {
           const piece = gameState.board[r]?.[c];
@@ -567,10 +570,7 @@ export function CardShogiGame({
           }
         }
       }
-      return targets;
-    }
-    if (def.effectId === "piece_return") {
-      const targets: Position[] = [];
+    } else if (def.effectId === "piece_return") {
       for (let r = 0; r < 9; r++) {
         for (let c = 0; c < 9; c++) {
           if (isPieceReturnLegalSquare(gameState, playerColor, { row: r, col: c })) {
@@ -578,10 +578,7 @@ export function CardShogiGame({
           }
         }
       }
-      return targets;
-    }
-    if (def.effectId === "double_pawn") {
-      const targets: Position[] = [];
+    } else if (def.effectId === "double_pawn") {
       for (let r = 0; r < 9; r++) {
         for (let c = 0; c < 9; c++) {
           if (isDoublePawnLegalSquare(gameState, playerColor, { row: r, col: c })) {
@@ -589,10 +586,20 @@ export function CardShogiGame({
           }
         }
       }
-      return targets;
     }
-    return [];
-  }, [cardState.pendingCard, gameState, playerColor]);
+    // 王手中は、王手回避になる配置先のみハイライト (Issue #82)
+    if (inCheck) {
+      targets = targets.filter((pos) => {
+        const after = simulateCardEffect(gameState, playerColor, def.id, {
+          kind: "square",
+          row: pos.row,
+          col: pos.col,
+        });
+        return after && !isInCheck(after, playerColor, CARD_SHOGI_VARIANT);
+      });
+    }
+    return targets;
+  }, [cardState.pendingCard, gameState, playerColor, inCheck]);
 
   // no_promote の永続マーク (両プレイヤー分をまとめて盤面に渡す)
   const noPromoteSquares: Position[] = useMemo(
@@ -601,8 +608,9 @@ export function CardShogiGame({
   );
 
   // マナ以外の使用条件を満たさないカードIDを集計し、HandArea で非活性化する (Issue #82)。
-  // CARD_USE_CONDITIONS に登録された defId 別関数を呼び、false を返したものを集める。
-  // 手札に存在する defId のみ評価する (毎フレーム全カードを舐める必要はない)。
+  // - 通常時: CARD_USE_CONDITIONS の defId 別関数で判定
+  // - 王手中: そのカードで王手回避できなければ非活性 (王手回避手段がない=不可)
+  // 手札に存在する defId のみ評価する。
   const unusableCardIds = useMemo(() => {
     const set = new Set<string>();
     const seen = new Set<string>();
@@ -612,10 +620,18 @@ export function CardShogiGame({
       const useCond = CARD_USE_CONDITIONS[inst.defId];
       if (useCond && !useCond(gameState, playerColor, cardState)) {
         set.add(inst.defId);
+        continue;
+      }
+      // 王手中: 王手回避できないカードは非活性
+      if (inCheck) {
+        const escaping = getCheckEscapingSquares(gameState, playerColor, inst.defId as CardId);
+        if (escaping.length === 0) {
+          set.add(inst.defId);
+        }
       }
     }
     return set;
-  }, [displayedOwnHand, gameState, cardState, playerColor]);
+  }, [displayedOwnHand, gameState, cardState, playerColor, inCheck]);
 
   const ownHand = (
     <HandArea

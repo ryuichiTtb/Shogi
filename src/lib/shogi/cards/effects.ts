@@ -7,7 +7,7 @@ import { cloneGameState } from "../board";
 import { isPawnDropCheckmate, isInCheck } from "../moves";
 import { unpromotePieceType } from "../variants/standard";
 import { CARD_SHOGI_VARIANT } from "../variants/card-shogi";
-import type { CardGameState } from "./types";
+import type { CardGameState, CardId, CardTarget } from "./types";
 
 // ----- no_promote 永続マーク管理 -----
 
@@ -212,6 +212,56 @@ export function applyPawnReturn(
   const currentCount = newState.hand[player]["pawn"] ?? 0;
   newState.hand[player]["pawn"] = currentCount + 1;
   return newState;
+}
+
+// ----- 王手中のカード使用判定 (Issue #82) -----
+
+// カード適用後の GameState を返すシミュレータ。
+// - target ありカード: 各 applyXXX を呼んで結果の GameState を返す
+// - target なしカード (mana_up / no_promote 等): 盤面を変えないので null を返す
+//   → 王手回避にならないため、王手中は使用不可と扱う
+export function simulateCardEffect(
+  state: GameState,
+  player: Player,
+  defId: CardId,
+  target: CardTarget | null,
+): GameState | null {
+  switch (defId) {
+    case "pawn_return":
+      if (!target || target.kind !== "square") return null;
+      return applyPawnReturn(state, player, { row: target.row, col: target.col });
+    case "piece_return":
+      if (!target || target.kind !== "square") return null;
+      return applyPieceReturn(state, player, { row: target.row, col: target.col });
+    case "double_pawn":
+      if (!target || target.kind !== "square") return null;
+      return applyDoublePawn(state, player, { row: target.row, col: target.col });
+    default:
+      // mana_up / no_promote / sample_* 等は GameState を変えないので null
+      return null;
+  }
+}
+
+// 王手回避になるマスを列挙する。王手中のカード使用可否・配置先制限の両方で参照される。
+// 戻り値が空なら「そのカードでは王手回避できない」=王手中使用不可。
+export function getCheckEscapingSquares(
+  state: GameState,
+  player: Player,
+  defId: CardId,
+): Position[] {
+  const variant = CARD_SHOGI_VARIANT;
+  const { rows, cols } = variant.boardSize;
+  const result: Position[] = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const target: CardTarget = { kind: "square", row: r, col: c };
+      const after = simulateCardEffect(state, player, defId, target);
+      if (after && !isInCheck(after, player, variant)) {
+        result.push({ row: r, col: c });
+      }
+    }
+  }
+  return result;
 }
 
 // トラップセット: 手札の指定カードを trap スロットへ移動 (マナ消費は呼び出し側)

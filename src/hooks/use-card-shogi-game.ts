@@ -34,6 +34,8 @@ import {
   isPieceReturnLegalSquare,
   applyDoublePawn,
   isDoublePawnLegalSquare,
+  simulateCardEffect,
+  getCheckEscapingSquares,
   applyTrapSet,
   applyTrapClear,
   consumeNormalCard,
@@ -514,8 +516,6 @@ function reducer(
       if (state.cardState.pendingCard) return state;
       // 自分の手番でなければカード使用禁止
       if (state.gameState.currentPlayer !== action.player) return state;
-      // 王手中はカード使用禁止 (P10)
-      if (isInCheck(state.gameState, action.player, CARD_SHOGI_VARIANT)) return state;
       const card = state.cardState.hand[action.player].find(
         (c) => c.instanceId === action.instanceId,
       );
@@ -526,6 +526,13 @@ function reducer(
       const useCond = CARD_USE_CONDITIONS[card.defId];
       if (useCond && !useCond(state.gameState, action.player, state.cardState)) {
         return state;
+      }
+      // 王手中: カード使用は王手回避できる場合のみ可。
+      // (Issue #82: 「王手中一律不可」から「王手回避になるカードのみ可」に変更)
+      // 配置先のチェックは SELECT_CARD_TARGET / CONFIRM_PLAY_CARD でも行う。
+      if (isInCheck(state.gameState, action.player, CARD_SHOGI_VARIANT)) {
+        const escapingSquares = getCheckEscapingSquares(state.gameState, action.player, card.defId);
+        if (escapingSquares.length === 0) return state;
       }
       // Issue #106: 全カードでまず確認ポップアップ (phase="confirm") を出し、
       // 「使用する」確定後に必要なら selectTarget へ遷移する流れに統一する。
@@ -626,6 +633,14 @@ function reducer(
         nextCardState = afterConsume;
       } else {
         return state;
+      }
+
+      // 王手中の最終ガード (Issue #82): 王手中だった場合、適用後の盤面で
+      // 王手が解除されている必要がある。解除されない手は不正なので状態変更しない。
+      if (isInCheck(state.gameState, player, CARD_SHOGI_VARIANT)) {
+        if (isInCheck(nextGameState, player, CARD_SHOGI_VARIANT)) {
+          return state;
+        }
       }
 
       // カード使用 = 1手相当。currentPlayer 反転と lastTurnStartedAt クリアは
@@ -889,6 +904,16 @@ export function useCardShogiGame({
         }
         if (def.effectId === "double_pawn") {
           if (!isDoublePawnLegalSquare(gameState, gameConfig.playerColor, pos)) return;
+        }
+        // 王手中: そのマスへの適用が王手回避になる場合のみ許可 (Issue #82)
+        if (isInCheck(gameState, gameConfig.playerColor, CARD_SHOGI_VARIANT)) {
+          const after = simulateCardEffect(
+            gameState,
+            gameConfig.playerColor,
+            cardState.pendingCard.instance.defId,
+            { kind: "square", row: pos.row, col: pos.col },
+          );
+          if (!after || isInCheck(after, gameConfig.playerColor, CARD_SHOGI_VARIANT)) return;
         }
         dispatch({
           type: "SELECT_CARD_TARGET",
