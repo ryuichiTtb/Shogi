@@ -107,7 +107,9 @@ function DeckFlightSingle({
       }}
     >
       <motion.div
-        animate={{ rotateY: [0, 180, 360], rotateZ: [0, 180, 360] }}
+        // rotateY: 1 回転 (表→裏→表)
+        // rotateZ: 4 回転 (画面平面のスピン)
+        animate={{ rotateY: [0, 180, 360], rotateZ: [0, 720, 1440] }}
         transition={{
           duration: FLIGHT_DURATION_MS / 1000,
           times: [0, 0.5, 1],
