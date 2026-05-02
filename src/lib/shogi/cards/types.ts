@@ -38,9 +38,9 @@ export type CardStatus = "draft" | "preparing" | "active" | "deprecated";
 export type CardPhase = "0" | "A" | "B" | "C";
 
 // 使用条件判定(マナ以外の独自条件)。true=使用可 / false=非活性。
-// CardDefinition.useCondition 省略時は常に使用可と見なす。
+// CARD_USE_CONDITIONS で defId 別に登録 (Server→Client 境界で serialize できないため
+// CardDefinition には含めない)。未登録 defId は常に使用可と見なす。
 // Issue #82: pawn_return / double_pawn / piece_return 等で使用。Issue #115 で正式化予定。
-// (CardGameState は同ファイル下部で定義されるため、ここでは前方参照可能な形で書く)
 export type CardUseCondition = (
   gameState: GameState,
   player: Player,
@@ -69,9 +69,6 @@ export interface CardDefinition {
   addedAt?: string;
   // 関連 Issue 番号
   relatedIssues?: number[];
-  // マナ以外の使用条件(省略時は常に使用可)。
-  // 手札カードの非活性化判定 + 使用試行時のガード両方で参照される。
-  useCondition?: CardUseCondition;
 }
 
 export interface CardInstance {

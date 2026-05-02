@@ -26,7 +26,7 @@ import type {
   CardTarget,
   GameEvent,
 } from "@/lib/shogi/cards/types";
-import { CARD_DEFS, DRAW_COST, MANA_PER_TURN, MANA_FAST_BONUS, FAST_THRESHOLD_MS } from "@/lib/shogi/cards/definitions";
+import { CARD_DEFS, CARD_USE_CONDITIONS, DRAW_COST, MANA_PER_TURN, MANA_FAST_BONUS, FAST_THRESHOLD_MS } from "@/lib/shogi/cards/definitions";
 import {
   applyManaUp,
   applyPawnReturn,
@@ -514,8 +514,9 @@ function reducer(
       if (!card) return state;
       const def = CARD_DEFS[card.defId];
       if (state.cardState.mana[action.player] < def.cost) return state;
-      // カード固有の使用条件 (Issue #82)。useCondition 未定義のカードは常に使用可。
-      if (def.useCondition && !def.useCondition(state.gameState, action.player, state.cardState)) {
+      // カード固有の使用条件 (Issue #82)。CARD_USE_CONDITIONS 未登録のカードは常に使用可。
+      const useCond = CARD_USE_CONDITIONS[card.defId];
+      if (useCond && !useCond(state.gameState, action.player, state.cardState)) {
         return state;
       }
       // Issue #106: 全カードでまず確認ポップアップ (phase="confirm") を出し、

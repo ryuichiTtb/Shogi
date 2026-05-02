@@ -32,7 +32,7 @@ import { getVariantById } from "@/lib/shogi/variants/index";
 import type { Difficulty, GameConfig, GameState, Move, Player, Position } from "@/lib/shogi/types";
 import type { CommentaryEvent } from "@/app/actions/commentary";
 import type { CardGameState, CardInstance } from "@/lib/shogi/cards/types";
-import { CARD_DEFS, DRAW_COST } from "@/lib/shogi/cards/definitions";
+import { CARD_DEFS, CARD_USE_CONDITIONS, DRAW_COST } from "@/lib/shogi/cards/definitions";
 import { isDoublePawnLegalSquare, isPieceReturnLegalSquare } from "@/lib/shogi/cards/effects";
 import { createGame } from "@/app/actions/game";
 
@@ -591,7 +591,7 @@ export function CardShogiGame({
   );
 
   // マナ以外の使用条件を満たさないカードIDを集計し、HandArea で非活性化する (Issue #82)。
-  // 各カードの CardDefinition.useCondition を呼び、false を返したものを集める。
+  // CARD_USE_CONDITIONS に登録された defId 別関数を呼び、false を返したものを集める。
   // 手札に存在する defId のみ評価する (毎フレーム全カードを舐める必要はない)。
   const unusableCardIds = useMemo(() => {
     const set = new Set<string>();
@@ -599,8 +599,8 @@ export function CardShogiGame({
     for (const inst of displayedOwnHand) {
       if (seen.has(inst.defId)) continue;
       seen.add(inst.defId);
-      const def = CARD_DEFS[inst.defId];
-      if (def.useCondition && !def.useCondition(gameState, playerColor, cardState)) {
+      const useCond = CARD_USE_CONDITIONS[inst.defId];
+      if (useCond && !useCond(gameState, playerColor, cardState)) {
         set.add(inst.defId);
       }
     }

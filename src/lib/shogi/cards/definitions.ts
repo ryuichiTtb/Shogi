@@ -1,5 +1,5 @@
 import type { GameState, Player } from "@/lib/shogi/types";
-import type { CardDefinition, CardId } from "./types";
+import type { CardDefinition, CardId, CardUseCondition } from "./types";
 
 // ----- 共通 useCondition ヘルパ -----
 
@@ -80,8 +80,6 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
       "自分の盤上の歩 / と金 1枚を選び、持ち駒に戻す。\n\n- ターゲット: 自盤上の歩(と金含む)\n- と金は成り解除されて「歩」として持ち駒になる(将棋ルール準拠)\n- 持ち駒に戻った歩は次ターン以降に通常通り打てる",
     addedAt: "2026-04-30",
     relatedIssues: [68, 80, 82],
-    // 自分の盤上に歩 or と金が1枚以上あれば使用可 (歩戻しは と金も対象、unpromote して持ち駒の歩になる)
-    useCondition: (gameState, player) => hasOwnPawnOnBoard(gameState, player),
   },
   double_pawn: {
     id: "double_pawn",
@@ -99,12 +97,6 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
       "持ち駒の歩 1枚を、自分の未成り歩がいる列の空マスに打つことで、二歩禁則を一時的に解除して同列に2枚目の歩を打てるカード。\n\n【使用条件】\n- 持ち駒に歩がある\n- 盤上に自分の未成り歩がある(と金は条件に含まれない)\n\n【配置可能マス】\n- 自分の未成り歩がある列の空マス\n- 行きどころのない歩(後手側1段目 / 先手側9段目)は不可\n- 打ち歩詰めとなるマスは不可(将棋の根本ルールとして禁則維持)\n\n【その他】\n- 同列に既に複数の歩がある状態でも使用可能(2枚目以降も同列に打てる)\n- 配置先のマスに駒がある場合は不可(空マスのみ)",
     addedAt: "2026-05-02",
     relatedIssues: [82],
-    // 持ち駒に歩あり & 盤上に自分の未成り歩あり (と金は対象列の起点にならない)
-    useCondition: (gameState, player) => {
-      const handPawnCount = gameState.hand[player]["pawn"] ?? 0;
-      if (handPawnCount <= 0) return false;
-      return hasOwnUnpromotedPawnOnBoard(gameState, player);
-    },
   },
 
   piece_return: {
@@ -123,9 +115,6 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
       "自分の盤上の駒1枚を選び、持ち駒に戻す。歩戻しの上位互換。\n\n【対象】\n- 自分の盤上の駒(玉は対象外)\n- 成駒は成り解除されて元の駒種で持ち駒になる(と金→歩 / 成銀→銀 / 馬→角 / 龍→飛 等)\n\n【仕様】\n- 持ち駒に戻った駒は、次ターン以降に通常通り打てる\n- 「成り不可」状態(no_promote)が付与された駒を戻した場合、状態は失われる\n- 自玉が王手のまま放置になる手は実行不可(通常の指し手と同様、ピン駒の引き戻しは不可)\n- 王手中はカード使用不可(全カード共通の制約)",
     addedAt: "2026-05-02",
     relatedIssues: [82],
-    // 自分の盤上に玉以外の駒が1枚以上あれば使用可。
-    // ※ ピン駒しか残っていない極限状況では選択肢ゼロになるが、その判定は SELECT_SQUARE 側で行う。
-    useCondition: (gameState, player) => hasOwnNonKingPieceOnBoard(gameState, player),
   },
 
   no_promote: {
@@ -272,6 +261,23 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
 };
 
 export const ALL_CARD_DEFS: CardDefinition[] = Object.values(CARD_DEFS);
+
+// カード使用条件 (Issue #82)。
+// 関数フィールドは Server→Client 境界で serialize できないため CardDefinition 本体には含めず
+// 別 Map で管理する。未登録の defId は常に使用可と見なす。
+export const CARD_USE_CONDITIONS: Partial<Record<CardId, CardUseCondition>> = {
+  // 自分の盤上に歩 or と金が1枚以上あれば使用可 (歩戻しは と金も対象、unpromote して持ち駒の歩になる)
+  pawn_return: (gameState, player) => hasOwnPawnOnBoard(gameState, player),
+  // 持ち駒に歩あり & 盤上に自分の未成り歩あり (と金は対象列の起点にならない)
+  double_pawn: (gameState, player) => {
+    const handPawnCount = gameState.hand[player]["pawn"] ?? 0;
+    if (handPawnCount <= 0) return false;
+    return hasOwnUnpromotedPawnOnBoard(gameState, player);
+  },
+  // 自分の盤上に玉以外の駒が1枚以上あれば使用可。
+  // ※ ピン駒しか残っていない極限状況では選択肢ゼロになるが、その判定は SELECT_SQUARE 側で行う。
+  piece_return: (gameState, player) => hasOwnNonKingPieceOnBoard(gameState, player),
+};
 
 // マナ・ドローコストの確定値(Issue #81 / 2026-05-01 確定)
 export const INITIAL_MANA: Record<"sente" | "gote", number> = {
