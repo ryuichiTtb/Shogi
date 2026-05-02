@@ -3,7 +3,14 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { ChevronDown, Plus } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { DeckListPane } from "./deck-list-pane";
 import { DeckEditorPane } from "./deck-editor-pane";
 import { DeckEditorSkeleton } from "./deck-editor-skeleton";
@@ -53,6 +60,9 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
 
   // 「選択」ボタン押下中の deckId (setDefaultDeck 中の連打抑止)
   const [pendingDefaultId, setPendingDefaultId] = useState<string | null>(null);
+
+  // モバイル用デッキピッカー (Dialog) の開閉。
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   // detail が古い (別デッキ選択直後で fetch 未完了) ときは null として扱う。
   const currentDetail = detail && detail.id === selectedId ? detail : null;
@@ -118,6 +128,8 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
       ]);
       setSelectedId(newId);
       cancelDraft();
+      // モバイル: 新規作成後はピッカーを閉じて編集ペインに遷移
+      setPickerOpen(false);
       refresh();
     } catch (e) {
       setDraftError(e instanceof Error ? e.message : String(e));
@@ -229,30 +241,68 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
     );
   }
 
+  const currentDeck = selectedId ? decks.find((d) => d.id === selectedId) : null;
+
+  // 共通の DeckListPane props (モバイル / デスクトップで共有)
+  const listProps = {
+    decks,
+    selectedId,
+    draftName,
+    draftError,
+    draftBusy,
+    pendingDefaultId,
+    disabled: listLocked,
+    onSelectDefault: handleSelectDefault,
+    onRequestNew: startNew,
+    onDraftChange: (v: string) => {
+      setDraftName(v);
+      setDraftError(null);
+    },
+    onDraftCommit: commitDraft,
+    onDraftCancel: cancelDraft,
+  } as const;
+
   return (
     <>
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-3 sm:gap-4">
-        <div className="min-h-0 flex flex-col">
+      <div className="flex-1 min-h-0 flex flex-col gap-3 sm:gap-4 lg:grid lg:grid-cols-[280px_1fr]">
+        {/* モバイル: 現在のデッキを示すトリガーボタン (タップで Dialog 起動) */}
+        <button
+          type="button"
+          onClick={() => setPickerOpen(true)}
+          disabled={listLocked}
+          className={cn(
+            "lg:hidden shrink-0 rounded-lg border bg-card px-3 py-2 flex items-center gap-2 text-left",
+            "hover:border-primary/40 transition-colors",
+            "disabled:opacity-60 disabled:cursor-not-allowed",
+          )}
+        >
+          <div className="flex-1 min-w-0">
+            <div className="font-medium text-sm truncate">
+              {currentDeck?.name ?? "デッキを選択"}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {currentDeck ? `${currentDeck.totalCount} 枚` : "未選択"}
+            </div>
+          </div>
+          {currentDeck?.isDefault && (
+            <Badge
+              variant="outline"
+              className="text-[10px] px-1.5 py-0 bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-200 dark:border-emerald-800 shrink-0"
+            >
+              使用中
+            </Badge>
+          )}
+          <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
+        </button>
+
+        {/* デスクトップ: 従来の左カラム deck list */}
+        <div className="hidden lg:flex min-h-0 flex-col">
           <DeckListPane
-            decks={decks}
-            selectedId={selectedId}
-            draftName={draftName}
-            draftError={draftError}
-            draftBusy={draftBusy}
-            pendingDefaultId={pendingDefaultId}
-            disabled={listLocked}
+            {...listProps}
             onSelect={tryChangeSelection}
-            onSelectDefault={handleSelectDefault}
-            onRequestNew={startNew}
-            onDraftChange={(v) => {
-              setDraftName(v);
-              setDraftError(null);
-            }}
-            onDraftCommit={commitDraft}
-            onDraftCancel={cancelDraft}
           />
         </div>
-        <div className="min-h-0 flex flex-col">
+        <div className="min-h-0 flex flex-col flex-1 lg:flex-none">
           {/* フレーム自体は常に描画。中身だけを「内容/スケルトン/未選択」で切替。
               これで読み込み中もエリアが消えず、高さもジャンプしない。 */}
           <div className="rounded-lg border bg-card flex flex-col min-h-0 flex-1">
@@ -296,6 +346,23 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
           </div>
         </div>
       </div>
+      {/* モバイル: デッキピッカー Dialog */}
+      <Dialog open={pickerOpen} onOpenChange={setPickerOpen}>
+        <DialogContent className="max-w-md w-[calc(100%-2rem)] max-h-[80vh] flex flex-col gap-3 p-3">
+          <DialogTitle className="px-1">デッキ一覧</DialogTitle>
+          <div className="flex-1 min-h-0 -mx-3 -mb-3">
+            <DeckListPane
+              {...listProps}
+              onSelect={(id) => {
+                tryChangeSelection(id);
+                setPickerOpen(false);
+              }}
+              className="border-0 rounded-none bg-transparent h-full"
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {actionError && (
         <div
           className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 max-w-md w-[90vw] rounded-md border border-destructive/40 bg-destructive/10 text-destructive px-3 py-2 text-xs shadow-lg flex items-start gap-2"

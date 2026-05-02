@@ -17,6 +17,9 @@ interface DeckListPaneProps {
   pendingDefaultId: string | null;
   // 詳細 fetch 中 / 使用中切替中など、一覧操作を一時的にロックするフラグ。
   disabled?: boolean;
+  // ラッパー div の className 上書き。Dialog 内に埋め込むときは
+  // border 等を打ち消したいので利用する。
+  className?: string;
   onSelect: (id: string) => void;
   onSelectDefault: (id: string) => void;
   onRequestNew: () => void;
@@ -33,6 +36,7 @@ export function DeckListPane({
   draftBusy,
   pendingDefaultId,
   disabled = false,
+  className,
   onSelect,
   onSelectDefault,
   onRequestNew,
@@ -41,7 +45,12 @@ export function DeckListPane({
   onDraftCancel,
 }: DeckListPaneProps) {
   return (
-    <div className="rounded-lg border bg-card flex flex-col min-h-0">
+    <div
+      className={cn(
+        "rounded-lg border bg-card flex flex-col min-h-0",
+        className,
+      )}
+    >
       <div className="p-3 border-b flex items-center justify-between shrink-0">
         <h2 className="text-sm font-semibold">デッキ一覧</h2>
         <Button
