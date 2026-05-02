@@ -39,6 +39,24 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
     addedAt: "2026-04-30",
     relatedIssues: [68, 80, 82],
   },
+  double_pawn: {
+    id: "double_pawn",
+    kind: "normal",
+    name: "二歩指し",
+    description: "持ち駒の歩 1枚を、自分の歩がいる列の空マスに打つ",
+    cost: 3,
+    rarity: "rare",
+    effectId: "double_pawn",
+    targeting: "square",
+    icon: "🎴",
+    status: "active",
+    phase: "A",
+    detailDescription:
+      "持ち駒の歩 1枚を、自分の未成り歩がいる列の空マスに打つことで、二歩禁則を一時的に解除して同列に2枚目の歩を打てるカード。\n\n【使用条件】\n- 持ち駒に歩がある\n- 盤上に自分の未成り歩がある(と金は条件に含まれない)\n\n【配置可能マス】\n- 自分の未成り歩がある列の空マス\n- 行きどころのない歩(後手側1段目 / 先手側9段目)は不可\n- 打ち歩詰めとなるマスは不可(将棋の根本ルールとして禁則維持)\n\n【その他】\n- 同列に既に複数の歩がある状態でも使用可能(2枚目以降も同列に打てる)\n- 配置先のマスに駒がある場合は不可(空マスのみ)",
+    addedAt: "2026-05-02",
+    relatedIssues: [82],
+  },
+
   no_promote: {
     id: "no_promote",
     kind: "trap",

@@ -13,6 +13,7 @@ export type CardId =
   | "mana_up"
   | "pawn_return"
   | "no_promote"
+  | "double_pawn"
   | "sample_normal_common"
   | "sample_normal_rare"
   | "sample_normal_super_rare"
