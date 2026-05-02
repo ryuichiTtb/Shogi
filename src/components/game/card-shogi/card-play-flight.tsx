@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 
@@ -10,7 +10,6 @@ import { CardView } from "./card-view";
 interface CardPlayFlightProps {
   cardInstance: CardInstance | null;
   flightKey: number | null;
-  startRectGetter: () => DOMRect | null;
   isTrap: boolean;
   onComplete: () => void;
 }
@@ -19,13 +18,15 @@ interface CardPlayFlightProps {
 const CARD_W = 576;
 const CARD_H = 352;
 
-// Issue #106: ドロー演出 (~2.65s) より短め。手番継続中に挟むため間延びを避ける。
-const FADE_IN_MS = 320;
+// Issue #106 (修正後): 手札→中央の移動はやめ、中央にパッと出現してキラッと
+// 光らせる「カードを使った！」演出。手番継続中に挟むため短時間に収める。
+const POP_IN_MS = 220;
 const HOLD_MS = 700;
-const FADE_OUT_MS = 350;
-const TOTAL_MS = FADE_IN_MS + HOLD_MS + FADE_OUT_MS;
+const FADE_OUT_MS = 320;
+const TOTAL_MS = POP_IN_MS + HOLD_MS + FADE_OUT_MS;
 
-const FLASH_DELAY_S = FADE_IN_MS / 1000;
+// 出現直後のシマー (光) と、周辺を一瞬光らせるグロウ
+const FLASH_DELAY_S = POP_IN_MS / 1000;
 const SHIMMER_DURATION_S = 0.6;
 const GLOW_DURATION_S = 0.75;
 
@@ -36,7 +37,6 @@ const getServerSnapshot = () => false;
 export function CardPlayFlight({
   cardInstance,
   flightKey,
-  startRectGetter,
   isTrap,
   onComplete,
 }: CardPlayFlightProps) {
@@ -50,7 +50,6 @@ export function CardPlayFlight({
           <CardPlayFlightInner
             key={flightKey}
             cardInstance={cardInstance}
-            startRectGetter={startRectGetter}
             isTrap={isTrap}
             onComplete={onComplete}
           />
@@ -63,12 +62,10 @@ export function CardPlayFlight({
 
 function CardPlayFlightInner({
   cardInstance,
-  startRectGetter,
   isTrap,
   onComplete,
 }: {
   cardInstance: CardInstance;
-  startRectGetter: () => DOMRect | null;
   isTrap: boolean;
   onComplete: () => void;
 }) {
@@ -86,78 +83,65 @@ function CardPlayFlightInner({
     return () => window.clearTimeout(id);
   }, [handleComplete]);
 
-  const [coords] = useState(() => {
-    if (typeof window === "undefined") return null;
-    const startRect = startRectGetter();
+  // ビューポートにフィットする倍率まで縮小 (モバイル対応)
+  const centerScale =
+    typeof window === "undefined"
+      ? 1
+      : Math.min(1, (window.innerWidth * 0.92) / CARD_W, (window.innerHeight * 0.85) / CARD_H);
 
-    const winW = window.innerWidth;
-    const winH = window.innerHeight;
-    const centerX = (winW - CARD_W) / 2;
-    const centerY = (winH - CARD_H) / 2;
+  const t1 = POP_IN_MS / TOTAL_MS;
+  const t2 = (POP_IN_MS + HOLD_MS) / TOTAL_MS;
 
-    // モバイル等で 576x352 がそのまま入らない場合、ビューポートにフィットする倍率まで縮小。
-    const centerScale = Math.min(1, (winW * 0.92) / CARD_W, (winH * 0.85) / CARD_H);
-
-    const startX = startRect ? startRect.x + startRect.width / 2 - CARD_W / 2 : centerX;
-    const startY = startRect ? startRect.y + startRect.height / 2 - CARD_H / 2 : centerY;
-    const startScale = startRect ? Math.max(0.15, startRect.width / CARD_W) : 0.3;
-
-    return { startX, startY, centerX, centerY, startScale, centerScale };
-  });
-
-  if (!coords) return null;
-  const { startX, startY, centerX, centerY, startScale, centerScale } = coords;
-
-  const t1 = FADE_IN_MS / TOTAL_MS;
-  const t2 = (FADE_IN_MS + HOLD_MS) / TOTAL_MS;
-
-  // グロウ色: トラップは紫 (BoardOverlay の trap_trigger と揃える)、通常は黄金 (ドロー演出と揃える)
+  // グロウ色: トラップは紫 (BoardOverlay の trap_trigger と揃える)、通常は黄金
   const glowShadow = isTrap
-    ? "0 0 90px 14px rgba(168, 85, 247, 0.85)"
-    : "0 0 90px 14px rgba(251, 191, 36, 0.9)";
+    ? "0 0 100px 18px rgba(168, 85, 247, 0.9)"
+    : "0 0 100px 18px rgba(251, 191, 36, 0.95)";
 
   return (
     <motion.div
-      initial={{ left: startX, top: startY, scale: startScale, opacity: 0 }}
+      initial={{ scale: centerScale * 0.4, opacity: 0 }}
       animate={{
-        left: [startX, centerX, centerX, centerX],
-        top: [startY, centerY, centerY, centerY],
-        scale: [startScale, centerScale, centerScale, centerScale * 1.04],
+        // パッと出現 (オーバーシュート気味) → ホールド → わずかにスケールアップしながらフェードアウト
+        scale: [centerScale * 0.4, centerScale * 1.08, centerScale, centerScale * 1.04],
         opacity: [0, 1, 1, 0],
       }}
       transition={{
         duration: TOTAL_MS / 1000,
         times: [0, t1, t2, 1],
-        ease: ["easeOut", "linear", "easeIn"],
+        ease: ["backOut", "linear", "easeIn"],
       }}
       onAnimationComplete={handleComplete}
       style={{
         position: "fixed",
+        left: "50%",
+        top: "50%",
+        marginLeft: -CARD_W / 2,
+        marginTop: -CARD_H / 2,
         width: CARD_W,
         height: CARD_H,
-        willChange: "transform, opacity, left, top",
+        willChange: "transform, opacity",
       }}
     >
       <div className="relative w-full h-full">
-        {/* グロウ: 中央到着の瞬間カード周辺がふわっと光る */}
+        {/* グロウ: 出現の瞬間カード周辺がふわっと光る */}
         <motion.div
           initial={{ opacity: 0, scale: 0.92 }}
-          animate={{ opacity: [0, 0.95, 0], scale: [0.92, 1.08, 1] }}
+          animate={{ opacity: [0, 1, 0], scale: [0.92, 1.12, 1] }}
           transition={{
             duration: GLOW_DURATION_S,
             delay: FLASH_DELAY_S,
-            times: [0, 0.45, 1],
+            times: [0, 0.4, 1],
             ease: "easeOut",
           }}
           style={{
             position: "absolute",
-            inset: -12,
+            inset: -16,
             borderRadius: "0.6rem",
             boxShadow: glowShadow,
             pointerEvents: "none",
           }}
         />
-        {/* カード本体 + シマー */}
+        {/* カード本体 + シマー (キラッと斜めに走る光) */}
         <div className="absolute inset-0 rounded-md shadow-2xl overflow-hidden">
           <CardView card={cardInstance} size="xl" fullWidth />
           <motion.div
@@ -173,7 +157,7 @@ function CardPlayFlightInner({
               position: "absolute",
               inset: 0,
               background:
-                "linear-gradient(115deg, transparent 35%, rgba(255,255,255,0.9) 50%, transparent 65%)",
+                "linear-gradient(115deg, transparent 35%, rgba(255,255,255,0.95) 50%, transparent 65%)",
               pointerEvents: "none",
               mixBlendMode: "overlay",
             }}
@@ -184,12 +168,12 @@ function CardPlayFlightInner({
           initial={{ opacity: 0, scale: 0.6, y: -16 }}
           animate={{
             opacity: [0, 0, 1, 1, 0],
-            scale: [0.6, 0.6, 1.1, 1, 0.95],
+            scale: [0.6, 0.6, 1.15, 1, 0.95],
             y: [-16, -16, 0, 0, 0],
           }}
           transition={{
             duration: TOTAL_MS / 1000,
-            times: [0, t1 * 0.85, t1, t2, 1],
+            times: [0, t1 * 0.6, t1, t2, 1],
             ease: "easeOut",
           }}
           style={{
@@ -203,8 +187,8 @@ function CardPlayFlightInner({
           <div
             className={
               isTrap
-                ? "px-5 py-1.5 rounded-full bg-purple-700 text-white text-xl font-bold tracking-wider shadow-lg border-2 border-purple-300"
-                : "px-5 py-1.5 rounded-full bg-amber-500 text-amber-950 text-xl font-bold tracking-wider shadow-lg border-2 border-amber-200"
+                ? "px-5 py-1.5 rounded-full bg-purple-700 text-white text-xl font-bold tracking-wider shadow-lg border-2 border-purple-300 whitespace-nowrap"
+                : "px-5 py-1.5 rounded-full bg-amber-500 text-amber-950 text-xl font-bold tracking-wider shadow-lg border-2 border-amber-200 whitespace-nowrap"
             }
           >
             {isTrap ? "セット！" : "発動！"}

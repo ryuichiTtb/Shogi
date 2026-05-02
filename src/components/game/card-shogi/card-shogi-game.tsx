@@ -81,12 +81,11 @@ export function CardShogiGame({
   // Issue #78: ドロー演出 (山札→中央→手札)。演出完了まで自分の手番継続・操作ロック。
   const [drawFlight, setDrawFlight] = useState<{ card: CardInstance; key: number } | null>(null);
   const isDrawAnimating = drawFlight !== null;
-  // Issue #106: カード使用/トラップセット時の中央演出 (手札→中央→フェードアウト)。
-  // ドロー演出と異なり手番をロックせず短時間 (~1.4s) で抜ける。
+  // Issue #106: カード使用/トラップセット時の中央演出 (中央にパッと出現+キラッと光る)。
+  // ドロー演出と異なり手番をロックせず短時間 (~1.2s) で抜ける。
   const [playFlight, setPlayFlight] = useState<{
     card: CardInstance;
     key: number;
-    startRect: DOMRect | null;
     isTrap: boolean;
   } | null>(null);
   // 連続プレイ時に Date.now() が同 ms に丸まると AnimatePresence が
@@ -329,10 +328,10 @@ export function CardShogiGame({
         case "cardPlayEvent": {
           playSfx("card_play");
           const def = CARD_DEFS[ev.instance.defId];
-          const cached = playedCardRectRef.current;
-          const startRect = cached?.id === ev.instance.instanceId ? cached.rect : getHandRect();
           if (def.cost > 0) {
-            triggerManaFlight(-def.cost, startRect);
+            const cached = playedCardRectRef.current;
+            const rect = cached?.id === ev.instance.instanceId ? cached.rect : getHandRect();
+            triggerManaFlight(-def.cost, rect);
           }
           // Issue #106: カード使用時に中央へカード本体を表示 (自分プレイヤーのみ)
           if (ev.player === playerColor) {
@@ -340,7 +339,6 @@ export function CardShogiGame({
             setPlayFlight({
               card: ev.instance,
               key: playFlightKeyRef.current,
-              startRect,
               isTrap: false,
             });
           }
@@ -373,10 +371,10 @@ export function CardShogiGame({
         case "trapSetEvent": {
           playSfx("card_play");
           const def = CARD_DEFS[ev.instance.defId];
-          const cached = playedCardRectRef.current;
-          const startRect = cached?.id === ev.instance.instanceId ? cached.rect : getHandRect();
           if (def.cost > 0) {
-            triggerManaFlight(-def.cost, startRect);
+            const cached = playedCardRectRef.current;
+            const rect = cached?.id === ev.instance.instanceId ? cached.rect : getHandRect();
+            triggerManaFlight(-def.cost, rect);
           }
           // Issue #106: トラップセット時も中央へカード本体を表示
           // CardInstance に詰め直し (TrapInstance.owner は CardView 側で参照しないため捨てる)
@@ -385,7 +383,6 @@ export function CardShogiGame({
             setPlayFlight({
               card: { instanceId: ev.instance.instanceId, defId: ev.instance.defId },
               key: playFlightKeyRef.current,
-              startRect,
               isTrap: true,
             });
           }
@@ -440,9 +437,7 @@ export function CardShogiGame({
     return cardState.hand[playerColor].filter((c) => c.instanceId !== drawFlight.card.instanceId);
   }, [cardState.hand, playerColor, drawFlight]);
 
-  // Issue #106: カード使用演出の startRect は state からスナップショット参照する
-  const playFlightStartRect = playFlight?.startRect ?? null;
-  const getPlayFlightStartRect = useCallback(() => playFlightStartRect, [playFlightStartRect]);
+  // Issue #106: カード使用演出は中央に固定出現するため startRect は不要
   const handlePlayFlightComplete = useCallback(() => setPlayFlight(null), []);
 
   // ドロー演出完了: currentPlayer を相手に渡し、手札の対象カードを一瞬フラッシュさせる
@@ -1074,11 +1069,10 @@ export function CardShogiGame({
         onComplete={handleDrawFlightComplete}
       />
 
-      {/* Issue #106: カード使用/トラップセット時の中央演出 (手札→中央→フェードアウト) */}
+      {/* Issue #106: カード使用/トラップセット時の中央演出 (中央にパッと出現+キラッと光る) */}
       <CardPlayFlight
         cardInstance={playFlight?.card ?? null}
         flightKey={playFlight?.key ?? null}
-        startRectGetter={getPlayFlightStartRect}
         isTrap={playFlight?.isTrap ?? false}
         onComplete={handlePlayFlightComplete}
       />
