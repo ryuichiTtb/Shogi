@@ -226,11 +226,12 @@ export function CardView({
         isAnimated && RARITY_BG_CLASS[def.rarity],
         // 斜め閃光 (super_rare/epic)
         isAnimated && RARITY_HAS_SHINE[def.rarity] && "card-rarity-shine",
-        // 非活性: 鮮やかさだけ落としてレア度演出は維持(opacity ではなく
-        // saturate を使うことで動的グラデ・オーブの形状感は残す)。
+        // 非活性: ぱっと見で「使えない」と分かるよう、彩度をゼロにし
+        // opacity も下げてグレーアウトを強める。レア度演出 (動的グラデ・
+        // オーブの動き) は形状として残るが、彩度が落ちて主張は弱まる。
         // 活性: card-hover-focus で暖色リング+lift のフォーカス強調を付与。
         disabled
-          ? "opacity-70 saturate-50 cursor-not-allowed"
+          ? "opacity-50 saturate-0 cursor-not-allowed"
           : "cursor-pointer card-hover-focus",
         // 選択時は ring で強調(枠のレア度色は維持)
         selected && "ring-2 ring-primary ring-offset-1 ring-offset-background",
