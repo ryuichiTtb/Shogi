@@ -20,6 +20,7 @@ interface OwnedCardPickerProps {
   totalCount: number;
   disabled?: boolean;
   onAdd: (cardId: CardId, sourceRect: DOMRect) => void;
+  onLongPress?: (cardId: CardId) => void;
 }
 
 export function OwnedCardPicker({
@@ -29,6 +30,7 @@ export function OwnedCardPicker({
   totalCount,
   disabled = false,
   onAdd,
+  onLongPress,
 }: OwnedCardPickerProps) {
   const [rarityFilter, setRarityFilter] = useState<ReadonlySet<CardRarity>>(
     new Set(RARITY_OPTIONS),
@@ -112,7 +114,7 @@ export function OwnedCardPicker({
             該当する所持カードがありません
           </p>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 pb-2">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-1.5 lg:gap-3 pb-2">
             {filtered.map((c) => {
               const current = currentCountByCard.get(c.cardId) ?? 0;
               // 残り = 所持 - 編成中
@@ -131,7 +133,7 @@ export function OwnedCardPicker({
                   ? `${RARITY_INFO[c.rarity].label}は合計 ${cap} 枚まで`
                   : totalAtMax
                     ? `デッキ合計 ${DECK_TOTAL_MAX} 枚に達しています`
-                    : "クリックでデッキに追加";
+                    : "クリックでデッキに追加 / 長押しで詳細";
 
               return (
                 <DeckCardTile
@@ -140,6 +142,7 @@ export function OwnedCardPicker({
                   area="owned"
                   disabled={disabled || cantAdd}
                   onClick={(rect) => onAdd(c.cardId, rect)}
+                  onLongPress={onLongPress}
                   title={reason}
                   topBadge={
                     <TileBadge

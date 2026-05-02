@@ -23,6 +23,7 @@ import type { CardId, CardRarity } from "@/lib/shogi/cards/types";
 import { OwnedCardPicker } from "./owned-card-picker";
 import { DeckCardTile, type DeckArea } from "./deck-card-tile";
 import { DeckFlightLayer, type DeckFlightItem } from "./deck-flight-layer";
+import { CardDetailDialog } from "./card-detail-dialog";
 
 interface DeckFlight extends DeckFlightItem {
   // 行先タイル (deck 側のとき) の identity。フライト中に重ねる元タイルを
@@ -52,6 +53,11 @@ export function DeckEditorPane({
   );
   const [isPending, startTransition] = useTransition();
   const [actionError, setActionError] = useState<string | null>(null);
+  // 長押しで開くカード詳細 dialog。null=非表示。
+  const [detailCardId, setDetailCardId] = useState<CardId | null>(null);
+  const handleLongPressDetail = useCallback((cardId: CardId) => {
+    setDetailCardId(cardId);
+  }, []);
 
   const ownership = useMemo(() => {
     const m = new Map<CardId, CardOwnershipInfo>();
@@ -322,8 +328,8 @@ export function DeckEditorPane({
         </div>
       </div>
 
-      {/* 本体: 現在のデッキ + 所持カード */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x">
+      {/* 本体: 現在のデッキ + 所持カード (モバイルでも左右 2 分割) */}
+      <div className="flex-1 min-h-0 grid grid-cols-2 divide-x">
         {/* 現在のデッキ */}
         <section className="flex flex-col min-h-0">
           <header className="p-2 border-b shrink-0">
@@ -337,7 +343,7 @@ export function DeckEditorPane({
                 右の所持カードをクリックして追加してください
               </p>
             ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 pb-2">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-1.5 lg:gap-3 pb-2">
                 {entries.flatMap((e) => {
                   const slots = slotIdsByCard.get(e.cardId) ?? [];
                   return slots.map((slotId) => (
@@ -351,7 +357,8 @@ export function DeckEditorPane({
                       onClick={(rect) =>
                         handleRemoveFromDeck(e.cardId, slotId, rect)
                       }
-                      title="クリックで編成から外す"
+                      onLongPress={handleLongPressDetail}
+                      title="クリックで編成から外す / 長押しで詳細"
                     />
                   ));
                 })}
@@ -369,11 +376,17 @@ export function DeckEditorPane({
             totalCount={validation.totalCount}
             disabled={isPending}
             onAdd={handleAddFromOwned}
+            onLongPress={handleLongPressDetail}
           />
         </section>
       </div>
 
       <DeckFlightLayer flights={flights} onComplete={handleFlightComplete} />
+
+      <CardDetailDialog
+        cardId={detailCardId}
+        onClose={() => setDetailCardId(null)}
+      />
     </>
   );
 }
