@@ -130,6 +130,7 @@ function PieceFlightInner({
       <ShogiPiece
         piece={{ type: spec.pieceType, owner: spec.owner }}
         playerColor={playerColor}
+        squareSize={PIECE_SIZE}
       />
     </motion.div>
   );
