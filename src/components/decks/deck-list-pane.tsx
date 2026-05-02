@@ -49,7 +49,10 @@ export function DeckListPane({
       <ul className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1">
         {draftName !== null && (
           <li>
-            <div className="px-3 py-2 rounded-md border-2 border-primary bg-primary/5">
+            {/* 草稿枠は確定前なので選択ハイライト (border-primary) は出さない。
+                確定 → setSelectedId(newId) 後に通常のデッキ row として描画され、
+                その時点で他デッキと同じ条件で白枠が付く。 */}
+            <div className="px-3 py-2 rounded-md border-2 border-transparent">
               <input
                 type="text"
                 value={draftName}
