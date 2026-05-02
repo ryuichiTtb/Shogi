@@ -604,3 +604,122 @@
     card-rarity-orb-3 5.6s ease-in-out infinite var(--orb-delay, 1.2s),
     card-rarity-orb-hue 4.0s ease-in-out infinite var(--orb-delay-hue, 0.9s);
 }
+
+/* ===== Issue #110 カード裏面モック検討用スタイル =====
+ * 採用案決定後、`card-back-mock-*` のうち採用したものだけを正式名にリネームし、
+ * 残りはこのセクションごと削除する。 */
+
+@keyframes card-back-mock-rotate {
+  to { transform: rotate(360deg); }
+}
+
+/* 案 A: 玉将エンブレム */
+.card-back-mock-emblem-rays {
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg, rgba(251, 191, 36, 0.18) 5deg, transparent 10deg,
+    transparent 40deg, rgba(251, 191, 36, 0.12) 45deg, transparent 50deg,
+    transparent 80deg, rgba(251, 191, 36, 0.18) 85deg, transparent 90deg,
+    transparent 130deg, rgba(251, 191, 36, 0.12) 135deg, transparent 140deg,
+    transparent 175deg, rgba(251, 191, 36, 0.18) 180deg, transparent 185deg,
+    transparent 220deg, rgba(251, 191, 36, 0.12) 225deg, transparent 230deg,
+    transparent 265deg, rgba(251, 191, 36, 0.18) 270deg, transparent 275deg,
+    transparent 310deg, rgba(251, 191, 36, 0.12) 315deg, transparent 320deg,
+    transparent 360deg
+  );
+  animation: card-back-mock-rotate 40s linear infinite;
+}
+.card-back-mock-emblem-pulse {
+  animation: card-back-mock-emblem-pulse-anim 6s ease-in-out infinite;
+}
+@keyframes card-back-mock-emblem-pulse-anim {
+  0%, 100% { opacity: 0.78; }
+  50%      { opacity: 1; }
+}
+
+/* 案 B: 青海波 + 金箔
+ *   - 青海波 SVG タイル (20×10) を repeat
+ *   - sheen は左→右の薄ゴールド光沢 */
+.card-back-mock-seigaiha-pattern {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 10' width='20' height='10'><g fill='none' stroke='%23fbbf24' stroke-opacity='0.28' stroke-width='0.6'><path d='M0 10 A10 10 0 0 1 20 10'/><path d='M-10 5 A10 10 0 0 1 10 5'/><path d='M10 5 A10 10 0 0 1 30 5'/></g></svg>");
+  background-size: 20px 10px;
+}
+.card-back-mock-seigaiha-sheen {
+  background: linear-gradient(
+    100deg,
+    transparent 0%, transparent 40%,
+    rgba(251, 191, 36, 0.22) 50%,
+    transparent 60%, transparent 100%
+  );
+  background-size: 220% 100%;
+  background-position: 110% 0;
+  animation: card-back-mock-seigaiha-sheen-anim 5s ease-in-out infinite;
+}
+@keyframes card-back-mock-seigaiha-sheen-anim {
+  0%   { background-position: 110% 0; }
+  60%  { background-position: -10% 0; }
+  100% { background-position: -10% 0; }
+}
+
+/* 案 C: マナクリスタル
+ *   - 中央から滲む紫の光渦 (conic-gradient 回転)
+ *   - 💎 (菱形) 格子パターン
+ *   - 中央 💎 呼吸 (scale) */
+.card-back-mock-mana-vortex {
+  background: conic-gradient(
+    from 0deg,
+    rgba(167, 139, 250, 0.30),
+    rgba(91, 33, 182, 0.10),
+    rgba(167, 139, 250, 0.30),
+    rgba(91, 33, 182, 0.10),
+    rgba(167, 139, 250, 0.30)
+  );
+  animation: card-back-mock-rotate 24s linear infinite;
+}
+.card-back-mock-mana-grid {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24'><polygon points='12,3 19,12 12,21 5,12' fill='%23a78bfa' fill-opacity='0.10' stroke='%23a78bfa' stroke-opacity='0.22' stroke-width='0.6'/></svg>");
+  background-size: 24px 24px;
+}
+.card-back-mock-mana-breathe {
+  animation: card-back-mock-mana-breathe-anim 4s ease-in-out infinite;
+}
+@keyframes card-back-mock-mana-breathe-anim {
+  0%, 100% { transform: scale(0.95); }
+  50%      { transform: scale(1.05); }
+}
+
+/* 案 D: 黒漆「将」ミニマル — 縁が薄く流れるシマー */
+.card-back-mock-minimal-shimmer {
+  background: linear-gradient(
+    115deg,
+    transparent 0%, transparent 45%,
+    rgba(255, 255, 255, 0.10) 50%,
+    transparent 55%, transparent 100%
+  );
+  background-size: 220% 100%;
+  background-position: 100% 0;
+  animation: card-back-mock-minimal-shine 8s ease-in-out infinite;
+}
+@keyframes card-back-mock-minimal-shine {
+  0%   { background-position: 110% 0; }
+  60%  { background-position: -10% 0; }
+  100% { background-position: -10% 0; }
+}
+
+/* 案 E: 駒型タイル + 斜め金線
+ *   - repeating-linear-gradient で全面 18px 周期の細ストライプを並べ
+ *     45度方向にゆっくりスライドさせる */
+.card-back-mock-diagonal-stripes {
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent 0,
+    transparent 14px,
+    rgba(251, 191, 36, 0.20) 14px,
+    rgba(251, 191, 36, 0.20) 16px
+  );
+  animation: card-back-mock-diagonal-slide 10s linear infinite;
+}
+@keyframes card-back-mock-diagonal-slide {
+  from { background-position: 0 0; }
+  to   { background-position: 32px -32px; }
+}
