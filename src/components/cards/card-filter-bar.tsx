@@ -17,9 +17,9 @@ import type {
 } from "@/lib/shogi/cards/types";
 
 export interface CardFilterValue {
-  status: CardStatus | "all";
-  kind: CardKind | "all";
-  rarity: CardRarity | "all";
+  status: ReadonlySet<CardStatus>;
+  kind: ReadonlySet<CardKind>;
+  rarity: ReadonlySet<CardRarity>;
 }
 
 interface CardFilterBarProps {
@@ -32,54 +32,99 @@ export function CardFilterBar({ value, onChange }: CardFilterBarProps) {
     <div className="flex flex-col gap-3">
       <FilterRow
         label="ステータス"
-        options={[
-          { id: "all", label: "すべて", className: "" },
-          ...STATUS_OPTIONS.map((s) => ({ id: s, label: STATUS_INFO[s].label, className: STATUS_INFO[s].className })),
-        ]}
+        options={STATUS_OPTIONS.map((s) => ({
+          id: s,
+          label: STATUS_INFO[s].label,
+          className: STATUS_INFO[s].className,
+        }))}
         selected={value.status}
-        onSelect={(id) => onChange({ ...value, status: id as CardFilterValue["status"] })}
+        allOptions={STATUS_OPTIONS}
+        onToggle={(id) => onChange({ ...value, status: toggle(value.status, id) })}
+        onSelectAll={() => onChange({ ...value, status: new Set(STATUS_OPTIONS) })}
       />
       <FilterRow
         label="種別"
-        options={[
-          { id: "all", label: "すべて", className: "" },
-          ...KIND_OPTIONS.map((k) => ({ id: k, label: KIND_INFO[k].label, className: KIND_INFO[k].className })),
-        ]}
+        options={KIND_OPTIONS.map((k) => ({
+          id: k,
+          label: KIND_INFO[k].label,
+          className: KIND_INFO[k].className,
+        }))}
         selected={value.kind}
-        onSelect={(id) => onChange({ ...value, kind: id as CardFilterValue["kind"] })}
+        allOptions={KIND_OPTIONS}
+        onToggle={(id) => onChange({ ...value, kind: toggle(value.kind, id) })}
+        onSelectAll={() => onChange({ ...value, kind: new Set(KIND_OPTIONS) })}
       />
       <FilterRow
         label="レア度"
-        options={[
-          { id: "all", label: "すべて", className: "" },
-          ...RARITY_OPTIONS.map((r) => ({ id: r, label: RARITY_INFO[r].label, className: RARITY_INFO[r].className })),
-        ]}
+        options={RARITY_OPTIONS.map((r) => ({
+          id: r,
+          label: RARITY_INFO[r].label,
+          className: RARITY_INFO[r].className,
+        }))}
         selected={value.rarity}
-        onSelect={(id) => onChange({ ...value, rarity: id as CardFilterValue["rarity"] })}
+        allOptions={RARITY_OPTIONS}
+        onToggle={(id) => onChange({ ...value, rarity: toggle(value.rarity, id) })}
+        onSelectAll={() => onChange({ ...value, rarity: new Set(RARITY_OPTIONS) })}
       />
     </div>
   );
 }
 
-interface FilterRowProps {
-  label: string;
-  options: { id: string; label: string; className: string }[];
-  selected: string;
-  onSelect: (id: string) => void;
+function toggle<T>(set: ReadonlySet<T>, id: T): Set<T> {
+  const next = new Set(set);
+  if (next.has(id)) {
+    next.delete(id);
+  } else {
+    next.add(id);
+  }
+  return next;
 }
 
-function FilterRow({ label, options, selected, onSelect }: FilterRowProps) {
+interface FilterRowProps<T extends string> {
+  label: string;
+  options: { id: T; label: string; className: string }[];
+  selected: ReadonlySet<T>;
+  allOptions: readonly T[];
+  onToggle: (id: T) => void;
+  onSelectAll: () => void;
+}
+
+function FilterRow<T extends string>({
+  label,
+  options,
+  selected,
+  allOptions,
+  onToggle,
+  onSelectAll,
+}: FilterRowProps<T>) {
+  const allActive = allOptions.every((id) => selected.has(id));
   return (
     <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
       <span className="text-[10px] sm:text-xs font-medium text-muted-foreground w-11 sm:w-16 shrink-0">{label}</span>
       <div className="flex flex-wrap gap-1 sm:gap-1.5">
+        <button
+          type="button"
+          onClick={onSelectAll}
+          className={cn(
+            "cursor-pointer transition-all",
+            allActive ? "ring-2 ring-primary ring-offset-1 ring-offset-background" : "opacity-60 hover:opacity-100",
+          )}
+          aria-pressed={allActive}
+        >
+          <Badge
+            variant="outline"
+            className={cn("text-[10px] sm:text-xs px-1.5 sm:px-2 py-0 sm:py-0.5 bg-card")}
+          >
+            すべて
+          </Badge>
+        </button>
         {options.map((opt) => {
-          const active = selected === opt.id;
+          const active = selected.has(opt.id);
           return (
             <button
               key={opt.id}
               type="button"
-              onClick={() => onSelect(opt.id)}
+              onClick={() => onToggle(opt.id)}
               className={cn(
                 "cursor-pointer transition-all",
                 active ? "ring-2 ring-primary ring-offset-1 ring-offset-background" : "opacity-60 hover:opacity-100",
