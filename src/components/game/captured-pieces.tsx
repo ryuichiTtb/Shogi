@@ -82,7 +82,9 @@ export function CapturedPieces({
               style={{
                 width: handPieceSize,
                 height: handPieceSize,
-                ...(hiddenSet.has(type) ? { visibility: "hidden" as const } : null),
+                ...(hiddenSet.has(type)
+                  ? { opacity: 0, pointerEvents: "none" as const }
+                  : null),
               }}
             >
               <ShogiPiece

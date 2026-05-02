@@ -223,7 +223,10 @@ export const ShogiBoard = forwardRef<ShogiBoardHandle, ShogiBoardProps>(function
 
                   {/* 駒 (Issue #82: hiddenSquares 指定時はフライト中につき非表示) */}
                   {piece && (
-                    <div className="absolute inset-0" style={isHidden ? { visibility: "hidden" } : undefined}>
+                    <div
+                      className="absolute inset-0"
+                      style={isHidden ? { opacity: 0, pointerEvents: "none" } : undefined}
+                    >
                       <ShogiPiece
                         piece={piece}
                         isSelected={isSelected}

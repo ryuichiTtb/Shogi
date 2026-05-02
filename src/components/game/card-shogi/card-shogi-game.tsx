@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { flushSync } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronUp, ChevronDown, Volume2, VolumeX } from "lucide-react";
@@ -383,69 +384,42 @@ export function CardShogiGame({
             const rect = cached?.id === ev.instance.instanceId ? cached.rect : getHandRect();
             triggerManaFlight(-def.cost, rect);
           }
-          // Issue #82 (修正): フローを「駒フライト → 中央カード演出」に入れ替え。
-          // 駒移動カード(歩戻し / 駒戻し / 二歩指し)は先に駒フライトを発火し、
-          // 完了時に中央カード演出を発火する (handlePieceFlightComplete)。
-          // 駒移動を伴わないカードは従来通り中央カード演出を即発火。
+          // Issue #82: 駒移動カード(歩戻し/駒戻し/二歩指し)は handleSquareClick 内で
+          // flushSync により先回り発火済み。ここでは:
+          //  - pendingPieceFlightRef に新規駒種(toRect=null)ケースだけが残っている →
+          //    適用後の DOM から toRect を補完して発火
+          //  - それ以外(駒移動なしカード / 既に発火済み)→ 中央カード演出を即発火
           if (ev.player === playerColor) {
-            const pending = pendingPieceFlightRef.current;
             const cardInstance = ev.instance;
-            if (pending) {
-              // 歩戻し / 駒戻し: 適用後の持ち駒ボタンが新規追加された場合、
-              // useEffect 内ではまだ paint されていない可能性があるため
-              // requestAnimationFrame で1フレーム待ってから rect を取る。
+            const pending = pendingPieceFlightRef.current;
+            if (pending && pending.toRect === null) {
+              // 新規駒種: 適用後の DOM から to rect を取る
               pendingPieceFlightRef.current = null;
-              const eventTarget = ev.target;
-              const def = CARD_DEFS[ev.instance.defId];
-              // 着地点(to)を非表示にする対象を決定
-              let hideTarget: FlightHideTarget | null = null;
-              if (def.effectId === "double_pawn" && eventTarget?.kind === "square") {
-                // 二歩指し: 盤面選択マスがフライト着地点 → そのマスの駒をフライト中は隠す
-                hideTarget = { kind: "board", row: eventTarget.row, col: eventTarget.col };
-              } else if (def.effectId === "pawn_return" || def.effectId === "piece_return") {
-                // 歩戻し / 駒戻し: 持ち駒の該当駒種ボタンがフライト着地点
-                hideTarget = { kind: "captured", player: playerColor, pieceType: pending.pieceType };
-              }
-              const launch = () => {
-                let toRect = pending.toRect;
-                if (toRect === null) {
-                  toRect = findVisibleCapturedPieceRect(playerColor, pending.pieceType);
-                }
-                if (toRect && hideTarget) {
-                  pieceFlightKeyRef.current += 1;
-                  setPieceFlight({
-                    spec: {
-                      pieceType: pending.pieceType,
-                      owner: playerColor,
-                      fromX: pending.fromRect.left + pending.fromRect.width / 2,
-                      fromY: pending.fromRect.top + pending.fromRect.height / 2,
-                      toX: toRect.left + toRect.width / 2,
-                      toY: toRect.top + toRect.height / 2,
-                    },
-                    key: pieceFlightKeyRef.current,
-                    hideTarget,
-                  });
-                  pendingPlayFlightRef.current = { card: cardInstance, isTrap: false };
-                } else {
-                  // toRect 取得失敗 → 中央カード演出のみ
-                  playFlightKeyRef.current += 1;
-                  setPlayFlight({ card: cardInstance, key: playFlightKeyRef.current, isTrap: false });
-                }
-              };
-              if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
-                window.requestAnimationFrame(launch);
+              const toRect = findVisibleCapturedPieceRect(playerColor, pending.pieceType);
+              if (toRect) {
+                pieceFlightKeyRef.current += 1;
+                setPieceFlight({
+                  spec: {
+                    pieceType: pending.pieceType,
+                    owner: playerColor,
+                    fromX: pending.fromRect.left + pending.fromRect.width / 2,
+                    fromY: pending.fromRect.top + pending.fromRect.height / 2,
+                    toX: toRect.left + toRect.width / 2,
+                    toY: toRect.top + toRect.height / 2,
+                  },
+                  key: pieceFlightKeyRef.current,
+                  hideTarget: { kind: "captured", player: playerColor, pieceType: pending.pieceType },
+                });
+                pendingPlayFlightRef.current = { card: cardInstance, isTrap: false };
               } else {
-                launch();
+                // 取得失敗 → 中央カード演出のみ
+                playFlightKeyRef.current += 1;
+                setPlayFlight({ card: cardInstance, key: playFlightKeyRef.current, isTrap: false });
               }
-            } else {
-              // 駒移動なしカード: 従来通り中央カード演出を即発火
+            } else if (!pendingPlayFlightRef.current) {
+              // 駒フライト未発火 (= 駒移動なしカード) → 中央カード演出を即発火
               playFlightKeyRef.current += 1;
-              setPlayFlight({
-                card: cardInstance,
-                key: playFlightKeyRef.current,
-                isTrap: false,
-              });
-              pendingPieceFlightRef.current = null;
+              setPlayFlight({ card: cardInstance, key: playFlightKeyRef.current, isTrap: false });
             }
           }
           break;
@@ -517,26 +491,56 @@ export function CardShogiGame({
 
       // Issue #82: ターゲット選択フェーズでは盤面クリックが SELECT_CARD_TARGET 経由で
       // reducer 内で CONFIRM_PLAY_CARD を即時再帰実行するため、handleConfirmPlayCard
-      // を経由しない。駒フライト用 rect キャッシュはこの時点で取る必要がある。
+      // を経由しない。駒フライト用 rect / spec を取り、可能なら効果適用前に
+      // flushSync で setPieceFlight を発火して「効果適用 → 駒出現」の隙間を消す。
       if (cardState.pendingCard && cardState.pendingCard.phase === "selectTarget") {
         const def = CARD_DEFS[cardState.pendingCard.instance.defId];
+        const cardInstance = cardState.pendingCard.instance;
         pendingPieceFlightRef.current = null;
+
+        let fromRect: DOMRect | null = null;
+        let toRect: DOMRect | null = null;
+        let pieceType: string | null = null;
+        let hideTarget: FlightHideTarget | null = null;
+
         if (def.effectId === "double_pawn") {
-          const fromRect = findVisibleCapturedPieceRect(playerColor, "pawn");
-          const toRect = getBoardSquareRect(pos.row, pos.col);
-          if (fromRect && toRect) {
-            pendingPieceFlightRef.current = { pieceType: "pawn", fromRect, toRect };
-          }
+          fromRect = findVisibleCapturedPieceRect(playerColor, "pawn");
+          toRect = getBoardSquareRect(pos.row, pos.col);
+          pieceType = "pawn";
+          hideTarget = { kind: "board", row: pos.row, col: pos.col };
         } else if (def.effectId === "pawn_return" || def.effectId === "piece_return") {
-          const fromRect = getBoardSquareRect(pos.row, pos.col);
           const piece = gameState.board[pos.row]?.[pos.col];
-          if (fromRect && piece) {
-            pendingPieceFlightRef.current = {
-              pieceType: unpromotePieceType(piece.type),
-              fromRect,
-              toRect: null,
-            };
+          if (piece) {
+            fromRect = getBoardSquareRect(pos.row, pos.col);
+            pieceType = unpromotePieceType(piece.type);
+            // 既存駒種の持ち駒位置 (適用前から DOM が存在するなら取れる)
+            toRect = findVisibleCapturedPieceRect(playerColor, pieceType);
+            hideTarget = { kind: "captured", player: playerColor, pieceType };
           }
+        }
+
+        if (fromRect && toRect && pieceType && hideTarget) {
+          // 効果適用前に flushSync で setPieceFlight を即時反映 →
+          // hidden が先に効くので、効果適用で駒が +1 されても見えない
+          pieceFlightKeyRef.current += 1;
+          const newKey = pieceFlightKeyRef.current;
+          const spec = {
+            pieceType,
+            owner: playerColor,
+            fromX: fromRect.left + fromRect.width / 2,
+            fromY: fromRect.top + fromRect.height / 2,
+            toX: toRect.left + toRect.width / 2,
+            toY: toRect.top + toRect.height / 2,
+          };
+          const ht = hideTarget;
+          flushSync(() => {
+            setPieceFlight({ spec, key: newKey, hideTarget: ht });
+          });
+          pendingPlayFlightRef.current = { card: cardInstance, isTrap: false };
+        } else if (fromRect && pieceType && hideTarget) {
+          // 新規駒種ケース (持ち駒に該当駒種が無い): toRect 未確定。
+          // cardPlayEvent エフェクトで適用後に補完する。
+          pendingPieceFlightRef.current = { pieceType, fromRect, toRect: null };
         }
       }
 
@@ -1246,6 +1250,7 @@ export function CardShogiGame({
               onPieceClick={handleHandPieceClick}
               label="あなた"
               squareSize={squareSize}
+              hiddenPieceTypes={hiddenOwnCapturedTypes}
             />
           </div>
         </main>
