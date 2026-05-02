@@ -33,7 +33,7 @@ import type { Difficulty, GameConfig, GameState, Move, Player, Position } from "
 import type { CommentaryEvent } from "@/app/actions/commentary";
 import type { CardGameState, CardInstance } from "@/lib/shogi/cards/types";
 import { CARD_DEFS, DRAW_COST } from "@/lib/shogi/cards/definitions";
-import { isDoublePawnLegalSquare } from "@/lib/shogi/cards/effects";
+import { isDoublePawnLegalSquare, isPieceReturnLegalSquare } from "@/lib/shogi/cards/effects";
 import { createGame } from "@/app/actions/game";
 
 import { ManaGauge } from "./mana-gauge";
@@ -553,6 +553,17 @@ export function CardShogiGame({
         for (let c = 0; c < 9; c++) {
           const piece = gameState.board[r]?.[c];
           if (piece && piece.owner === playerColor && (piece.type === "pawn" || piece.type === "promoted_pawn")) {
+            targets.push({ row: r, col: c });
+          }
+        }
+      }
+      return targets;
+    }
+    if (def.effectId === "piece_return") {
+      const targets: Position[] = [];
+      for (let r = 0; r < 9; r++) {
+        for (let c = 0; c < 9; c++) {
+          if (isPieceReturnLegalSquare(gameState, playerColor, { row: r, col: c })) {
             targets.push({ row: r, col: c });
           }
         }

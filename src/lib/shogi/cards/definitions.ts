@@ -29,6 +29,19 @@ function hasOwnUnpromotedPawnOnBoard(gameState: GameState, player: Player): bool
   return false;
 }
 
+// 自分の盤上に「玉以外の駒」が1枚以上あるか (駒戻しの使用条件)
+function hasOwnNonKingPieceOnBoard(gameState: GameState, player: Player): boolean {
+  for (let r = 0; r < gameState.board.length; r++) {
+    for (let c = 0; c < gameState.board[r].length; c++) {
+      const piece = gameState.board[r][c];
+      if (piece && piece.owner === player && piece.type !== "king") {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 // Phase 0 暫定カード3種(設計ドキュメント 3.5)
 // 「状態のみ」「ターゲット選択あり」「トラップ」の3パターンを最小被覆。
 export const CARD_DEFS: Record<CardId, CardDefinition> = {
@@ -94,6 +107,27 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
       if (handPawnCount <= 0) return false;
       return hasOwnUnpromotedPawnOnBoard(gameState, player);
     },
+  },
+
+  piece_return: {
+    id: "piece_return",
+    kind: "normal",
+    name: "駒戻し",
+    description: "自分の盤上の駒(玉以外)1枚を持ち駒に戻す",
+    cost: 3,
+    rarity: "rare",
+    effectId: "piece_return",
+    targeting: "ownPiece",
+    icon: "↩️",
+    status: "active",
+    phase: "A",
+    detailDescription:
+      "自分の盤上の駒1枚を選び、持ち駒に戻す。歩戻しの上位互換。\n\n【対象】\n- 自分の盤上の駒(玉は対象外)\n- 成駒は成り解除されて元の駒種で持ち駒になる(と金→歩 / 成銀→銀 / 馬→角 / 龍→飛 等)\n\n【仕様】\n- 持ち駒に戻った駒は、次ターン以降に通常通り打てる\n- 「成り不可」状態(no_promote)が付与された駒を戻した場合、状態は失われる\n- 自玉が王手のまま放置になる手は実行不可(通常の指し手と同様、ピン駒の引き戻しは不可)\n- 王手中はカード使用不可(全カード共通の制約)",
+    addedAt: "2026-05-02",
+    relatedIssues: [82],
+    // 自分の盤上に玉以外の駒が1枚以上あれば使用可。
+    // ※ ピン駒しか残っていない極限状況では選択肢ゼロになるが、その判定は SELECT_SQUARE 側で行う。
+    useCondition: (gameState, player) => hasOwnNonKingPieceOnBoard(gameState, player),
   },
 
   no_promote: {

@@ -4,7 +4,8 @@
 
 import type { GameState, Player, Position } from "@/lib/shogi/types";
 import { cloneGameState } from "../board";
-import { isPawnDropCheckmate } from "../moves";
+import { isPawnDropCheckmate, isInCheck } from "../moves";
+import { unpromotePieceType } from "../variants/standard";
 import { CARD_SHOGI_VARIANT } from "../variants/card-shogi";
 import type { CardGameState } from "./types";
 
@@ -146,6 +147,49 @@ export function isDoublePawnLegalSquare(
     player,
   };
   if (isPawnDropCheckmate(state, dropMove, variant)) return false;
+
+  return true;
+}
+
+// 駒戻し: 自盤上の玉以外の駒1枚を持ち駒に戻す (Issue #82)。
+// 成駒は成り解除 (unpromote) して持ち駒の元駒種に加算する。
+// 自玉が王手露出する手 (ピン駒の引き戻し) は不正として null を返す。
+export function applyPieceReturn(
+  state: GameState,
+  player: Player,
+  target: Position,
+): GameState | null {
+  if (!isPieceReturnLegalSquare(state, player, target)) return null;
+  const piece = state.board[target.row]?.[target.col];
+  if (!piece) return null;
+
+  const newState = cloneGameState(state);
+  newState.board[target.row][target.col] = null;
+  // 成駒は元駒種に戻して持ち駒へ
+  const handPieceType = unpromotePieceType(piece.type);
+  const currentCount = newState.hand[player][handPieceType] ?? 0;
+  newState.hand[player][handPieceType] = currentCount + 1;
+  return newState;
+}
+
+// 駒戻しの選択可能マスを判定する純粋関数。UI ハイライトと効果適用の両方から使う。
+// - 自分の駒であること
+// - 玉(king)は対象外
+// - その駒を引っ込めても自玉が王手にならないこと(ピン駒は不可)
+export function isPieceReturnLegalSquare(
+  state: GameState,
+  player: Player,
+  target: Position,
+): boolean {
+  const piece = state.board[target.row]?.[target.col];
+  if (!piece) return false;
+  if (piece.owner !== player) return false;
+  if (piece.type === "king") return false;
+
+  // 仮想的に駒を消した盤面で自玉が王手にならないか確認 (ピン駒チェック)
+  const probe = cloneGameState(state);
+  probe.board[target.row][target.col] = null;
+  if (isInCheck(probe, player, CARD_SHOGI_VARIANT)) return false;
 
   return true;
 }

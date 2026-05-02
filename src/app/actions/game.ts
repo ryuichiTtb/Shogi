@@ -92,16 +92,20 @@ export async function createGame(
       ...SAMPLE_CARD_IDS.map((id) => ({ defId: id, count: 1 })),
     ];
     const cardState = createInitialCardState(deckSpec);
-    // Issue #82 検証用: double_pawn (二歩指し) を両プレイヤーの初期手札に 2 枚追加。
-    // 検証完了後はこのブロックを削除する。
+    // Issue #82 検証用: 開発中カードを両プレイヤーの初期手札に 2 枚ずつ追加。
+    // 各カードのリリース判定後も、新カード追加検証で使い回せるように TEST_CARD_IDS を差し替える形で運用。
+    // 全カードリリース時(本Issue完了時)にこのブロック自体を削除する。
+    const TEST_CARD_IDS = ["double_pawn", "piece_return"] as const;
     let testCounter = 0;
     for (const p of ["sente", "gote"] as const) {
-      for (let i = 0; i < 2; i++) {
-        testCounter++;
-        cardState.hand[p].push({
-          instanceId: `${p}-double_pawn-test-${testCounter}`,
-          defId: "double_pawn",
-        });
+      for (const cardId of TEST_CARD_IDS) {
+        for (let i = 0; i < 2; i++) {
+          testCounter++;
+          cardState.hand[p].push({
+            instanceId: `${p}-${cardId}-test-${testCounter}`,
+            defId: cardId,
+          });
+        }
       }
     }
     initialCardState = serializeCardState(cardState);

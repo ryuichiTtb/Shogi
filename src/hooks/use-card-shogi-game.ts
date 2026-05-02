@@ -30,6 +30,8 @@ import { CARD_DEFS, DRAW_COST, MANA_PER_TURN, MANA_FAST_BONUS, FAST_THRESHOLD_MS
 import {
   applyManaUp,
   applyPawnReturn,
+  applyPieceReturn,
+  isPieceReturnLegalSquare,
   applyDoublePawn,
   isDoublePawnLegalSquare,
   applyTrapSet,
@@ -594,6 +596,16 @@ function reducer(
         if (!afterConsume) return state;
         // 持ち駒に戻った駒は no_promote マークを失う (案A 仕様)
         nextCardState = removeNoPromoteMark(afterConsume, player, targetPos);
+      } else if (def.effectId === "piece_return") {
+        if (!pending.target || pending.target.kind !== "square") return state;
+        const targetPos = { row: pending.target.row, col: pending.target.col };
+        const newGameState = applyPieceReturn(state.gameState, player, targetPos);
+        if (!newGameState) return state;
+        nextGameState = newGameState;
+        const afterConsume = consumeNormalCard(state.cardState, player, pending.instance.instanceId, def.cost);
+        if (!afterConsume) return state;
+        // 持ち駒に戻った駒は no_promote マークを失う (案A 仕様、pawn_return と同じ)
+        nextCardState = removeNoPromoteMark(afterConsume, player, targetPos);
       } else if (def.effectId === "double_pawn") {
         if (!pending.target || pending.target.kind !== "square") return state;
         const targetPos = { row: pending.target.row, col: pending.target.col };
@@ -858,6 +870,9 @@ export function useCardShogiGame({
           if (!piece) return; // 空マスは無効
           if (piece.owner !== gameConfig.playerColor) return; // 相手の駒は無効
           if (piece.type !== "pawn" && piece.type !== "promoted_pawn") return; // 歩・と金以外は無効
+        }
+        if (def.effectId === "piece_return") {
+          if (!isPieceReturnLegalSquare(gameState, gameConfig.playerColor, pos)) return;
         }
         if (def.effectId === "double_pawn") {
           if (!isDoublePawnLegalSquare(gameState, gameConfig.playerColor, pos)) return;
