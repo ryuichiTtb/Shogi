@@ -26,13 +26,23 @@ import type {
   CardTarget,
   GameEvent,
 } from "@/lib/shogi/cards/types";
-import { CARD_DEFS, DRAW_COST, MANA_PER_TURN, MANA_FAST_BONUS, FAST_THRESHOLD_MS } from "@/lib/shogi/cards/definitions";
+import { CARD_DEFS, CARD_USE_CONDITIONS, DRAW_COST, MANA_PER_TURN, MANA_FAST_BONUS, FAST_THRESHOLD_MS } from "@/lib/shogi/cards/definitions";
 import {
   applyManaUp,
   applyPawnReturn,
+  applyPieceReturn,
+  isPieceReturnLegalSquare,
+  applyDoublePawn,
+  isDoublePawnLegalSquare,
+  simulateCardEffect,
+  getCheckEscapingSquares,
   applyTrapSet,
   applyTrapClear,
   consumeNormalCard,
+  hasNoPromoteMark,
+  addNoPromoteMark,
+  removeNoPromoteMark,
+  moveNoPromoteMark,
 } from "@/lib/shogi/cards/effects";
 
 type ShogiAction =
@@ -63,6 +73,10 @@ interface CardShogiGameStateInternal {
   // true の間は currentPlayer 反転を保留し、AI 自動応手をブロックする。
   isDrawing: boolean;
   pendingDrawPlayer: Player | null;
+  // カード使用演出中フラグ。CONFIRM_PLAY_CARD で true、演出完了時の COMMIT_PLAY_CARD で false。
+  // true の間は currentPlayer 反転を保留し、AI 自動応手・ユーザー操作をブロックする。
+  isPlayingCard: boolean;
+  pendingPlayCardOpponent: Player | null;
 }
 
 // 移動 + マナチャージ + トラップフィルタ を一括適用。
@@ -80,13 +94,28 @@ function makeMoveWithEffects(
   const opponent: Player = move.player === "sente" ? "gote" : "sente";
   const events: GameEvent[] = [];
 
-  // 1. トラップフィルタ: 相手のトラップが no_promote でこの手が成りなら、promote を強制 false
+  // 1. 成り宣言フィルタ
+  //   (a) 自分の駒に既に「成り不可」マークがあれば silent ブロック (新規トラップは発火させない)
+  //   (b) (a) でなく、相手が no_promote トラップをセット中なら新規発動
+  //       → 成りブロック + 移動先位置にマーク追加 + トラップ消費
   let finalMove = move;
   let cardStateNext = cardState;
+  let pendingMarkAdd: Position | null = null;
+
   const opponentTrap = cardState.trap[opponent];
-  if (move.promote && opponentTrap && opponentTrap.defId === "no_promote") {
+  const ownMarkAtFrom =
+    move.from !== undefined &&
+    move.from !== null &&
+    hasNoPromoteMark(cardState, move.player, move.from);
+
+  if (move.promote && ownMarkAtFrom) {
+    // 既マーク済み駒の成り宣言 → silent ブロック (トラップは無関係、消費しない)
+    finalMove = { ...move, promote: false };
+  } else if (move.promote && opponentTrap && opponentTrap.defId === "no_promote") {
+    // 新規発動: 成り宣言を無効化し、移動後位置に永続マーク付与、トラップ消費
     finalMove = { ...move, promote: false };
     cardStateNext = applyTrapClear(cardStateNext, opponent);
+    pendingMarkAdd = move.to;
     events.push({
       kind: "trapTriggerEvent",
       player: opponent,
@@ -98,10 +127,34 @@ function makeMoveWithEffects(
 
   // 2. 駒移動
   const nextGameState = applyMove(gameState, finalMove);
+
+  // 3. 成り不可マークの追従処理 (move 系のみ。drop は対象外)
+  if (finalMove.type === "move" && finalMove.from) {
+    // (a) 取られた相手駒のマークがあれば削除 (case A: 取られたら消失)
+    if (hasNoPromoteMark(cardStateNext, opponent, finalMove.to)) {
+      cardStateNext = removeNoPromoteMark(cardStateNext, opponent, finalMove.to);
+    }
+    // (b) 自分の駒のマークを from → to に移動
+    if (hasNoPromoteMark(cardStateNext, finalMove.player, finalMove.from)) {
+      cardStateNext = moveNoPromoteMark(
+        cardStateNext,
+        finalMove.player,
+        finalMove.from,
+        finalMove.to,
+      );
+    }
+  }
+
+  // 4. トラップ発動分のマーク追加 (成り宣言を無効化した直後の駒位置に付与)
+  if (pendingMarkAdd) {
+    cardStateNext = addNoPromoteMark(cardStateNext, finalMove.player, pendingMarkAdd);
+  }
+
+  // 5. ゲーム終了判定 + 移動イベントログ
   const evaluated = evaluateGameEnd(nextGameState, CARD_SHOGI_VARIANT);
   events.push({ kind: "moveEvent", move: finalMove, at: Date.now() });
 
-  // 3. マナチャージ(指した側、早指し判定)
+  // 6. マナチャージ(指した側、早指し判定)
   const lastStarted = cardStateNext.lastTurnStartedAt[move.player];
   const isFastMove =
     lastStarted !== null && Date.now() - lastStarted < FAST_THRESHOLD_MS;
@@ -155,6 +208,8 @@ function reducer(
 
     case "SELECT_SQUARE": {
       if (state.cardState.pendingCard) return state;
+      // ドロー演出 / カード使用演出中は駒移動禁止 (Issue #82)
+      if (state.isDrawing || state.isPlayingCard) return state;
       const { pos } = action;
       const { gameState, selectedSquare, selectedHandPiece, legalMoves } = state;
 
@@ -199,7 +254,10 @@ function reducer(
         const piece = gameState.board[pos.row]?.[pos.col];
         if (piece && piece.owner === gameState.currentPlayer) {
           const moves = getPieceMoves(gameState, pos, gameState.currentPlayer, CARD_SHOGI_VARIANT);
-          const filtered = moves.filter((m) => !isKingInCheckAfterMove(gameState, m));
+          const noPromote = hasNoPromoteMark(state.cardState, gameState.currentPlayer, pos);
+          const filtered = moves
+            .filter((m) => !(noPromote && m.type === "move" && m.promote))
+            .filter((m) => !isKingInCheckAfterMove(gameState, m));
           return { ...state, selectedSquare: pos, legalMoves: filtered };
         }
         return { ...state, selectedSquare: null, legalMoves: [] };
@@ -217,6 +275,8 @@ function reducer(
 
     case "SELECT_HAND_PIECE": {
       if (state.cardState.pendingCard) return state;
+      // ドロー演出 / カード使用演出中は手駒選択禁止 (Issue #82)
+      if (state.isDrawing || state.isPlayingCard) return state;
       const { gameState } = state;
       const dropMoves = getLegalDropMoves(gameState, gameState.currentPlayer, CARD_SHOGI_VARIANT);
       const movesForPiece = dropMoves.filter((m) => m.dropPiece === action.pieceType);
@@ -399,6 +459,10 @@ function reducer(
       if (isInCheck(state.gameState, action.player, CARD_SHOGI_VARIANT)) return state;
       // 既にドロー演出中なら無視 (連発防止)
       if (state.isDrawing) return state;
+      // カード使用中(対象駒選択・確認ポップアップ)はドロー禁止 (Issue #82)
+      if (state.cardState.pendingCard) return state;
+      // カード使用演出中もドロー禁止
+      if (state.isPlayingCard) return state;
       const [top, ...rest] = deck;
       // Issue #78: ドロー = 1手相当だが、currentPlayer 反転は演出完了時の COMMIT_DRAW まで保留。
       // これにより演出中は currentPlayer === playerColor のままで AI 自動応手がブロックされる。
@@ -452,14 +516,24 @@ function reducer(
       if (state.cardState.pendingCard) return state;
       // 自分の手番でなければカード使用禁止
       if (state.gameState.currentPlayer !== action.player) return state;
-      // 王手中はカード使用禁止 (P10)
-      if (isInCheck(state.gameState, action.player, CARD_SHOGI_VARIANT)) return state;
       const card = state.cardState.hand[action.player].find(
         (c) => c.instanceId === action.instanceId,
       );
       if (!card) return state;
       const def = CARD_DEFS[card.defId];
       if (state.cardState.mana[action.player] < def.cost) return state;
+      // カード固有の使用条件 (Issue #82)。CARD_USE_CONDITIONS 未登録のカードは常に使用可。
+      const useCond = CARD_USE_CONDITIONS[card.defId];
+      if (useCond && !useCond(state.gameState, action.player, state.cardState)) {
+        return state;
+      }
+      // 王手中: カード使用は王手回避できる場合のみ可。
+      // (Issue #82: 「王手中一律不可」から「王手回避になるカードのみ可」に変更)
+      // 配置先のチェックは SELECT_CARD_TARGET / CONFIRM_PLAY_CARD でも行う。
+      if (isInCheck(state.gameState, action.player, CARD_SHOGI_VARIANT)) {
+        const escapingSquares = getCheckEscapingSquares(state.gameState, action.player, card.defId);
+        if (escapingSquares.length === 0) return state;
+      }
       // Issue #106: 全カードでまず確認ポップアップ (phase="confirm") を出し、
       // 「使用する」確定後に必要なら selectTarget へ遷移する流れに統一する。
       return {
@@ -530,10 +604,28 @@ function reducer(
         nextCardState = applyManaUp(afterConsume, player);
       } else if (def.effectId === "pawn_return") {
         if (!pending.target || pending.target.kind !== "square") return state;
-        const newGameState = applyPawnReturn(state.gameState, player, {
-          row: pending.target.row,
-          col: pending.target.col,
-        });
+        const targetPos = { row: pending.target.row, col: pending.target.col };
+        const newGameState = applyPawnReturn(state.gameState, player, targetPos);
+        if (!newGameState) return state;
+        nextGameState = newGameState;
+        const afterConsume = consumeNormalCard(state.cardState, player, pending.instance.instanceId, def.cost);
+        if (!afterConsume) return state;
+        // 持ち駒に戻った駒は no_promote マークを失う (案A 仕様)
+        nextCardState = removeNoPromoteMark(afterConsume, player, targetPos);
+      } else if (def.effectId === "piece_return") {
+        if (!pending.target || pending.target.kind !== "square") return state;
+        const targetPos = { row: pending.target.row, col: pending.target.col };
+        const newGameState = applyPieceReturn(state.gameState, player, targetPos);
+        if (!newGameState) return state;
+        nextGameState = newGameState;
+        const afterConsume = consumeNormalCard(state.cardState, player, pending.instance.instanceId, def.cost);
+        if (!afterConsume) return state;
+        // 持ち駒に戻った駒は no_promote マークを失う (案A 仕様、pawn_return と同じ)
+        nextCardState = removeNoPromoteMark(afterConsume, player, targetPos);
+      } else if (def.effectId === "double_pawn") {
+        if (!pending.target || pending.target.kind !== "square") return state;
+        const targetPos = { row: pending.target.row, col: pending.target.col };
+        const newGameState = applyDoublePawn(state.gameState, player, targetPos);
         if (!newGameState) return state;
         nextGameState = newGameState;
         const afterConsume = consumeNormalCard(state.cardState, player, pending.instance.instanceId, def.cost);
@@ -543,12 +635,19 @@ function reducer(
         return state;
       }
 
-      // カード使用 = 1手相当。currentPlayer を反転 + lastTurnStartedAt をクリア (B1)
-      nextGameState = { ...nextGameState, currentPlayer: opponent };
+      // 王手中の最終ガード (Issue #82): 王手中だった場合、適用後の盤面で
+      // 王手が解除されている必要がある。解除されない手は不正なので状態変更しない。
+      if (isInCheck(state.gameState, player, CARD_SHOGI_VARIANT)) {
+        if (isInCheck(nextGameState, player, CARD_SHOGI_VARIANT)) {
+          return state;
+        }
+      }
+
+      // カード使用 = 1手相当。currentPlayer 反転と lastTurnStartedAt クリアは
+      // 演出完了 (COMMIT_PLAY_CARD) まで保留する (AI が演出中に動かないようにする)。
       nextCardState = {
         ...nextCardState,
         pendingCard: null,
-        lastTurnStartedAt: { ...nextCardState.lastTurnStartedAt, [player]: null },
       };
 
       // pendingCard クリア + イベントログ
@@ -577,6 +676,27 @@ function reducer(
         selectedHandPiece: null,
         legalMoves: [],
         eventLog: [...state.eventLog, event],
+        isPlayingCard: true,
+        pendingPlayCardOpponent: opponent,
+      };
+    }
+
+    case "COMMIT_PLAY_CARD": {
+      if (!state.isPlayingCard || !state.pendingPlayCardOpponent) return state;
+      const opponent = state.pendingPlayCardOpponent;
+      const player: Player = opponent === "sente" ? "gote" : "sente";
+      return {
+        ...state,
+        gameState: { ...state.gameState, currentPlayer: opponent },
+        cardState: {
+          ...state.cardState,
+          lastTurnStartedAt: {
+            ...state.cardState.lastTurnStartedAt,
+            [player]: null,
+          },
+        },
+        isPlayingCard: false,
+        pendingPlayCardOpponent: null,
       };
     }
 
@@ -680,6 +800,8 @@ export function useCardShogiGame({
     eventLog: [],
     isDrawing: false,
     pendingDrawPlayer: null,
+    isPlayingCard: false,
+    pendingPlayCardOpponent: null,
   });
 
   const aiPlayer: Player = gameConfig.playerColor === "sente" ? "gote" : "sente";
@@ -705,7 +827,9 @@ export function useCardShogiGame({
       state.isAiThinking ||
       state.cardState.pendingCard !== null ||
       // Issue #78: ドロー演出中は AI 思考をブロック (COMMIT_DRAW 後に再評価される)
-      state.isDrawing
+      state.isDrawing ||
+      // Issue #82: カード使用演出中は AI 思考をブロック (COMMIT_PLAY_CARD 後に再評価)
+      state.isPlayingCard
     ) {
       return;
     }
@@ -760,6 +884,10 @@ export function useCardShogiGame({
       const { gameState, cardState, selectedSquare, selectedHandPiece, legalMoves } = state;
       if (gameState.status !== "active") return;
       if (gameState.currentPlayer !== gameConfig.playerColor) return;
+      // ドロー演出 / カード使用演出中は盤面操作禁止 (Issue #82)。
+      // ※ pendingCard.selectTarget 時は currentPlayer 反転前なのでここを通る必要があるため、
+      //   isDrawing / isPlayingCard だけを弾く。
+      if (state.isDrawing || state.isPlayingCard) return;
 
       // pendingCard が selectTarget フェーズなら、盤面クリックをターゲット指定として扱う
       // ただしカード効果に応じて選択可能な対象を制限する (P2: 歩戻しは自分の歩のみ)
@@ -770,6 +898,22 @@ export function useCardShogiGame({
           if (!piece) return; // 空マスは無効
           if (piece.owner !== gameConfig.playerColor) return; // 相手の駒は無効
           if (piece.type !== "pawn" && piece.type !== "promoted_pawn") return; // 歩・と金以外は無効
+        }
+        if (def.effectId === "piece_return") {
+          if (!isPieceReturnLegalSquare(gameState, gameConfig.playerColor, pos)) return;
+        }
+        if (def.effectId === "double_pawn") {
+          if (!isDoublePawnLegalSquare(gameState, gameConfig.playerColor, pos)) return;
+        }
+        // 王手中: そのマスへの適用が王手回避になる場合のみ許可 (Issue #82)
+        if (isInCheck(gameState, gameConfig.playerColor, CARD_SHOGI_VARIANT)) {
+          const after = simulateCardEffect(
+            gameState,
+            gameConfig.playerColor,
+            cardState.pendingCard.instance.defId,
+            { kind: "square", row: pos.row, col: pos.col },
+          );
+          if (!after || isInCheck(after, gameConfig.playerColor, CARD_SHOGI_VARIANT)) return;
         }
         dispatch({
           type: "SELECT_CARD_TARGET",
@@ -844,10 +988,11 @@ export function useCardShogiGame({
   const selectHandPiece = useCallback(
     (pieceType: string) => {
       if (state.cardState.pendingCard) return;
+      if (state.isDrawing || state.isPlayingCard) return; // Issue #82: 演出中は弾く
       if (state.gameState.currentPlayer !== gameConfig.playerColor) return;
       dispatch({ type: "SELECT_HAND_PIECE", pieceType });
     },
-    [state.gameState.currentPlayer, gameConfig.playerColor, state.cardState.pendingCard],
+    [state.gameState.currentPlayer, gameConfig.playerColor, state.cardState.pendingCard, state.isDrawing, state.isPlayingCard],
   );
 
   const confirmPromotion = useCallback((promote: boolean) => {
@@ -898,6 +1043,11 @@ export function useCardShogiGame({
     dispatch({ type: "CONFIRM_PLAY_CARD" });
   }, []);
 
+  // Issue #82: カード使用演出完了時に呼ぶ。currentPlayer を相手に渡し AI 思考を解禁する。
+  const finalizePlayCard = useCallback(() => {
+    dispatch({ type: "COMMIT_PLAY_CARD" });
+  }, []);
+
   const cancelPlayCard = useCallback(() => {
     dispatch({ type: "CANCEL_PLAY_CARD" });
   }, []);
@@ -923,7 +1073,9 @@ export function useCardShogiGame({
     beginPlayCard,
     selectCardTarget,
     confirmPlayCard,
+    finalizePlayCard,
     cancelPlayCard,
     isDrawing: state.isDrawing,
+    isPlayingCard: state.isPlayingCard,
   };
 }

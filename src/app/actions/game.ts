@@ -12,6 +12,7 @@ import {
   deserializeCardState,
   type DeckSpec,
 } from "@/lib/shogi/cards/state";
+import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
 
 const DEFAULT_PLAYER_ID = "default-player";
 
@@ -49,10 +50,14 @@ async function loadDeckSpecForUser(userId: string): Promise<DeckSpec[]> {
   if (!deck) {
     throw new Error(`No default deck found for user ${userId}. Run "npx prisma db seed".`);
   }
-  return deck.entries.map((e) => ({
-    defId: e.cardId as DeckSpec["defId"],
-    count: e.count,
-  }));
+  // 廃止カード(status: "deprecated")が DB の DeckEntry に残っていても初期デッキには含めない。
+  // seed 再実行で削除されるはずだが、未再実行の環境向けのランタイムガード。
+  return deck.entries
+    .filter((e) => CARD_DEFS[e.cardId as DeckSpec["defId"]]?.status !== "deprecated")
+    .map((e) => ({
+      defId: e.cardId as DeckSpec["defId"],
+      count: e.count,
+    }));
 }
 
 // 新規ゲームを作成
@@ -87,6 +92,22 @@ export async function createGame(
       ...SAMPLE_CARD_IDS.map((id) => ({ defId: id, count: 1 })),
     ];
     const cardState = createInitialCardState(deckSpec);
+    // Issue #82 検証用: 開発中カードを両プレイヤーの初期手札に 2 枚ずつ追加。
+    // 各カードのリリース判定後も、新カード追加検証で使い回せるように TEST_CARD_IDS を差し替える形で運用。
+    // 全カードリリース時(本Issue完了時)にこのブロック自体を削除する。
+    const TEST_CARD_IDS = ["double_pawn", "piece_return"] as const;
+    let testCounter = 0;
+    for (const p of ["sente", "gote"] as const) {
+      for (const cardId of TEST_CARD_IDS) {
+        for (let i = 0; i < 2; i++) {
+          testCounter++;
+          cardState.hand[p].push({
+            instanceId: `${p}-${cardId}-test-${testCounter}`,
+            defId: cardId,
+          });
+        }
+      }
+    }
     initialCardState = serializeCardState(cardState);
   }
 

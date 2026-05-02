@@ -31,6 +31,7 @@ export function createInitialCardState(deckSpec: DeckSpec[]): CardGameState {
     trap: { sente: null, gote: null },
     pendingCard: null,
     lastTurnStartedAt: { sente: null, gote: null },
+    noPromoteMarks: { sente: [], gote: [] },
   };
 }
 
@@ -49,6 +50,7 @@ function buildDeck(player: Player, deckSpec: DeckSpec[]): CardInstance[] {
 
 // DB 往復: pendingCard は復元しない (B4: リロード = キャンセル相当)
 // lastTurnStartedAt も保存しない (リロード後の早指し誤検出を避ける)
+// noPromoteMarks は永続効果なので保存・復元する
 export function serializeCardState(state: CardGameState): unknown {
   return {
     mana: state.mana,
@@ -59,6 +61,7 @@ export function serializeCardState(state: CardGameState): unknown {
     trap: state.trap,
     pendingCard: null,
     lastTurnStartedAt: { sente: null, gote: null },
+    noPromoteMarks: state.noPromoteMarks,
   };
 }
 
@@ -76,5 +79,6 @@ export function deserializeCardState(data: unknown): CardGameState {
     trap: obj.trap ?? { sente: null, gote: null },
     pendingCard: null,
     lastTurnStartedAt: { sente: null, gote: null },
+    noPromoteMarks: obj.noPromoteMarks ?? { sente: [], gote: [] },
   };
 }
