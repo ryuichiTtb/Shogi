@@ -5,12 +5,11 @@ import { flushSync } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { Trash2, Save, Pencil, Star } from "lucide-react";
+import { Trash2, Save, Pencil } from "lucide-react";
 import {
   deleteDeck,
   renameDeck,
   saveDeckEntries,
-  setDefaultDeck,
   type DeckDetail,
   type DeckEntrySummary,
   type OwnedCardSummary,
@@ -119,18 +118,6 @@ export function DeckEditorPane({
       } catch (e) {
         setActionError(e instanceof Error ? e.message : String(e));
         setName(deck.name);
-      }
-    });
-  }
-
-  function handleSetDefault() {
-    setActionError(null);
-    startTransition(async () => {
-      try {
-        await setDefaultDeck(deck.id);
-        onChanged({ ...deck, isDefault: true, entries });
-      } catch (e) {
-        setActionError(e instanceof Error ? e.message : String(e));
       }
     });
   }
@@ -363,18 +350,6 @@ export function DeckEditorPane({
             </Badge>
           )}
           <div className="flex-1" />
-          {!deck.isDefault && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleSetDefault}
-              disabled={isPending || dirty}
-              title={dirty ? "保存してから使用中に設定できます" : undefined}
-            >
-              <Star className="w-3.5 h-3.5" />
-              使用中にする
-            </Button>
-          )}
           <Button
             size="sm"
             variant="destructive"

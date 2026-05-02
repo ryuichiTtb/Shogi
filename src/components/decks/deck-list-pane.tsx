@@ -13,7 +13,10 @@ interface DeckListPaneProps {
   draftName: string | null;
   draftError: string | null;
   draftBusy: boolean;
+  // 「選択」ボタン操作中の deckId。連打抑止に使う。
+  pendingDefaultId: string | null;
   onSelect: (id: string) => void;
+  onSelectDefault: (id: string) => void;
   onRequestNew: () => void;
   onDraftChange: (value: string) => void;
   onDraftCommit: () => void;
@@ -26,7 +29,9 @@ export function DeckListPane({
   draftName,
   draftError,
   draftBusy,
+  pendingDefaultId,
   onSelect,
+  onSelectDefault,
   onRequestNew,
   onDraftChange,
   onDraftCommit,
@@ -88,35 +93,49 @@ export function DeckListPane({
         )}
         {decks.map((deck) => {
           const active = deck.id === selectedId;
+          const isPendingDefault = pendingDefaultId === deck.id;
           return (
             <li key={deck.id}>
-              <button
-                type="button"
-                onClick={() => onSelect(deck.id)}
+              {/* row 全体は <button> 入れ子を避けるため <div>。
+                  左側 (デッキ名) は edit 用の選択 trigger、右側は 使用中ラベル
+                  もしくは「選択」ボタン (= setDefaultDeck の trigger)。 */}
+              <div
                 className={cn(
-                  "w-full text-left px-3 py-2 rounded-md border-2 transition-all cursor-pointer",
+                  "w-full px-3 py-2 rounded-md border-2 transition-all flex items-center gap-2",
                   active
                     ? "border-primary bg-primary/5"
                     : "border-transparent hover:border-border hover:bg-muted/50",
                 )}
               >
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-sm truncate flex-1">
-                    {deck.name}
-                  </span>
-                  {deck.isDefault && (
-                    <Badge
-                      variant="outline"
-                      className="text-[10px] px-1.5 py-0 bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-200 dark:border-emerald-800"
-                    >
-                      使用中
-                    </Badge>
-                  )}
-                </div>
-                <div className="text-xs text-muted-foreground mt-0.5">
-                  {deck.totalCount} 枚
-                </div>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => onSelect(deck.id)}
+                  className="flex-1 min-w-0 text-left cursor-pointer"
+                >
+                  <div className="font-medium text-sm truncate">{deck.name}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    {deck.totalCount} 枚
+                  </div>
+                </button>
+                {deck.isDefault ? (
+                  <Badge
+                    variant="outline"
+                    className="text-[10px] px-1.5 py-0 bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-200 dark:border-emerald-800 shrink-0"
+                  >
+                    使用中
+                  </Badge>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onSelectDefault(deck.id)}
+                    disabled={isPendingDefault}
+                    className="shrink-0 h-7 px-2 text-xs"
+                  >
+                    {isPendingDefault ? "..." : "選択"}
+                  </Button>
+                )}
+              </div>
             </li>
           );
         })}

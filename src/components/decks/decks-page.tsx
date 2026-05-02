@@ -10,6 +10,7 @@ import { ConfirmDialog } from "./confirm-dialog";
 import {
   createDeck,
   getDeckDetail,
+  setDefaultDeck,
   type DeckDetail,
   type DeckSummary,
   type OwnedCardSummary,
@@ -41,6 +42,9 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
 
   // 草稿入力中に他デッキを選択した際の確認ダイアログ
   const [pendingSelectId, setPendingSelectId] = useState<string | null>(null);
+
+  // 「選択」ボタン押下中の deckId (setDefaultDeck 中の連打抑止)
+  const [pendingDefaultId, setPendingDefaultId] = useState<string | null>(null);
 
   // detail が古い (別デッキ選択直後で fetch 未完了) ときは null として扱う。
   const currentDetail = detail && detail.id === selectedId ? detail : null;
@@ -129,6 +133,23 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
     setPendingSelectId(null);
   }
 
+  async function handleSelectDefault(deckId: string) {
+    if (pendingDefaultId !== null) return;
+    setPendingDefaultId(deckId);
+    try {
+      await setDefaultDeck(deckId);
+      // Optimistic: 全デッキの isDefault を更新
+      setDecks((prev) =>
+        prev.map((d) => ({ ...d, isDefault: d.id === deckId })),
+      );
+      refresh();
+    } catch (e) {
+      console.error("setDefaultDeck failed", e);
+    } finally {
+      setPendingDefaultId(null);
+    }
+  }
+
   // 既存デッキ 0 件 & 草稿なしの完全空状態のみ初期画面を出す
   if (decks.length === 0 && draftName === null) {
     return (
@@ -154,7 +175,9 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
             draftName={draftName}
             draftError={draftError}
             draftBusy={draftBusy}
+            pendingDefaultId={pendingDefaultId}
             onSelect={tryChangeSelection}
+            onSelectDefault={handleSelectDefault}
             onRequestNew={startNew}
             onDraftChange={(v) => {
               setDraftName(v);
