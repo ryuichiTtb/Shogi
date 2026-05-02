@@ -1186,7 +1186,11 @@ export function CardShogiGame({
             </div>
           </div>
           <div className="text-xs text-muted-foreground font-medium shrink-0 text-center">手札 {displayedOwnHand.length}枚</div>
-          <div ref={ownHandXlRef} className="flex-1 min-h-0 overflow-y-auto">
+          <div
+            ref={ownHandXlRef}
+            data-hand-scroll="vertical"
+            className="flex-1 min-h-0 overflow-y-auto"
+          >
             <HandArea
               hand={displayedOwnHand}
               currentMana={cardState.mana[playerColor]}
