@@ -120,7 +120,7 @@ function FilterRow<T extends string>({
           className={cn(
             "cursor-pointer transition-all rounded-md",
             "hover:ring-2 hover:ring-amber-400/70 hover:ring-offset-1 hover:ring-offset-background",
-            allActive ? "" : "opacity-40 hover:opacity-100",
+            allActive ? "" : "opacity-40",
           )}
           aria-pressed={allActive}
         >
@@ -146,7 +146,7 @@ function FilterRow<T extends string>({
               className={cn(
                 "cursor-pointer transition-all rounded-md",
                 "hover:ring-2 hover:ring-amber-400/70 hover:ring-offset-1 hover:ring-offset-background",
-                active ? "" : "opacity-40 hover:opacity-100",
+                active ? "" : "opacity-40",
               )}
               aria-pressed={active}
             >
