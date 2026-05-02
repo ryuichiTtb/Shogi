@@ -141,16 +141,16 @@ function DrawFlightInner({
 
   // 回転 (Issue #89 ユーザー指示で更新):
   //   rotateY:
-  //     deck→中央 の最後 30% (= 7 割通過時点) で 0.5 回転 (0→180°)。前半 70%
-  //     は 0° で待機し、終端=中央到着で 180°。中央以降は 180° のまま維持。
+  //     deck→中央 の中間地点 (50%) から 0.5 回転 (0→180°)。前半 50% は 0° で
+  //     待機し、終端=中央到着で 180°。中央以降は 180° のまま維持。
   //   rotateZ:
   //     0 → 中央 で 2周 (=720°)
   //     中央 → 手札 で +3周 (=+1080°、累積 1800°)
   // 表/裏切替は子要素の backface-visibility hidden で自動。
   // 注意: filter 系プロパティ(drop-shadow 等)は preserve-3d を flatten させるため
   //       外側 motion.div には付けず、内側面に box-shadow ベースの shadow-2xl を当てる。
-  // rotateY の回転開始点 (deck→中央 の 70% 地点)
-  const tSpinStart = t1 * 0.7;
+  // rotateY の回転開始点 (deck→中央 の 50% 地点)
+  const tSpinStart = t1 * 0.5;
   return (
     <motion.div
       initial={{
