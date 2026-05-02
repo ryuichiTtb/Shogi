@@ -130,7 +130,8 @@ export function DeckListPane({
                   )}
                 >
                   <div className="font-medium text-sm truncate">{deck.name}</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">
+                  {/* 枚数はデスクトップのみ表示。モバイルは縦幅優先で省略。 */}
+                  <div className="hidden lg:block text-xs text-muted-foreground mt-0.5">
                     {deck.totalCount} 枚
                   </div>
                 </button>

@@ -280,9 +280,6 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
             <div className="font-medium text-sm truncate">
               {currentDeck?.name ?? "デッキを選択"}
             </div>
-            <div className="text-xs text-muted-foreground">
-              {currentDeck ? `${currentDeck.totalCount} 枚` : "未選択"}
-            </div>
           </div>
           {currentDeck?.isDefault && (
             <Badge
