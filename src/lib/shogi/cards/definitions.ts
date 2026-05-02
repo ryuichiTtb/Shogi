@@ -77,12 +77,10 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
     status: "active",
     phase: "0",
     detailDescription:
-      "自分の盤上の歩(成り歩=と金は対象外)1枚を選び、持ち駒に戻す。\n\n- ターゲット: 自盤上の歩\n- 成った歩(と金)は対象外\n- 持ち駒に戻った歩は次ターン以降に通常通り打てる",
+      "自分の盤上の歩 / と金 1枚を選び、持ち駒に戻す。\n\n- ターゲット: 自盤上の歩(と金含む)\n- と金は成り解除されて「歩」として持ち駒になる(将棋ルール準拠)\n- 持ち駒に戻った歩は次ターン以降に通常通り打てる",
     addedAt: "2026-04-30",
     relatedIssues: [68, 80, 82],
-    // 自分の盤上に歩(と金含む)が1枚以上あれば使用可。
-    // ※ effects.ts の applyPawnReturn は pawn / promoted_pawn 両方を対象にしているため、それに合わせる。
-    //   detailDescription とは齟齬があるが整合は別途確認(Issue #82 内で要決定)。
+    // 自分の盤上に歩 or と金が1枚以上あれば使用可 (歩戻しは と金も対象、unpromote して持ち駒の歩になる)
     useCondition: (gameState, player) => hasOwnPawnOnBoard(gameState, player),
   },
   double_pawn: {
