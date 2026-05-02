@@ -89,6 +89,9 @@ export function CardShogiGame({
     startRect: DOMRect | null;
     isTrap: boolean;
   } | null>(null);
+  // 連続プレイ時に Date.now() が同 ms に丸まると AnimatePresence が
+  // 同一 key と判定し新 inner を mount しない。単調増加カウンタで防ぐ。
+  const playFlightKeyRef = useRef(0);
   // 演出完了直後に手札の対象カードを一瞬光らせる (Issue #78)
   const [freshlyDrawnId, setFreshlyDrawnId] = useState<string | null>(null);
   // 各レイアウトの山札・手札 DOM ref。表示中のものから矩形を取得する。
@@ -333,9 +336,10 @@ export function CardShogiGame({
           }
           // Issue #106: カード使用時に中央へカード本体を表示 (自分プレイヤーのみ)
           if (ev.player === playerColor) {
+            playFlightKeyRef.current += 1;
             setPlayFlight({
               card: ev.instance,
-              key: Date.now(),
+              key: playFlightKeyRef.current,
               startRect,
               isTrap: false,
             });
@@ -375,10 +379,12 @@ export function CardShogiGame({
             triggerManaFlight(-def.cost, startRect);
           }
           // Issue #106: トラップセット時も中央へカード本体を表示
+          // CardInstance に詰め直し (TrapInstance.owner は CardView 側で参照しないため捨てる)
           if (ev.player === playerColor) {
+            playFlightKeyRef.current += 1;
             setPlayFlight({
               card: { instanceId: ev.instance.instanceId, defId: ev.instance.defId },
-              key: Date.now(),
+              key: playFlightKeyRef.current,
               startRect,
               isTrap: true,
             });
