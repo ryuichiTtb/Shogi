@@ -19,10 +19,10 @@ interface DrawFlightCardProps {
 const CARD_W = 576;
 const CARD_H = 352;
 
-// 山札→中央: 500ms / 中央ホールド: 1500ms / 中央→手札: 500ms
+// 山札→中央: 500ms / 中央ホールド: 1500ms / 中央→手札: 300ms
 const FADE_IN_MS = 500;
 const HOLD_MS = 1500;
-const FADE_OUT_MS = 500;
+const FADE_OUT_MS = 300;
 const TOTAL_MS = FADE_IN_MS + HOLD_MS + FADE_OUT_MS;
 
 // 中央到着直後にカード上を斜めに走るシマー (光) と、周辺を一瞬光らせる黄金グロウ
@@ -161,7 +161,7 @@ function DrawFlightInner({
       transition={{
         duration: TOTAL_MS / 1000,
         times: [0, t1, t2, 1],
-        ease: ["easeOut", "linear", "easeIn"],
+        ease: ["easeOut", "linear", "linear"],
       }}
       onAnimationComplete={handleComplete}
       style={{
@@ -182,7 +182,7 @@ function DrawFlightInner({
         transition={{
           duration: TOTAL_MS / 1000,
           times: [0, t1, t2, 1],
-          ease: ["easeOut", "linear", "easeIn"],
+          ease: ["easeOut", "linear", "linear"],
         }}
         style={{
           width: "100%",
