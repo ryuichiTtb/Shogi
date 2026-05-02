@@ -92,6 +92,18 @@ export async function createGame(
       ...SAMPLE_CARD_IDS.map((id) => ({ defId: id, count: 1 })),
     ];
     const cardState = createInitialCardState(deckSpec);
+    // Issue #82 検証用: double_pawn (二歩指し) を両プレイヤーの初期手札に 2 枚追加。
+    // 検証完了後はこのブロックを削除する。
+    let testCounter = 0;
+    for (const p of ["sente", "gote"] as const) {
+      for (let i = 0; i < 2; i++) {
+        testCounter++;
+        cardState.hand[p].push({
+          instanceId: `${p}-double_pawn-test-${testCounter}`,
+          defId: "double_pawn",
+        });
+      }
+    }
     initialCardState = serializeCardState(cardState);
   }
 
