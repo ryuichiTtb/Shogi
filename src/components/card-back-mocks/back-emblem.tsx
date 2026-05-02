@@ -3,7 +3,7 @@
 //   - 中央: 駒シルエット (末広がり、文字なし、ゴールド線)
 //   - 装飾: 45° 金色斜線 (静止、左下→右上) + 斜線を流れる閃光 (sheen)
 //   - 装飾(枠): 内側ゴールド細枠 + 四隅菱形 (D 案と統一感)
-//   - アニメ: エンブレムが 6s で脈動 + 閃光は 3.5s で左→右に流れる
+//   - アニメ: 閃光が 3.5s で左→右に流れる
 import { cn } from "@/lib/utils";
 import { KomaShape } from "./koma-shape";
 import {
@@ -47,13 +47,8 @@ export function CardBackEmblem({ size = "md", fullWidth = false, className }: Pr
       <span className="absolute top-1 right-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
       <span className="absolute bottom-1 left-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
       <span className="absolute bottom-1 right-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
-      {/* 中央エンブレム (脈動) */}
-      <div
-        className={cn(
-          "absolute inset-0 flex items-center justify-center",
-          "card-back-mock-emblem-pulse",
-        )}
-      >
+      {/* 中央エンブレム */}
+      <div className="absolute inset-0 flex items-center justify-center">
         <KomaShape
           className={MOCK_CENTER_SHAPE_CLASS[size]}
           strokeWidth={3}

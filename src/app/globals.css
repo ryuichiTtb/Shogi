@@ -638,14 +638,6 @@
   55%  { background-position: -10% 0; }
   100% { background-position: -10% 0; }
 }
-.card-back-mock-emblem-pulse {
-  animation: card-back-mock-emblem-pulse-anim 6s ease-in-out infinite;
-}
-@keyframes card-back-mock-emblem-pulse-anim {
-  0%, 100% { opacity: 0.78; }
-  50%      { opacity: 1; }
-}
-
 /* 案 B: 青海波 + 金箔
  *   - 青海波 SVG タイル (20×10) を repeat (静止)
  *   - sheen は左→右の薄ゴールド光沢 */

@@ -18,11 +18,11 @@ export const MOCK_FULLWIDTH_HEIGHT: Record<MockSize, string> = {
   xl: "h-[22rem]",
 };
 
-// 中央モチーフ(駒シルエット)の代表サイズ。
+// 中央モチーフ(駒シルエット)の代表サイズ (D 案を基準に全案統一)。
 // xl はドロー演出用 576×352 なのでぐっと拡大する。
 export const MOCK_CENTER_SHAPE_CLASS: Record<MockSize, string> = {
-  sm: "w-7 h-9",
-  md: "w-10 h-12",
-  lg: "w-12 h-14",
-  xl: "w-56 h-64",
+  sm: "w-8 h-10",
+  md: "w-14 h-16",
+  lg: "w-16 h-20",
+  xl: "w-72 h-80",
 };
