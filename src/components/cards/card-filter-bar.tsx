@@ -126,7 +126,12 @@ function FilterRow<T extends string>({
         >
           <Badge
             variant="outline"
-            className={cn("text-[10px] sm:text-xs px-1.5 sm:px-2 py-0 sm:py-0.5 bg-card")}
+            className={cn(
+              "text-[10px] sm:text-xs px-1.5 sm:px-2 py-0 sm:py-0.5",
+              allActive
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-card",
+            )}
           >
             すべて
           </Badge>
