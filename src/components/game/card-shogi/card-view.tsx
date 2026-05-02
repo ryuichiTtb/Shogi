@@ -250,7 +250,7 @@ export function CardView({
         // 選択時は ring で強調(枠のレア度色は維持)
         selected && "ring-2 ring-primary ring-offset-1 ring-offset-background",
       )}
-      aria-label={`${def.name} (コスト${def.cost})`}
+      aria-label={`${def.name} (マナコスト ${def.cost})`}
     >
       {/* ホバーフォーカス用の薄黄色オーバーレイ。常に DOM に置き、:hover で
         * opacity をフェードイン (CSS 側 .card-hover-focus:hover .card-hover-overlay)。
@@ -282,7 +282,10 @@ export function CardView({
       >
         <span
           className={cn(
-            "rounded-full px-2 leading-tight font-bold tabular-nums",
+            "rounded-full leading-tight font-bold tabular-nums whitespace-nowrap inline-flex items-center",
+            // Issue #106: 山札のドローコスト表示と統一感を出すため 💎×N 形式に
+            // し、数値だけより「マナコスト」と直感的に分かるようにする。
+            size === "xl" ? "px-3 py-1 gap-1.5" : "px-1 gap-0.5",
             COST_TEXT_CLASS[size],
             def.kind === "trap"
               ? hasRarityBg
@@ -292,8 +295,10 @@ export function CardView({
                 ? "bg-amber-900/50 text-amber-200"
                 : "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
           )}
+          title={`マナコスト: ${def.cost}`}
         >
-          {def.cost}
+          <span aria-hidden>💎</span>
+          <span>×{def.cost}</span>
         </span>
         <span className={cn(ICON_SIZE_CLASS[size], "leading-none")} aria-hidden>
           {def.icon}
