@@ -41,6 +41,7 @@ import { TrapSlot } from "./trap-slot";
 import { DeckPile } from "./deck-pile";
 import { CardPlayDialog, CardTargetingNotice } from "./card-play-dialog";
 import { DrawFlightCard } from "./draw-flight-card";
+import { CardPlayFlight } from "./card-play-flight";
 import { ManaFlightLayer, type ManaFlightItem } from "./mana-flight";
 import { FastMoveBadgeLayer, type FastMoveBadgeItem } from "./fast-move-badge";
 
@@ -80,6 +81,16 @@ export function CardShogiGame({
   // Issue #78: ドロー演出 (山札→中央→手札)。演出完了まで自分の手番継続・操作ロック。
   const [drawFlight, setDrawFlight] = useState<{ card: CardInstance; key: number } | null>(null);
   const isDrawAnimating = drawFlight !== null;
+  // Issue #106: カード使用/トラップセット時の中央演出 (中央にパッと出現+キラッと光る)。
+  // ドロー演出と異なり手番をロックせず短時間 (~1.2s) で抜ける。
+  const [playFlight, setPlayFlight] = useState<{
+    card: CardInstance;
+    key: number;
+    isTrap: boolean;
+  } | null>(null);
+  // 連続プレイ時に Date.now() が同 ms に丸まると AnimatePresence が
+  // 同一 key と判定し新 inner を mount しない。単調増加カウンタで防ぐ。
+  const playFlightKeyRef = useRef(0);
   // 演出完了直後に手札の対象カードを一瞬光らせる (Issue #78)
   const [freshlyDrawnId, setFreshlyDrawnId] = useState<string | null>(null);
   // 各レイアウトの山札・手札 DOM ref。表示中のものから矩形を取得する。
@@ -294,6 +305,9 @@ export function CardShogiGame({
   const handleConfirmPlayCard = useCallback(() => {
     cachePendingCardRect();
     confirmPlayCard();
+    // Issue #106: モバイル手札ドロワーは「使用する」確定時に閉じる
+    // (キャンセル時は開いたままにし、再度カードを選び直しやすくする)
+    setDrawerOpen(false);
   }, [cachePendingCardRect, confirmPlayCard]);
 
   // カードイベント由来の SE 再生・画面演出・マナ浮遊テキストを eventLog の差分監視で発火
@@ -321,6 +335,15 @@ export function CardShogiGame({
             const cached = playedCardRectRef.current;
             const rect = cached?.id === ev.instance.instanceId ? cached.rect : getHandRect();
             triggerManaFlight(-def.cost, rect);
+          }
+          // Issue #106: カード使用時に中央へカード本体を表示 (自分プレイヤーのみ)
+          if (ev.player === playerColor) {
+            playFlightKeyRef.current += 1;
+            setPlayFlight({
+              card: ev.instance,
+              key: playFlightKeyRef.current,
+              isTrap: false,
+            });
           }
           break;
         }
@@ -355,6 +378,16 @@ export function CardShogiGame({
             const cached = playedCardRectRef.current;
             const rect = cached?.id === ev.instance.instanceId ? cached.rect : getHandRect();
             triggerManaFlight(-def.cost, rect);
+          }
+          // Issue #106: トラップセット時も中央へカード本体を表示
+          // CardInstance に詰め直し (TrapInstance.owner は CardView 側で参照しないため捨てる)
+          if (ev.player === playerColor) {
+            playFlightKeyRef.current += 1;
+            setPlayFlight({
+              card: { instanceId: ev.instance.instanceId, defId: ev.instance.defId },
+              key: playFlightKeyRef.current,
+              isTrap: true,
+            });
           }
           break;
         }
@@ -406,6 +439,9 @@ export function CardShogiGame({
     if (!drawFlight) return cardState.hand[playerColor];
     return cardState.hand[playerColor].filter((c) => c.instanceId !== drawFlight.card.instanceId);
   }, [cardState.hand, playerColor, drawFlight]);
+
+  // Issue #106: カード使用演出は中央に固定出現するため startRect は不要
+  const handlePlayFlightComplete = useCallback(() => setPlayFlight(null), []);
 
   // ドロー演出完了: currentPlayer を相手に渡し、手札の対象カードを一瞬フラッシュさせる
   const handleDrawFlightComplete = useCallback(() => {
@@ -806,16 +842,17 @@ export function CardShogiGame({
           <Button size="sm" variant="ghost" onClick={() => setDrawerOpen(false)}>閉じる</Button>
         </div>
         <div className="p-3 overflow-x-auto">
+          {/* Issue #106: モバイル手札は幅が狭くトラップラベルとカード名が
+            * 被るため、効果記述は非表示。トラップ用バッジは CardView 側で
+            * カード名の下に再配置される。 */}
           <HandArea
             hand={displayedOwnHand}
             currentMana={cardState.mana[playerColor]}
             size="md"
             disabled={handDisabled}
             flashCardId={freshlyDrawnId}
-            onCardClick={(id) => {
-              handleBeginPlayCard(id);
-              setDrawerOpen(false);
-            }}
+            hideCardDescription
+            onCardClick={handleBeginPlayCard}
           />
         </div>
       </div>
@@ -1034,6 +1071,14 @@ export function CardShogiGame({
         deckRectGetter={getDeckRect}
         handRectGetter={getHandRect}
         onComplete={handleDrawFlightComplete}
+      />
+
+      {/* Issue #106: カード使用/トラップセット時の中央演出 (中央にパッと出現+キラッと光る) */}
+      <CardPlayFlight
+        cardInstance={playFlight?.card ?? null}
+        flightKey={playFlight?.key ?? null}
+        isTrap={playFlight?.isTrap ?? false}
+        onComplete={handlePlayFlightComplete}
       />
 
       {/* Issue #77: マナ加減算の浮遊テキスト (起点 UI 付近に表示) */}

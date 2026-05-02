@@ -30,10 +30,17 @@ const SIZE_CLASS = {
 // ...
 // count >= STACK_MAX + 1 のとき: ズレカード STACK_MAX 枚
 const STACK_MAX = 4;
-const STACK_OFFSET = {
-  sm: 1.5,
-  md: 2,
-  lg: 2.5,
+// X (横) は極小: 隣接する TRAP との被りを避けるため最小限のはみ出しに抑える。
+// Y (縦) は少し控えめに: 視認できる程度に積み重なりを表現。
+const STACK_OFFSET_X = {
+  sm: 0.5,
+  md: 0.8,
+  lg: 1,
+};
+const STACK_OFFSET_Y = {
+  sm: 1,
+  md: 1.5,
+  lg: 2,
 };
 
 interface StackCardProps {
@@ -120,21 +127,23 @@ export function DeckPile({
 
   // 後ろに重ねる枚数: count - 1 を最大 STACK_MAX で頭打ち
   const stackCount = Math.min(Math.max(count - 1, 0), STACK_MAX);
-  const offsetUnit = STACK_OFFSET[size];
+  const offsetUnitX = STACK_OFFSET_X[size];
+  const offsetUnitY = STACK_OFFSET_Y[size];
 
   return (
     <div
       className={cn("relative shrink-0", fullWidth ? "w-full" : SIZE_CLASS[size].split(" ")[0])}
       // 後ろのズレカード分の余白を確保 (描画領域を超えてはみ出さないように)
       style={{
-        paddingRight: stackCount * offsetUnit,
-        paddingBottom: stackCount * offsetUnit,
+        paddingRight: stackCount * offsetUnitX,
+        paddingBottom: stackCount * offsetUnitY,
       }}
     >
       {/* 後ろのズレカード(N 枚)。i=0 が一番奥、i=stackCount-1 が手前。 */}
       {Array.from({ length: stackCount }).map((_, i) => {
         // 手前ほど offset 小、奥ほど offset 大
-        const offset = (stackCount - i) * offsetUnit;
+        const offsetX = (stackCount - i) * offsetUnitX;
+        const offsetY = (stackCount - i) * offsetUnitY;
         return (
           <div
             key={i}
@@ -142,9 +151,9 @@ export function DeckPile({
             style={{
               top: 0,
               left: 0,
-              right: stackCount * offsetUnit - offset,
-              bottom: stackCount * offsetUnit - offset,
-              transform: `translate(${offset}px, ${offset}px)`,
+              right: stackCount * offsetUnitX - offsetX,
+              bottom: stackCount * offsetUnitY - offsetY,
+              transform: `translate(${offsetX}px, ${offsetY}px)`,
               zIndex: i,
             }}
           >

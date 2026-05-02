@@ -460,12 +460,13 @@ function reducer(
       if (!card) return state;
       const def = CARD_DEFS[card.defId];
       if (state.cardState.mana[action.player] < def.cost) return state;
-      const phase = def.targeting === "none" || def.kind === "trap" ? "confirm" : "selectTarget";
+      // Issue #106: 全カードでまず確認ポップアップ (phase="confirm") を出し、
+      // 「使用する」確定後に必要なら selectTarget へ遷移する流れに統一する。
       return {
         ...state,
         cardState: {
           ...state.cardState,
-          pendingCard: { instance: card, player: action.player, phase },
+          pendingCard: { instance: card, player: action.player, phase: "confirm" },
         },
         // 通常の駒選択状態はクリア
         selectedSquare: null,
@@ -477,13 +478,16 @@ function reducer(
     case "SELECT_CARD_TARGET": {
       const pending = state.cardState.pendingCard;
       if (!pending) return state;
-      return {
+      // Issue #106: target が確定したら即座に効果適用に進む (確認ステップは
+      // 既に手札選択直後の confirm フェーズで踏んでいる)。
+      const stateWithTarget: CardShogiGameStateInternal = {
         ...state,
         cardState: {
           ...state.cardState,
           pendingCard: { ...pending, target: action.target, phase: "confirm" },
         },
       };
+      return reducer(stateWithTarget, { type: "CONFIRM_PLAY_CARD" });
     }
 
     case "CONFIRM_PLAY_CARD": {
@@ -493,9 +497,16 @@ function reducer(
       const player = pending.player;
       const opponent: Player = player === "sente" ? "gote" : "sente";
 
-      // ターゲット必須カードでターゲット未選択 → 何もしない
+      // Issue #106: ターゲット必須カードで未選択なら、確認ポップアップから
+      // selectTarget フェーズに遷移して盤面選択に進む (効果適用はしない)。
       if (def.targeting !== "none" && def.kind !== "trap" && !pending.target) {
-        return state;
+        return {
+          ...state,
+          cardState: {
+            ...state.cardState,
+            pendingCard: { ...pending, phase: "selectTarget" },
+          },
+        };
       }
 
       // 効果適用

@@ -20,6 +20,8 @@ interface HandAreaProps {
   fullWidth?: boolean;
   // Issue #78: 直前にドローしたカードを一瞬光らせる (instanceId 一致のカードに animate-hand-card-flash を付与)
   flashCardId?: string | null;
+  // Issue #106: モバイル手札等の幅が狭いコンテキストで効果説明を非表示にする
+  hideCardDescription?: boolean;
 }
 
 export function HandArea({
@@ -33,6 +35,7 @@ export function HandArea({
   disabled = false,
   fullWidth = false,
   flashCardId = null,
+  hideCardDescription = false,
 }: HandAreaProps) {
   if (hand.length === 0) {
     return <div className="text-xs text-muted-foreground py-2 px-3">{emptyLabel}</div>;
@@ -75,7 +78,11 @@ export function HandArea({
     >
       {hand.map((c) => {
         const def = CARD_DEFS[c.defId];
-        const cardDisabled = disabled || currentMana < def.cost;
+        // マナ不足: 常にグレーアウト (操作不可かどうかに関わらず)
+        // マナ十分かつ全体 disabled (相手番など): 通常表示のまま操作だけ無効化 (= inactive)
+        const unaffordable = currentMana < def.cost;
+        const cardDisabled = unaffordable;
+        const cardInactive = !unaffordable && disabled;
         const isFresh = c.instanceId === flashCardId;
         return (
           <div
@@ -86,7 +93,9 @@ export function HandArea({
               card={c}
               size={size}
               disabled={cardDisabled}
+              inactive={cardInactive}
               fullWidth={fullWidth}
+              hideDescription={hideCardDescription}
               onClick={() => onCardClick?.(c.instanceId)}
             />
           </div>

@@ -35,10 +35,17 @@ interface CardViewProps {
   card: CardInstance;
   faceDown?: boolean;
   onClick?: () => void;
+  // 物理的に使用不可 (マナ不足など): グレーアウト + クリック不可 + cursor-not-allowed
   disabled?: boolean;
+  // 文脈的に操作不可だが「使用不可ではない」(相手番・ドロー演出中など):
+  // グレーアウトせず通常表示のまま、ホバー演出だけ抑止しクリックを無効化
+  inactive?: boolean;
   size?: CardViewSize;
   selected?: boolean;
   fullWidth?: boolean;
+  // 効果説明テキストを非表示にする (Issue #106: ダイアログプレビュー等で
+  // 説明はダイアログ側に書く場合に重複を避けるため)
+  hideDescription?: boolean;
 }
 
 // "sm" はサムネイル(裏向きの相手手札用、縦長)
@@ -172,9 +179,11 @@ export function CardView({
   faceDown = false,
   onClick,
   disabled = false,
+  inactive = false,
   size = "md",
   selected = false,
   fullWidth = false,
+  hideDescription = false,
 }: CardViewProps) {
   const def = CARD_DEFS[card.defId];
 
@@ -208,7 +217,9 @@ export function CardView({
   return (
     <button
       type="button"
-      onClick={onClick}
+      // inactive (相手番など) では HTML disabled を立てず onClick だけ無効化する。
+      // disabled を立てるとマナ不足と同じ grayout 表現になってしまうため。
+      onClick={inactive ? undefined : onClick}
       disabled={disabled}
       data-card-id={card.instanceId}
       data-rarity={def.rarity}
@@ -226,16 +237,20 @@ export function CardView({
         isAnimated && RARITY_BG_CLASS[def.rarity],
         // 斜め閃光 (super_rare/epic)
         isAnimated && RARITY_HAS_SHINE[def.rarity] && "card-rarity-shine",
-        // 非活性: 鮮やかさだけ落としてレア度演出は維持(opacity ではなく
-        // saturate を使うことで動的グラデ・オーブの形状感は残す)。
-        // 活性: card-hover-focus で暖色リング+lift のフォーカス強調を付与。
+        // disabled (マナ不足等の使用不可): 彩度を 40% まで下げて opacity も落とし
+        //   「使えない」感を出す。完全モノクロにはせず、レア度の枠色や動的
+        //   グラデを薄く残すことでレア/究極レア等の判別を可能にする。
+        // inactive (相手番等の操作不可): 通常表示のまま、ホバー演出だけ抑止
+        // 活性: card-hover-focus で暖色リング+lift のフォーカス強調
         disabled
-          ? "opacity-70 saturate-50 cursor-not-allowed"
-          : "cursor-pointer card-hover-focus",
+          ? "opacity-55 saturate-[40%] cursor-not-allowed"
+          : inactive
+            ? "cursor-default"
+            : "cursor-pointer card-hover-focus",
         // 選択時は ring で強調(枠のレア度色は維持)
         selected && "ring-2 ring-primary ring-offset-1 ring-offset-background",
       )}
-      aria-label={`${def.name} (コスト${def.cost})`}
+      aria-label={`${def.name} (マナコスト ${def.cost})`}
     >
       {/* ホバーフォーカス用の薄黄色オーバーレイ。常に DOM に置き、:hover で
         * opacity をフェードイン (CSS 側 .card-hover-focus:hover .card-hover-overlay)。
@@ -267,7 +282,10 @@ export function CardView({
       >
         <span
           className={cn(
-            "rounded-full px-2 leading-tight font-bold tabular-nums",
+            "rounded-full leading-tight font-bold tabular-nums whitespace-nowrap inline-flex items-center",
+            // Issue #106: 山札のドローコスト表示と統一感を出すため 💎×N 形式に
+            // し、数値だけより「マナコスト」と直感的に分かるようにする。
+            size === "xl" ? "px-3 py-1 gap-1.5" : "px-1 gap-0.5",
             COST_TEXT_CLASS[size],
             def.kind === "trap"
               ? hasRarityBg
@@ -277,8 +295,10 @@ export function CardView({
                 ? "bg-amber-900/50 text-amber-200"
                 : "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
           )}
+          title={`マナコスト: ${def.cost}`}
         >
-          {def.cost}
+          <span aria-hidden>💎</span>
+          <span>×{def.cost}</span>
         </span>
         <span className={cn(ICON_SIZE_CLASS[size], "leading-none")} aria-hidden>
           {def.icon}
@@ -288,7 +308,9 @@ export function CardView({
       <div className="relative z-10 flex-1 min-w-0 flex flex-col justify-center gap-0.5">
         <div className="flex items-center gap-1">
           <span className={cn("font-bold leading-tight truncate", NAME_TEXT_CLASS[size])}>{def.name}</span>
-          {def.kind === "trap" && (
+          {/* hideDescription 時はカード名横にバッジを置かず、下段(説明位置)に
+            * 単独で配置する (モバイル手札で名前と被って見づらくなるため)。 */}
+          {def.kind === "trap" && !hideDescription && (
             <span
               className={cn(
                 "bg-emerald-600 text-white px-1.5 rounded font-bold leading-tight shrink-0 shadow-sm",
@@ -299,15 +321,28 @@ export function CardView({
             </span>
           )}
         </div>
-        <div
-          className={cn(
-            "leading-tight line-clamp-2",
-            hasRarityBg ? "text-slate-300" : "text-muted-foreground",
-            DESC_TEXT_CLASS[size],
-          )}
-        >
-          {def.description}
-        </div>
+        {!hideDescription && (
+          <div
+            className={cn(
+              "leading-tight line-clamp-2",
+              hasRarityBg ? "text-slate-300" : "text-muted-foreground",
+              DESC_TEXT_CLASS[size],
+            )}
+          >
+            {def.description}
+          </div>
+        )}
+        {/* hideDescription 時のトラップカード: 元々説明があった位置にバッジを表示 */}
+        {hideDescription && def.kind === "trap" && (
+          <span
+            className={cn(
+              "bg-emerald-600 text-white px-1.5 rounded font-bold leading-tight shadow-sm self-start",
+              TRAP_BADGE_TEXT_CLASS[size],
+            )}
+          >
+            トラップ
+          </span>
+        )}
       </div>
     </button>
   );
