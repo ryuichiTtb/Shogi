@@ -30,6 +30,8 @@ import { CARD_DEFS, DRAW_COST, MANA_PER_TURN, MANA_FAST_BONUS, FAST_THRESHOLD_MS
 import {
   applyManaUp,
   applyPawnReturn,
+  applyDoublePawn,
+  isDoublePawnLegalSquare,
   applyTrapSet,
   applyTrapClear,
   consumeNormalCard,
@@ -185,6 +187,21 @@ function makeMoveWithEffects(
 function isKingInCheckAfterMove(gameState: GameState, move: Move): boolean {
   const nextState = applyMove(gameState, move);
   return isInCheck(nextState, move.player, CARD_SHOGI_VARIANT);
+}
+
+// 二歩指し使用可否: 持ち駒に歩あり & 盤上に自分の未成り歩あり
+function canUseDoublePawn(gameState: GameState, player: Player): boolean {
+  const handPawnCount = gameState.hand[player]["pawn"] ?? 0;
+  if (handPawnCount <= 0) return false;
+  for (let r = 0; r < gameState.board.length; r++) {
+    for (let c = 0; c < gameState.board[r].length; c++) {
+      const piece = gameState.board[r][c];
+      if (piece && piece.owner === player && piece.type === "pawn") {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 function reducer(
@@ -506,6 +523,10 @@ function reducer(
       if (!card) return state;
       const def = CARD_DEFS[card.defId];
       if (state.cardState.mana[action.player] < def.cost) return state;
+      // 二歩指しの使用条件: 持ち駒に歩あり & 盤上に自分の未成り歩あり
+      if (def.effectId === "double_pawn" && !canUseDoublePawn(state.gameState, action.player)) {
+        return state;
+      }
       // Issue #106: 全カードでまず確認ポップアップ (phase="confirm") を出し、
       // 「使用する」確定後に必要なら selectTarget へ遷移する流れに統一する。
       return {
@@ -584,6 +605,15 @@ function reducer(
         if (!afterConsume) return state;
         // 持ち駒に戻った駒は no_promote マークを失う (案A 仕様)
         nextCardState = removeNoPromoteMark(afterConsume, player, targetPos);
+      } else if (def.effectId === "double_pawn") {
+        if (!pending.target || pending.target.kind !== "square") return state;
+        const targetPos = { row: pending.target.row, col: pending.target.col };
+        const newGameState = applyDoublePawn(state.gameState, player, targetPos);
+        if (!newGameState) return state;
+        nextGameState = newGameState;
+        const afterConsume = consumeNormalCard(state.cardState, player, pending.instance.instanceId, def.cost);
+        if (!afterConsume) return state;
+        nextCardState = afterConsume;
       } else {
         return state;
       }
@@ -815,6 +845,9 @@ export function useCardShogiGame({
           if (!piece) return; // 空マスは無効
           if (piece.owner !== gameConfig.playerColor) return; // 相手の駒は無効
           if (piece.type !== "pawn" && piece.type !== "promoted_pawn") return; // 歩・と金以外は無効
+        }
+        if (def.effectId === "double_pawn") {
+          if (!isDoublePawnLegalSquare(gameState, gameConfig.playerColor, pos)) return;
         }
         dispatch({
           type: "SELECT_CARD_TARGET",

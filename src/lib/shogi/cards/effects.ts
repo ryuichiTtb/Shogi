@@ -4,6 +4,8 @@
 
 import type { GameState, Player, Position } from "@/lib/shogi/types";
 import { cloneGameState } from "../board";
+import { isPawnDropCheckmate } from "../moves";
+import { CARD_SHOGI_VARIANT } from "../variants/card-shogi";
 import type { CardGameState } from "./types";
 
 // ----- no_promote 永続マーク管理 -----
@@ -78,6 +80,74 @@ export function applyManaUp(
     ...cardState,
     mana: { ...cardState.mana, [player]: next },
   };
+}
+
+// 二歩指し: 持ち駒の歩 1枚を、自分の未成り歩がいる列の空マスに打つ。
+// 二歩禁則は解除するが、行きどころのない歩 / 打ち歩詰めは禁則維持する。
+// 失敗時(条件未達)は null を返す。
+export function applyDoublePawn(
+  state: GameState,
+  player: Player,
+  target: Position,
+): GameState | null {
+  if (!isDoublePawnLegalSquare(state, player, target)) return null;
+
+  const newState = cloneGameState(state);
+  // 持ち駒から歩を1枚消費
+  const handCount = newState.hand[player]["pawn"] ?? 0;
+  if (handCount <= 0) return null;
+  if (handCount === 1) {
+    delete newState.hand[player]["pawn"];
+  } else {
+    newState.hand[player]["pawn"] = handCount - 1;
+  }
+  // 盤面に歩を配置
+  newState.board[target.row][target.col] = { type: "pawn", owner: player };
+  return newState;
+}
+
+// 二歩指しの配置可能マスを判定する純粋関数。UI ハイライトと効果適用の両方から使う。
+export function isDoublePawnLegalSquare(
+  state: GameState,
+  player: Player,
+  target: Position,
+): boolean {
+  const variant = CARD_SHOGI_VARIANT;
+  const { rows } = variant.boardSize;
+
+  // 1. 持ち駒に歩があるか
+  const handPawnCount = state.hand[player]["pawn"] ?? 0;
+  if (handPawnCount <= 0) return false;
+
+  // 2. 配置先が空マスか
+  if (state.board[target.row]?.[target.col]) return false;
+
+  // 3. 配置先の列に自分の未成り歩がいるか (と金は除外)
+  let hasOwnPawnInColumn = false;
+  for (let r = 0; r < rows; r++) {
+    const piece = state.board[r]?.[target.col];
+    if (piece && piece.owner === player && piece.type === "pawn") {
+      hasOwnPawnInColumn = true;
+      break;
+    }
+  }
+  if (!hasOwnPawnInColumn) return false;
+
+  // 4. 行きどころのない歩(後手1段目 / 先手9段目)は不可
+  if (player === "sente" && target.row === 0) return false;
+  if (player === "gote" && target.row === rows - 1) return false;
+
+  // 5. 打ち歩詰めは禁則維持
+  const dropMove = {
+    type: "drop" as const,
+    to: target,
+    piece: "pawn",
+    dropPiece: "pawn",
+    player,
+  };
+  if (isPawnDropCheckmate(state, dropMove, variant)) return false;
+
+  return true;
 }
 
 // 歩戻し: 自盤上の歩(または と金)1枚を持ち駒に戻す。
