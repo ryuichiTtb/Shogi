@@ -81,6 +81,14 @@ export interface PendingCard {
   target?: CardTarget;
 }
 
+// 「成り不可」マーク (no_promote 永続効果)。
+// 各プレイヤーが「成り不可」状態を持つ自分の駒の現在位置を保持。
+// 駒が動いたら座標を追従、駒が取られた / 持ち駒に戻った場合は削除 (案A 仕様)。
+export interface PieceMark {
+  row: number;
+  col: number;
+}
+
 export interface CardGameState {
   mana: Record<Player, number>;
   manaCap: number;
@@ -91,6 +99,8 @@ export interface CardGameState {
   pendingCard: PendingCard | null;
   // 早指し判定用に、各プレイヤーの「今の番が始まった瞬間」のタイムスタンプを保持
   lastTurnStartedAt: Record<Player, number | null>;
+  // no_promote の永続マーク。各プレイヤーの「成り不可」駒の現在位置リスト。
+  noPromoteMarks: Record<Player, PieceMark[]>;
 }
 
 export type CardAction =

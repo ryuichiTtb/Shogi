@@ -6,6 +6,68 @@ import type { GameState, Player, Position } from "@/lib/shogi/types";
 import { cloneGameState } from "../board";
 import type { CardGameState } from "./types";
 
+// ----- no_promote 永続マーク管理 -----
+
+export function hasNoPromoteMark(
+  cardState: CardGameState,
+  player: Player,
+  pos: Position,
+): boolean {
+  return cardState.noPromoteMarks[player].some(
+    (m) => m.row === pos.row && m.col === pos.col,
+  );
+}
+
+export function addNoPromoteMark(
+  cardState: CardGameState,
+  player: Player,
+  pos: Position,
+): CardGameState {
+  if (hasNoPromoteMark(cardState, player, pos)) return cardState;
+  return {
+    ...cardState,
+    noPromoteMarks: {
+      ...cardState.noPromoteMarks,
+      [player]: [...cardState.noPromoteMarks[player], { row: pos.row, col: pos.col }],
+    },
+  };
+}
+
+export function removeNoPromoteMark(
+  cardState: CardGameState,
+  player: Player,
+  pos: Position,
+): CardGameState {
+  if (!hasNoPromoteMark(cardState, player, pos)) return cardState;
+  return {
+    ...cardState,
+    noPromoteMarks: {
+      ...cardState.noPromoteMarks,
+      [player]: cardState.noPromoteMarks[player].filter(
+        (m) => !(m.row === pos.row && m.col === pos.col),
+      ),
+    },
+  };
+}
+
+export function moveNoPromoteMark(
+  cardState: CardGameState,
+  player: Player,
+  from: Position,
+  to: Position,
+): CardGameState {
+  if (!hasNoPromoteMark(cardState, player, from)) return cardState;
+  return {
+    ...cardState,
+    noPromoteMarks: {
+      ...cardState.noPromoteMarks,
+      [player]: cardState.noPromoteMarks[player].map((m) =>
+        m.row === from.row && m.col === from.col ? { row: to.row, col: to.col } : m,
+      ),
+    },
+  };
+}
+
 // マナUP: 即時マナ +3 (上限 manaCap を超えない)
 export function applyManaUp(
   cardState: CardGameState,
