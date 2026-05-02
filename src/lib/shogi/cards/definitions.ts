@@ -27,7 +27,7 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
     kind: "normal",
     name: "歩戻し",
     description: "自分の盤上の歩を1枚、持ち駒に戻す",
-    cost: 3,
+    cost: 1,
     rarity: "common",
     effectId: "pawn_return",
     targeting: "ownPiece",
