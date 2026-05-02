@@ -206,6 +206,8 @@ function reducer(
 
     case "SELECT_SQUARE": {
       if (state.cardState.pendingCard) return state;
+      // ドロー演出 / カード使用演出中は駒移動禁止 (Issue #82)
+      if (state.isDrawing || state.isPlayingCard) return state;
       const { pos } = action;
       const { gameState, selectedSquare, selectedHandPiece, legalMoves } = state;
 
@@ -271,6 +273,8 @@ function reducer(
 
     case "SELECT_HAND_PIECE": {
       if (state.cardState.pendingCard) return state;
+      // ドロー演出 / カード使用演出中は手駒選択禁止 (Issue #82)
+      if (state.isDrawing || state.isPlayingCard) return state;
       const { gameState } = state;
       const dropMoves = getLegalDropMoves(gameState, gameState.currentPlayer, CARD_SHOGI_VARIANT);
       const movesForPiece = dropMoves.filter((m) => m.dropPiece === action.pieceType);
@@ -453,6 +457,10 @@ function reducer(
       if (isInCheck(state.gameState, action.player, CARD_SHOGI_VARIANT)) return state;
       // 既にドロー演出中なら無視 (連発防止)
       if (state.isDrawing) return state;
+      // カード使用中(対象駒選択・確認ポップアップ)はドロー禁止 (Issue #82)
+      if (state.cardState.pendingCard) return state;
+      // カード使用演出中もドロー禁止
+      if (state.isPlayingCard) return state;
       const [top, ...rest] = deck;
       // Issue #78: ドロー = 1手相当だが、currentPlayer 反転は演出完了時の COMMIT_DRAW まで保留。
       // これにより演出中は currentPlayer === playerColor のままで AI 自動応手がブロックされる。
@@ -861,6 +869,10 @@ export function useCardShogiGame({
       const { gameState, cardState, selectedSquare, selectedHandPiece, legalMoves } = state;
       if (gameState.status !== "active") return;
       if (gameState.currentPlayer !== gameConfig.playerColor) return;
+      // ドロー演出 / カード使用演出中は盤面操作禁止 (Issue #82)。
+      // ※ pendingCard.selectTarget 時は currentPlayer 反転前なのでここを通る必要があるため、
+      //   isDrawing / isPlayingCard だけを弾く。
+      if (state.isDrawing || state.isPlayingCard) return;
 
       // pendingCard が selectTarget フェーズなら、盤面クリックをターゲット指定として扱う
       // ただしカード効果に応じて選択可能な対象を制限する (P2: 歩戻しは自分の歩のみ)
@@ -951,10 +963,11 @@ export function useCardShogiGame({
   const selectHandPiece = useCallback(
     (pieceType: string) => {
       if (state.cardState.pendingCard) return;
+      if (state.isDrawing || state.isPlayingCard) return; // Issue #82: 演出中は弾く
       if (state.gameState.currentPlayer !== gameConfig.playerColor) return;
       dispatch({ type: "SELECT_HAND_PIECE", pieceType });
     },
-    [state.gameState.currentPlayer, gameConfig.playerColor, state.cardState.pendingCard],
+    [state.gameState.currentPlayer, gameConfig.playerColor, state.cardState.pendingCard, state.isDrawing, state.isPlayingCard],
   );
 
   const confirmPromotion = useCallback((promote: boolean) => {

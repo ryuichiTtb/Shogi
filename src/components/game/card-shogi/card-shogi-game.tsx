@@ -481,11 +481,21 @@ export function CardShogiGame({
   // モバイル下端用の TrapSlot。山札 md と高さを揃えるため md サイズ
   const ownTrapSlotMobile = <TrapSlot trap={cardState.trap[playerColor]} size="md" />;
 
+  // 山札からのドロー可否 (Issue #82: pendingCard 中もドロー禁止に統一)
+  const canDrawCard =
+    cardState.mana[playerColor] >= DRAW_COST &&
+    isPlayerTurn &&
+    isGameActive &&
+    !inCheck &&
+    !isDrawAnimating &&
+    !isPlayingCard &&
+    cardState.pendingCard === null;
+
   const opponentDeckPile = <DeckPile count={cardState.deck[aiColor].length} size="md" showDrawCost />;
   const ownDeckPile = (
     <DeckPile
       count={cardState.deck[playerColor].length}
-      canDraw={cardState.mana[playerColor] >= DRAW_COST && isPlayerTurn && isGameActive && !inCheck && !isDrawAnimating && !isPlayingCard}
+      canDraw={canDrawCard}
       onDraw={drawCard}
       size="md"
       showDrawCost
@@ -497,7 +507,7 @@ export function CardShogiGame({
   const ownDeckPileMobile = (
     <DeckPile
       count={cardState.deck[playerColor].length}
-      canDraw={cardState.mana[playerColor] >= DRAW_COST && isPlayerTurn && isGameActive && !inCheck && !isDrawAnimating && !isPlayingCard}
+      canDraw={canDrawCard}
       onDraw={drawCard}
       size="md"
       showDrawCost
@@ -965,7 +975,7 @@ export function CardShogiGame({
             <div ref={ownDeckPileXlRef} className="flex-1 min-w-0">
               <DeckPile
                 count={cardState.deck[playerColor].length}
-                canDraw={cardState.mana[playerColor] >= DRAW_COST && isPlayerTurn && isGameActive && !inCheck && !isDrawAnimating && !isPlayingCard}
+                canDraw={canDrawCard}
                 onDraw={drawCard}
                 size="lg"
                 showDrawCost
