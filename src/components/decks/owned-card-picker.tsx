@@ -2,9 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Plus } from "lucide-react";
 import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
 import { RARITY_INFO, RARITY_OPTIONS } from "@/lib/shogi/cards/labels";
 import {
@@ -13,6 +11,7 @@ import {
 } from "@/lib/shogi/cards/deck-rules";
 import type { CardId, CardRarity } from "@/lib/shogi/cards/types";
 import type { OwnedCardSummary } from "@/app/actions/deck";
+import { DeckCardTile, OwnedTileControls, TileBadge } from "./deck-card-tile";
 
 interface OwnedCardPickerProps {
   ownedCards: OwnedCardSummary[];
@@ -111,14 +110,13 @@ export function OwnedCardPicker({
             該当する所持カードがありません
           </p>
         ) : (
-          <ul className="space-y-1">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 pb-2">
             {filtered.map((c) => {
-              const def = CARD_DEFS[c.cardId];
               const current = currentCountByCard.get(c.cardId) ?? 0;
               const cap = RARITY_MAX_PER_DECK[c.rarity];
               const limit = cap === null ? c.owned : Math.min(c.owned, cap);
               const atCardLimit = current >= limit;
-              const cantAdd = disabled || totalAtMax || atCardLimit;
+              const canAdd = !totalAtMax && !atCardLimit;
 
               const reason = totalAtMax
                 ? `デッキ合計 ${DECK_TOTAL_MAX} 枚に達しています`
@@ -129,47 +127,31 @@ export function OwnedCardPicker({
                   : undefined;
 
               return (
-                <li
+                <DeckCardTile
                   key={c.cardId}
-                  className="flex items-center gap-2 px-2 py-1.5 rounded-md border bg-background"
-                >
-                  <span className="text-base shrink-0" aria-hidden>
-                    {def.icon}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-medium truncate">
-                        {def.name}
-                      </span>
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          "text-[9px] px-1 py-0 leading-tight",
-                          RARITY_INFO[c.rarity].className,
-                        )}
-                      >
-                        {RARITY_INFO[c.rarity].label}
-                      </Badge>
-                    </div>
-                    <div className="text-[10px] text-muted-foreground tabular-nums">
-                      所持 {c.owned} / 編成中 {current}
-                      {cap !== null && ` (上限 ${cap})`}
-                    </div>
-                  </div>
-                  <Button
-                    size="icon-xs"
-                    variant="outline"
-                    onClick={() => onAdd(c.cardId)}
-                    disabled={cantAdd}
-                    title={reason}
-                    aria-label={`${def.name} を追加`}
-                  >
-                    <Plus />
-                  </Button>
-                </li>
+                  cardId={c.cardId}
+                  topBadge={
+                    current > 0 ? (
+                      <TileBadge className="bg-primary text-primary-foreground border-primary">
+                        編成中 ×{current}
+                      </TileBadge>
+                    ) : undefined
+                  }
+                  controls={
+                    <OwnedTileControls
+                      owned={c.owned}
+                      current={current}
+                      cap={cap}
+                      canAdd={canAdd}
+                      disabled={disabled}
+                      reason={reason}
+                      onAdd={() => onAdd(c.cardId)}
+                    />
+                  }
+                />
               );
             })}
-          </ul>
+          </div>
         )}
       </div>
     </div>

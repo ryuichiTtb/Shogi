@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { Trash2, Save, Pencil, Star, Minus, Plus, X } from "lucide-react";
+import { Trash2, Save, Pencil, Star } from "lucide-react";
 import {
   deleteDeck,
   renameDeck,
@@ -21,11 +21,11 @@ import {
   validateDeckEntries,
   type CardOwnershipInfo,
 } from "@/lib/shogi/cards/deck-rules";
-import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
 import { RARITY_INFO } from "@/lib/shogi/cards/labels";
 import type { CardId, CardRarity } from "@/lib/shogi/cards/types";
 import { OwnedCardPicker } from "./owned-card-picker";
 import { ConfirmDialog } from "./confirm-dialog";
+import { DeckCardTile, DeckTileControls, TileBadge } from "./deck-card-tile";
 
 interface DeckEditorPaneProps {
   deck: DeckDetail;
@@ -291,67 +291,36 @@ export function DeckEditorPane({
                 右の所持カードから「+」で追加してください
               </p>
             ) : (
-              <ul className="space-y-1">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 pb-2">
                 {entries.map((e) => {
-                  const def = CARD_DEFS[e.cardId];
                   const info = ownership.get(e.cardId);
                   const limit = info ? perCardLimit(info) : 0;
                   return (
-                    <li
+                    <DeckCardTile
                       key={e.cardId}
-                      className="flex items-center gap-2 px-2 py-1.5 rounded-md border bg-background"
-                    >
-                      <span className="text-base shrink-0" aria-hidden>
-                        {def.icon}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-medium truncate">
-                            {def.name}
-                          </span>
-                          <RarityBadge rarity={def.rarity} />
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-0.5 shrink-0">
-                        <Button
-                          size="icon-xs"
-                          variant="ghost"
-                          onClick={() => changeCount(e.cardId, -1)}
-                          disabled={isPending}
-                          aria-label="1枚減らす"
-                        >
-                          <Minus />
-                        </Button>
-                        <span className="w-6 text-center text-sm font-semibold tabular-nums">
-                          {e.count}
-                        </span>
-                        <Button
-                          size="icon-xs"
-                          variant="ghost"
-                          onClick={() => changeCount(e.cardId, 1)}
-                          disabled={
-                            isPending ||
-                            e.count >= limit ||
-                            validation.totalCount >= DECK_TOTAL_MAX
+                      cardId={e.cardId}
+                      topBadge={
+                        <TileBadge className="bg-primary text-primary-foreground border-primary">
+                          ×{e.count}
+                        </TileBadge>
+                      }
+                      controls={
+                        <DeckTileControls
+                          count={e.count}
+                          canIncrement={
+                            e.count < limit &&
+                            validation.totalCount < DECK_TOTAL_MAX
                           }
-                          aria-label="1枚増やす"
-                        >
-                          <Plus />
-                        </Button>
-                        <Button
-                          size="icon-xs"
-                          variant="ghost"
-                          onClick={() => removeEntry(e.cardId)}
                           disabled={isPending}
-                          aria-label="削除"
-                        >
-                          <X />
-                        </Button>
-                      </div>
-                    </li>
+                          onIncrement={() => changeCount(e.cardId, 1)}
+                          onDecrement={() => changeCount(e.cardId, -1)}
+                          onRemove={() => removeEntry(e.cardId)}
+                        />
+                      }
+                    />
                   );
                 })}
-              </ul>
+              </div>
             )}
           </div>
         </section>
@@ -384,18 +353,6 @@ export function DeckEditorPane({
 function perCardLimit(info: CardOwnershipInfo): number {
   const cap = RARITY_MAX_PER_DECK[info.rarity];
   return cap === null ? info.owned : Math.min(info.owned, cap);
-}
-
-function RarityBadge({ rarity }: { rarity: CardRarity }) {
-  const info = RARITY_INFO[rarity];
-  return (
-    <Badge
-      variant="outline"
-      className={cn("text-[9px] px-1 py-0 leading-tight", info.className)}
-    >
-      {info.label}
-    </Badge>
-  );
 }
 
 interface DeckSummaryBarProps {
