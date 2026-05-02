@@ -19,9 +19,10 @@ interface DrawFlightCardProps {
 const CARD_W = 576;
 const CARD_H = 352;
 
-const FADE_IN_MS = 350;
-const HOLD_MS = 2000;
-const FADE_OUT_MS = 300;
+// 山札→中央: 500ms / 中央ホールド: 1500ms / 中央→手札: 500ms
+const FADE_IN_MS = 500;
+const HOLD_MS = 1500;
+const FADE_OUT_MS = 500;
 const TOTAL_MS = FADE_IN_MS + HOLD_MS + FADE_OUT_MS;
 
 // 中央到着直後にカード上を斜めに走るシマー (光) と、周辺を一瞬光らせる黄金グロウ
@@ -133,11 +134,13 @@ function DrawFlightInner({
   const t1 = FADE_IN_MS / TOTAL_MS;
   const t2 = (FADE_IN_MS + HOLD_MS) / TOTAL_MS;
 
-  // 回転は累積で 0 → 540 → 540 → 1080:
-  //   0deg     裏面手前 (山札位置スタート)
-  //   540deg   = 180deg 相当 → 表面手前 (中央到着・ホールド)
-  //   1080deg  = 0deg 相当 → 裏面手前 (手札到着)
-  // 山札→中央 で 1.5周、中央→手札 で 1.5周、合計 3周。
+  // 回転 (Issue #82 ユーザー指示で更新):
+  //   rotateY:
+  //     0 → 中央 で 2.5周 (=900°、最終的に 180° 相当 → 表面手前)
+  //     中央以降は 900° のまま維持 (表向きのまま手札へ)
+  //   rotateZ:
+  //     0 → 中央 で 2周 (=720°)
+  //     中央 → 手札 で +4周 (=+1440°、累積 2160°)
   // 表/裏切替は子要素の backface-visibility hidden で自動。
   // 注意: filter 系プロパティ(drop-shadow 等)は preserve-3d を flatten させるため
   //       外側 motion.div には付けず、内側面に box-shadow ベースの shadow-2xl を当てる。
@@ -171,10 +174,10 @@ function DrawFlightInner({
     >
       <motion.div
         animate={{
-          // 山札→中央でフリップ (0→540, 1.5周)、中央→手札では rotateY を維持して表向きのまま
-          rotateY: [0, 540, 540, 540],
-          // rotateZ は時計回りに継続 (山札→中央 1周、中央→手札 1周、計2周)
-          rotateZ: [0, 360, 360, 720],
+          // 山札→中央で 2.5周 (0→900°)、中央以降は維持 (表向きのまま手札へ)
+          rotateY: [0, 900, 900, 900],
+          // 山札→中央 で 2周 (0→720°)、中央→手札 で +4周 (720°→2160°)
+          rotateZ: [0, 720, 720, 2160],
         }}
         transition={{
           duration: TOTAL_MS / 1000,
