@@ -156,7 +156,9 @@ function DrawFlightInner({
         left: [startX, centerX, centerX, endX],
         top: [startY, centerY, centerY, endY],
         scale: [startScale, centerScale, centerScale, endScale],
-        opacity: [0, 1, 1, 0],
+        // Issue #82: 中央→手札のフェードアウトを撤廃 (手札到着まで不透明のまま)。
+        // 手札に到着した瞬間に setDrawFlight(null) で消える。
+        opacity: [0, 1, 1, 1],
       }}
       transition={{
         duration: TOTAL_MS / 1000,
