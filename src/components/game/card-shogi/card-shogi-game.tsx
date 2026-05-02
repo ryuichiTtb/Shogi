@@ -118,7 +118,15 @@ export function CardShogiGame({
   const playedCardRectRef = useRef<{ id: string; rect: DOMRect } | null>(null);
   // Issue #82: カード使用後の駒移動アニメ用 spec。
   // フロー(改): カード使用 → 駒フライト → 中央カード演出 → finalize
-  const [pieceFlight, setPieceFlight] = useState<{ spec: PieceFlightSpec; key: number } | null>(null);
+  // hideTarget: フライト中、着地点(to)に既に表示されている駒/持ち駒を非表示にする情報。
+  type FlightHideTarget =
+    | { kind: "board"; row: number; col: number }
+    | { kind: "captured"; player: Player; pieceType: string };
+  const [pieceFlight, setPieceFlight] = useState<{
+    spec: PieceFlightSpec;
+    key: number;
+    hideTarget: FlightHideTarget;
+  } | null>(null);
   const pieceFlightKeyRef = useRef(0);
   // 適用前にしか取れない rect (二歩指しの持ち駒位置 / 駒戻しの戻る駒種など) を保管。
   const pendingPieceFlightRef = useRef<{
@@ -387,12 +395,23 @@ export function CardShogiGame({
               // useEffect 内ではまだ paint されていない可能性があるため
               // requestAnimationFrame で1フレーム待ってから rect を取る。
               pendingPieceFlightRef.current = null;
+              const eventTarget = ev.target;
+              const def = CARD_DEFS[ev.instance.defId];
+              // 着地点(to)を非表示にする対象を決定
+              let hideTarget: FlightHideTarget | null = null;
+              if (def.effectId === "double_pawn" && eventTarget?.kind === "square") {
+                // 二歩指し: 盤面選択マスがフライト着地点 → そのマスの駒をフライト中は隠す
+                hideTarget = { kind: "board", row: eventTarget.row, col: eventTarget.col };
+              } else if (def.effectId === "pawn_return" || def.effectId === "piece_return") {
+                // 歩戻し / 駒戻し: 持ち駒の該当駒種ボタンがフライト着地点
+                hideTarget = { kind: "captured", player: playerColor, pieceType: pending.pieceType };
+              }
               const launch = () => {
                 let toRect = pending.toRect;
                 if (toRect === null) {
                   toRect = findVisibleCapturedPieceRect(playerColor, pending.pieceType);
                 }
-                if (toRect) {
+                if (toRect && hideTarget) {
                   pieceFlightKeyRef.current += 1;
                   setPieceFlight({
                     spec: {
@@ -404,6 +423,7 @@ export function CardShogiGame({
                       toY: toRect.top + toRect.height / 2,
                     },
                     key: pieceFlightKeyRef.current,
+                    hideTarget,
                   });
                   pendingPlayFlightRef.current = { card: cardInstance, isTrap: false };
                 } else {
@@ -614,6 +634,18 @@ export function CardShogiGame({
   const ownTrapSlot = <TrapSlot trap={cardState.trap[playerColor]} size="md" />;
   // モバイル下端用の TrapSlot。山札 md と高さを揃えるため md サイズ
   const ownTrapSlotMobile = <TrapSlot trap={cardState.trap[playerColor]} size="md" />;
+
+  // Issue #82: 駒フライト中、着地点を非表示にするための props 計算
+  const hiddenBoardSquares: Position[] =
+    pieceFlight && pieceFlight.hideTarget.kind === "board"
+      ? [{ row: pieceFlight.hideTarget.row, col: pieceFlight.hideTarget.col }]
+      : [];
+  const hiddenOwnCapturedTypes: string[] =
+    pieceFlight &&
+    pieceFlight.hideTarget.kind === "captured" &&
+    pieceFlight.hideTarget.player === playerColor
+      ? [pieceFlight.hideTarget.pieceType]
+      : [];
 
   // 山札からのドロー可否 (Issue #82: pendingCard 中もドロー禁止に統一)
   const canDrawCard =
@@ -887,6 +919,7 @@ export function CardShogiGame({
               isMobile={isMobile}
               cardTargetSquares={cardTargetSquares}
               noPromoteSquares={noPromoteSquares}
+              hiddenSquares={hiddenBoardSquares}
             />
             <BoardOverlay
               key={overlayEvent?.key}
@@ -907,6 +940,7 @@ export function CardShogiGame({
               label="あなた"
               squareSize={squareSize}
               compact={isMobile}
+              hiddenPieceTypes={hiddenOwnCapturedTypes}
             />
           </div>
         </div>
@@ -1194,6 +1228,7 @@ export function CardShogiGame({
               isMobile={isMobile}
               cardTargetSquares={cardTargetSquares}
               noPromoteSquares={noPromoteSquares}
+              hiddenSquares={hiddenBoardSquares}
             />
             <BoardOverlay
               key={overlayEvent?.key}

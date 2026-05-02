@@ -32,13 +32,15 @@ interface PieceFlightProps {
 
 // 駒のサイズ。盤面マス・持ち駒アイコンと比して見栄えするよう中間サイズ
 const PIECE_SIZE = 56;
-// Issue #82 ユーザー指示: 移動速度一定 (距離 / 秒) + 回転量も距離不問で一定。
-// 距離が長いほど duration が長くなり、短いほど短くなる。回転数は固定。
+// Issue #82 ユーザー指示: 移動速度・回転速度ともに「速度一定」。
+// - 移動速度 1800 px/s
+// - 回転速度 0.2s / 1回転 = 5 回転/秒 (1800 deg/s)
+// duration は距離に応じて可変、回転総量は duration から逆算 (時間に比例)。
 const SPEED_PX_PER_SEC = 1800;
+// 0.2s で 1 回転
+const ROTATION_SEC_PER_TURN = 0.2;
 // 距離 0 付近でも瞬時にならないよう最小 duration を確保
 const MIN_DURATION_MS = 180;
-// 回転数 (距離不問で固定)
-const ROTATIONS = 2;
 // 保険タイマーの余裕
 const FALLBACK_PADDING_MS = 500;
 
@@ -81,6 +83,8 @@ function PieceFlightInner({
   const dy = spec.toY - spec.fromY;
   const distance = Math.hypot(dx, dy);
   const durationMs = Math.max(MIN_DURATION_MS, (distance / SPEED_PX_PER_SEC) * 1000);
+  // 回転総量は duration から逆算 (回転速度 0.2s/回転 = 5 回転/秒 一定)
+  const rotateDeg = (durationMs / 1000 / ROTATION_SEC_PER_TURN) * 360;
 
   // タブ非アクティブ時の onAnimationComplete 遅延に備えた保険タイマー
   const completedRef = useRef(false);
@@ -105,7 +109,7 @@ function PieceFlightInner({
       animate={{
         x: spec.toX - PIECE_SIZE / 2,
         y: spec.toY - PIECE_SIZE / 2,
-        rotate: 360 * ROTATIONS,
+        rotate: rotateDeg,
       }}
       transition={{
         duration: durationMs / 1000,

@@ -15,6 +15,8 @@ interface CapturedPiecesProps {
   squareSize?: number;
   // 縦幅を縮める(card-shogi のモバイル等で持ち駒エリアの高さを抑えたいとき)
   compact?: boolean;
+  // カード将棋 (Issue #82): フライト中、着地点となる駒種を visibility: hidden で非表示
+  hiddenPieceTypes?: string[];
 }
 
 // 手駒の表示順
@@ -37,7 +39,9 @@ export function CapturedPieces({
   label,
   squareSize = 40,
   compact = false,
+  hiddenPieceTypes,
 }: CapturedPiecesProps) {
+  const hiddenSet = new Set(hiddenPieceTypes ?? []);
   const pieces = hand[player];
   const sortedPieces = HAND_PIECE_ORDER.filter(
     (type) => (pieces[type] ?? 0) > 0
@@ -75,7 +79,11 @@ export function CapturedPieces({
                 !isCurrentPlayer && "cursor-default opacity-80",
                 selectedHandPiece === type && isCurrentPlayer && "ring-2 ring-blue-500",
               )}
-              style={{ width: handPieceSize, height: handPieceSize }}
+              style={{
+                width: handPieceSize,
+                height: handPieceSize,
+                ...(hiddenSet.has(type) ? { visibility: "hidden" as const } : null),
+              }}
             >
               <ShogiPiece
                 piece={{ type, owner: player }}

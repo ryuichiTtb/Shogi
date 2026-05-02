@@ -27,6 +27,9 @@ interface ShogiBoardProps {
   cardTargetSquares?: Position[];
   // カード将棋: no_promote の永続「成り不可」マーク位置 (両プレイヤー分をまとめて指定)。
   noPromoteSquares?: Position[];
+  // カード将棋 (Issue #82): 駒フライト中、着地点の駒を非表示にするためのマス。
+  // 指定したマスの駒は visibility: hidden で消す (レイアウトは保持)。
+  hiddenSquares?: Position[];
 }
 
 // 先手目線のラベル
@@ -52,6 +55,7 @@ export const ShogiBoard = forwardRef<ShogiBoardHandle, ShogiBoardProps>(function
     isMobile,
     cardTargetSquares,
     noPromoteSquares,
+    hiddenSquares,
   },
   forwardedRef,
 ) {
@@ -75,6 +79,9 @@ export const ShogiBoard = forwardRef<ShogiBoardHandle, ShogiBoardProps>(function
   );
   const noPromoteSet = new Set(
     (noPromoteSquares ?? []).map((p) => `${p.row}-${p.col}`)
+  );
+  const hiddenSet = new Set(
+    (hiddenSquares ?? []).map((p) => `${p.row}-${p.col}`)
   );
 
   const isGote = playerColor === "gote";
@@ -148,6 +155,7 @@ export const ShogiBoard = forwardRef<ShogiBoardHandle, ShogiBoardProps>(function
               const isLegalTarget = legalMoveSet.has(`${rowIdx}-${colIdx}`);
               const isCardTarget = cardTargetSet.has(`${rowIdx}-${colIdx}`);
               const isNoPromote = noPromoteSet.has(`${rowIdx}-${colIdx}`);
+              const isHidden = hiddenSet.has(`${rowIdx}-${colIdx}`);
               const isLastMoveSq = isLastMoveSquare(rowIdx, colIdx);
               const isKingInCheck =
                 inCheck &&
@@ -213,9 +221,9 @@ export const ShogiBoard = forwardRef<ShogiBoardHandle, ShogiBoardProps>(function
                     </div>
                   )}
 
-                  {/* 駒 */}
+                  {/* 駒 (Issue #82: hiddenSquares 指定時はフライト中につき非表示) */}
                   {piece && (
-                    <div className="absolute inset-0">
+                    <div className="absolute inset-0" style={isHidden ? { visibility: "hidden" } : undefined}>
                       <ShogiPiece
                         piece={piece}
                         isSelected={isSelected}
