@@ -71,6 +71,7 @@ export function HandArea({
 
   return (
     <div
+      data-hand-scroll={layout}
       className={cn(
         "flex gap-2",
         // 上余白(pt-2): hover で各カードが translateY(-2px) で浮くため、

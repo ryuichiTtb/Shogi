@@ -620,6 +620,17 @@ export function CardShogiGame({
         setFreshlyDrawnId((prev) => (prev === id ? null : prev));
       }, 900);
     }
+    // Issue #82: 手札スクロールを最後尾へ。PC は縦スクロール、モバイルは横スクロール。
+    // どちらの場合でも scrollTop / scrollLeft を最大に設定すれば、該当しない軸は無視される。
+    // setDrawFlight(null) → 新カードが手札に表示される DOM 更新を待つため rAF で1フレーム遅延。
+    if (typeof window !== "undefined") {
+      window.requestAnimationFrame(() => {
+        document.querySelectorAll<HTMLElement>("[data-hand-scroll]").forEach((el) => {
+          if (el.offsetParent === null) return; // 非表示レイアウトはスキップ
+          el.scrollTo({ top: el.scrollHeight, left: el.scrollWidth, behavior: "smooth" });
+        });
+      });
+    }
   }, [drawFlight, finalizeDraw]);
 
   // ----- レイアウト用ヘルパ -----
