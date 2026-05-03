@@ -160,9 +160,12 @@ export function CardShogiGame({
   // ghosts: 王手中央表示+トラップ発動演出の間、reducer は既に駒を盤上から除去
   //   しているため、駒の元位置に「ゴースト駒」を絶対配置で重ね描きする。
   //   フライト開始時にクリア。
+  // hitActive: トラップ発動タイミング (T=1600) で true に切り替わり、
+  //   ゴースト駒に紫フラッシュ+シェイク+グローのヒット演出を付与する。
   // flights: 値ありになったらフライト開始。pendingFlightCount=0 で finalize。
   const [checkBreakAnim, setCheckBreakAnim] = useState<{
     ghosts: Array<{ rect: DOMRect; pieceType: string; owner: Player }>;
+    hitActive: boolean;
     flights: PieceFlightSpec[];
     flightKeyBase: number;
     hideTargets: FlightHideTarget[];
@@ -530,6 +533,7 @@ export function CardShogiGame({
             const flightKeyBase = pieceFlightKeyRef.current - captures.length + 1;
             setCheckBreakAnim({
               ghosts,
+              hitActive: false,
               flights: [],   // フライト発火前は空配列。ゴーストのみ表示。
               flightKeyBase,
               hideTargets,
@@ -539,6 +543,7 @@ export function CardShogiGame({
             playSfx("check");
             setOverlayEvent({ event: "check", key: Date.now() });
             // T=1600: トラップ発動演出 (2300ms = 200 fadeIn + 1500 hold + 600 fadeOut)
+            //   + ゴースト駒へヒット演出 (紫フラッシュ + シェイク + 持続グロー)
             window.setTimeout(() => {
               playSfx("trap_trigger");
               setOverlayEvent({
@@ -546,6 +551,7 @@ export function CardShogiGame({
                 key: Date.now(),
                 trapName: trapDef.name,
               });
+              setCheckBreakAnim((prev) => (prev ? { ...prev, hitActive: true } : null));
             }, 1600);
             // T=3900: ゴーストを消し、駒フライト並行発火
             window.setTimeout(() => {
@@ -1603,12 +1609,15 @@ export function CardShogiGame({
             {checkBreakAnim.ghosts.map((g, i) => (
               <div
                 key={`ghost-${i}`}
+                className={cn(checkBreakAnim.hitActive && "animate-ghost-trap-hit")}
                 style={{
                   position: "fixed",
                   left: g.rect.left,
                   top: g.rect.top,
                   width: g.rect.width,
                   height: g.rect.height,
+                  // 紫グローや scale が transform で動くため、変換中心を中央に固定
+                  transformOrigin: "center center",
                 }}
               >
                 <ShogiPiece
