@@ -461,9 +461,24 @@
   transition: opacity 0.18s ease;
 }
 
-/* Step S2 (Issue #107): hover 系演出は (hover: hover) and (pointer: fine) で
- * ガードする。タッチデバイスでは :hover がタップ後に持続し、ドラッグで他カード
- * に張り付く挙動を起こすため、マウス/トラックパッド環境でのみ発火させる。 */
+/* Step S2 / Step S3 (Issue #107): hover 系演出のタッチ対応。
+ * 旧実装は touch device で :hover がタップ後に持続し、ドラッグで他カードに
+ * 張り付く挙動だった。Step S2 で :hover を (hover: hover) and (pointer: fine)
+ * でガードしたが、タップ中のフィードバック自体も消えてしまう副作用があった
+ * ため、Step S3 で :active を追加。
+ * 設計:
+ *  - :hover はマウス/トラックパッド (hover-capable) のみで発火
+ *  - :active は全デバイスで発火 (touch: タップ中、mouse: クリック中)
+ *    タップを離すと自動でクリアされるため、ドラッグ張り付き問題は再発しない
+ */
+.card-hover-focus:not(:disabled):active {
+  transform: translateY(-2px);
+  outline-color: rgba(250, 204, 21, 0.78);
+  filter: drop-shadow(0 4px 14px rgba(250, 204, 21, 0.40));
+}
+.card-hover-focus:not(:disabled):active .card-hover-overlay {
+  opacity: 1;
+}
 @media (hover: hover) and (pointer: fine) {
   .card-hover-focus:not(:disabled):hover {
     transform: translateY(-2px);
@@ -478,9 +493,13 @@
 /* Step S2 (Issue #107): カードデザイン画面用の lift only hover。
  * card-hover-focus との違い: 黄色 outline / overlay / drop-shadow を含まず、
  * 浮き上がり (translateY) のみ。デザイン選択画面では装飾色を被せず、
- * 「カードそのもの」のデザインを邪魔せずに hover を伝える。 */
+ * 「カードそのもの」のデザインを邪魔せずに hover を伝える。
+ * Step S3: :active も同様に対応 (タッチでもタップ中だけ浮き上がる) */
 .card-hover-lift {
   transition: transform 0.18s ease;
+}
+.card-hover-lift:not(:disabled):active {
+  transform: translateY(-2px);
 }
 @media (hover: hover) and (pointer: fine) {
   .card-hover-lift:not(:disabled):hover {
