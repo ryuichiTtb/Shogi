@@ -116,7 +116,19 @@ export function useCardShogiGame({
       state.gameState.moveHistory[state.gameState.moveHistory.length - 2]?.to,
     );
     lastSavedMoveCountRef.current = moveCount;
-    saveCardShogiMove(gameId, lastMove, state.gameState, state.cardState, notation, moveCount);
+    // Issue #117 (#128): Server Action 失敗を unhandled rejection にしない。
+    // 保存失敗は致命ではない (state は client にあり、画面遷移で消えるが対局自体は継続可能)
+    // のでログのみ。Vercel cold start や一時的な接続失敗で落ちなくする。
+    saveCardShogiMove(
+      gameId,
+      lastMove,
+      state.gameState,
+      state.cardState,
+      notation,
+      moveCount,
+    ).catch((e) => {
+      console.error("saveCardShogiMove failed", e);
+    });
   }, [state.gameState, state.cardState, gameId]);
 
   // ----- 公開API -----

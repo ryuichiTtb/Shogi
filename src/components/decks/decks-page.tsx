@@ -86,9 +86,21 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
   useEffect(() => {
     if (!selectedId) return;
     let cancelled = false;
-    getDeckDetail(selectedId).then((d) => {
-      if (!cancelled) setDetail(d);
-    });
+    // Issue #117 (#128): Server Action 失敗を unhandled rejection にしないため
+    // 明示的に catch + actionError 表示。ローディング状態に張り付きを防ぐ。
+    getDeckDetail(selectedId)
+      .then((d) => {
+        if (!cancelled) setDetail(d);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        console.error("getDeckDetail failed", e);
+        setActionError(
+          e instanceof Error
+            ? `デッキの読み込みに失敗しました: ${e.message}`
+            : "デッキの読み込みに失敗しました。再度お試しください。",
+        );
+      });
     return () => {
       cancelled = true;
     };

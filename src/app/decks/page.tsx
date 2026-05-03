@@ -1,3 +1,9 @@
+// Issue #117 (#128): /decks を runtime レンダリングに変更。
+// 旧実装は Static (ビルド時 DB アクセス) で生成されていたが、Vercel 上で /decks 表示時に
+// Chrome NETERR が頻発する事象が起きていた。原因切り分けのため runtime 解決にし、
+// ビルド時 DB 状態への依存と pre-render キャッシュの汚染リスクを排除する。
+export const dynamic = "force-dynamic";
+
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import {
