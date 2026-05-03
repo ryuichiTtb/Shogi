@@ -843,12 +843,45 @@ export function CardShogiGame({
     />
   );
 
+  // Issue #105: モバイルでは画面最上段、タブレット以降は中央エリア先頭に配置する
+  // (タブレット動作維持のため両所でレンダリング)。
+  const statusBarContent = (
+    <div className="flex items-center justify-between w-full px-2 shrink-0" style={{ height: 28 }}>
+      <div className="flex items-center gap-1.5">
+        <Badge variant={isPlayerTurn ? "default" : "secondary"} className="text-xs">
+          {isPlayerTurn ? "あなたの番" : "相手の番"}
+        </Badge>
+        <Button
+          size="icon"
+          variant="ghost"
+          className="h-6 w-6"
+          onClick={toggleMute}
+          aria-label={isMuted ? "ミュート中" : "音あり"}
+          title={isMuted ? "ミュート中" : "音あり"}
+        >
+          {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+        </Button>
+        {inCheck && (
+          <Badge variant="destructive" className="animate-pulse text-xs">
+            王手！
+          </Badge>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-muted-foreground">{gameState.moveCount}手目</span>
+        <ThemeSelector />
+      </div>
+    </div>
+  );
+
   return (
     <div
       className="shogi-game-area w-full overflow-hidden flex flex-col"
       style={{ height: viewportHeight }}
       onClick={handleDeselect}
     >
+      {/* モバイル: ステータスバーを画面最上段に配置 (Issue #105) */}
+      <div className="md:hidden shrink-0 bg-card border-b">{statusBarContent}</div>
       {/* ===== 相手ゾーン ===== */}
       {/* PC タブレット相当 (md..xl-1): 詳細ゾーン */}
       <section
@@ -894,33 +927,8 @@ export function CardShogiGame({
       {/* ===== 中央: 盤面 + 持ち駒 + (PCサイドパネル) ===== xl 未満で表示 */}
       <div className="xl:hidden flex-1 min-h-0 flex flex-col lg:flex-row max-w-5xl mx-auto w-full overflow-hidden">
         <div className="flex flex-col items-center flex-1 min-h-0 px-2 py-0.5 lg:py-2">
-          {/* ステータスバー (モバイルでは音アイコンもここに集約) */}
-          <div className="flex items-center justify-between w-full px-1 shrink-0" style={{ height: 28 }}>
-            <div className="flex items-center gap-1.5">
-              <Badge variant={isPlayerTurn ? "default" : "secondary"} className="text-xs">
-                {isPlayerTurn ? "あなたの番" : "相手の番"}
-              </Badge>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-6 w-6"
-                onClick={toggleMute}
-                aria-label={isMuted ? "ミュート中" : "音あり"}
-                title={isMuted ? "ミュート中" : "音あり"}
-              >
-                {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
-              </Button>
-              {inCheck && (
-                <Badge variant="destructive" className="animate-pulse text-xs">
-                  王手！
-                </Badge>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">{gameState.moveCount}手目</span>
-              <ThemeSelector />
-            </div>
-          </div>
+          {/* ステータスバー (タブレット用)。モバイルでは画面最上段に分離配置済 (Issue #105) */}
+          <div className="hidden md:block w-full">{statusBarContent}</div>
 
           {/* 相手の持ち駒 (モバイルでは compact で縦幅を詰める) */}
           <div className="w-full shrink-0" style={{ maxWidth: squareSize * 9 + 60 }}>

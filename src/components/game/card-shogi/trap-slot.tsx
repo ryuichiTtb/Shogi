@@ -15,7 +15,9 @@ interface TrapSlotProps {
 }
 
 const SIZE_CLASS = {
-  sm: "w-9 h-12 text-[10px]",
+  // sm は CardView の sm (w-12 h-16) と寸法を揃え、相手手札 stack や山札と
+  // 同じカードサイズで並べられるようにする (Issue #105 モバイル相手バー)。
+  sm: "w-12 h-16 text-[10px]",
   md: "w-16 h-20 text-[13px]",
   lg: "w-20 h-24 text-sm",
 };
@@ -92,7 +94,7 @@ export function TrapSlot({
   const sizeClass = fullWidth
     ? cn(
         "w-full",
-        size === "sm" ? "h-12 text-[10px]" : size === "md" ? "h-20 text-[13px]" : "h-24 text-sm",
+        size === "sm" ? "h-16 text-[10px]" : size === "md" ? "h-20 text-[13px]" : "h-24 text-sm",
       )
     : SIZE_CLASS[size];
 
