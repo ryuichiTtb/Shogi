@@ -1,11 +1,11 @@
 "use client";
 
-import { forwardRef, useImperativeHandle, useRef } from "react";
+import { forwardRef, memo, useCallback, useImperativeHandle, useRef } from "react";
 
 import { cn } from "@/lib/utils";
 import { ShogiPiece } from "./shogi-piece";
 import { useTouchHandler } from "@/hooks/use-touch-handler";
-import type { Board, Move, Player, Position } from "@/lib/shogi/types";
+import type { Board, Move, Piece, Player, Position } from "@/lib/shogi/types";
 
 export interface ShogiBoardHandle {
   getSquareRect: (row: number, col: number) => DOMRect | null;
@@ -40,7 +40,147 @@ const RANK_LABELS_SENTE = ["一", "二", "三", "四", "五", "六", "七", "八
 const FILE_LABELS_GOTE = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
 const RANK_LABELS_GOTE = ["九", "八", "七", "六", "五", "四", "三", "二", "一"];
 
-export const ShogiBoard = forwardRef<ShogiBoardHandle, ShogiBoardProps>(function ShogiBoard(
+// マスごとの ref 登録/解除を行う関数の型。親側で安定化して BoardSquare に渡す。
+type RegisterSquareRef = (row: number, col: number, el: HTMLDivElement | null) => void;
+
+interface BoardSquareProps {
+  rowIdx: number;
+  colIdx: number;
+  piece: Piece | null;
+  isSelected: boolean;
+  isLegalTarget: boolean;
+  isCardTarget: boolean;
+  isNoPromote: boolean;
+  isHidden: boolean;
+  isLastMoveSq: boolean;
+  isKingInCheck: boolean;
+  isStarPoint: boolean;
+  canHover: boolean;
+  squareSize: number;
+  dotSize: number;
+  playerColor: Player;
+  registerRef: RegisterSquareRef;
+}
+
+// 81 マスの 1 マス分。React.memo でラップし、変わっていないマスの再描画を skip する。
+// onClick 系は親 grid の pointerHandlers (useTouchHandler) で一括処理しているため、
+// BoardSquare 自身は受け取らない。
+const BoardSquare = memo(function BoardSquare({
+  rowIdx,
+  colIdx,
+  piece,
+  isSelected,
+  isLegalTarget,
+  isCardTarget,
+  isNoPromote,
+  isHidden,
+  isLastMoveSq,
+  isKingInCheck,
+  isStarPoint,
+  canHover,
+  squareSize,
+  dotSize,
+  playerColor,
+  registerRef,
+}: BoardSquareProps) {
+  // ref 登録は registerRef + (rowIdx, colIdx) で stabilize。BoardSquare が memo で
+  // 再描画 skip されると、ref callback の identity も変わらない。
+  const setRef = useCallback(
+    (el: HTMLDivElement | null) => registerRef(rowIdx, colIdx, el),
+    [rowIdx, colIdx, registerRef],
+  );
+
+  return (
+    <div
+      ref={setRef}
+      data-legal={isLegalTarget}
+      className={cn(
+        "shogi-square relative flex items-center justify-center",
+        "cursor-pointer",
+        // 通常背景
+        "bg-amber-50 dark:bg-amber-950",
+        // 直前の手（移動前・移動後）
+        isLastMoveSq && !isSelected && "bg-emerald-200 dark:bg-emerald-800/60",
+        // 王手中の王
+        isKingInCheck && "bg-red-300 dark:bg-red-800/70",
+        // 選択マス
+        isSelected && "bg-blue-200 dark:bg-blue-800/60",
+        // 合法手ハイライト
+        isLegalTarget && !piece && "bg-blue-200/70 dark:bg-blue-700/40",
+        isLegalTarget && piece && "bg-red-200/70 dark:bg-red-700/40",
+        // カード効果のターゲット候補(歩戻し等) - 既存の合法手ハイライトより優先
+        isCardTarget && "bg-amber-300/80 dark:bg-amber-500/40 ring-2 ring-inset ring-amber-500 dark:ring-amber-300 animate-pulse",
+        // プレイヤーのターンでない・AI思考中は操作不可
+        !canHover && !isCardTarget && "cursor-not-allowed",
+        // ホバー
+        canHover && "hover:bg-amber-100 dark:hover:bg-amber-800/50"
+      )}
+      style={{ width: squareSize, height: squareSize }}
+    >
+      {/* 星目（中央3×3四隅の交差点） */}
+      {isStarPoint && (
+        <div
+          className="absolute z-10 rounded-full bg-amber-900 dark:bg-amber-400 pointer-events-none"
+          style={{
+            width: Math.max(4, squareSize * 0.08),
+            height: Math.max(4, squareSize * 0.08),
+            bottom: 0,
+            right: 0,
+            transform: "translate(50%, 50%)",
+          }}
+        />
+      )}
+
+      {/* 合法手ドット（空きマス） */}
+      {isLegalTarget && !piece && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div
+            className="rounded-full bg-blue-500/50"
+            style={{ width: dotSize, height: dotSize }}
+          />
+        </div>
+      )}
+
+      {/* 駒 (Issue #82: hiddenSquares 指定時はフライト中につき非表示) */}
+      {piece && (
+        <div
+          className="absolute inset-0"
+          style={isHidden ? { opacity: 0, pointerEvents: "none" } : undefined}
+        >
+          <ShogiPiece
+            piece={piece}
+            isSelected={isSelected}
+            isInCheck={isKingInCheck}
+            playerColor={playerColor}
+            squareSize={squareSize}
+          />
+        </div>
+      )}
+
+      {/* no_promote 永続マーク (紫枠 + 🚫) */}
+      {isNoPromote && (
+        <div
+          className="absolute inset-0 pointer-events-none z-20 ring-2 ring-inset ring-purple-500 dark:ring-purple-300"
+          aria-label="成り不可"
+        >
+          <span
+            className="absolute leading-none select-none"
+            style={{
+              right: 1,
+              top: 1,
+              fontSize: Math.max(10, squareSize * 0.32),
+              filter: "drop-shadow(0 0 2px rgba(168,85,247,0.9))",
+            }}
+          >
+            🚫
+          </span>
+        </div>
+      )}
+    </div>
+  );
+});
+
+export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(function ShogiBoard(
   {
     board,
     currentPlayer,
@@ -71,6 +211,15 @@ export const ShogiBoard = forwardRef<ShogiBoardHandle, ShogiBoardProps>(function
     }),
     [],
   );
+
+  // ref 登録/解除を BoardSquare に渡す。useCallback で stable 化することで
+  // BoardSquare の memo 比較を維持する (deps なし)。
+  const registerSquareRef = useCallback<RegisterSquareRef>((row, col, el) => {
+    const key = `${row}-${col}`;
+    if (el) squareRefs.current.set(key, el);
+    else squareRefs.current.delete(key);
+  }, []);
+
   const legalMoveSet = new Set(
     legalMoves.map((m) => `${m.to.row}-${m.to.col}`)
   );
@@ -93,14 +242,15 @@ export const ShogiBoard = forwardRef<ShogiBoardHandle, ShogiBoardProps>(function
     onSquareClick,
   });
 
-  const isLastMoveSquare = (row: number, col: number) => {
+  const isLastMoveSquare = (row: number, col: number): boolean => {
     if (!lastMove) return false;
     const matchTo = lastMove.to.row === row && lastMove.to.col === col;
-    const matchFrom = lastMove.from && lastMove.from.row === row && lastMove.from.col === col;
+    const matchFrom = !!lastMove.from && lastMove.from.row === row && lastMove.from.col === col;
     return matchTo || matchFrom;
   };
 
   const isPlayerTurn = currentPlayer === playerColor;
+  const canHover = isPlayerTurn && !isAiThinking;
 
   // 後手番時は行・列を逆順にして後手目線の盤面にする
   const rowIndices = isGote ? [8, 7, 6, 5, 4, 3, 2, 1, 0] : [0, 1, 2, 3, 4, 5, 6, 7, 8];
@@ -148,7 +298,6 @@ export const ShogiBoard = forwardRef<ShogiBoardHandle, ShogiBoardProps>(function
           {rowIndices.map((rowIdx, visualRow) =>
             colIndices.map((colIdx, visualCol) => {
               const piece = board[rowIdx][colIdx];
-              const pos = { row: rowIdx, col: colIdx };
               const isSelected =
                 selectedSquare?.row === rowIdx &&
                 selectedSquare?.col === colIdx;
@@ -166,97 +315,25 @@ export const ShogiBoard = forwardRef<ShogiBoardHandle, ShogiBoardProps>(function
                 (visualCol === 2 || visualCol === 5);
 
               return (
-                <div
+                <BoardSquare
                   key={`${rowIdx}-${colIdx}`}
-                  ref={(el) => {
-                    const key = `${rowIdx}-${colIdx}`;
-                    if (el) squareRefs.current.set(key, el);
-                    else squareRefs.current.delete(key);
-                  }}
-                  data-legal={isLegalTarget}
-                  className={cn(
-                    "shogi-square relative flex items-center justify-center",
-                    "cursor-pointer",
-                    // 通常背景
-                    "bg-amber-50 dark:bg-amber-950",
-                    // 直前の手（移動前・移動後）
-                    isLastMoveSq && !isSelected && "bg-emerald-200 dark:bg-emerald-800/60",
-                    // 王手中の王
-                    isKingInCheck && "bg-red-300 dark:bg-red-800/70",
-                    // 選択マス
-                    isSelected && "bg-blue-200 dark:bg-blue-800/60",
-                    // 合法手ハイライト
-                    isLegalTarget && !piece && "bg-blue-200/70 dark:bg-blue-700/40",
-                    isLegalTarget && piece && "bg-red-200/70 dark:bg-red-700/40",
-                    // カード効果のターゲット候補(歩戻し等) - 既存の合法手ハイライトより優先
-                    isCardTarget && "bg-amber-300/80 dark:bg-amber-500/40 ring-2 ring-inset ring-amber-500 dark:ring-amber-300 animate-pulse",
-                    // プレイヤーのターンでない・AI思考中は操作不可
-                    (!isPlayerTurn || isAiThinking) && !isCardTarget && "cursor-not-allowed",
-                    // ホバー
-                    isPlayerTurn && !isAiThinking && "hover:bg-amber-100 dark:hover:bg-amber-800/50"
-                  )}
-                  style={{ width: squareSize, height: squareSize }}
-                >
-                  {/* 星目（中央3×3四隅の交差点） */}
-                  {isStarPoint && (
-                    <div
-                      className="absolute z-10 rounded-full bg-amber-900 dark:bg-amber-400 pointer-events-none"
-                      style={{
-                        width: Math.max(4, squareSize * 0.08),
-                        height: Math.max(4, squareSize * 0.08),
-                        bottom: 0,
-                        right: 0,
-                        transform: "translate(50%, 50%)",
-                      }}
-                    />
-                  )}
-
-                  {/* 合法手ドット（空きマス） */}
-                  {isLegalTarget && !piece && (
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                      <div
-                        className="rounded-full bg-blue-500/50"
-                        style={{ width: dotSize, height: dotSize }}
-                      />
-                    </div>
-                  )}
-
-                  {/* 駒 (Issue #82: hiddenSquares 指定時はフライト中につき非表示) */}
-                  {piece && (
-                    <div
-                      className="absolute inset-0"
-                      style={isHidden ? { opacity: 0, pointerEvents: "none" } : undefined}
-                    >
-                      <ShogiPiece
-                        piece={piece}
-                        isSelected={isSelected}
-                        isInCheck={isKingInCheck}
-                        playerColor={playerColor}
-                        squareSize={squareSize}
-                      />
-                    </div>
-                  )}
-
-                  {/* no_promote 永続マーク (紫枠 + 🚫) */}
-                  {isNoPromote && (
-                    <div
-                      className="absolute inset-0 pointer-events-none z-20 ring-2 ring-inset ring-purple-500 dark:ring-purple-300"
-                      aria-label="成り不可"
-                    >
-                      <span
-                        className="absolute leading-none select-none"
-                        style={{
-                          right: 1,
-                          top: 1,
-                          fontSize: Math.max(10, squareSize * 0.32),
-                          filter: "drop-shadow(0 0 2px rgba(168,85,247,0.9))",
-                        }}
-                      >
-                        🚫
-                      </span>
-                    </div>
-                  )}
-                </div>
+                  rowIdx={rowIdx}
+                  colIdx={colIdx}
+                  piece={piece}
+                  isSelected={isSelected}
+                  isLegalTarget={isLegalTarget}
+                  isCardTarget={isCardTarget}
+                  isNoPromote={isNoPromote}
+                  isHidden={isHidden}
+                  isLastMoveSq={isLastMoveSq}
+                  isKingInCheck={isKingInCheck}
+                  isStarPoint={isStarPoint}
+                  canHover={canHover}
+                  squareSize={squareSize}
+                  dotSize={dotSize}
+                  playerColor={playerColor}
+                  registerRef={registerSquareRef}
+                />
               );
             })
           )}
@@ -277,4 +354,4 @@ export const ShogiBoard = forwardRef<ShogiBoardHandle, ShogiBoardProps>(function
       </div>
     </div>
   );
-});
+}));

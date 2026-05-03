@@ -6,6 +6,16 @@ import { AnimatePresence, motion } from "framer-motion";
 
 import type { CardInstance } from "@/lib/shogi/cards/types";
 import { CardView } from "./card-view";
+import {
+  PLAY_CARD_W as CARD_W,
+  PLAY_CARD_H as CARD_H,
+  PLAY_POP_IN_MS as POP_IN_MS,
+  PLAY_HOLD_MS as HOLD_MS,
+  PLAY_TOTAL_MS as TOTAL_MS,
+  PLAY_FLASH_DELAY_S as FLASH_DELAY_S,
+  PLAY_SHIMMER_DURATION_S as SHIMMER_DURATION_S,
+  PLAY_GLOW_DURATION_S as GLOW_DURATION_S,
+} from "./animation-constants";
 
 interface CardPlayFlightProps {
   cardInstance: CardInstance | null;
@@ -13,22 +23,6 @@ interface CardPlayFlightProps {
   isTrap: boolean;
   onComplete: () => void;
 }
-
-// CardView size="xl" の素サイズ (DrawFlightCard と揃える)
-const CARD_W = 576;
-const CARD_H = 352;
-
-// Issue #106 (修正後): 手札→中央の移動はやめ、中央にパッと出現してキラッと
-// 光らせる「カードを使った！」演出。手番継続中に挟むため短時間に収める。
-const POP_IN_MS = 220;
-const HOLD_MS = 700;
-const FADE_OUT_MS = 320;
-const TOTAL_MS = POP_IN_MS + HOLD_MS + FADE_OUT_MS;
-
-// 出現直後のシマー (光) と、周辺を一瞬光らせるグロウ
-const FLASH_DELAY_S = POP_IN_MS / 1000;
-const SHIMMER_DURATION_S = 0.6;
-const GLOW_DURATION_S = 0.75;
 
 const subscribe = () => () => {};
 const getClientSnapshot = () => true;

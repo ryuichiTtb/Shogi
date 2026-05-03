@@ -1,5 +1,6 @@
 "use client";
 
+import { memo, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import type { CardInstance } from "@/lib/shogi/cards/types";
 import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
@@ -30,7 +31,49 @@ interface HandAreaProps {
   stackMaxVisible?: number;
 }
 
-export function HandArea({
+interface HandCardProps {
+  card: CardInstance;
+  size: "sm" | "md" | "lg";
+  cardDisabled: boolean;
+  cardInactive: boolean;
+  fullWidth: boolean;
+  hideCardDescription: boolean;
+  isFresh: boolean;
+  onCardClick?: (instanceId: string) => void;
+}
+
+// 手札の 1 枚分。React.memo + 内部 useCallback で onClick を安定化し、
+// 親の他フィールド変化 (マナ・eventLog 等) で他カードが再描画されないようにする。
+const HandCard = memo(function HandCard({
+  card,
+  size,
+  cardDisabled,
+  cardInactive,
+  fullWidth,
+  hideCardDescription,
+  isFresh,
+  onCardClick,
+}: HandCardProps) {
+  const handleClick = useCallback(() => {
+    onCardClick?.(card.instanceId);
+  }, [card.instanceId, onCardClick]);
+
+  return (
+    <div className={cn("rounded-md", isFresh && "animate-hand-card-flash")}>
+      <CardView
+        card={card}
+        size={size}
+        disabled={cardDisabled}
+        inactive={cardInactive}
+        fullWidth={fullWidth}
+        hideDescription={hideCardDescription}
+        onClick={handleClick}
+      />
+    </div>
+  );
+});
+
+export const HandArea = memo(function HandArea({
   hand,
   currentMana,
   faceDown = false,
@@ -105,22 +148,19 @@ export function HandArea({
         const cardInactive = !cardDisabled && disabled;
         const isFresh = c.instanceId === flashCardId;
         return (
-          <div
+          <HandCard
             key={c.instanceId}
-            className={cn("rounded-md", isFresh && "animate-hand-card-flash")}
-          >
-            <CardView
-              card={c}
-              size={size}
-              disabled={cardDisabled}
-              inactive={cardInactive}
-              fullWidth={fullWidth}
-              hideDescription={hideCardDescription}
-              onClick={() => onCardClick?.(c.instanceId)}
-            />
-          </div>
+            card={c}
+            size={size}
+            cardDisabled={cardDisabled}
+            cardInactive={cardInactive}
+            fullWidth={fullWidth}
+            hideCardDescription={hideCardDescription}
+            isFresh={isFresh}
+            onCardClick={onCardClick}
+          />
         );
       })}
     </div>
   );
-}
+});

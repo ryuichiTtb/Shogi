@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 
 import { cn } from "@/lib/utils";
 import { DRAW_COST } from "@/lib/shogi/cards/definitions";
+import { MANA_GAUGE_SEGMENT_DURATION_S as SEGMENT_DURATION_S } from "./animation-constants";
 
 interface ManaGaugeProps {
   current: number;
@@ -20,9 +21,7 @@ interface DeltaSegment {
   kind: "plus" | "minus";
 }
 
-const SEGMENT_DURATION_S = 2.4;
-
-export function ManaGauge({ current, cap, compact = false, label }: ManaGaugeProps) {
+export const ManaGauge = memo(function ManaGauge({ current, cap, compact = false, label }: ManaGaugeProps) {
   const ratio = Math.min(1, current / cap);
   const canDraw = current >= DRAW_COST;
 
@@ -147,4 +146,4 @@ export function ManaGauge({ current, cap, compact = false, label }: ManaGaugePro
       {gaugeBar}
     </div>
   );
-}
+});

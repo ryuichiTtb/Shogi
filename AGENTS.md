@@ -41,7 +41,7 @@ Issue対応は必ず専用ブランチを作成してから実装を開始する
 
 ### 3. ブランチ命名規則
 
-ブランチ名は以下の prefix を使用し、**`{prefix}/#{Issue番号}`** の形式とする。
+ブランチ名は以下の prefix を使用し、**`{prefix}/#{Issue番号}`** または **`{prefix}/#{Issue番号}-{slug}`** の形式とする。
 
 | prefix | 用途 |
 |---|---|
@@ -56,11 +56,19 @@ Issue対応は必ず専用ブランチを作成してから実装を開始する
 - `refactor/#100` — Issue #100 のリファクタリング
 - `chore/#5` — Issue #5 の依存関係更新
 
-**Why:** prefix で変更の性質が一目で分かり、Issue番号でトレーサビリティが確保される。
+**サフィックス形式 (1 つの Issue を複数 PR に分割する場合):**
+
+1 つの Issue を複数の段階的な PR に分けて進める場合は、`{prefix}/#{Issue番号}-{slug}` 形式で派生ブランチを切ってよい。slug は段階の内容を端的に表す英小文字+ハイフン (例: `cleanup`, `memo`, `compute`, `preload`, `split`)。
+
+- 例: Issue #107 を 5 段階で進める場合 — `refactor/#107-cleanup`, `refactor/#107-memo`, `refactor/#107-compute`, `feature/#107-preload`, `refactor/#107-split`
+- 親ブランチとして `feature/#{Issue番号}` または `refactor/#{Issue番号}` を先に作成しておき、各派生ブランチの PR base にしてもよい(その場合、親ブランチ → main の統合 PR を最後に出す)
+
+**Why:** prefix で変更の性質が一目で分かり、Issue番号でトレーサビリティが確保される。1 Issue が大きくなり段階分割が必要なケースでも、slug で各派生ブランチの粒度を表現できる。
 
 **How to apply:**
 - prefix の判断に迷ったら、ユーザーに確認する
 - Issueに紐づかない作業の場合は、Issueを先に作成してから対応する
+- サフィックス形式を使う場合、slug は分かりやすく統一する(チーム間で命名衝突を避ける)
 
 ### 4. 新規ブランチは origin/main を起点にする
 

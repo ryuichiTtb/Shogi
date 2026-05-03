@@ -8,7 +8,10 @@ export interface Character {
   avatarEmoji: string; // 画像がない間のフォールバック
   personality: string; // Claude APIシステムプロンプト
   voiceStyle: string;
-  bgmTrack: string;
+  // Step 4 (Issue #107): 将来 OGG/MP3 fallback ペアを受け取れるよう
+  // string | string[] に拡張。配列で渡された場合は Howler 側で先頭から
+  // 順にフォールバックして再生する。
+  bgmTrack: string | string[];
   color: string; // テーマカラー（Tailwind）
 }
 

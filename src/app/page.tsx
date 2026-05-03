@@ -13,6 +13,8 @@ import { History, Swords, Layers, Library, Palette } from "lucide-react";
 import { ThemeSelector } from "@/components/game/theme-selector";
 import { ModeSelector, type GameMode } from "@/components/home/mode-selector";
 import { LoadingOverlay } from "@/components/loading-overlay";
+import { useAssetPreloader } from "@/hooks/use-asset-preloader";
+import { prepareAudio } from "@/hooks/use-sound";
 
 const DIFFICULTY_INFO: Record<Difficulty, { label: string; description: string; color: string }> = {
   beginner: { label: "初級", description: "将棋を覚えたばかりの方に", color: "bg-green-100 text-green-800 border-green-200" },
@@ -56,10 +58,19 @@ export default function Home() {
 
   const selectedCharacter = CHARACTERS.find((c) => c.difficulty === selectedDifficulty)!;
 
+  // Step 4 (Issue #107): ロビー滞在中に SFX と選択中キャラの BGM を裏で先読み。
+  // 対局画面 mount 時に一気に load することによる初回 SE の遅延を解消する。
+  useAssetPreloader({ selectedCharacterId: selectedCharacter.id });
+
   async function handleStart() {
     if (isPending) return;
     setPendingLabel("準備中...");
     try {
+      // Step 4 (Issue #107): ユーザージェスチャ内で AudioContext を resume させる
+      // (Safari の autoplay policy 対策)。await でも 1 frame 程度なので体感に
+      // 影響しない。失敗しても本番再生は対局画面側でリカバリされるため握りつぶす。
+      await prepareAudio();
+
       const color: Player =
         selectedColor === "random"
           ? Math.random() < 0.5

@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { cn } from "@/lib/utils";
 import type { CardInstance, TrapInstance } from "@/lib/shogi/cards/types";
 import { CardView } from "./card-view";
@@ -22,7 +23,7 @@ const SIZE_CLASS = {
   lg: "w-20 h-24 text-sm",
 };
 
-export function TrapSlot({
+export const TrapSlot = memo(function TrapSlot({
   trap,
   faceDown = false,
   size = "md",
@@ -127,4 +128,4 @@ export function TrapSlot({
       <span className="text-3xl">⚠</span>
     </div>
   );
-}
+});

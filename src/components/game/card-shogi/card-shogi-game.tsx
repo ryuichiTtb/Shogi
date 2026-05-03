@@ -13,7 +13,7 @@ import { useCardBoardSize } from "@/hooks/use-card-board-size";
 import { ShogiBoard, type ShogiBoardHandle } from "../shogi-board";
 import { CapturedPieces } from "../captured-pieces";
 import { CardShogiHistory } from "./card-shogi-history";
-import { GameControls } from "../game-controls";
+import { GameControls, GAME_CONTROLS_HEIGHT } from "../game-controls";
 import { PromotionDialog } from "../promotion-dialog";
 import { BoardOverlay, type OverlayEvent } from "../board-overlay";
 import { CharacterPanel } from "@/components/character/character-panel";
@@ -35,7 +35,7 @@ import type { Difficulty, GameConfig, GameState, Move, Player, Position } from "
 import type { CommentaryEvent } from "@/app/actions/commentary";
 import type { CardGameState, CardInstance } from "@/lib/shogi/cards/types";
 import { CARD_DEFS, CARD_USE_CONDITIONS, DRAW_COST } from "@/lib/shogi/cards/definitions";
-import { isDoublePawnLegalSquare, isPieceReturnLegalSquare, simulateCardEffect, getCheckEscapingSquares, hasSameKindTrapPlaced } from "@/lib/shogi/cards/effects";
+import { isDoublePawnLegalSquare, isPieceReturnLegalSquare, isValidCardTargetSquare, simulateCardEffect, canEscapeCheckWithCard, hasSameKindTrapPlaced } from "@/lib/shogi/cards/effects";
 import type { CardId } from "@/lib/shogi/cards/types";
 import { createGame } from "@/app/actions/game";
 
@@ -47,8 +47,10 @@ import { CardPlayDialog, CardTargetingNotice } from "./card-play-dialog";
 import { DrawFlightCard } from "./draw-flight-card";
 import { CardPlayFlight } from "./card-play-flight";
 import { PieceFlight, type PieceFlightSpec } from "./piece-flight";
-import { ManaFlightLayer, type ManaFlightItem } from "./mana-flight";
-import { FastMoveBadgeLayer, type FastMoveBadgeItem } from "./fast-move-badge";
+import { ManaFlightLayer } from "./mana-flight";
+import { FastMoveBadgeLayer } from "./fast-move-badge";
+import { useManaFlightLayer } from "./use-mana-flight-layer";
+import { useFastMoveBadgeLayer } from "./use-fast-move-badge-layer";
 
 interface SerializableGameConfig {
   variantId: string;
@@ -74,6 +76,17 @@ function shouldPlayJumpSfx(move: Move): boolean {
   return Math.max(rowDiff, colDiff) >= 2;
 }
 
+// 子コンポーネント (CapturedPieces 等) に渡す noop。
+// インライン `() => {}` を毎レンダー新しい関数として渡すと React.memo の浅い比較が
+// 無効化されてしまうため、モジュールスコープで定義して安定化する (Step 2 / Issue #107)。
+const NOOP_PIECE_CLICK: (pieceType: string) => void = () => {};
+const NOOP_UNDO: () => void = () => {};
+
+// 空配列の共有参照。pieceFlight 等で「該当なし」のケースを useMemo に通しても
+// 毎レンダー [] を new するとメモ化が無効化されるため、フラグメンテーション回避。
+const EMPTY_POSITIONS: Position[] = [];
+const EMPTY_STRINGS: string[] = [];
+
 export function CardShogiGame({
   initialGameState,
   initialCardState,
@@ -83,6 +96,10 @@ export function CardShogiGame({
   const [commentEvent, setCommentEvent] = useState<CommentaryEvent | null>(null);
   const [overlayEvent, setOverlayEvent] = useState<{ event: OverlayEvent; key: number; trapName?: string } | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Step S4 (Issue #107): モバイル/タブレットの終了カードを最小化できるように
+  // する。閉じると盤面・持ち駒が見え、再度展開して「もう一局」「ホームへ」を
+  // 押せる。
+  const [endCardMinimized, setEndCardMinimized] = useState(false);
   // Issue #78: ドロー演出 (山札→中央→手札)。演出完了まで自分の手番継続・操作ロック。
   const [drawFlight, setDrawFlight] = useState<{ card: CardInstance; key: number } | null>(null);
   const isDrawAnimating = drawFlight !== null;
@@ -109,11 +126,11 @@ export function CardShogiGame({
   const boardTabletRef = useRef<ShogiBoardHandle>(null);
   const boardXlRef = useRef<ShogiBoardHandle>(null);
   // マナ増減の浮遊テキスト (Issue #77)。各イベントを起点 UI 付近で表示する。
-  const [manaFlights, setManaFlights] = useState<ManaFlightItem[]>([]);
-  const manaFlightIdRef = useRef(0);
+  // Step 5 (Issue #107): state / id ref / trigger / remove は useManaFlightLayer
+  // フックに集約。再描画 skip は useState 内部の参照比較任せのため変更なし。
+  const { items: manaFlights, trigger: triggerManaFlight, remove: removeManaFlight } = useManaFlightLayer();
   // 早指し時のバッジ。マナ +N と同じ駒位置イベントから派生し、駒の少し下に表示。
-  const [fastMoveBadges, setFastMoveBadges] = useState<FastMoveBadgeItem[]>([]);
-  const fastMoveBadgeIdRef = useRef(0);
+  const { items: fastMoveBadges, trigger: triggerFastMoveBadge, remove: removeFastMoveBadge } = useFastMoveBadgeLayer();
   // カード使用時、reducer がカードを hand から削除する前に DOMRect を保管する。
   // cardPlayEvent / trapSetEvent / マナUP の manaChargeEvent(reason: card) の起点として使う。
   const playedCardRectRef = useRef<{ id: string; rect: DOMRect } | null>(null);
@@ -285,28 +302,6 @@ export function CardShogiGame({
     return null;
   }, []);
 
-  const triggerManaFlight = useCallback((delta: number, rect: DOMRect | null) => {
-    if (!rect || delta === 0) return;
-    manaFlightIdRef.current += 1;
-    const id = manaFlightIdRef.current;
-    setManaFlights((prev) => [...prev, { id, delta, rect }]);
-  }, []);
-
-  const removeManaFlight = useCallback((id: number) => {
-    setManaFlights((prev) => prev.filter((f) => f.id !== id));
-  }, []);
-
-  const triggerFastMoveBadge = useCallback((rect: DOMRect | null) => {
-    if (!rect) return;
-    fastMoveBadgeIdRef.current += 1;
-    const id = fastMoveBadgeIdRef.current;
-    setFastMoveBadges((prev) => [...prev, { id, rect }]);
-  }, []);
-
-  const removeFastMoveBadge = useCallback((id: number) => {
-    setFastMoveBadges((prev) => prev.filter((b) => b.id !== id));
-  }, []);
-
   // 表示中の手札の中から該当カード DOM を見つけて DOMRect を返す。
   const findVisibleCardRect = useCallback((instanceId: string): DOMRect | null => {
     if (typeof document === "undefined") return null;
@@ -348,6 +343,21 @@ export function CardShogiGame({
     if (rect) playedCardRectRef.current = { id: pc.instance.instanceId, rect };
   }, [cardState.pendingCard, findVisibleCardRect]);
 
+  // 直前に使用したカードの DOMRect を取得 (triggerManaFlight 等の起点として利用)。
+  // instanceId 指定時 (cardPlayEvent / trapSetEvent): キャッシュの id 一致を確認、
+  //   不一致なら手札中央にフォールバック。
+  // instanceId 未指定時 (manaChargeEvent reason="card"): キャッシュ rect をそのまま再利用。
+  const getOriginRect = useCallback(
+    (instanceId?: string): DOMRect | null => {
+      const cached = playedCardRectRef.current;
+      if (instanceId !== undefined) {
+        return cached?.id === instanceId ? cached.rect : getHandRect();
+      }
+      return cached?.rect ?? getHandRect();
+    },
+    [getHandRect],
+  );
+
   const handleConfirmPlayCard = useCallback(() => {
     cachePendingCardRect();
     // Issue #82: 駒フライト用 rect キャッシュは handleSquareClick 側 (盤面ターゲット
@@ -380,9 +390,7 @@ export function CardShogiGame({
           playSfx("card_play");
           const def = CARD_DEFS[ev.instance.defId];
           if (def.cost > 0) {
-            const cached = playedCardRectRef.current;
-            const rect = cached?.id === ev.instance.instanceId ? cached.rect : getHandRect();
-            triggerManaFlight(-def.cost, rect);
+            triggerManaFlight(-def.cost, getOriginRect(ev.instance.instanceId));
           }
           // Issue #82: 駒移動カード(歩戻し/駒戻し/二歩指し)は handleSquareClick 内で
           // flushSync により先回り発火済み。ここでは:
@@ -443,18 +451,14 @@ export function CardShogiGame({
             if (ev.fastMove) triggerFastMoveBadge(rect);
           } else {
             // カード由来 (マナUP等): 直前に使用したカードの位置 (なければ手札中央)
-            const cached = playedCardRectRef.current;
-            const rect = cached?.rect ?? getHandRect();
-            triggerManaFlight(ev.amount, rect);
+            triggerManaFlight(ev.amount, getOriginRect());
           }
           break;
         case "trapSetEvent": {
           playSfx("card_play");
           const def = CARD_DEFS[ev.instance.defId];
           if (def.cost > 0) {
-            const cached = playedCardRectRef.current;
-            const rect = cached?.id === ev.instance.instanceId ? cached.rect : getHandRect();
-            triggerManaFlight(-def.cost, rect);
+            triggerManaFlight(-def.cost, getOriginRect(ev.instance.instanceId));
           }
           // Issue #106: トラップセット時も中央へカード本体を表示
           // CardInstance に詰め直し (TrapInstance.owner は CardView 側で参照しないため捨てる)
@@ -480,7 +484,7 @@ export function CardShogiGame({
       }
     }
     lastEventIndexRef.current = eventLog.length;
-  }, [eventLog, isReady, playSfx, playerColor, triggerManaFlight, triggerFastMoveBadge, getDeckRect, getHandRect, getBoardSquareRect]);
+  }, [eventLog, isReady, playSfx, playerColor, triggerManaFlight, triggerFastMoveBadge, getDeckRect, getOriginRect, getBoardSquareRect]);
 
   // Issue #78 / #82: 演出中(ドロー / カード使用)は盤面・手札・カード操作・背景クリックをロックする
   const handleSquareClick = useCallback(
@@ -493,8 +497,15 @@ export function CardShogiGame({
       // reducer 内で CONFIRM_PLAY_CARD を即時再帰実行するため、handleConfirmPlayCard
       // を経由しない。駒フライト用 rect / spec を取り、可能なら効果適用前に
       // flushSync で setPieceFlight を発火して「効果適用 → 駒出現」の隙間を消す。
+      // Step S1 (Issue #107): 無効マスをタップした場合は selectSquare 側で弾かれるが、
+      // それより前に flushSync で駒フライトを起動してしまうとフライト + 中央カード
+      // 演出が空振りする。ここで isValidCardTargetSquare を先行ガードする。
       if (cardState.pendingCard && cardState.pendingCard.phase === "selectTarget") {
         const def = CARD_DEFS[cardState.pendingCard.instance.defId];
+        if (!isValidCardTargetSquare(gameState, playerColor, def.id, pos)) {
+          selectSquare(pos);
+          return;
+        }
         const cardInstance = cardState.pendingCard.instance;
         pendingPieceFlightRef.current = null;
 
@@ -553,7 +564,7 @@ export function CardShogiGame({
       cardState.pendingCard,
       cachePendingCardRect,
       playerColor,
-      gameState.board,
+      gameState,
       findVisibleCapturedPieceRect,
       getBoardSquareRect,
     ],
@@ -661,17 +672,23 @@ export function CardShogiGame({
   // Issue #105: 親 div に flex-1 で残り幅を割り当てるため fullWidth で追従させる。
   const ownTrapSlotMobile = <TrapSlot trap={cardState.trap[playerColor]} size="md" fullWidth />;
 
-  // Issue #82: 駒フライト中、着地点を非表示にするための props 計算
-  const hiddenBoardSquares: Position[] =
-    pieceFlight && pieceFlight.hideTarget.kind === "board"
-      ? [{ row: pieceFlight.hideTarget.row, col: pieceFlight.hideTarget.col }]
-      : [];
-  const hiddenOwnCapturedTypes: string[] =
-    pieceFlight &&
-    pieceFlight.hideTarget.kind === "captured" &&
-    pieceFlight.hideTarget.player === playerColor
-      ? [pieceFlight.hideTarget.pieceType]
-      : [];
+  // Issue #82: 駒フライト中、着地点を非表示にするための props 計算。
+  // Step 2 (Issue #107): useMemo + 空配列の共有参照で ShogiBoard / CapturedPieces の
+  // memo を効かせる。
+  const hiddenBoardSquares = useMemo<Position[]>(() => {
+    if (!pieceFlight || pieceFlight.hideTarget.kind !== "board") return EMPTY_POSITIONS;
+    return [{ row: pieceFlight.hideTarget.row, col: pieceFlight.hideTarget.col }];
+  }, [pieceFlight]);
+  const hiddenOwnCapturedTypes = useMemo<string[]>(() => {
+    if (
+      !pieceFlight ||
+      pieceFlight.hideTarget.kind !== "captured" ||
+      pieceFlight.hideTarget.player !== playerColor
+    ) {
+      return EMPTY_STRINGS;
+    }
+    return [pieceFlight.hideTarget.pieceType];
+  }, [pieceFlight, playerColor]);
 
   // 山札からのドロー可否 (Issue #82: pendingCard 中もドロー禁止に統一)
   const canDrawCard =
@@ -820,10 +837,11 @@ export function CardShogiGame({
         set.add(inst.defId);
         continue;
       }
-      // 王手中: 王手回避できないカードは非活性
+      // 王手中: 王手回避できないカードは非活性。Step 3 (Issue #107):
+      // 1 マスでも回避可能なら true を返す早期 return 版で、王手中の
+      // 計算量を 30-50% 削減する。
       if (inCheck) {
-        const escaping = getCheckEscapingSquares(gameState, playerColor, inst.defId as CardId);
-        if (escaping.length === 0) {
+        if (!canEscapeCheckWithCard(gameState, playerColor, inst.defId as CardId)) {
           set.add(inst.defId);
         }
       }
@@ -938,7 +956,7 @@ export function CardShogiGame({
               playerColor={playerColor}
               isCurrentPlayer={gameState.currentPlayer === aiColor && isGameActive}
               selectedHandPiece={null}
-              onPieceClick={() => {}}
+              onPieceClick={NOOP_PIECE_CLICK}
               label={character.name}
               squareSize={squareSize}
               compact={isMobile}
@@ -1029,21 +1047,49 @@ export function CardShogiGame({
         </div>
       </div>
 
-      {/* ゲーム終了表示 (card-shogi 専用、自分カードエリアの上に表示)。 */}
+      {/* ゲーム終了表示 (card-shogi 専用、xl 未満レイアウト用)。 */}
       {/* MobileDrawer の終了 Card は hideEndCard で抑止しているため、ここで自前表示。 */}
+      {/* Step S5 (Issue #107): 手札ドロワーと同じ slide-up 演出で開閉。
+          閉じると盤面・持ち駒が完全に見え、開くボタンは GameControls スロットに配置。
+          fixed 配置で他レイアウトに影響を与えない。bottom = 下端 3 カラムセクション
+          上端 (≒100px + safe-area)、translate-y-full で完全に画面外へスライド。 */}
       {!isGameActive && (
-        <div className="xl:hidden shrink-0 px-3 py-2 border-t border-primary/30 bg-primary/5">
-          <Card className="p-2.5 text-center border-2 border-primary/20 bg-primary/5">
-            <p className="text-sm font-bold mb-1.5">{gameResultText(gameState.status, gameState.winner)}</p>
-            <div className="flex gap-2 justify-center">
-              <Link href="/">
-                <Button size="sm" variant="outline">ホームへ</Button>
-              </Link>
-              <Button size="sm" onClick={handlePlayAgain} disabled={isPending}>
-                {isPending ? "準備中..." : "もう一局"}
+        <div
+          className={cn(
+            "xl:hidden fixed left-0 right-0 z-30 transition-transform duration-300",
+            endCardMinimized ? "translate-y-full" : "translate-y-0",
+          )}
+          style={{ bottom: "calc(100px + env(safe-area-inset-bottom))" }}
+          aria-hidden={endCardMinimized}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="bg-card border-t-2 border-primary/40 shadow-2xl">
+            {/* 手札ドロワーと同じヘッダ + 「閉じる」ラベルボタン構造 (Step S5 改修) */}
+            <div className="px-3 py-1.5 border-b flex items-center justify-between">
+              <span className="text-sm font-bold">結果</span>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-xs"
+                onClick={() => setEndCardMinimized(true)}
+              >
+                閉じる
               </Button>
             </div>
-          </Card>
+            <div className="px-3 py-2">
+              <Card className="p-2.5 text-center border-2 border-primary/20 bg-primary/5">
+                <p className="text-sm font-bold mb-1.5">{gameResultText(gameState.status, gameState.winner)}</p>
+                <div className="flex gap-2 justify-center">
+                  <Link href="/">
+                    <Button size="sm" variant="outline">ホームへ</Button>
+                  </Link>
+                  <Button size="sm" onClick={handlePlayAgain} disabled={isPending}>
+                    {isPending ? "準備中..." : "もう一局"}
+                  </Button>
+                </div>
+              </Card>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1062,7 +1108,7 @@ export function CardShogiGame({
         <div className="shrink-0 ml-2 border-l pl-2">
           <GameControls
             onResign={resign}
-            onUndo={() => {}}
+            onUndo={NOOP_UNDO}
             isMuted={isMuted}
             onToggleMute={toggleMute}
             canUndo={false}
@@ -1082,17 +1128,43 @@ export function CardShogiGame({
       >
         {/* 左ブロック: 2段(段1の自然幅に合わせて縮小、shrink-0) */}
         <div className="shrink-0 flex flex-col gap-1">
-          {/* 段1: 待った・投了 (中央揃え、縦幅小さめ) */}
+          {/* 段1: 対局中 = 待った・投了 / 終局時 = 結果カード開閉ボタン (Step S5).
+              GameControls は終局時に何も描画しないため、終局時専用に同じ高さ
+              の slot を確保し、結果カードが閉じているときだけ「結果」ボタン
+              を出す。 */}
           <div className="flex items-center justify-center shrink-0">
-            <GameControls
-              onResign={resign}
-              onUndo={undo}
-              isMuted={isMuted}
-              onToggleMute={toggleMute}
-              canUndo={canUndo}
-              gameActive={isGameActive}
-              hideSound
-            />
+            {isGameActive ? (
+              <GameControls
+                onResign={resign}
+                onUndo={undo}
+                isMuted={isMuted}
+                onToggleMute={toggleMute}
+                canUndo={canUndo}
+                gameActive={isGameActive}
+                hideSound
+              />
+            ) : (
+              /* 終局時: 結果ボタンを常時表示。蛍光緑、現状の約 2 倍幅、結果カード
+                 表示中は非活性 (Step S5 改修) */
+              <div className="flex items-center" style={{ height: GAME_CONTROLS_HEIGHT }}>
+                <Button
+                  size="sm"
+                  className={cn(
+                    "h-9 w-32 gap-1 text-xs font-bold",
+                    "bg-lime-400 hover:bg-lime-500 text-lime-950",
+                    "dark:bg-lime-500 dark:hover:bg-lime-400 dark:text-lime-50",
+                    "shadow-md shadow-lime-400/40 dark:shadow-lime-500/40",
+                    "disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none",
+                  )}
+                  onClick={() => setEndCardMinimized(false)}
+                  disabled={!endCardMinimized}
+                  aria-label={endCardMinimized ? "結果を表示" : "結果は表示中"}
+                >
+                  <ChevronUp className="w-4 h-4" aria-hidden />
+                  結果
+                </Button>
+              </div>
+            )}
           </div>
           {/* 段2: 手札ボタン + マナゲージ (段1 の幅に揃え、ゲージは残り分を吸収) */}
           <div className="flex-1 flex items-center gap-2">
@@ -1254,7 +1326,7 @@ export function CardShogiGame({
               playerColor={playerColor}
               isCurrentPlayer={gameState.currentPlayer === aiColor && isGameActive}
               selectedHandPiece={null}
-              onPieceClick={() => {}}
+              onPieceClick={NOOP_PIECE_CLICK}
               label={character.name}
               squareSize={squareSize}
             />

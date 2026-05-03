@@ -119,8 +119,13 @@ function FilterRow<T extends string>({
           type="button"
           onClick={onToggleAll}
           className={cn(
-            "cursor-pointer transition-all rounded-md",
+            "cursor-pointer transition-opacity duration-150 rounded-md",
+            // Step S3 (Issue #107): hover (デスクトップ) と active (全デバイス、
+            // タップ/クリック中) の両方でリング表示。touch device では hover は
+            // 発火せず、active がタップ中だけ視覚フィードバックを返すので、
+            // 押した瞬間に「押された」感覚が得られる。
             "hover:ring-2 hover:ring-amber-400/70 hover:ring-offset-1 hover:ring-offset-background",
+            "active:ring-2 active:ring-amber-400/70 active:ring-offset-1 active:ring-offset-background",
             allActive ? "" : "opacity-40",
           )}
           aria-pressed={allActive}
