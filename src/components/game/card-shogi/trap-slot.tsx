@@ -40,6 +40,7 @@ export function TrapSlot({
         fullWidth={fullWidth || horizontal}
         hideDescription
         hideTrapBadge
+        compactIconLayout
         inactive
       />
     );
