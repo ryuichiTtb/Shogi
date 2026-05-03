@@ -96,6 +96,22 @@ Issue #107 のスコープに **「リファクタ中に発見した潜在バグ
 - 修正は Vitest による回帰テスト追加とセットで行う
 - 通常の Step (1〜5) 内で同根の修正が自然に含まれる場合は、その Step 内に組み込んで OK (本書に記録は残す)
 
+### Step S3: タップ中フィードバックを :active で復活 + フィルタボタン UX 改善 (Step 3 に含めて修正)
+
+**現象**:
+- Step S2 の hover ガード ((hover: hover) and (pointer: fine)) を適用したところ、touch device ではタップしたカード自体にもエフェクト (lift / 黄色) が出なくなった
+- マスターカタログ上部の検索フィルタボタンが「押してる感覚とずれてる」(タップしても視覚反応が遅延、または出ない)
+
+**原因**:
+- 旧 `:hover` は touch でタップ後に持続するため Step S2 で `(hover: hover)` ガードしたが、結果として touch では一切 hover 系エフェクトが発火しなくなった
+- フィルタボタン側はそもそも tap 中の視覚フィードバック (`:active` ベース) が無く、ring は hover 専用だったため touch で反応が無かった
+
+**修正方針**:
+- [globals.css](src/app/globals.css) の `.card-hover-focus` / `.card-hover-lift` に `:active` ルールを追加。touch でも mouse でもタップ/クリック中だけエフェクトを出し、離すと自動クリア。ドラッグ張り付き問題は `:active` の特性で再発しない (ドラッグ離れたら active 解除)
+- [card-filter-bar.tsx](src/components/cards/card-filter-bar.tsx) のフィルタボタンに `active:ring-2 active:ring-amber-400/70 active:ring-offset-1 active:ring-offset-background` を追加。`transition-all` → `transition-opacity duration-150` で transition 対象を絞り、視覚反応を即時化
+
+**本ブランチで対応**: Step 3 (`refactor/#107-compute`) に含めて修正済み
+
 ### Step S2: モバイル hover の挙動不正 + カードデザイン UX 改善 (Step 3 に含めて修正)
 
 **対象画面**: マスターカタログ ([/cards](src/app/cards/page.tsx)) / カードデザイン ([/card-design](src/app/card-design/page.tsx))
