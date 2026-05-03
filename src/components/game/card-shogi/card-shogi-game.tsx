@@ -1083,26 +1083,32 @@ export function CardShogiGame({
           aria-hidden={endCardMinimized}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="relative bg-card border-t-2 border-primary/40 shadow-2xl px-3 py-2.5">
-            <button
-              type="button"
-              onClick={() => setEndCardMinimized(true)}
-              aria-label="結果を閉じる"
-              className="absolute top-1 right-1 p-1.5 rounded-full transition-colors active:bg-primary/20 hover:bg-primary/10 z-10"
-            >
-              <ChevronDown className="w-4 h-4" aria-hidden />
-            </button>
-            <Card className="p-2.5 text-center border-2 border-primary/20 bg-primary/5">
-              <p className="text-sm font-bold mb-1.5">{gameResultText(gameState.status, gameState.winner)}</p>
-              <div className="flex gap-2 justify-center">
-                <Link href="/">
-                  <Button size="sm" variant="outline">ホームへ</Button>
-                </Link>
-                <Button size="sm" onClick={handlePlayAgain} disabled={isPending}>
-                  {isPending ? "準備中..." : "もう一局"}
-                </Button>
-              </div>
-            </Card>
+          <div className="bg-card border-t-2 border-primary/40 shadow-2xl">
+            {/* 手札ドロワーと同じヘッダ + 「閉じる」ラベルボタン構造 (Step S5 改修) */}
+            <div className="px-3 py-1.5 border-b flex items-center justify-between">
+              <span className="text-sm font-bold">結果</span>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-xs"
+                onClick={() => setEndCardMinimized(true)}
+              >
+                閉じる
+              </Button>
+            </div>
+            <div className="px-3 py-2">
+              <Card className="p-2.5 text-center border-2 border-primary/20 bg-primary/5">
+                <p className="text-sm font-bold mb-1.5">{gameResultText(gameState.status, gameState.winner)}</p>
+                <div className="flex gap-2 justify-center">
+                  <Link href="/">
+                    <Button size="sm" variant="outline">ホームへ</Button>
+                  </Link>
+                  <Button size="sm" onClick={handlePlayAgain} disabled={isPending}>
+                    {isPending ? "準備中..." : "もう一局"}
+                  </Button>
+                </div>
+              </Card>
+            </div>
           </div>
         </div>
       )}
@@ -1158,19 +1164,25 @@ export function CardShogiGame({
                 hideSound
               />
             ) : (
+              /* 終局時: 結果ボタンを常時表示。蛍光緑、現状の約 2 倍幅、結果カード
+                 表示中は非活性 (Step S5 改修) */
               <div className="flex items-center" style={{ height: GAME_CONTROLS_HEIGHT }}>
-                {endCardMinimized && (
-                  <Button
-                    size="sm"
-                    variant="default"
-                    className="h-9 gap-1 text-xs"
-                    onClick={() => setEndCardMinimized(false)}
-                    aria-label="結果を表示"
-                  >
-                    <ChevronUp className="w-4 h-4" aria-hidden />
-                    結果
-                  </Button>
-                )}
+                <Button
+                  size="sm"
+                  className={cn(
+                    "h-9 w-32 gap-1 text-xs font-bold",
+                    "bg-lime-400 hover:bg-lime-500 text-lime-950",
+                    "dark:bg-lime-500 dark:hover:bg-lime-400 dark:text-lime-50",
+                    "shadow-md shadow-lime-400/40 dark:shadow-lime-500/40",
+                    "disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none",
+                  )}
+                  onClick={() => setEndCardMinimized(false)}
+                  disabled={!endCardMinimized}
+                  aria-label={endCardMinimized ? "結果を表示" : "結果は表示中"}
+                >
+                  <ChevronUp className="w-4 h-4" aria-hidden />
+                  結果
+                </Button>
               </div>
             )}
           </div>

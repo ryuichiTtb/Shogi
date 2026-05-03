@@ -85,18 +85,22 @@ export function MobileDrawer({
           <div
             className={cn(
               "overflow-hidden transition-all duration-300 ease-in-out",
-              endCardMinimized ? "max-h-0 opacity-0" : "max-h-[160px] opacity-100",
+              endCardMinimized ? "max-h-0 opacity-0" : "max-h-[200px] opacity-100",
             )}
           >
-            <div className="relative px-3 py-2">
-              <button
-                type="button"
+            {/* 手札ドロワーと同じヘッダ + 「閉じる」ラベルボタン (Step S5 改修) */}
+            <div className="px-3 py-1.5 border-b flex items-center justify-between">
+              <span className="text-sm font-bold">結果</span>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-xs"
                 onClick={() => setEndCardMinimized(true)}
-                aria-label="結果を閉じる"
-                className="absolute top-1 right-1 p-1.5 rounded-full transition-colors active:bg-primary/20 hover:bg-primary/10 z-10"
               >
-                <ChevronDown className="w-4 h-4" aria-hidden />
-              </button>
+                閉じる
+              </Button>
+            </div>
+            <div className="px-3 py-2">
               <Card className="p-3 text-center border-2 border-primary/20 bg-primary/5">
                 <p className="text-sm font-bold mb-2">
                   {gameResultText(gameStatus, gameWinner)}
