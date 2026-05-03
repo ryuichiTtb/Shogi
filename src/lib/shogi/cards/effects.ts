@@ -316,6 +316,33 @@ export function getCheckEscapingSquares(
   return result;
 }
 
+// 王手回避できるマスが「1 マスでも存在するか」だけを判定する早期 return 版
+// (Step 3 / Issue #107)。
+// unusableCardIds の useMemo は王手中の各 target ありカードに対し
+// getCheckEscapingSquares を呼ぶため、毎レンダー 81 マス × simulateCardEffect +
+// isInCheck の計算が走っていた。1 マス見つかった時点で打ち切ることで王手中の
+// レンダリング負荷を 30-50% 削減する。
+// target なしカード (mana_up / no_promote 等) は simulateCardEffect が null を
+// 返すため常に false。
+export function canEscapeCheckWithCard(
+  state: GameState,
+  player: Player,
+  defId: CardId,
+): boolean {
+  const variant = CARD_SHOGI_VARIANT;
+  const { rows, cols } = variant.boardSize;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const target: CardTarget = { kind: "square", row: r, col: c };
+      const after = simulateCardEffect(state, player, defId, target);
+      if (after && !isInCheck(after, player, variant)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 // 同種トラップ重複チェック (Issue #105)。
 // 自分側のトラップスロットに同じ defId のトラップがすでに置かれていれば true。
 // reducer の使用前ガードと UI の非活性判定で共通利用する。

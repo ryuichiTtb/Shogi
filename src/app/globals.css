@@ -445,11 +445,6 @@
   outline-offset: 1px;
   transition: outline-color 0.18s ease, transform 0.18s ease, filter 0.18s ease;
 }
-.card-hover-focus:not(:disabled):hover {
-  transform: translateY(-2px);
-  outline-color: rgba(250, 204, 21, 0.78);
-  filter: drop-shadow(0 4px 14px rgba(250, 204, 21, 0.40));
-}
 .card-hover-overlay {
   position: absolute;
   inset: 0;
@@ -465,8 +460,83 @@
   opacity: 0;
   transition: opacity 0.18s ease;
 }
-.card-hover-focus:not(:disabled):hover .card-hover-overlay {
+
+/* Step S2 / Step S3 (Issue #107): hover 系演出のタッチ対応。
+ * 旧実装は touch device で :hover がタップ後に持続し、ドラッグで他カードに
+ * 張り付く挙動だった。Step S2 で :hover を (hover: hover) and (pointer: fine)
+ * でガードしたが、タップ中のフィードバック自体も消えてしまう副作用があった
+ * ため、Step S3 で :active を追加。
+ * 設計:
+ *  - :hover はマウス/トラックパッド (hover-capable) のみで発火
+ *  - :active は全デバイスで発火 (touch: タップ中、mouse: クリック中)
+ *    タップを離すと自動でクリアされるため、ドラッグ張り付き問題は再発しない
+ */
+.card-hover-focus:not(:disabled):active {
+  transform: translateY(-2px);
+  outline-color: rgba(250, 204, 21, 0.78);
+  filter: drop-shadow(0 4px 14px rgba(250, 204, 21, 0.40));
+}
+.card-hover-focus:not(:disabled):active .card-hover-overlay {
   opacity: 1;
+}
+@media (hover: hover) and (pointer: fine) {
+  .card-hover-focus:not(:disabled):hover {
+    transform: translateY(-2px);
+    outline-color: rgba(250, 204, 21, 0.78);
+    filter: drop-shadow(0 4px 14px rgba(250, 204, 21, 0.40));
+  }
+  .card-hover-focus:not(:disabled):hover .card-hover-overlay {
+    opacity: 1;
+  }
+}
+
+/* Step S2 (Issue #107): カードデザイン画面用の lift only hover。
+ * card-hover-focus との違い: 黄色 outline / overlay / drop-shadow を含まず、
+ * 浮き上がり (translateY) のみ。デザイン選択画面では装飾色を被せず、
+ * 「カードそのもの」のデザインを邪魔せずに hover を伝える。
+ * Step S3: :active も同様に対応 (タッチでもタップ中だけ浮き上がる) */
+.card-hover-lift {
+  transition: transform 0.18s ease;
+}
+.card-hover-lift:not(:disabled):active {
+  transform: translateY(-2px);
+}
+@media (hover: hover) and (pointer: fine) {
+  .card-hover-lift:not(:disabled):hover {
+    transform: translateY(-2px);
+  }
+}
+
+/* Step S2 (Issue #107): カードデザイン画面のモバイル時、カード本体の横幅を
+ * 縮める。MOCK_SIZE_CLASS (sizes.ts) は対局画面でも参照されるため変更せず、
+ * このページの preview 領域だけにスコープした override を当てる。
+ * 対象: md = w-32 / h-[80px], lg = w-40 / h-24, 中央モチーフは比例縮小。 */
+@media (max-width: 639px) {
+  .card-design-mobile-shrink :is(.w-32) {
+    width: 6rem;
+  }
+  .card-design-mobile-shrink :is(.h-\[80px\]) {
+    height: 60px;
+  }
+  .card-design-mobile-shrink :is(.w-40) {
+    width: 7.5rem;
+  }
+  .card-design-mobile-shrink :is(.h-24) {
+    height: 4.5rem;
+  }
+  /* 中央モチーフ (back-emblem 等の駒シルエット): md=w-14 h-16, lg=w-16 h-20 */
+  .card-design-mobile-shrink :is(.w-14) {
+    width: 2.75rem;
+  }
+  .card-design-mobile-shrink :is(.h-16) {
+    height: 3.25rem;
+  }
+  .card-design-mobile-shrink :is(.w-16) {
+    width: 3.25rem;
+  }
+  .card-design-mobile-shrink :is(.h-20) {
+    height: 4rem;
+  }
 }
 
 /* --- 究極のオーブ: 多色グラデ + 色相回転で輝きが動的に変化する光球
@@ -717,4 +787,60 @@
 }
 .animate-deck-marquee {
   animation: deck-marquee 8s ease-in-out infinite;
+}
+
+/* Step 3 (Issue #107): prefers-reduced-motion 対応。
+ * OS / ブラウザ設定で「視覚効果を控える」が有効なときに、レア度装飾の
+ * 連続アニメ (linear infinite) を 2 倍長に伸ばして低周波化する。
+ * 完全停止せず動きは残すが、フレーム率を下げて視覚負荷を半減する。
+ *
+ * 対象は連続再生される装飾系のみ。クリック反応や手番遷移など UX に
+ * 直結するアニメは触らない (prefers-reduced-motion でも違和感が出ない
+ * 振る舞いのため)。
+ */
+@media (prefers-reduced-motion: reduce) {
+  /* レア度別グラデ背景スライド + パルス (元の倍値: 5.5s/2.6s, 5.0s/2.0s, 4.5s/1.8s) */
+  .card-rarity-bg-rare {
+    animation:
+      card-rarity-bg-slide 11s linear infinite,
+      card-rarity-rare-pulse 5.2s ease-in-out infinite;
+  }
+  .card-rarity-bg-super-rare {
+    animation:
+      card-rarity-bg-slide 10s linear infinite,
+      card-rarity-super-rare-pulse 4s ease-in-out infinite;
+  }
+  .card-rarity-bg-epic {
+    animation:
+      card-rarity-bg-slide 9s linear infinite,
+      card-rarity-epic-pulse 3.6s ease-in-out infinite;
+  }
+
+  /* レア度シマー */
+  .card-rarity-shine::before,
+  .card-rarity-shine::after {
+    animation: card-rarity-shine 6.4s ease-in-out infinite;
+  }
+
+  /* 浮遊オーブ */
+  .card-rarity-orb-1 {
+    animation:
+      card-rarity-orb-1 9.6s ease-in-out infinite var(--orb-delay, 0s),
+      card-rarity-orb-hue 7s ease-in-out infinite var(--orb-delay-hue, 0s);
+  }
+  .card-rarity-orb-2 {
+    animation:
+      card-rarity-orb-2 10.4s ease-in-out infinite var(--orb-delay, 0.6s),
+      card-rarity-orb-hue 7.6s ease-in-out infinite var(--orb-delay-hue, 0.4s);
+  }
+  .card-rarity-orb-3 {
+    animation:
+      card-rarity-orb-3 11.2s ease-in-out infinite var(--orb-delay, 1.2s),
+      card-rarity-orb-hue 8s ease-in-out infinite var(--orb-delay-hue, 0.9s);
+  }
+
+  /* 山札ドロー誘発のグロウパルス */
+  .animate-deck-draw {
+    animation: deck-draw-glow 3.2s ease-in-out infinite;
+  }
 }

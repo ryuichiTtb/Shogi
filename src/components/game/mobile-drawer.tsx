@@ -48,30 +48,76 @@ export function MobileDrawer({
 }: MobileDrawerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("character");
+  // Step S4 (Issue #107): モバイルで盤面下端を隠さないよう、終了カードを
+  // 最小化できる。閉じると 1 行バーになり、タップで再展開。
+  const [endCardMinimized, setEndCardMinimized] = useState(false);
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-20 safe-area-bottom">
       {/* ゲーム終了表示（ドロワー外・タブバー上に常時表示）。card-shogi では hideEndCard で抑止 */}
+      {/* Step S5 (Issue #107): max-height + opacity の transition で開閉時に
+          パッと出ず滑らかに遷移。閉じるボタンはアイコン統一のため ChevronDown。 */}
       {!isGameActive && !hideEndCard && (
         <div
-          className="bg-card/95 backdrop-blur-sm border-t border-border px-3 py-2"
+          className="bg-card/95 backdrop-blur-sm border-t border-border overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
-          <Card className="p-3 text-center border-2 border-primary/20 bg-primary/5">
-            <p className="text-sm font-bold mb-2">
-              {gameResultText(gameStatus, gameWinner)}
-            </p>
-            <div className="flex gap-2 justify-center">
-              <Link href="/">
-                <Button size="sm" variant="outline">
-                  ホームへ
-                </Button>
-              </Link>
-              <Button size="sm" onClick={onPlayAgain} disabled={isPending}>
-                {isPending ? "準備中..." : "もう一局"}
+          {/* 縮小バー (常に DOM に存在し、最小化時のみ可視。max-height で smooth 遷移) */}
+          <div
+            className={cn(
+              "overflow-hidden transition-all duration-300 ease-in-out",
+              endCardMinimized ? "max-h-[40px] opacity-100" : "max-h-0 opacity-0",
+            )}
+          >
+            <button
+              type="button"
+              onClick={() => setEndCardMinimized(false)}
+              className="w-full px-3 py-1.5 text-xs flex items-center justify-center gap-1.5 transition-colors active:bg-primary/10 hover:bg-primary/5"
+              aria-label="結果を再表示"
+            >
+              <ChevronUp className="w-3.5 h-3.5" aria-hidden />
+              <span className="font-bold">{gameResultText(gameStatus, gameWinner)}</span>
+              <span className="text-muted-foreground">(タップで開く)</span>
+            </button>
+          </div>
+
+          {/* 結果カード本体 (常に DOM に存在し、開いた状態のときだけ可視) */}
+          <div
+            className={cn(
+              "overflow-hidden transition-all duration-300 ease-in-out",
+              endCardMinimized ? "max-h-0 opacity-0" : "max-h-[200px] opacity-100",
+            )}
+          >
+            {/* 手札ドロワーと同じヘッダ + 「閉じる」ラベルボタン (Step S5 改修) */}
+            <div className="px-3 py-1.5 border-b flex items-center justify-between">
+              <span className="text-sm font-bold">結果</span>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-xs"
+                onClick={() => setEndCardMinimized(true)}
+              >
+                閉じる
               </Button>
             </div>
-          </Card>
+            <div className="px-3 py-2">
+              <Card className="p-3 text-center border-2 border-primary/20 bg-primary/5">
+                <p className="text-sm font-bold mb-2">
+                  {gameResultText(gameStatus, gameWinner)}
+                </p>
+                <div className="flex gap-2 justify-center">
+                  <Link href="/">
+                    <Button size="sm" variant="outline">
+                      ホームへ
+                    </Button>
+                  </Link>
+                  <Button size="sm" onClick={onPlayAgain} disabled={isPending}>
+                    {isPending ? "準備中..." : "もう一局"}
+                  </Button>
+                </div>
+              </Card>
+            </div>
+          </div>
         </div>
       )}
 

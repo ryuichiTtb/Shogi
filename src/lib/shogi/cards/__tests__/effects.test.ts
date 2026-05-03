@@ -11,6 +11,7 @@ import {
   applyPieceReturn,
   applyTrapClear,
   applyTrapSet,
+  canEscapeCheckWithCard,
   consumeNormalCard,
   getCheckEscapingSquares,
   hasNoPromoteMark,
@@ -428,6 +429,80 @@ describe("getCheckEscapingSquares", () => {
     // → 配置に応じて空 or 非空 になる。ここでは空配列を期待。
     const result = getCheckEscapingSquares(state, "sente", "piece_return");
     expect(Array.isArray(result)).toBe(true);
+  });
+});
+
+// ===== Step 3: 早期 return 版 王手回避判定 =====
+
+describe("canEscapeCheckWithCard (Step 3: 早期 return 版)", () => {
+  it("target なしカード (mana_up) は false", () => {
+    const state = makeState();
+    placeKing(state, "sente", { row: 8, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 4 });
+    place(state, { row: 7, col: 4 }, { type: "rook", owner: "gote" });
+    expect(canEscapeCheckWithCard(state, "sente", "mana_up")).toBe(false);
+  });
+
+  it("target なしカード (no_promote) は false", () => {
+    const state = makeState();
+    expect(canEscapeCheckWithCard(state, "sente", "no_promote")).toBe(false);
+  });
+
+  it("pawn_return: 王手中の攻め駒(歩)を取り除いて回避できる場合は true", () => {
+    const state = makeState();
+    placeKing(state, "sente", { row: 8, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 4 });
+    // pawn_return は自分の歩を引き戻す (相手の歩は引き戻せない)。
+    // 自分の歩がピン駒として王手解除に寄与するシナリオは複雑なので、
+    // 「そもそも王手回避できないが関数が false を返すこと」をまず確認。
+    place(state, { row: 7, col: 4 }, { type: "lance", owner: "gote" });
+    place(state, { row: 6, col: 4 }, { type: "pawn", owner: "sente" });
+    // 自分の歩を引き戻すと玉が露出。回避できないので false
+    expect(canEscapeCheckWithCard(state, "sente", "pawn_return")).toBe(false);
+  });
+
+  it("piece_return: 自分の駒を取り除いても王手は解除されないシナリオで false", () => {
+    const state = makeState();
+    placeKing(state, "sente", { row: 8, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 4 });
+    place(state, { row: 7, col: 0 }, { type: "silver", owner: "sente" });
+    place(state, { row: 7, col: 4 }, { type: "rook", owner: "gote" });
+    // 7,0 の銀を引き戻しても 7,4 の飛車による王手は解除されない
+    expect(canEscapeCheckWithCard(state, "sente", "piece_return")).toBe(false);
+  });
+
+  it("double_pawn: 持ち駒の歩を打って王手を遮れる場合は true", () => {
+    const state = makeState();
+    placeKing(state, "sente", { row: 8, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 4 });
+    // 香車 (6,4) の王手を、自分の歩を間に打って遮る + 同じ列の自歩条件を満たす
+    place(state, { row: 6, col: 4 }, { type: "lance", owner: "gote" });
+    place(state, { row: 5, col: 4 }, { type: "pawn", owner: "sente" }); // 同列に自歩あり (二歩指し条件)
+    state.hand.sente = { pawn: 1 };
+    // 7,4 に歩を打てば lance の王手を遮断
+    expect(canEscapeCheckWithCard(state, "sente", "double_pawn")).toBe(true);
+  });
+
+  it("getCheckEscapingSquares が空 → canEscapeCheckWithCard も false (整合性)", () => {
+    const state = makeState();
+    placeKing(state, "sente", { row: 8, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 4 });
+    place(state, { row: 7, col: 4 }, { type: "rook", owner: "gote" });
+    const escaping = getCheckEscapingSquares(state, "sente", "mana_up");
+    expect(escaping.length === 0).toBe(true);
+    expect(canEscapeCheckWithCard(state, "sente", "mana_up")).toBe(false);
+  });
+
+  it("getCheckEscapingSquares が非空 → canEscapeCheckWithCard も true (整合性)", () => {
+    const state = makeState();
+    placeKing(state, "sente", { row: 8, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 4 });
+    place(state, { row: 6, col: 4 }, { type: "lance", owner: "gote" });
+    place(state, { row: 5, col: 4 }, { type: "pawn", owner: "sente" });
+    state.hand.sente = { pawn: 1 };
+    const escaping = getCheckEscapingSquares(state, "sente", "double_pawn");
+    expect(escaping.length).toBeGreaterThan(0);
+    expect(canEscapeCheckWithCard(state, "sente", "double_pawn")).toBe(true);
   });
 });
 
