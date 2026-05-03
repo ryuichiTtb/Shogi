@@ -18,7 +18,9 @@ export default async function DecksRoute() {
 
   return (
     <main className="h-dvh flex flex-col bg-gradient-to-b from-amber-50 dark:from-amber-950/30 to-background">
-      <div className="max-w-6xl mx-auto px-4 pt-4 sm:pt-6 pb-2 w-full flex flex-col flex-1 min-h-0">
+      {/* lg+ は左カラムを 560px に広げた分、全体幅も拡大して右カラム
+          (編集エリア) のサイズを維持する。 */}
+      <div className="max-w-6xl lg:max-w-[1440px] mx-auto px-4 pt-4 sm:pt-6 pb-2 w-full flex flex-col flex-1 min-h-0">
         <header className="flex items-center gap-3 mb-3 sm:mb-4 shrink-0">
           <Link
             href="/"

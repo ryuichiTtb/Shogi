@@ -54,10 +54,6 @@ export function OwnedCardPicker({
       <header className="p-2 border-b shrink-0 flex flex-col gap-2">
         <h3 className="text-xs font-semibold">
           所持カード ({ownedCards.length} 種)
-          {/* モバイル限定: 長押し詳細のヒント */}
-          <span className="lg:hidden font-normal text-muted-foreground ml-1 text-[9px]">
-            · 長押しで詳細
-          </span>
         </h3>
         <div className="flex items-center gap-1.5 flex-wrap">
           <button

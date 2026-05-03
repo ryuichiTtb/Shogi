@@ -277,13 +277,11 @@ export function DeckEditorPane({
     // フラグメントで内側 (header / body / dialog) のみ返す。
     // デッキ名・rename・削除はデッキ一覧側 (DeckListPane) で管理する。
     <>
-      {/* ヘッダ: サマリ + 保存ボタン */}
+      {/* ヘッダ:
+          1 行目: 保存 / 変更を破棄 / エラー
+          2 行目: レア度別の編成枚数 (合計はここからは外し、左セクション
+                   ヘッダに移動) */}
       <div className="p-3 border-b flex flex-col gap-2 shrink-0">
-        <DeckSummaryBar
-          total={validation.totalCount}
-          rarityCounts={rarityCounts}
-        />
-
         <div className="flex items-center gap-2">
           <Button
             size="sm"
@@ -326,6 +324,8 @@ export function DeckEditorPane({
             );
           })()}
         </div>
+
+        <DeckSummaryBar rarityCounts={rarityCounts} />
       </div>
 
       {/* 本体: 現在のデッキ + 所持カード (モバイルでも左右 2 分割) */}
@@ -333,14 +333,19 @@ export function DeckEditorPane({
         {/* 現在のデッキ */}
         <section className="flex flex-col min-h-0">
           <header className="p-2 border-b shrink-0">
-            <h3 className="text-xs font-semibold">
-              現在のデッキ ({entries.length} 種 / {validation.totalCount} 枚)
-              {/* モバイル限定の長押しヒント。inline で表示することで縦幅を
-                  消費せず、初見ユーザーにも操作を伝える。 */}
-              <span className="lg:hidden font-normal text-muted-foreground ml-1 text-[9px]">
-                · 長押しで詳細
-              </span>
+            {/* タイトル位置に合計枚数を表示 (旧:「現在のデッキ (N 種 / N 枚)」)。 */}
+            <h3
+              className={cn(
+                "text-xs font-semibold tabular-nums",
+                validation.totalCount > DECK_TOTAL_MAX && "text-destructive",
+              )}
+            >
+              合計 {validation.totalCount} / {DECK_TOTAL_MAX} 枚
             </h3>
+            {/* モバイル限定の長押しヒント (改行で表示)。 */}
+            <p className="lg:hidden font-normal text-muted-foreground text-[9px] mt-0.5">
+              💡 カード長押しで詳細表示
+            </p>
           </header>
           <div className="flex-1 min-h-0 overflow-y-auto p-2">
             {entries.length === 0 ? (
@@ -412,23 +417,13 @@ function buildSlotIdsFromEntries(
 }
 
 interface DeckSummaryBarProps {
-  total: number;
   rarityCounts: Record<CardRarity, number>;
 }
 
-function DeckSummaryBar({ total, rarityCounts }: DeckSummaryBarProps) {
-  const overTotal = total > DECK_TOTAL_MAX;
+// レア度別編成枚数のみを表示。合計はデッキセクションヘッダ側で表示する。
+function DeckSummaryBar({ rarityCounts }: DeckSummaryBarProps) {
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs">
-      <span
-        className={cn(
-          "font-semibold tabular-nums",
-          overTotal ? "text-destructive" : "text-foreground",
-        )}
-      >
-        合計 {total} / {DECK_TOTAL_MAX} 枚
-      </span>
-      <span className="text-muted-foreground">|</span>
       {(["common", "rare", "super_rare", "epic"] as CardRarity[]).map((r) => {
         const count = rarityCounts[r];
         const cap = RARITY_MAX_PER_DECK[r];

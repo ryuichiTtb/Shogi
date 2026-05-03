@@ -25,18 +25,21 @@ function ScaledXlCard({ cardId }: { cardId: CardId }) {
   const [scale, setScale] = useState(1);
 
   // 初期表示で正しい scale を反映するため layoutEffect で同期計算。
+  // cardId が変わったときも (Dialog を再 open したケース) 念のため再計算。
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    setScale(Math.min(1, el.clientWidth / XL_W));
-  }, []);
+    const w = el.getBoundingClientRect().width;
+    if (w > 0) setScale(Math.min(1, w / XL_W));
+  }, [cardId]);
 
-  // 後続のリサイズ (画面回転 / dialog 表示) にも追従。
+  // 後続のリサイズ (画面回転 / dialog 表示時の遅延レイアウト) に追従。
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     const ro = new ResizeObserver(() => {
-      setScale(Math.min(1, el.clientWidth / XL_W));
+      const w = el.getBoundingClientRect().width;
+      if (w > 0) setScale(Math.min(1, w / XL_W));
     });
     ro.observe(el);
     return () => ro.disconnect();
