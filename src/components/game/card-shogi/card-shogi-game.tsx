@@ -863,7 +863,7 @@ export function CardShogiGame({
       </section>
       {/* モバイル (<md): 上端バー (Issue #105 でカードデザイン化)
         * 左: △ ラベル + マナゲージ (縦積み)
-        * 右: 手札 stack (max 10) + 山札 + トラップ (md カードデザインで横幅統一) */}
+        * 右: 手札 stack (max 10) + 山札 + トラップ (sm カードデザインで横幅統一) */}
       <section
         className="md:hidden shrink-0 px-2 py-1 border-b bg-muted/40 flex items-end gap-2 text-xs"
         onClick={(e) => e.stopPropagation()}
@@ -873,7 +873,7 @@ export function CardShogiGame({
           <Badge variant="outline" className="shrink-0 text-[10px] px-1.5 py-0 self-center">△</Badge>
           <div className="shrink-0">{opponentManaGauge}</div>
         </div>
-        {/* 右ブロック: 手札・山札・トラップを右揃え (md カードデザインで横幅統一) */}
+        {/* 右ブロック: 手札・山札・トラップを右揃え (sm カードデザイン、手札 stack 高さに統一) */}
         <div className="ml-auto flex items-end gap-1.5">
           <div className="shrink-0 flex items-end">
             <HandArea
@@ -886,8 +886,8 @@ export function CardShogiGame({
               stackMaxVisible={10}
             />
           </div>
-          {opponentDeckPile}
-          <TrapSlot trap={cardState.trap[aiColor]} faceDown size="md" />
+          <DeckPile count={cardState.deck[aiColor].length} size="sm" showDrawCost />
+          <TrapSlot trap={cardState.trap[aiColor]} faceDown size="sm" />
         </div>
       </section>
 
