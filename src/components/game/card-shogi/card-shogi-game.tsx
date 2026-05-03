@@ -1625,6 +1625,30 @@ export function CardShogiGame({
                   playerColor={playerColor}
                   squareSize={g.rect.width}
                 />
+                {/* Issue #82 (王手崩し): 刀で斬られたような赤い斬撃 (右上→左下)。
+                    hitActive=true (=トラップ発動) と同時に SVG が mount され
+                    ghost-slash アニメーション (stroke-dasharray 描画) が走る。
+                    親の hit アニメーション (シェイク・スケール) と同時並行。 */}
+                {checkBreakAnim.hitActive && (
+                  <svg
+                    viewBox="0 0 100 100"
+                    preserveAspectRatio="none"
+                    className="absolute inset-0 w-full h-full pointer-events-none"
+                    aria-hidden
+                  >
+                    <line
+                      x1="100"
+                      y1="0"
+                      x2="0"
+                      y2="100"
+                      stroke="#ef4444"
+                      strokeWidth="5"
+                      strokeLinecap="round"
+                      vectorEffect="non-scaling-stroke"
+                      className="ghost-slash-line"
+                    />
+                  </svg>
+                )}
               </div>
             ))}
           </div>,

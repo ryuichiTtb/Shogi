@@ -220,6 +220,26 @@
   animation: ghost-trap-hit 1.5s ease-out forwards;
 }
 
+/* カード将棋 (Issue #82 王手崩し): トラップ発動時、ゴースト駒に重ねる
+ * 「刀で斬られた」斬撃エフェクト。SVG の line を stroke-dasharray で
+ * 右上→左下に高速描画 (0-120ms)、ピーク輝度 → 余韻 (赤グロー保持) →
+ * 60-100% でフェードアウト。動きの中心は親の transformOrigin に追従。 */
+@keyframes ghost-slash {
+  /* 0-120ms: 高速で右上→左下に斬る (ピーク輝度) */
+  0%   { stroke-dasharray: 0 200; opacity: 1; filter: drop-shadow(0 0 14px rgba(239, 68, 68, 1)) brightness(1.4); }
+  8%   { stroke-dasharray: 200 0; opacity: 1; filter: drop-shadow(0 0 14px rgba(239, 68, 68, 1)) brightness(1.4); }
+  /* 120-300ms: 輝度が落ち着く */
+  20%  { stroke-dasharray: 200 0; opacity: 1; filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.85)) brightness(1.1); }
+  /* 300-900ms: 赤グローを保ちつつ斬り跡を維持 */
+  60%  { stroke-dasharray: 200 0; opacity: 1; filter: drop-shadow(0 0 6px rgba(239, 68, 68, 0.7)); }
+  /* 900-1500ms: フェードアウト */
+  100% { stroke-dasharray: 200 0; opacity: 0; filter: none; }
+}
+.ghost-slash-line {
+  stroke-dasharray: 0 200;
+  animation: ghost-slash 1.5s ease-out forwards;
+}
+
 /* カード将棋: ドロー演出完了時に手札の対象カードがふわっと光る (Issue #78) */
 @keyframes hand-card-flash {
   0%   { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0); }
