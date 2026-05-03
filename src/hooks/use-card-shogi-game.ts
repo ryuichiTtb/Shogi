@@ -43,6 +43,7 @@ import {
   addNoPromoteMark,
   removeNoPromoteMark,
   moveNoPromoteMark,
+  hasSameKindTrapPlaced,
 } from "@/lib/shogi/cards/effects";
 
 type ShogiAction =
@@ -522,6 +523,11 @@ function reducer(
       if (!card) return state;
       const def = CARD_DEFS[card.defId];
       if (state.cardState.mana[action.player] < def.cost) return state;
+      // 同種トラップの重複配置を防止 (Issue #105)。
+      // 自分側トラップスロットに同じ defId のトラップが置かれている場合は使用不可。
+      if (def.kind === "trap" && hasSameKindTrapPlaced(state.cardState, action.player, card.defId)) {
+        return state;
+      }
       // カード固有の使用条件 (Issue #82)。CARD_USE_CONDITIONS 未登録のカードは常に使用可。
       const useCond = CARD_USE_CONDITIONS[card.defId];
       if (useCond && !useCond(state.gameState, action.player, state.cardState)) {
@@ -717,6 +723,8 @@ function reducer(
       const def = CARD_DEFS[card.defId];
       if (def.kind !== "trap") return state;
       if (state.cardState.mana[action.player] < def.cost) return state;
+      // 同種トラップの重複配置を防止 (Issue #105)。
+      if (hasSameKindTrapPlaced(state.cardState, action.player, card.defId)) return state;
       const afterMana = {
         ...state.cardState,
         mana: { ...state.cardState.mana, [action.player]: state.cardState.mana[action.player] - def.cost },

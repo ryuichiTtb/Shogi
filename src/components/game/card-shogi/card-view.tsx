@@ -47,6 +47,14 @@ interface CardViewProps {
   // 効果説明テキストを非表示にする (Issue #106: ダイアログプレビュー等で
   // 説明はダイアログ側に書く場合に重複を避けるため)
   hideDescription?: boolean;
+  // 「トラップ」バッジを非表示にする (Issue #105: トラップエリアに置かれたカードは
+  // トラップであることが文脈から自明なので、省スペースのためバッジを省略する)
+  hideTrapBadge?: boolean;
+  // コンパクト・アイコン左上配置レイアウト (Issue #105)。
+  // トラップエリア等の狭小スペースで、コスト+アイコンを左上に縮小配置し、
+  // カード名を回り込み (float) で複数行表示できるようにする。
+  // hideDescription / hideTrapBadge と組み合わせて使用する想定。
+  compactIconLayout?: boolean;
 }
 
 // "sm" はサムネイル(裏向きの相手手札用、縦長)
@@ -178,6 +186,8 @@ export function CardView({
   selected = false,
   fullWidth = false,
   hideDescription = false,
+  hideTrapBadge = false,
+  compactIconLayout = false,
 }: CardViewProps) {
   const def = CARD_DEFS[card.defId];
 
@@ -208,9 +218,12 @@ export function CardView({
       data-card-size={size}
       className={cn(
         "relative overflow-hidden rounded-md border-2 bg-card text-card-foreground shadow-sm shrink-0",
-        "flex flex-row items-stretch text-left transition-all",
-        PADDING_CLASS[size],
-        GAP_CLASS[size],
+        compactIconLayout
+          ? "block text-left transition-all"
+          : "flex flex-row items-stretch text-left transition-all",
+        // コンパクトレイアウトは内側で独自にパディング・ギャップを管理する
+        !compactIconLayout && PADDING_CLASS[size],
+        !compactIconLayout && GAP_CLASS[size],
         sizeClass,
         // 枠色 = レア度
         RARITY_FRAME_CLASS[def.rarity],
@@ -255,77 +268,129 @@ export function CardView({
             aria-hidden
           />
         ))}
-      {/* 左: コストとアイコン */}
-      <div
-        className={cn(
-          "relative z-10 flex flex-col items-center justify-center gap-0.5 shrink-0",
-          LEFT_W_CLASS[size],
-        )}
-      >
-        <span
-          className={cn(
-            "rounded-full leading-tight font-bold tabular-nums whitespace-nowrap inline-flex items-center",
-            // Issue #106: 山札のドローコスト表示と統一感を出すため 💎×N 形式に
-            // し、数値だけより「マナコスト」と直感的に分かるようにする。
-            size === "xl" ? "px-3 py-1 gap-1.5" : "px-1 gap-0.5",
-            COST_TEXT_CLASS[size],
-            def.kind === "trap"
-              ? hasRarityBg
-                ? "bg-purple-900/50 text-purple-200"
-                : "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200"
-              : hasRarityBg
-                ? "bg-amber-900/50 text-amber-200"
-                : "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
-          )}
-          title={`マナコスト: ${def.cost}`}
-        >
-          <span aria-hidden>💎</span>
-          <span>×{def.cost}</span>
-        </span>
-        <span className={cn(ICON_SIZE_CLASS[size], "leading-none")} aria-hidden>
-          {def.icon}
-        </span>
-      </div>
-      {/* 右: 名前 + 説明 + (TRAPバッジ) */}
-      <div className="relative z-10 flex-1 min-w-0 flex flex-col justify-center gap-0.5">
-        <div className="flex items-center gap-1">
-          <span className={cn("font-bold leading-tight truncate", NAME_TEXT_CLASS[size])}>{def.name}</span>
-          {/* hideDescription 時はカード名横にバッジを置かず、下段(説明位置)に
-            * 単独で配置する (モバイル手札で名前と被って見づらくなるため)。 */}
-          {def.kind === "trap" && !hideDescription && (
+      {compactIconLayout ? (
+        // コンパクト・アイコン左上配置レイアウト (Issue #105)。
+        // 2カラム: 左にコスト+アイコン (上揃え固定列)、右にカード名 (縦中央揃え・複数行)。
+        // 名前は line-clamp で末尾省略 (...) になり、左カラム下に流入しない。
+        <div className="relative z-10 w-full h-full p-1 flex flex-row gap-1.5 overflow-hidden">
+          <div className="flex flex-col items-center gap-0 leading-none shrink-0 self-start">
             <span
               className={cn(
-                "bg-emerald-600 text-white px-1.5 rounded font-bold leading-tight shrink-0 shadow-sm",
-                TRAP_BADGE_TEXT_CLASS[size],
+                "rounded-full font-bold tabular-nums whitespace-nowrap inline-flex items-center gap-0.5 px-1 leading-tight",
+                "text-[9px]",
+                def.kind === "trap"
+                  ? hasRarityBg
+                    ? "bg-purple-900/50 text-purple-200"
+                    : "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200"
+                  : hasRarityBg
+                    ? "bg-amber-900/50 text-amber-200"
+                    : "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
+              )}
+              title={`マナコスト: ${def.cost}`}
+            >
+              <span aria-hidden>💎</span>
+              <span>×{def.cost}</span>
+            </span>
+            <span
+              className={cn(
+                "leading-none mt-0.5",
+                size === "lg" ? "text-2xl" : size === "sm" ? "text-sm" : "text-xl",
+              )}
+              aria-hidden
+            >
+              {def.icon}
+            </span>
+          </div>
+          <div className="flex-1 min-w-0 flex items-center">
+            <div
+              className={cn(
+                "font-bold leading-tight break-all w-full",
+                size === "sm"
+                  ? "text-[10px] line-clamp-2"
+                  : size === "lg"
+                    ? "text-[13px] line-clamp-5"
+                    : "text-[12px] line-clamp-4",
               )}
             >
-              トラップ
-            </span>
-          )}
+              {def.name}
+            </div>
+          </div>
         </div>
-        {!hideDescription && (
+      ) : (
+        <>
+          {/* 左: コストとアイコン */}
           <div
             className={cn(
-              "leading-tight line-clamp-2",
-              hasRarityBg ? "text-slate-300" : "text-muted-foreground",
-              DESC_TEXT_CLASS[size],
+              "relative z-10 flex flex-col items-center justify-center gap-0.5 shrink-0",
+              LEFT_W_CLASS[size],
             )}
           >
-            {def.description}
+            <span
+              className={cn(
+                "rounded-full leading-tight font-bold tabular-nums whitespace-nowrap inline-flex items-center",
+                // Issue #106: 山札のドローコスト表示と統一感を出すため 💎×N 形式に
+                // し、数値だけより「マナコスト」と直感的に分かるようにする。
+                size === "xl" ? "px-3 py-1 gap-1.5" : "px-1 gap-0.5",
+                COST_TEXT_CLASS[size],
+                def.kind === "trap"
+                  ? hasRarityBg
+                    ? "bg-purple-900/50 text-purple-200"
+                    : "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200"
+                  : hasRarityBg
+                    ? "bg-amber-900/50 text-amber-200"
+                    : "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
+              )}
+              title={`マナコスト: ${def.cost}`}
+            >
+              <span aria-hidden>💎</span>
+              <span>×{def.cost}</span>
+            </span>
+            <span className={cn(ICON_SIZE_CLASS[size], "leading-none")} aria-hidden>
+              {def.icon}
+            </span>
           </div>
-        )}
-        {/* hideDescription 時のトラップカード: 元々説明があった位置にバッジを表示 */}
-        {hideDescription && def.kind === "trap" && (
-          <span
-            className={cn(
-              "bg-emerald-600 text-white px-1.5 rounded font-bold leading-tight shadow-sm self-start",
-              TRAP_BADGE_TEXT_CLASS[size],
+          {/* 右: 名前 + 説明 + (TRAPバッジ) */}
+          <div className="relative z-10 flex-1 min-w-0 flex flex-col justify-center gap-0.5">
+            <div className="flex items-center gap-1">
+              <span className={cn("font-bold leading-tight truncate", NAME_TEXT_CLASS[size])}>{def.name}</span>
+              {/* hideDescription 時はカード名横にバッジを置かず、下段(説明位置)に
+                * 単独で配置する (モバイル手札で名前と被って見づらくなるため)。 */}
+              {def.kind === "trap" && !hideDescription && !hideTrapBadge && (
+                <span
+                  className={cn(
+                    "bg-emerald-600 text-white px-1.5 rounded font-bold leading-tight shrink-0 shadow-sm",
+                    TRAP_BADGE_TEXT_CLASS[size],
+                  )}
+                >
+                  トラップ
+                </span>
+              )}
+            </div>
+            {!hideDescription && (
+              <div
+                className={cn(
+                  "leading-tight line-clamp-2",
+                  hasRarityBg ? "text-slate-300" : "text-muted-foreground",
+                  DESC_TEXT_CLASS[size],
+                )}
+              >
+                {def.description}
+              </div>
             )}
-          >
-            トラップ
-          </span>
-        )}
-      </div>
+            {/* hideDescription 時のトラップカード: 元々説明があった位置にバッジを表示 */}
+            {hideDescription && def.kind === "trap" && !hideTrapBadge && (
+              <span
+                className={cn(
+                  "bg-emerald-600 text-white px-1.5 rounded font-bold leading-tight shadow-sm self-start",
+                  TRAP_BADGE_TEXT_CLASS[size],
+                )}
+              >
+                トラップ
+              </span>
+            )}
+          </div>
+        </>
+      )}
     </button>
   );
 }

@@ -1,8 +1,8 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import type { TrapInstance } from "@/lib/shogi/cards/types";
-import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
+import type { CardInstance, TrapInstance } from "@/lib/shogi/cards/types";
+import { CardView } from "./card-view";
 
 interface TrapSlotProps {
   trap: TrapInstance | null;
@@ -15,7 +15,9 @@ interface TrapSlotProps {
 }
 
 const SIZE_CLASS = {
-  sm: "w-9 h-12 text-[10px]",
+  // sm は CardView の sm (w-12 h-16) と寸法を揃え、相手手札 stack や山札と
+  // 同じカードサイズで並べられるようにする (Issue #105 モバイル相手バー)。
+  sm: "w-12 h-16 text-[10px]",
   md: "w-16 h-20 text-[13px]",
   lg: "w-20 h-24 text-sm",
 };
@@ -27,6 +29,43 @@ export function TrapSlot({
   fullWidth = false,
   horizontal = false,
 }: TrapSlotProps) {
+  // 設置済みかつ表向き: 該当トラップカードのデザインそのもので表示する (Issue #105)。
+  // CardView を inactive で描画し、効果説明は hideDescription、ラベルは hideTrapBadge、
+  // レイアウトは compactIconLayout (アイコン左上+カード名複数行) で省スペース化する。
+  // 非 fullWidth + 非 horizontal のときは元 TrapSlot 同等の枠サイズ (SIZE_CLASS) に
+  // 固定し、内部 CardView は fullWidth=true で wrapper 幅に追従させる。
+  // CardView 自然サイズ (md=128px) のままだとモバイル下端の 3 カラムレイアウトで
+  // 隣接要素 (マナゲージ等) を圧迫してしまうため。
+  if (trap && !faceDown) {
+    const cardInstance: CardInstance = { instanceId: trap.instanceId, defId: trap.defId };
+    if (!fullWidth && !horizontal) {
+      return (
+        <div className={cn("shrink-0", SIZE_CLASS[size])}>
+          <CardView
+            card={cardInstance}
+            size={size}
+            fullWidth
+            hideDescription
+            hideTrapBadge
+            compactIconLayout
+            inactive
+          />
+        </div>
+      );
+    }
+    return (
+      <CardView
+        card={cardInstance}
+        size={size}
+        fullWidth={fullWidth || horizontal}
+        hideDescription
+        hideTrapBadge
+        compactIconLayout
+        inactive
+      />
+    );
+  }
+
   // 横長モード: 2行構成 (⚠ / TRAP) で横幅を圧縮、h-full で親に追従
   if (horizontal) {
     const wrapperBase = cn("rounded-md border-2 px-1.5 py-0.5 h-full flex flex-col items-center justify-center shrink-0 leading-tight", fullWidth ? "w-full" : "w-auto");
@@ -41,25 +80,13 @@ export function TrapSlot({
         </div>
       );
     }
-    if (faceDown) {
-      return (
-        <div
-          className={cn(wrapperBase, "border-purple-700 bg-gradient-to-br from-purple-700 to-purple-900 text-white/80 font-bold")}
-          aria-label="トラップセット済(裏向き)"
-        >
-          <span className="text-sm leading-none">⚠</span>
-          <span className="text-[10px] leading-none mt-0.5">TRAP</span>
-        </div>
-      );
-    }
-    const def = CARD_DEFS[trap.defId];
     return (
       <div
-        className={cn(wrapperBase, "border-purple-500 bg-purple-50 dark:bg-purple-950/40")}
-        aria-label={`トラップ: ${def.name}`}
+        className={cn(wrapperBase, "border-purple-700 bg-gradient-to-br from-purple-700 to-purple-900 text-white/80 font-bold")}
+        aria-label="トラップセット済(裏向き)"
       >
-        <span className="text-sm leading-none" aria-hidden>{def.icon}</span>
-        <span className="text-[10px] font-bold leading-none mt-0.5 truncate max-w-[80px]">{def.name}</span>
+        <span className="text-sm leading-none">⚠</span>
+        <span className="text-[10px] leading-none mt-0.5">TRAP</span>
       </div>
     );
   }
@@ -67,7 +94,7 @@ export function TrapSlot({
   const sizeClass = fullWidth
     ? cn(
         "w-full",
-        size === "sm" ? "h-12 text-[10px]" : size === "md" ? "h-20 text-[13px]" : "h-24 text-sm",
+        size === "sm" ? "h-16 text-[10px]" : size === "md" ? "h-20 text-[13px]" : "h-24 text-sm",
       )
     : SIZE_CLASS[size];
 
@@ -87,34 +114,17 @@ export function TrapSlot({
     );
   }
 
-  if (faceDown) {
-    return (
-      <div
-        className={cn(
-          "rounded-md border-2 border-purple-700 bg-gradient-to-br from-purple-700 to-purple-900",
-          "flex items-center justify-center text-white/80 font-bold shrink-0",
-          sizeClass,
-        )}
-        aria-label="トラップセット済(裏向き)"
-      >
-        <span className="text-3xl">⚠</span>
-      </div>
-    );
-  }
-
-  const def = CARD_DEFS[trap.defId];
+  // ここに来るのは faceDown=true のケース (相手側のセット済みトラップ表示)
   return (
     <div
       className={cn(
-        "rounded-md border-2 border-purple-500 bg-purple-50 dark:bg-purple-950/40",
-        "flex flex-col items-center justify-center text-center px-1 shrink-0 leading-tight",
+        "rounded-md border-2 border-purple-700 bg-gradient-to-br from-purple-700 to-purple-900",
+        "flex items-center justify-center text-white/80 font-bold shrink-0",
         sizeClass,
       )}
-      aria-label={`トラップ: ${def.name}`}
+      aria-label="トラップセット済(裏向き)"
     >
-      <span className="text-xl leading-none" aria-hidden>{def.icon}</span>
-      <div className="font-bold text-[11px] leading-tight mt-0.5">{def.name}</div>
-      <div className="text-[9px] opacity-70 leading-none mt-0.5">⚠ TRAP</div>
+      <span className="text-3xl">⚠</span>
     </div>
   );
 }

@@ -56,12 +56,86 @@ export function ManaGauge({ current, cap, compact = false, label }: ManaGaugePro
     setSegments((prev) => prev.filter((s) => s.id !== id));
   };
 
+  // ラベル行 (💎 + 数値) と ゲージバーは compact / 非 compact で配置が変わる:
+  //   非 compact: 1 行で [ラベル][💎][数値][ゲージバー] を横並び
+  //   compact   : 2 行で 上段 [💎][数値] / 下段 [ゲージバー] (Issue #105 モバイル省幅化)
+  const labelContent = (
+    <>
+      {label && <span className="font-medium text-muted-foreground shrink-0">{label}</span>}
+      <span className="shrink-0">💎</span>
+      <span className="font-bold tabular-nums shrink-0">
+        {current}
+        <span className="text-muted-foreground"> / {cap}</span>
+      </span>
+    </>
+  );
+
+  const gaugeBar = (
+    <div
+      className={cn(
+        "relative h-1.5 rounded-full bg-muted overflow-hidden",
+        compact ? "w-full min-w-[40px]" : "flex-1 min-w-[60px]",
+      )}
+    >
+      <div
+        className="h-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-all duration-300"
+        style={{ width: `${ratio * 100}%` }}
+      />
+      <AnimatePresence>
+        {segments.map((s) => {
+          const isPlus = s.kind === "plus";
+          const initialWidth = `${s.width * 100}%`;
+          return (
+            <motion.div
+              key={s.id}
+              // プラス: width 維持で opacity 1→0 にフェードアウト
+              // マイナス: opacity 維持で width を右端から 0% に縮める (右から徐々に消える)
+              initial={{ opacity: 1, width: initialWidth }}
+              animate={
+                isPlus
+                  ? { opacity: 0, width: initialWidth }
+                  : { opacity: 1, width: "0%" }
+              }
+              transition={{ duration: SEGMENT_DURATION_S, ease: "easeOut" }}
+              onAnimationComplete={() => removeSegment(s.id)}
+              className={cn(
+                "absolute top-0 bottom-0",
+                isPlus ? "bg-emerald-500" : "bg-rose-500",
+              )}
+              style={{
+                left: `${s.left * 100}%`,
+              }}
+            />
+          );
+        })}
+      </AnimatePresence>
+    </div>
+  );
+
+  if (compact) {
+    return (
+      <div
+        className={cn(
+          "rounded-md border bg-card px-1.5 py-0.5 text-[10px] flex flex-col gap-0.5",
+          canDraw && "border-amber-400 shadow-sm",
+        )}
+        role="meter"
+        aria-label={`マナ ${current} / ${cap}`}
+        aria-valuenow={current}
+        aria-valuemin={0}
+        aria-valuemax={cap}
+      >
+        <div className="flex items-center gap-1">{labelContent}</div>
+        {gaugeBar}
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
-        "flex items-center gap-2 rounded-md border bg-card px-2 py-1",
+        "flex items-center gap-2 rounded-md border bg-card px-2 py-1 text-xs",
         canDraw && "border-amber-400 shadow-sm",
-        compact ? "text-[10px]" : "text-xs",
       )}
       role="meter"
       aria-label={`マナ ${current} / ${cap}`}
@@ -69,51 +143,8 @@ export function ManaGauge({ current, cap, compact = false, label }: ManaGaugePro
       aria-valuemin={0}
       aria-valuemax={cap}
     >
-      {label && <span className="font-medium text-muted-foreground shrink-0">{label}</span>}
-      <span className="shrink-0">💎</span>
-      <span className="font-bold tabular-nums shrink-0">
-        {current}
-        <span className="text-muted-foreground"> / {cap}</span>
-      </span>
-      <div
-        className={cn(
-          "relative flex-1 h-1.5 rounded-full bg-muted overflow-hidden min-w-[60px]",
-          compact && "min-w-[40px]",
-        )}
-      >
-        <div
-          className="h-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-all duration-300"
-          style={{ width: `${ratio * 100}%` }}
-        />
-        <AnimatePresence>
-          {segments.map((s) => {
-            const isPlus = s.kind === "plus";
-            const initialWidth = `${s.width * 100}%`;
-            return (
-              <motion.div
-                key={s.id}
-                // プラス: width 維持で opacity 1→0 にフェードアウト
-                // マイナス: opacity 維持で width を右端から 0% に縮める (右から徐々に消える)
-                initial={{ opacity: 1, width: initialWidth }}
-                animate={
-                  isPlus
-                    ? { opacity: 0, width: initialWidth }
-                    : { opacity: 1, width: "0%" }
-                }
-                transition={{ duration: SEGMENT_DURATION_S, ease: "easeOut" }}
-                onAnimationComplete={() => removeSegment(s.id)}
-                className={cn(
-                  "absolute top-0 bottom-0",
-                  isPlus ? "bg-emerald-500" : "bg-rose-500",
-                )}
-                style={{
-                  left: `${s.left * 100}%`,
-                }}
-              />
-            );
-          })}
-        </AnimatePresence>
-      </div>
+      {labelContent}
+      {gaugeBar}
     </div>
   );
 }

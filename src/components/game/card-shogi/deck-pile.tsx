@@ -20,7 +20,9 @@ interface DeckPileProps {
 }
 
 const SIZE_CLASS = {
-  sm: "w-9 h-12 text-[10px]",
+  // sm は CardView の sm (w-12 h-16) と寸法を揃え、相手手札 stack と同じ
+  // カードサイズで並べられるようにする (Issue #105 モバイル相手バー)。
+  sm: "w-12 h-16 text-[10px]",
   md: "w-16 h-20 text-[13px]",
   lg: "w-20 h-24 text-sm",
 };
@@ -120,7 +122,7 @@ export function DeckPile({
   const sizeClass = fullWidth
     ? cn(
         "w-full",
-        size === "sm" ? "h-12 text-[10px]" : size === "md" ? "h-20 text-[13px]" : "h-24 text-sm",
+        size === "sm" ? "h-16 text-[10px]" : size === "md" ? "h-20 text-[13px]" : "h-24 text-sm",
       )
     : SIZE_CLASS[size];
 
@@ -215,13 +217,32 @@ export function DeckPile({
           </span>
         )}
 
-        <div className="relative z-10 opacity-90 leading-none font-medium mt-2 drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]">山札</div>
-        <div className="relative z-10 font-bold tabular-nums leading-none mt-1 text-base drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]">× {count}</div>
+        <div
+          className={cn(
+            "relative z-10 opacity-90 leading-none font-medium drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]",
+            size === "sm" ? "mt-1 text-[10px]" : "mt-2",
+          )}
+        >
+          山札
+        </div>
+        <div
+          className={cn(
+            "relative z-10 font-bold tabular-nums leading-none mt-1 drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]",
+            size === "sm" ? "text-[11px]" : "text-base",
+          )}
+        >
+          × {count}
+        </div>
         {isEmpty && (
           <div className="mt-1 leading-none text-slate-200 text-[10px] font-bold">空</div>
         )}
         {interactable && (
-          <div className="relative z-10 mt-1 leading-none text-amber-200 text-[10px] font-bold animate-bounce drop-shadow-[0_1px_2px_rgba(0,0,0,0.7)]">
+          <div
+            className={cn(
+              "relative z-10 leading-none text-amber-200 font-bold animate-bounce drop-shadow-[0_1px_2px_rgba(0,0,0,0.7)]",
+              size === "sm" ? "mt-0.5 text-[8px]" : "mt-1 text-[10px]",
+            )}
+          >
             DRAW!
           </div>
         )}

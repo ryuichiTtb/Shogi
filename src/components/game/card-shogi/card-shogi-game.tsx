@@ -35,7 +35,7 @@ import type { Difficulty, GameConfig, GameState, Move, Player, Position } from "
 import type { CommentaryEvent } from "@/app/actions/commentary";
 import type { CardGameState, CardInstance } from "@/lib/shogi/cards/types";
 import { CARD_DEFS, CARD_USE_CONDITIONS, DRAW_COST } from "@/lib/shogi/cards/definitions";
-import { isDoublePawnLegalSquare, isPieceReturnLegalSquare, simulateCardEffect, getCheckEscapingSquares } from "@/lib/shogi/cards/effects";
+import { isDoublePawnLegalSquare, isPieceReturnLegalSquare, simulateCardEffect, getCheckEscapingSquares, hasSameKindTrapPlaced } from "@/lib/shogi/cards/effects";
 import type { CardId } from "@/lib/shogi/cards/types";
 import { createGame } from "@/app/actions/game";
 
@@ -657,8 +657,9 @@ export function CardShogiGame({
     <TrapSlot trap={cardState.trap[aiColor]} faceDown size="md" />
   );
   const ownTrapSlot = <TrapSlot trap={cardState.trap[playerColor]} size="md" />;
-  // モバイル下端用の TrapSlot。山札 md と高さを揃えるため md サイズ
-  const ownTrapSlotMobile = <TrapSlot trap={cardState.trap[playerColor]} size="md" />;
+  // モバイル下端用の TrapSlot。山札 md と高さを揃えるため md サイズ。
+  // Issue #105: 親 div に flex-1 で残り幅を割り当てるため fullWidth で追従させる。
+  const ownTrapSlotMobile = <TrapSlot trap={cardState.trap[playerColor]} size="md" fullWidth />;
 
   // Issue #82: 駒フライト中、着地点を非表示にするための props 計算
   const hiddenBoardSquares: Position[] =
@@ -800,6 +801,7 @@ export function CardShogiGame({
   // マナ以外の使用条件を満たさないカードIDを集計し、HandArea で非活性化する (Issue #82)。
   // - 通常時: CARD_USE_CONDITIONS の defId 別関数で判定
   // - 王手中: そのカードで王手回避できなければ非活性 (王手回避手段がない=不可)
+  // - トラップ: 同種トラップが既に盤面にあれば非活性 (Issue #105)
   // 手札に存在する defId のみ評価する。
   const unusableCardIds = useMemo(() => {
     const set = new Set<string>();
@@ -807,6 +809,12 @@ export function CardShogiGame({
     for (const inst of displayedOwnHand) {
       if (seen.has(inst.defId)) continue;
       seen.add(inst.defId);
+      const def = CARD_DEFS[inst.defId];
+      // Issue #105: 同種トラップが盤面に存在すれば、その種別の手札カードは使用不可
+      if (def.kind === "trap" && hasSameKindTrapPlaced(cardState, playerColor, inst.defId)) {
+        set.add(inst.defId);
+        continue;
+      }
       const useCond = CARD_USE_CONDITIONS[inst.defId];
       if (useCond && !useCond(gameState, playerColor, cardState)) {
         set.add(inst.defId);
@@ -835,12 +843,45 @@ export function CardShogiGame({
     />
   );
 
+  // Issue #105: モバイルでは画面最上段、タブレット以降は中央エリア先頭に配置する
+  // (タブレット動作維持のため両所でレンダリング)。
+  const statusBarContent = (
+    <div className="flex items-center justify-between w-full px-2 shrink-0" style={{ height: 28 }}>
+      <div className="flex items-center gap-1.5">
+        <Badge variant={isPlayerTurn ? "default" : "secondary"} className="text-xs">
+          {isPlayerTurn ? "あなたの番" : "相手の番"}
+        </Badge>
+        <Button
+          size="icon"
+          variant="ghost"
+          className="h-6 w-6"
+          onClick={toggleMute}
+          aria-label={isMuted ? "ミュート中" : "音あり"}
+          title={isMuted ? "ミュート中" : "音あり"}
+        >
+          {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+        </Button>
+        {inCheck && (
+          <Badge variant="destructive" className="animate-pulse text-xs">
+            王手！
+          </Badge>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-muted-foreground">{gameState.moveCount}手目</span>
+        <ThemeSelector />
+      </div>
+    </div>
+  );
+
   return (
     <div
       className="shogi-game-area w-full overflow-hidden flex flex-col"
       style={{ height: viewportHeight }}
       onClick={handleDeselect}
     >
+      {/* モバイル: ステータスバーを画面最上段に配置 (Issue #105) */}
+      <div className="md:hidden shrink-0 bg-card border-b">{statusBarContent}</div>
       {/* ===== 相手ゾーン ===== */}
       {/* PC タブレット相当 (md..xl-1): 詳細ゾーン */}
       <section
@@ -853,19 +894,21 @@ export function CardShogiGame({
         {opponentDeckPile}
         <div className="ml-auto shrink-0">{opponentManaGauge}</div>
       </section>
-      {/* モバイル (<md): 細バー (P29 右揃え、山札・TRAP は手札 stack の高さに合わせて伸縮) */}
+      {/* モバイル (<md): 上端バー (Issue #105 でカードデザイン化)
+        * 左: △ ラベル + マナゲージ (縦積み)
+        * 右: 手札 stack (max 10) + 山札 + トラップ (sm カードデザインで横幅統一) */}
       <section
-        className="md:hidden shrink-0 px-2 py-1 border-b bg-muted/40 flex items-stretch gap-1.5 text-xs"
+        className="md:hidden shrink-0 px-2 py-1 border-b bg-muted/40 flex items-end gap-2 text-xs"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* 左: 相手ラベル + マナゲージ (固定) */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          <Badge variant="outline" className="shrink-0 text-[10px] px-1.5 py-0">△</Badge>
+        {/* 左: △ ラベル + マナゲージ (縦積み) */}
+        <div className="flex flex-col items-stretch gap-1 shrink-0 self-center">
+          <Badge variant="outline" className="shrink-0 text-[10px] px-1.5 py-0 self-center">△</Badge>
           <div className="shrink-0">{opponentManaGauge}</div>
         </div>
-        {/* 右ブロック: 手札・山札・TRAP を右揃え。手札の左に余白を取り、増減に対応 */}
-        <div className="ml-auto flex items-stretch gap-1.5">
-          <div className="shrink-0 flex items-center">
+        {/* 右ブロック: 手札・山札・トラップを右揃え (sm カードデザイン、手札 stack 高さに統一) */}
+        <div className="ml-auto flex items-end gap-1.5">
+          <div className="shrink-0 flex items-end">
             <HandArea
               hand={cardState.hand[aiColor]}
               currentMana={0}
@@ -873,44 +916,19 @@ export function CardShogiGame({
               layout="stack"
               size="sm"
               emptyLabel=""
+              stackMaxVisible={10}
             />
           </div>
-          {/* 山札・トラップは items-stretch で手札 stack の高さに揃う */}
-          <DeckPile count={cardState.deck[aiColor].length} horizontal showDrawCost />
-          <TrapSlot trap={cardState.trap[aiColor]} faceDown horizontal />
+          <DeckPile count={cardState.deck[aiColor].length} size="sm" showDrawCost />
+          <TrapSlot trap={cardState.trap[aiColor]} faceDown size="sm" />
         </div>
       </section>
 
       {/* ===== 中央: 盤面 + 持ち駒 + (PCサイドパネル) ===== xl 未満で表示 */}
       <div className="xl:hidden flex-1 min-h-0 flex flex-col lg:flex-row max-w-5xl mx-auto w-full overflow-hidden">
         <div className="flex flex-col items-center flex-1 min-h-0 px-2 py-0.5 lg:py-2">
-          {/* ステータスバー (モバイルでは音アイコンもここに集約) */}
-          <div className="flex items-center justify-between w-full px-1 shrink-0" style={{ height: 28 }}>
-            <div className="flex items-center gap-1.5">
-              <Badge variant={isPlayerTurn ? "default" : "secondary"} className="text-xs">
-                {isPlayerTurn ? "あなたの番" : "相手の番"}
-              </Badge>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-6 w-6"
-                onClick={toggleMute}
-                aria-label={isMuted ? "ミュート中" : "音あり"}
-                title={isMuted ? "ミュート中" : "音あり"}
-              >
-                {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
-              </Button>
-              {inCheck && (
-                <Badge variant="destructive" className="animate-pulse text-xs">
-                  王手！
-                </Badge>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">{gameState.moveCount}手目</span>
-              <ThemeSelector />
-            </div>
-          </div>
+          {/* ステータスバー (タブレット用)。モバイルでは画面最上段に分離配置済 (Issue #105) */}
+          <div className="hidden md:block w-full">{statusBarContent}</div>
 
           {/* 相手の持ち駒 (モバイルでは compact で縦幅を詰める) */}
           <div className="w-full shrink-0" style={{ maxWidth: squareSize * 9 + 60 }}>
@@ -1054,16 +1072,16 @@ export function CardShogiGame({
       </section>
 
       {/* モバイル (<md): 下端 3カラム構成 (P20) */}
-      {/* 左ブロック(2段): 段1=待った/投了(右寄せ、薄め)、段2=手札ボタン+マナゲージ */}
-      {/* 中央ブロック: 山札 (左ブロック2段分の高さ) */}
-      {/* 右ブロック: トラップ (同上の高さ) */}
+      {/* 左ブロック(2段): 段1=待った/投了、段2=手札ボタン+マナゲージ
+        * Issue #105: 段2幅を段1 (GameControls) と同じ自然幅に揃え、
+        * 余った横幅は右のトラップ列が flex-1 で取り込む。 */}
       <section
         className="md:hidden xl:hidden shrink-0 border-t bg-card flex items-stretch gap-2 px-2 py-1.5 z-30"
         style={{ paddingBottom: "max(0.375rem, env(safe-area-inset-bottom))" }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* 左ブロック: 2段(右の山札と同じ高さに伸縮、各段 flex-1 で半分ずつ) */}
-        <div className="flex-1 min-w-0 flex flex-col gap-1">
+        {/* 左ブロック: 2段(段1の自然幅に合わせて縮小、shrink-0) */}
+        <div className="shrink-0 flex flex-col gap-1">
           {/* 段1: 待った・投了 (中央揃え、縦幅小さめ) */}
           <div className="flex items-center justify-center shrink-0">
             <GameControls
@@ -1076,7 +1094,7 @@ export function CardShogiGame({
               hideSound
             />
           </div>
-          {/* 段2: 手札ボタン + マナゲージ (flex-1 で残り高さを取る) */}
+          {/* 段2: 手札ボタン + マナゲージ (段1 の幅に揃え、ゲージは残り分を吸収) */}
           <div className="flex-1 flex items-center gap-2">
             <div ref={ownHandMobileBtnRef} className="shrink-0">
               <Button
@@ -1094,8 +1112,8 @@ export function CardShogiGame({
         </div>
         {/* 中央: 山札 (左2段の高さに合わせて伸びる) */}
         <div ref={ownDeckPileMobileRef} className="shrink-0 flex">{ownDeckPileMobile}</div>
-        {/* 右: トラップ */}
-        <div className="shrink-0 flex">{ownTrapSlotMobile}</div>
+        {/* 右: トラップ (左ブロック・山札を引いた残り横幅を取る、Issue #105) */}
+        <div className="flex-1 min-w-0 flex">{ownTrapSlotMobile}</div>
       </section>
 
       {/* モバイル: 手札ドロワー(下からスライドアップ) */}

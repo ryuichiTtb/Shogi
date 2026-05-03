@@ -157,15 +157,15 @@ function DrawFlightInner({
         left: startX,
         top: startY,
         scale: startScale,
-        opacity: 0,
+        opacity: 1,
       }}
       animate={{
         left: [startX, centerX, centerX, endX],
         top: [startY, centerY, centerY, endY],
         scale: [startScale, centerScale, centerScale, endScale],
-        // Issue #82: 中央→手札の途中までは不透明のまま、終端 (最後 FADE_OUT_TAIL_MS)
-        //           で一気にフェードアウト。
-        opacity: [0, 1, 1, 1, 0],
+        // 山札→中央のフライト中は不透明のまま (透過なし)。終端 FADE_OUT_TAIL_MS で
+        // 一気にフェードアウトのみ行う。
+        opacity: [1, 1, 1, 1, 0],
       }}
       transition={{
         duration: TOTAL_MS / 1000,
