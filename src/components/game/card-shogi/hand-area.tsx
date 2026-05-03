@@ -25,6 +25,9 @@ interface HandAreaProps {
   // 二歩指し等、マナ以外の使用条件を満たさないカードIDを非活性化する。
   // マナ不足と同じ disabled 表示にする(条件詳細はカード説明を参照)。
   unusableCardIds?: Set<string>;
+  // stack レイアウト時に重ね表示するカード枚数の上限 (Issue #105 モバイル省幅化)。
+  // 超過分は「×N (合計枚数)」ラベルで補う。デフォルト 5。
+  stackMaxVisible?: number;
 }
 
 export function HandArea({
@@ -40,19 +43,19 @@ export function HandArea({
   flashCardId = null,
   hideCardDescription = false,
   unusableCardIds,
+  stackMaxVisible = 5,
 }: HandAreaProps) {
   if (hand.length === 0) {
     return <div className="text-xs text-muted-foreground py-2 px-3">{emptyLabel}</div>;
   }
 
   // 重ね表示(stack): 隣接カードを重ねる。Phase 0 では相手手札の裏向き表示で使用。
-  // 表示は最大 STACK_MAX_VISIBLE 枚までに制限し、超過分は「×N」ラベルで補う
+  // 表示は最大 stackMaxVisible 枚までに制限し、超過分は「×N」ラベルで補う
   // (Issue #105: モバイルで手札が増えると相手バーが見切れるため)。
   if (layout === "stack") {
     const overlapClass = size === "sm" ? "-ml-9" : size === "md" ? "-ml-14" : "-ml-16";
-    const STACK_MAX_VISIBLE = 5;
     const total = hand.length;
-    const visible = hand.slice(0, STACK_MAX_VISIBLE);
+    const visible = hand.slice(0, stackMaxVisible);
     return (
       <div className="flex flex-row items-center" aria-label={`カード ${total}枚`}>
         {visible.map((c, i) => (
@@ -60,7 +63,7 @@ export function HandArea({
             <CardView card={c} faceDown={faceDown} size={size} />
           </div>
         ))}
-        {total > STACK_MAX_VISIBLE && (
+        {total > stackMaxVisible && (
           <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-muted text-foreground text-[10px] font-bold leading-none shrink-0 self-center">
             ×{total}
           </span>
