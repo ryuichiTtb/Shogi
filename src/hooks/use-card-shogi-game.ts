@@ -30,10 +30,8 @@ import {
   applyManaUp,
   applyPawnReturn,
   applyPieceReturn,
-  isPieceReturnLegalSquare,
   applyDoublePawn,
-  isDoublePawnLegalSquare,
-  simulateCardEffect,
+  isValidCardTargetSquare,
   getCheckEscapingSquares,
   applyTrapSet,
   applyTrapClear,
@@ -896,31 +894,19 @@ export function useCardShogiGame({
       //   isDrawing / isPlayingCard だけを弾く。
       if (state.isDrawing || state.isPlayingCard) return;
 
-      // pendingCard が selectTarget フェーズなら、盤面クリックをターゲット指定として扱う
-      // ただしカード効果に応じて選択可能な対象を制限する (P2: 歩戻しは自分の歩のみ)
+      // pendingCard が selectTarget フェーズなら、盤面クリックをターゲット指定として扱う。
+      // カード種別ごとの妥当性 + 王手中の王手回避要件は isValidCardTargetSquare に集約
+      // (Step S1 / Issue #107: handleSquareClick 側のフライト起動ガードと検証順を揃える)。
       if (cardState.pendingCard && cardState.pendingCard.phase === "selectTarget") {
-        const def = CARD_DEFS[cardState.pendingCard.instance.defId];
-        if (def.effectId === "pawn_return") {
-          const piece = gameState.board[pos.row]?.[pos.col];
-          if (!piece) return; // 空マスは無効
-          if (piece.owner !== gameConfig.playerColor) return; // 相手の駒は無効
-          if (piece.type !== "pawn" && piece.type !== "promoted_pawn") return; // 歩・と金以外は無効
-        }
-        if (def.effectId === "piece_return") {
-          if (!isPieceReturnLegalSquare(gameState, gameConfig.playerColor, pos)) return;
-        }
-        if (def.effectId === "double_pawn") {
-          if (!isDoublePawnLegalSquare(gameState, gameConfig.playerColor, pos)) return;
-        }
-        // 王手中: そのマスへの適用が王手回避になる場合のみ許可 (Issue #82)
-        if (isInCheck(gameState, gameConfig.playerColor, CARD_SHOGI_VARIANT)) {
-          const after = simulateCardEffect(
+        if (
+          !isValidCardTargetSquare(
             gameState,
             gameConfig.playerColor,
             cardState.pendingCard.instance.defId,
-            { kind: "square", row: pos.row, col: pos.col },
-          );
-          if (!after || isInCheck(after, gameConfig.playerColor, CARD_SHOGI_VARIANT)) return;
+            pos,
+          )
+        ) {
+          return;
         }
         dispatch({
           type: "SELECT_CARD_TARGET",

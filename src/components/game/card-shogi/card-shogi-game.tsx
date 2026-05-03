@@ -35,7 +35,7 @@ import type { Difficulty, GameConfig, GameState, Move, Player, Position } from "
 import type { CommentaryEvent } from "@/app/actions/commentary";
 import type { CardGameState, CardInstance } from "@/lib/shogi/cards/types";
 import { CARD_DEFS, CARD_USE_CONDITIONS, DRAW_COST } from "@/lib/shogi/cards/definitions";
-import { isDoublePawnLegalSquare, isPieceReturnLegalSquare, simulateCardEffect, getCheckEscapingSquares, hasSameKindTrapPlaced } from "@/lib/shogi/cards/effects";
+import { isDoublePawnLegalSquare, isPieceReturnLegalSquare, isValidCardTargetSquare, simulateCardEffect, getCheckEscapingSquares, hasSameKindTrapPlaced } from "@/lib/shogi/cards/effects";
 import type { CardId } from "@/lib/shogi/cards/types";
 import { createGame } from "@/app/actions/game";
 
@@ -502,8 +502,15 @@ export function CardShogiGame({
       // reducer 内で CONFIRM_PLAY_CARD を即時再帰実行するため、handleConfirmPlayCard
       // を経由しない。駒フライト用 rect / spec を取り、可能なら効果適用前に
       // flushSync で setPieceFlight を発火して「効果適用 → 駒出現」の隙間を消す。
+      // Step S1 (Issue #107): 無効マスをタップした場合は selectSquare 側で弾かれるが、
+      // それより前に flushSync で駒フライトを起動してしまうとフライト + 中央カード
+      // 演出が空振りする。ここで isValidCardTargetSquare を先行ガードする。
       if (cardState.pendingCard && cardState.pendingCard.phase === "selectTarget") {
         const def = CARD_DEFS[cardState.pendingCard.instance.defId];
+        if (!isValidCardTargetSquare(gameState, playerColor, def.id, pos)) {
+          selectSquare(pos);
+          return;
+        }
         const cardInstance = cardState.pendingCard.instance;
         pendingPieceFlightRef.current = null;
 
@@ -562,7 +569,7 @@ export function CardShogiGame({
       cardState.pendingCard,
       cachePendingCardRect,
       playerColor,
-      gameState.board,
+      gameState,
       findVisibleCapturedPieceRect,
       getBoardSquareRect,
     ],

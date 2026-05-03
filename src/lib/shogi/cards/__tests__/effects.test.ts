@@ -16,7 +16,9 @@ import {
   hasNoPromoteMark,
   hasSameKindTrapPlaced,
   isDoublePawnLegalSquare,
+  isPawnReturnLegalSquare,
   isPieceReturnLegalSquare,
+  isValidCardTargetSquare,
   moveNoPromoteMark,
   removeNoPromoteMark,
   simulateCardEffect,
@@ -306,6 +308,37 @@ describe("applyPieceReturn / isPieceReturnLegalSquare", () => {
 
 // ===== 歩戻し =====
 
+describe("isPawnReturnLegalSquare", () => {
+  it("自分の歩は legal", () => {
+    const state = makeState();
+    place(state, { row: 6, col: 2 }, { type: "pawn", owner: "sente" });
+    expect(isPawnReturnLegalSquare(state, "sente", { row: 6, col: 2 })).toBe(true);
+  });
+
+  it("自分のと金 (promoted_pawn) も legal", () => {
+    const state = makeState();
+    place(state, { row: 3, col: 2 }, { type: "promoted_pawn", owner: "sente" });
+    expect(isPawnReturnLegalSquare(state, "sente", { row: 3, col: 2 })).toBe(true);
+  });
+
+  it("相手の歩は不可", () => {
+    const state = makeState();
+    place(state, { row: 2, col: 2 }, { type: "pawn", owner: "gote" });
+    expect(isPawnReturnLegalSquare(state, "sente", { row: 2, col: 2 })).toBe(false);
+  });
+
+  it("歩以外の駒は不可", () => {
+    const state = makeState();
+    place(state, { row: 6, col: 2 }, { type: "silver", owner: "sente" });
+    expect(isPawnReturnLegalSquare(state, "sente", { row: 6, col: 2 })).toBe(false);
+  });
+
+  it("空マスは不可", () => {
+    const state = makeState();
+    expect(isPawnReturnLegalSquare(state, "sente", { row: 4, col: 4 })).toBe(false);
+  });
+});
+
 describe("applyPawnReturn", () => {
   it("自分の歩を持ち駒に戻せる", () => {
     const state = makeState();
@@ -395,6 +428,97 @@ describe("getCheckEscapingSquares", () => {
     // → 配置に応じて空 or 非空 になる。ここでは空配列を期待。
     const result = getCheckEscapingSquares(state, "sente", "piece_return");
     expect(Array.isArray(result)).toBe(true);
+  });
+});
+
+// ===== Step S1: ターゲット選択ガード =====
+
+describe("isValidCardTargetSquare (Step S1: handleSquareClick / selectSquare 共通ガード)", () => {
+  it("pawn_return: 自分の歩マスは true", () => {
+    const state = makeState();
+    placeKing(state, "sente", { row: 8, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 4 });
+    place(state, { row: 6, col: 2 }, { type: "pawn", owner: "sente" });
+    expect(isValidCardTargetSquare(state, "sente", "pawn_return", { row: 6, col: 2 })).toBe(true);
+  });
+
+  it("pawn_return: 相手の歩マスは false (Step S1 でガードする中核ケース)", () => {
+    const state = makeState();
+    placeKing(state, "sente", { row: 8, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 4 });
+    place(state, { row: 2, col: 2 }, { type: "pawn", owner: "gote" });
+    expect(isValidCardTargetSquare(state, "sente", "pawn_return", { row: 2, col: 2 })).toBe(false);
+  });
+
+  it("pawn_return: 空マスは false", () => {
+    const state = makeState();
+    placeKing(state, "sente", { row: 8, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 4 });
+    expect(isValidCardTargetSquare(state, "sente", "pawn_return", { row: 4, col: 4 })).toBe(false);
+  });
+
+  it("piece_return: ピン駒は false (引き戻すと自玉が王手)", () => {
+    const state = makeState();
+    placeKing(state, "sente", { row: 8, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 4 });
+    place(state, { row: 7, col: 4 }, { type: "gold", owner: "sente" });
+    place(state, { row: 5, col: 4 }, { type: "rook", owner: "gote" });
+    expect(isValidCardTargetSquare(state, "sente", "piece_return", { row: 7, col: 4 })).toBe(false);
+  });
+
+  it("piece_return: 玉マスは false", () => {
+    const state = makeState();
+    placeKing(state, "sente", { row: 8, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 4 });
+    expect(isValidCardTargetSquare(state, "sente", "piece_return", { row: 8, col: 4 })).toBe(false);
+  });
+
+  it("double_pawn: 自分の歩がない列は false (Step S1 でガードする中核ケース)", () => {
+    const state = makeState();
+    placeKing(state, "sente", { row: 8, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 4 });
+    place(state, { row: 6, col: 2 }, { type: "pawn", owner: "sente" });
+    state.hand = { sente: { pawn: 1 }, gote: {} };
+    // col 3 に自分の歩はない → 不可
+    expect(isValidCardTargetSquare(state, "sente", "double_pawn", { row: 5, col: 3 })).toBe(false);
+  });
+
+  it("double_pawn: 持ち駒の歩なしなら全マス false", () => {
+    const state = makeState();
+    placeKing(state, "sente", { row: 8, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 4 });
+    place(state, { row: 6, col: 2 }, { type: "pawn", owner: "sente" });
+    state.hand = { sente: {}, gote: {} };
+    expect(isValidCardTargetSquare(state, "sente", "double_pawn", { row: 5, col: 2 })).toBe(false);
+  });
+
+  it("double_pawn: 自歩の列の空マスかつ持ち駒の歩あれば true", () => {
+    const state = makeState();
+    placeKing(state, "sente", { row: 8, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 4 });
+    place(state, { row: 6, col: 2 }, { type: "pawn", owner: "sente" });
+    state.hand = { sente: { pawn: 1 }, gote: {} };
+    expect(isValidCardTargetSquare(state, "sente", "double_pawn", { row: 5, col: 2 })).toBe(true);
+  });
+
+  it("target なしカード (mana_up) は square 対象外で false", () => {
+    const state = makeState();
+    expect(isValidCardTargetSquare(state, "sente", "mana_up", { row: 4, col: 4 })).toBe(false);
+  });
+
+  it("target なしカード (no_promote) は square 対象外で false", () => {
+    const state = makeState();
+    expect(isValidCardTargetSquare(state, "sente", "no_promote", { row: 4, col: 4 })).toBe(false);
+  });
+
+  it("王手中: 王手回避にならないマスは false (pawn_return)", () => {
+    const state = makeState();
+    placeKing(state, "sente", { row: 8, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 4 });
+    // 香車で王手中。歩を取り除いても王手は解除されない。
+    place(state, { row: 6, col: 8 }, { type: "pawn", owner: "sente" });
+    place(state, { row: 7, col: 4 }, { type: "lance", owner: "gote" });
+    expect(isValidCardTargetSquare(state, "sente", "pawn_return", { row: 6, col: 8 })).toBe(false);
   });
 });
 
