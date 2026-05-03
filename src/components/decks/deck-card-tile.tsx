@@ -6,11 +6,21 @@ import { Badge } from "@/components/ui/badge";
 import { CardView } from "@/components/game/card-shogi/card-view";
 import { cn } from "@/lib/utils";
 import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
-import { RARITY_INFO } from "@/lib/shogi/cards/labels";
-import type { CardId } from "@/lib/shogi/cards/types";
+import type { CardId, CardRarity } from "@/lib/shogi/cards/types";
 import { MarqueeText } from "./marquee-text";
 
 export type DeckArea = "deck" | "owned";
+
+// モバイルのコンパクトタイル用レア度ビジュアル。CardView と揃える形で
+// 「枠色 + 動的グラデ背景 (rare/super_rare/epic) + 斜め閃光 (super_rare/epic)」
+// を 1 行に集約。クラス本体は globals.css で定義済み。
+const COMPACT_RARITY_CLASS: Record<CardRarity, string> = {
+  common:
+    "bg-card text-card-foreground border-slate-400 dark:border-slate-500",
+  rare: "card-rarity-bg-rare border-sky-500",
+  super_rare: "card-rarity-bg-super-rare border-amber-400 card-rarity-shine",
+  epic: "card-rarity-bg-epic border-violet-500 card-rarity-shine",
+};
 
 interface DeckCardTileProps {
   // 同一 cardId が複数並ぶときに React key を一意にするための補助。
@@ -154,26 +164,30 @@ export function DeckCardTile({
           userSelect: "none",
         }}
         className={cn(
-          "lg:hidden w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md border-2",
+          "lg:hidden relative overflow-hidden w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md border-2",
           "transition-all touch-manipulation select-none",
-          RARITY_INFO[def.rarity].className,
+          // shine / 動的グラデ背景は relative overflow-hidden が前提。
+          COMPACT_RARITY_CLASS[def.rarity],
           !disabled && "cursor-pointer active:scale-95",
           disabled && "saturate-50 opacity-55 cursor-not-allowed",
         )}
       >
         <span
-          className="rounded-full bg-background/80 text-foreground w-5 h-5 text-[11px] flex items-center justify-center font-bold tabular-nums shrink-0 ring-1 ring-foreground/15"
+          // レア度別の暗色背景 (card-rarity-bg-*) でも読めるよう、コスト
+          // バッジは常に明色 + 暗色テキスト固定にする。
+          className="rounded-full bg-white/90 text-slate-900 w-5 h-5 text-[11px] flex items-center justify-center font-bold tabular-nums shrink-0 ring-1 ring-black/20 z-10 relative"
           aria-label={`コスト ${def.cost}`}
         >
           {def.cost}
         </span>
-        <span className="text-base shrink-0" aria-hidden>
+        <span className="relative z-10 text-base shrink-0" aria-hidden>
           {def.icon}
         </span>
-        {/* container 幅より長いカード名は ping-pong スクロールで全文を見せる。 */}
+        {/* container 幅より長いカード名は ping-pong スクロールで全文を見せる。
+            z-10 で背景の動的グラデや閃光より前面に。 */}
         <MarqueeText
           text={def.name}
-          className="text-[11px] font-medium flex-1 text-left"
+          className="relative z-10 text-[11px] font-medium flex-1 text-left"
         />
       </button>
 

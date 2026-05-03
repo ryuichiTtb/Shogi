@@ -342,8 +342,9 @@ export function DeckEditorPane({
             >
               合計 {validation.totalCount} / {DECK_TOTAL_MAX} 枚
             </h3>
-            {/* モバイル限定の長押しヒント (改行で表示)。 */}
-            <p className="lg:hidden font-normal text-muted-foreground text-[9px] mt-0.5">
+            {/* モバイル限定の長押しヒント (改行で表示)。
+                蛍光グリーン+太字で目を引かせる。 */}
+            <p className="lg:hidden font-bold text-lime-600 dark:text-lime-400 text-[10px] mt-0.5">
               💡 カード長押しで詳細表示
             </p>
           </header>
