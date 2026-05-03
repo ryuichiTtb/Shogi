@@ -35,7 +35,7 @@ import type { Difficulty, GameConfig, GameState, Move, Player, Position } from "
 import type { CommentaryEvent } from "@/app/actions/commentary";
 import type { CardGameState, CardInstance } from "@/lib/shogi/cards/types";
 import { CARD_DEFS, CARD_USE_CONDITIONS, DRAW_COST } from "@/lib/shogi/cards/definitions";
-import { isDoublePawnLegalSquare, isPieceReturnLegalSquare, simulateCardEffect, getCheckEscapingSquares } from "@/lib/shogi/cards/effects";
+import { isDoublePawnLegalSquare, isPieceReturnLegalSquare, simulateCardEffect, getCheckEscapingSquares, hasSameKindTrapPlaced } from "@/lib/shogi/cards/effects";
 import type { CardId } from "@/lib/shogi/cards/types";
 import { createGame } from "@/app/actions/game";
 
@@ -800,6 +800,7 @@ export function CardShogiGame({
   // マナ以外の使用条件を満たさないカードIDを集計し、HandArea で非活性化する (Issue #82)。
   // - 通常時: CARD_USE_CONDITIONS の defId 別関数で判定
   // - 王手中: そのカードで王手回避できなければ非活性 (王手回避手段がない=不可)
+  // - トラップ: 同種トラップが既に盤面にあれば非活性 (Issue #105)
   // 手札に存在する defId のみ評価する。
   const unusableCardIds = useMemo(() => {
     const set = new Set<string>();
@@ -807,6 +808,12 @@ export function CardShogiGame({
     for (const inst of displayedOwnHand) {
       if (seen.has(inst.defId)) continue;
       seen.add(inst.defId);
+      const def = CARD_DEFS[inst.defId];
+      // Issue #105: 同種トラップが盤面に存在すれば、その種別の手札カードは使用不可
+      if (def.kind === "trap" && hasSameKindTrapPlaced(cardState, playerColor, inst.defId)) {
+        set.add(inst.defId);
+        continue;
+      }
       const useCond = CARD_USE_CONDITIONS[inst.defId];
       if (useCond && !useCond(gameState, playerColor, cardState)) {
         set.add(inst.defId);

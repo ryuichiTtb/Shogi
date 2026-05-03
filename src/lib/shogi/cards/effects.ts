@@ -264,6 +264,18 @@ export function getCheckEscapingSquares(
   return result;
 }
 
+// 同種トラップ重複チェック (Issue #105)。
+// 自分側のトラップスロットに同じ defId のトラップがすでに置かれていれば true。
+// reducer の使用前ガードと UI の非活性判定で共通利用する。
+export function hasSameKindTrapPlaced(
+  cardState: CardGameState,
+  player: Player,
+  defId: CardId,
+): boolean {
+  const existing = cardState.trap[player];
+  return existing !== null && existing.defId === defId;
+}
+
 // トラップセット: 手札の指定カードを trap スロットへ移動 (マナ消費は呼び出し側)
 export function applyTrapSet(
   cardState: CardGameState,
