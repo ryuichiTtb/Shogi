@@ -118,8 +118,12 @@ export interface CardGameState {
   noPromoteMarks: Record<Player, PieceMark[]>;
 }
 
+// Step 5 (Issue #107): 旧 CHARGE_MANA / SET_TRAP / TRIGGER_TRAP は dead code
+// (UI からも内部からも dispatch されていなかった) のため削除済み。
+// マナチャージは MAKE_MOVE の reducer 内で makeMoveWithEffects がターンチャージ
+// イベントを生成し、トラップは BEGIN_PLAY_CARD → CONFIRM_PLAY_CARD と
+// MAKE_MOVE の no_promote トラップ発動経路で完結している。
 export type CardAction =
-  | { type: "CHARGE_MANA"; player: Player; amount: number; reason: "turn" | "card" }
   | { type: "DRAW_CARD"; player: Player }
   // ドロー演出完了時に呼ぶ。currentPlayer を相手に渡し、isDrawing をクリア。
   | { type: "COMMIT_DRAW" }
@@ -131,8 +135,6 @@ export type CardAction =
   // 即座に反転していたが、AI が演出中に動き出してしまうため演出完了まで保留する。
   | { type: "COMMIT_PLAY_CARD" }
   | { type: "CANCEL_PLAY_CARD" }
-  | { type: "SET_TRAP"; player: Player; instanceId: string }
-  | { type: "TRIGGER_TRAP"; player: Player; reason: TrapTrigger }
   | { type: "RESET_TURN_TIMER"; player: Player };
 
 export type GameEvent =
