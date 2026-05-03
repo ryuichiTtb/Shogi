@@ -50,7 +50,9 @@ export function CardCatalogGrid({ cards }: CardCatalogGridProps) {
         </div>
       ) : (
         <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pb-3">
+          {/* 各タイルのステータスバッジ (-top-2) が上端で見切れないよう pt-3。
+              下も pb-3 で対称に。 */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-3 pb-3">
             {filtered.map((def) => (
               <CardCatalogTile key={def.id} def={def} />
             ))}
