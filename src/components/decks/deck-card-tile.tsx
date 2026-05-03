@@ -70,7 +70,9 @@ export function DeckCardTile({
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLElement>) => {
-      if (!onLongPress || disabled) return;
+      // disabled (0 枚カードなど) でも長押し詳細は発火させる。
+      // 通常 click だけ handleClick 側で disabled 早期 return する。
+      if (!onLongPress) return;
       longPressTriggeredRef.current = false;
       longPressStartPosRef.current = { x: e.clientX, y: e.clientY };
       // 既存タイマーは重複しないようクリアしてから再セット。
@@ -84,7 +86,7 @@ export function DeckCardTile({
         longPressStartPosRef.current = null;
       }, LONG_PRESS_MS);
     },
-    [cardId, disabled, onLongPress],
+    [cardId, onLongPress],
   );
 
   const handlePointerMove = useCallback(
@@ -130,7 +132,10 @@ export function DeckCardTile({
       data-instance-key={instanceKey ?? "single"}
       title={title}
     >
-      {/* モバイル: コンパクトタイル (cost + icon + name) + 長押し詳細 */}
+      {/* モバイル: コンパクトタイル (cost + icon + name) + 長押し詳細
+          注意: 0 枚カードでも長押しで詳細を見せたいので HTML disabled は
+          付けず aria-disabled + 見た目だけ無効にする。click は handleClick
+          側で disabled 早期 return。pointerDown (long-press) は受け付ける。 */}
       <button
         type="button"
         onClick={handleClick}
@@ -142,7 +147,7 @@ export function DeckCardTile({
         // 長押し時の text 選択 / iOS Safari の callout (コピー / 共有メニュー) /
         // Android Chrome の context menu を抑止。
         onContextMenu={(e) => e.preventDefault()}
-        disabled={disabled}
+        aria-disabled={disabled}
         style={{
           WebkitUserSelect: "none",
           WebkitTouchCallout: "none",
