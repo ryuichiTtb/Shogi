@@ -75,16 +75,39 @@
 ```
 main
  └─ feature/#107  (親ブランチ。各 Step 派生ブランチの統合先)
-     ├─ refactor/#107-cleanup     (Step 1)
+     ├─ refactor/#107-cleanup     (Step 1) ※ Step S1 (二歩指しガード) も含む
      ├─ refactor/#107-memo        (Step 2)
      ├─ refactor/#107-compute     (Step 3)
      ├─ feature/#107-preload      (Step 4)
-     └─ refactor/#107-split       (Step 5)
+     ├─ refactor/#107-split       (Step 5)
+     └─ fix/#107-{slug}           (Step S2 以降の潜在バグ修正、発見都度追加)
 ```
 
 - 各 Step 派生ブランチは **`origin/feature/#107` 起点**で作成 (派生親が feature/#107 のため、AGENTS.md ルール 4 の「origin/main 起点」の例外として記載)
 - 各 Step PR の base ブランチは `feature/#107`
 - 全 Step 完了後、`feature/#107` → `main` の統合 PR を 1 本作成
+
+## 潜在バグ修正方針 (Step S シリーズ)
+
+Issue #107 のスコープに **「リファクタ中に発見した潜在バグの是正」を含める**。本 Issue の検証 (Vercel preview / モバイル実機) で見つかったバグは、リファクタ Step とは別に **Step S{n}** として発見順に管理し、`fix/#107-{slug}` 派生ブランチで個別 PR とする(または Step 1〜5 進行中に同ブランチへ含めて修正)。
+
+**運用ルール**:
+- 振る舞いを変更する修正は本セクションに必ずバグレポート (現象 / 原因 / 影響範囲) を記載
+- 修正は Vitest による回帰テスト追加とセットで行う
+- 通常の Step (1〜5) 内で同根の修正が自然に含まれる場合は、その Step 内に組み込んで OK (本書に記録は残す)
+
+### Step S1: ターゲット選択フェーズで無効マスをタップすると演出が走る (Step 1 に含めて修正)
+
+- **対象カード**: `double_pawn` (二歩指し) / `pawn_return` (歩戻し) / `piece_return` (駒戻し)
+- **現象**: ターゲット選択中、ハイライトされていない無効マスをタップすると、持ち駒/盤上駒のフライト演出 + 中央カード使用演出が走る (実効果は適用されない)。ユーザーには「カードが空振りした」見た目になる
+- **原因**: [card-shogi-game.tsx:495-554](src/components/game/card-shogi/card-shogi-game.tsx#L495) の `handleSquareClick` が、ターゲット妥当性を検証する前に `flushSync(() => setPieceFlight(...))` で駒フライトを起動している。検証は L556 の `selectSquare(pos)` 内 ([use-card-shogi-game.ts:912-914](src/hooks/use-card-shogi-game.ts#L912)) で行われるが、その時点では既に演出が始まっている。`pendingPlayFlightRef.current` も L548 でセットされるため駒フライト完了で中央カード演出も連鎖発火する
+- **影響**: 同根の構造で 3 種すべてに発生。王手中の使用可否チェックも同様に `selectSquare` 内のためすり抜ける
+- **修正方針**:
+  - [src/lib/shogi/cards/effects.ts](src/lib/shogi/cards/effects.ts) に `isPawnReturnLegalSquare` を新規追加 (現状はインライン判定のみ)
+  - 同 effects.ts に共有ヘルパ `isValidCardTargetSquare(state, cardState, player, defId, target)` を追加。各カード種別の妥当性 + 王手中の王手回避判定を 1 関数に集約
+  - `handleSquareClick` の駒フライト起動前と `selectSquare` の SELECT_CARD_TARGET dispatch 前の両方で `isValidCardTargetSquare` を呼ぶ
+  - 既存の effects.test.ts に該当境界テスト 8-10 ケース追加
+- **本ブランチで対応**: Step 1 (`refactor/#107-cleanup`) に含めて修正済み (commit 5)
 
 ---
 
@@ -103,10 +126,10 @@ main
 
 ---
 
-## Step 1: クリーンアップ・基盤整備
+## Step 1: クリーンアップ・基盤整備 (+ Step S1 ターゲット検証ガード)
 
 **ブランチ**: `refactor/#107-cleanup` (`origin/feature/#107` 起点)
-**目的**: 振る舞い不変を担保しやすい純粋なお掃除を先行。後続 Step のレビュー雑音を排除し、Vitest 設定追加と AGENTS.md ルール追記を同時実施。
+**目的**: 振る舞い不変を担保しやすい純粋なお掃除を先行。後続 Step のレビュー雑音を排除し、Vitest 設定追加と AGENTS.md ルール追記を同時実施。Step S1 (ターゲット検証ガード) も同ブランチに含める。
 **所要**: 半日
 
 ### 変更ファイル
