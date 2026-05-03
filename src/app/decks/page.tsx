@@ -5,6 +5,7 @@ import {
   listOwnedCardsForCurrentUser,
 } from "@/app/actions/deck";
 import { DecksPage } from "@/components/decks/decks-page";
+import { AppBackground } from "@/components/layout/app-background";
 
 export const metadata = {
   title: "デッキ編成 | カード将棋",
@@ -17,7 +18,8 @@ export default async function DecksRoute() {
   ]);
 
   return (
-    <main className="h-dvh flex flex-col bg-gradient-to-b from-amber-50 dark:from-amber-950/30 to-background">
+    <main className="h-dvh flex flex-col">
+      <AppBackground variant="page" />
       {/* lg+ は左カラムを 560px に広げた分、全体幅も拡大して右カラム
           (編集エリア) のサイズを維持する。 */}
       <div className="max-w-6xl lg:max-w-[1440px] mx-auto px-4 pt-4 sm:pt-6 pb-2 w-full flex flex-col flex-1 min-h-0">

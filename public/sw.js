@@ -2,12 +2,14 @@
 //
 // Step 4 (Issue #107): CACHE_NAME を v2 にバンプし、古い shogi-v1 キャッシュを
 // activate ハンドラで自動削除する。
+// Issue #117: 新ホーム公開に合わせて v3 へバンプ。古い shogi-v2 キャッシュ
+// (旧モードタブ式 "/" の HTML) をオフライン時に拾わないようにする。
 // PRECACHE_ASSETS の SE リストは src/lib/audio/manifest.ts SFX_FILES と
 // 同じ実体ファイルを指す (現状は重複管理。将来的には manifest 経由で同期する)。
 // BGM (.wav) は SW install 時のプリキャッシュ対象に含めない: 約 2.2MB を
 // 一気に取りに行くと初回起動が重くなるため、ロビーで選択中キャラ BGM のみを
 // useAssetPreloader (src/hooks/use-asset-preloader.ts) で軽く load する。
-const CACHE_NAME = "shogi-v2";
+const CACHE_NAME = "shogi-v3";
 
 // プリキャッシュする静的アセット
 const PRECACHE_ASSETS = [

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { CardCatalogGrid } from "@/components/cards/card-catalog-grid";
 import { ALL_CARD_DEFS } from "@/lib/shogi/cards/definitions";
+import { AppBackground } from "@/components/layout/app-background";
 
 export const metadata = {
   title: "カード一覧 | カード将棋",
@@ -11,7 +12,8 @@ export const metadata = {
 // ヘッダ+フィルタを上部固定、グリッド領域のみ縦スクロール。
 export default function CardsPage() {
   return (
-    <main className="h-dvh flex flex-col bg-gradient-to-b from-amber-50 dark:from-amber-950/30 to-background">
+    <main className="h-dvh flex flex-col">
+      <AppBackground variant="page" />
       <div className="max-w-4xl mx-auto px-4 pt-4 sm:pt-6 pb-2 w-full flex flex-col flex-1 min-h-0">
         <header className="flex items-center gap-3 mb-3 sm:mb-4 shrink-0">
           <Link

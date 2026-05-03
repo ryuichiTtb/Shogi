@@ -25,6 +25,10 @@ interface MobileDrawerProps {
   gameWinner?: Player | "draw";
   onPlayAgain: () => void;
   isPending: boolean;
+  // ホームへ戻るリンクの遷移先 (Issue #117)。
+  // standard variant は "/classic"、card-shogi variant は "/" を渡す。
+  // default 値を持たせず必須にすることで、呼び出し側の渡し忘れを TypeScript で検出。
+  homeHref: string;
   // card-shogi の場合に渡す。指定された場合は MoveHistory ではなく CardShogiHistory を表示。
   cardEventLog?: GameEvent[];
   // ゲーム終了 Card の表示を抑止する(card-shogi では別エリアに配置するため)
@@ -43,6 +47,7 @@ export function MobileDrawer({
   gameWinner,
   onPlayAgain,
   isPending,
+  homeHref,
   cardEventLog,
   hideEndCard = false,
 }: MobileDrawerProps) {
@@ -106,7 +111,7 @@ export function MobileDrawer({
                   {gameResultText(gameStatus, gameWinner)}
                 </p>
                 <div className="flex gap-2 justify-center">
-                  <Link href="/">
+                  <Link href={homeHref}>
                     <Button size="sm" variant="outline">
                       ホームへ
                     </Button>
