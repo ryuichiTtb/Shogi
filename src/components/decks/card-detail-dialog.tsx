@@ -80,6 +80,25 @@ interface CardDetailDialogProps {
 // detailDescription / useConditionDescription / メタ情報を併記する。
 export function CardDetailDialog({ cardId, onClose }: CardDetailDialogProps) {
   const def = cardId ? CARD_DEFS[cardId] : null;
+
+  // 長押しで開いた直後は dialog 内の text 選択を一時的にロックする。
+  // 長押し終端で指が dialog 内テキスト上にあると、ブラウザの「単語選択」が
+  // 走ってしまうため。300ms 後に解除して通常のテキスト選択 / コピーは可。
+  const [selectable, setSelectable] = useState(false);
+  useEffect(() => {
+    if (cardId === null) {
+      setSelectable(false);
+      return;
+    }
+    setSelectable(false);
+    // open 起点の意図しない範囲選択をクリア
+    if (typeof window !== "undefined") {
+      window.getSelection()?.removeAllRanges();
+    }
+    const t = window.setTimeout(() => setSelectable(true), 300);
+    return () => window.clearTimeout(t);
+  }, [cardId]);
+
   return (
     <Dialog
       open={cardId !== null}
@@ -87,7 +106,20 @@ export function CardDetailDialog({ cardId, onClose }: CardDetailDialogProps) {
         if (!o) onClose();
       }}
     >
-      <DialogContent className="max-w-md w-[calc(100%-2rem)] max-h-[85vh] overflow-y-auto">
+      <DialogContent
+        className={cn(
+          "max-w-md w-[calc(100%-2rem)] max-h-[85vh] overflow-y-auto",
+          !selectable && "select-none",
+        )}
+        style={
+          !selectable
+            ? {
+                WebkitUserSelect: "none",
+                WebkitTouchCallout: "none",
+              }
+            : undefined
+        }
+      >
         {def && cardId && (
           <>
             <DialogTitle className="flex items-center gap-2 flex-wrap">
