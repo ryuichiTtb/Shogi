@@ -445,11 +445,6 @@
   outline-offset: 1px;
   transition: outline-color 0.18s ease, transform 0.18s ease, filter 0.18s ease;
 }
-.card-hover-focus:not(:disabled):hover {
-  transform: translateY(-2px);
-  outline-color: rgba(250, 204, 21, 0.78);
-  filter: drop-shadow(0 4px 14px rgba(250, 204, 21, 0.40));
-}
 .card-hover-overlay {
   position: absolute;
   inset: 0;
@@ -465,8 +460,64 @@
   opacity: 0;
   transition: opacity 0.18s ease;
 }
-.card-hover-focus:not(:disabled):hover .card-hover-overlay {
-  opacity: 1;
+
+/* Step S2 (Issue #107): hover 系演出は (hover: hover) and (pointer: fine) で
+ * ガードする。タッチデバイスでは :hover がタップ後に持続し、ドラッグで他カード
+ * に張り付く挙動を起こすため、マウス/トラックパッド環境でのみ発火させる。 */
+@media (hover: hover) and (pointer: fine) {
+  .card-hover-focus:not(:disabled):hover {
+    transform: translateY(-2px);
+    outline-color: rgba(250, 204, 21, 0.78);
+    filter: drop-shadow(0 4px 14px rgba(250, 204, 21, 0.40));
+  }
+  .card-hover-focus:not(:disabled):hover .card-hover-overlay {
+    opacity: 1;
+  }
+}
+
+/* Step S2 (Issue #107): カードデザイン画面用の lift only hover。
+ * card-hover-focus との違い: 黄色 outline / overlay / drop-shadow を含まず、
+ * 浮き上がり (translateY) のみ。デザイン選択画面では装飾色を被せず、
+ * 「カードそのもの」のデザインを邪魔せずに hover を伝える。 */
+.card-hover-lift {
+  transition: transform 0.18s ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .card-hover-lift:not(:disabled):hover {
+    transform: translateY(-2px);
+  }
+}
+
+/* Step S2 (Issue #107): カードデザイン画面のモバイル時、カード本体の横幅を
+ * 縮める。MOCK_SIZE_CLASS (sizes.ts) は対局画面でも参照されるため変更せず、
+ * このページの preview 領域だけにスコープした override を当てる。
+ * 対象: md = w-32 / h-[80px], lg = w-40 / h-24, 中央モチーフは比例縮小。 */
+@media (max-width: 639px) {
+  .card-design-mobile-shrink :is(.w-32) {
+    width: 6rem;
+  }
+  .card-design-mobile-shrink :is(.h-\[80px\]) {
+    height: 60px;
+  }
+  .card-design-mobile-shrink :is(.w-40) {
+    width: 7.5rem;
+  }
+  .card-design-mobile-shrink :is(.h-24) {
+    height: 4.5rem;
+  }
+  /* 中央モチーフ (back-emblem 等の駒シルエット): md=w-14 h-16, lg=w-16 h-20 */
+  .card-design-mobile-shrink :is(.w-14) {
+    width: 2.75rem;
+  }
+  .card-design-mobile-shrink :is(.h-16) {
+    height: 3.25rem;
+  }
+  .card-design-mobile-shrink :is(.w-16) {
+    width: 3.25rem;
+  }
+  .card-design-mobile-shrink :is(.h-20) {
+    height: 4rem;
+  }
 }
 
 /* --- 究極のオーブ: 多色グラデ + 色相回転で輝きが動的に変化する光球

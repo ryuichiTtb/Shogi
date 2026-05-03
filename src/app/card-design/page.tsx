@@ -88,8 +88,11 @@ export default function CardDesignPage() {
 
   return (
     <main className="min-h-dvh bg-gradient-to-b from-slate-50 dark:from-slate-950 to-background pb-16">
-      <div className="max-w-5xl mx-auto px-4 pt-4 sm:pt-6 w-full">
-        <header className="flex items-center gap-3 mb-4 sm:mb-6">
+      {/* Step S2 (Issue #107): ホームリンク + 説明書きエリアを sticky 固定。
+          スクロール時もヘッダが画面上端に残る。背景は半透明 + backdrop-blur で
+          下のリストが透けないようにする。 */}
+      <header className="sticky top-0 z-40 bg-slate-50/90 dark:bg-slate-950/90 backdrop-blur-sm border-b border-border/50">
+        <div className="max-w-5xl mx-auto px-4 py-3 sm:py-4 w-full flex items-center gap-3">
           <Link
             href="/"
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
@@ -106,8 +109,10 @@ export default function CardDesignPage() {
               山札と相手手札の裏面スタイルを選びます。選択は端末に保存されます。
             </p>
           </div>
-        </header>
+        </div>
+      </header>
 
+      <div className="max-w-5xl mx-auto px-4 pt-4 sm:pt-6 w-full">
         <div className="space-y-4">
           {CARD_BACK_STYLE_LIST.map((styleKey) => {
             const entry = CARD_BACK_STYLES[styleKey];
@@ -122,14 +127,13 @@ export default function CardDesignPage() {
                 className={cn(
                   "relative w-full text-left rounded-xl border-2",
                   "bg-white dark:bg-slate-900/60 shadow-sm cursor-pointer",
-                  // 対局画面の手札と同じホバー演出 (黄色 outline + translateY + drop-shadow + 暖色オーバーレイ)
-                  "card-hover-focus",
+                  // Step S2 (Issue #107): デザイン選択画面では黄色を被せず lift のみ
+                  "card-hover-lift",
                   isSelected
                     ? "border-lime-400 ring-2 ring-lime-300/50"
                     : "border-border",
                 )}
               >
-                <span className="card-hover-overlay" aria-hidden />
                 <div className="relative z-10 p-4 flex flex-col gap-3">
                   <div>
                     <h2 className="text-base font-bold">{entry.label}</h2>
@@ -137,7 +141,9 @@ export default function CardDesignPage() {
                       {entry.description}
                     </p>
                   </div>
-                  <div className="flex flex-wrap items-end gap-5">
+                  {/* Step S2: モバイルでカード本体を縮小 (sizes.ts は対局画面と
+                      共通のため触らず、このページのプレビュー領域のみ override) */}
+                  <div className="card-design-mobile-shrink flex flex-wrap items-end gap-3 sm:gap-5">
                     {NORMAL_SIZES.map((s) => (
                       <SizeLabeled key={s} label={s}>
                         <Component size={s} />
