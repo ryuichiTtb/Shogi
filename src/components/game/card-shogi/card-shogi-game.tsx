@@ -1593,10 +1593,13 @@ export function CardShogiGame({
       ))}
 
       {/* Issue #82 (王手崩し): 演出中のゴースト駒。reducer は既に駒を盤上から
-          除去しているので、王手中央表示+トラップ発動演出の間だけ元位置に重ねる */}
+          除去しているので、王手中央表示+トラップ発動演出の間だけ元位置に重ねる。
+          z-[5] は BoardOverlay (z-10) より下、ShogiBoard 本体 (z-auto/0) より上
+          になるよう意図的に低く設定 (王手・トラップ発動の中央演出をゴーストより
+          手前に表示するため)。 */}
       {checkBreakAnim && checkBreakAnim.ghosts.length > 0 && typeof document !== "undefined" &&
         createPortal(
-          <div className="fixed inset-0 pointer-events-none z-[50]">
+          <div className="fixed inset-0 pointer-events-none z-[5]">
             {checkBreakAnim.ghosts.map((g, i) => (
               <div
                 key={`ghost-${i}`}
