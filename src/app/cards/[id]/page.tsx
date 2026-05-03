@@ -37,9 +37,12 @@ export default async function CardDetailPage({ params }: CardDetailPageProps) {
   const rarityInfo = RARITY_INFO[def.rarity];
 
   return (
-    <main className="min-h-dvh bg-gradient-to-b from-amber-50 dark:from-amber-950/30 to-background">
-      <div className="max-w-4xl mx-auto px-4 py-4 sm:py-6">
-        <header className="flex items-center gap-3 mb-4 sm:mb-6">
+    // 詳細ポップアップ (CardDetailDialog) と同じ「ヘッダ固定 + 本文スクロール」
+    // パターンに揃える。
+    <main className="h-dvh flex flex-col bg-gradient-to-b from-amber-50 dark:from-amber-950/30 to-background">
+      <div className="max-w-4xl mx-auto px-4 pt-4 sm:pt-6 pb-2 w-full flex flex-col flex-1 min-h-0">
+        {/* 戻るリンク + 名前 (固定) */}
+        <header className="flex items-center gap-3 mb-3 sm:mb-4 shrink-0">
           <Link
             href="/cards"
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
@@ -54,77 +57,69 @@ export default async function CardDetailPage({ params }: CardDetailPageProps) {
           </div>
         </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-6 lg:gap-8 items-start">
-          {/* 実物大プレビュー */}
-          <div className="flex justify-center lg:justify-start">
-            {/* xl サイズはモバイルでは大きすぎるので、md 以上で xl 表示。それ未満は lg にスケールダウン */}
-            <div className="hidden md:block">
-              <CardView
-                card={{ instanceId: `detail-${def.id}`, defId: def.id }}
-                size="xl"
-              />
-            </div>
-            <div className="md:hidden w-full max-w-sm">
-              <CardView
-                card={{ instanceId: `detail-${def.id}`, defId: def.id }}
-                size="lg"
-                fullWidth
-              />
-            </div>
+        {/* 固定ヘッダ: 実物プレビュー + バッジ */}
+        <div className="shrink-0 flex flex-col gap-3 items-center pb-3 mb-3 border-b">
+          <div className="hidden md:block">
+            <CardView
+              card={{ instanceId: `detail-${def.id}`, defId: def.id }}
+              size="xl"
+            />
           </div>
-
-          {/* メタ情報 + 詳細 */}
-          <div className="flex flex-col gap-4">
-            {/* バッジ群 */}
-            <div className="flex flex-wrap gap-1.5">
-              <Badge variant="outline" className={cn("text-xs", statusInfo.className)}>
-                {statusInfo.label}
-              </Badge>
-              <Badge variant="outline" className={cn("text-xs", kindInfo.className)}>
-                {kindInfo.label}
-              </Badge>
-              <Badge variant="outline" className={cn("text-xs", rarityInfo.className)}>
-                {rarityInfo.label}
-              </Badge>
-            </div>
-
-            {/* 説明文 */}
-            <section>
-              <h2 className="text-sm font-bold mb-1">効果概要</h2>
-              <p className="text-sm text-muted-foreground leading-relaxed">{def.description}</p>
-            </section>
-
-            {def.detailDescription && (
-              <section>
-                <h2 className="text-sm font-bold mb-1">効果詳細仕様</h2>
-                <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
-                  {def.detailDescription}
-                </p>
-              </section>
-            )}
-
-            {def.useConditionDescription && (
-              <section>
-                <h2 className="text-sm font-bold mb-1">使用条件</h2>
-                <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
-                  {def.useConditionDescription}
-                </p>
-              </section>
-            )}
-
-            {/* メタ情報テーブル */}
-            <section>
-              <h2 className="text-sm font-bold mb-2">メタ情報</h2>
-              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
-                <MetaRow label="ID" value={<span className="font-mono">{def.id}</span>} />
-                <MetaRow label="コスト" value={`${def.cost} マナ`} />
-                <MetaRow label="ターゲット" value={TARGETING_LABEL[def.targeting]} />
-                <MetaRow label="effectId" value={<span className="font-mono">{def.effectId}</span>} />
-                {def.addedAt && <MetaRow label="追加日" value={def.addedAt} />}
-              </dl>
-            </section>
-
+          <div className="md:hidden w-full max-w-sm">
+            <CardView
+              card={{ instanceId: `detail-${def.id}`, defId: def.id }}
+              size="lg"
+              fullWidth
+            />
           </div>
+          <div className="flex flex-wrap gap-1.5 justify-center">
+            <Badge variant="outline" className={cn("text-xs", statusInfo.className)}>
+              {statusInfo.label}
+            </Badge>
+            <Badge variant="outline" className={cn("text-xs", kindInfo.className)}>
+              {kindInfo.label}
+            </Badge>
+            <Badge variant="outline" className={cn("text-xs", rarityInfo.className)}>
+              {rarityInfo.label}
+            </Badge>
+          </div>
+        </div>
+
+        {/* スクロール可能本文: 概要 / 詳細 / 使用条件 / メタ */}
+        <div className="flex-1 min-h-0 overflow-y-auto pr-2 flex flex-col gap-4 pb-4">
+          <section>
+            <h2 className="text-sm font-bold mb-1">効果概要</h2>
+            <p className="text-sm text-muted-foreground leading-relaxed">{def.description}</p>
+          </section>
+
+          {def.detailDescription && (
+            <section>
+              <h2 className="text-sm font-bold mb-1">効果詳細仕様</h2>
+              <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
+                {def.detailDescription}
+              </p>
+            </section>
+          )}
+
+          {def.useConditionDescription && (
+            <section>
+              <h2 className="text-sm font-bold mb-1">使用条件</h2>
+              <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
+                {def.useConditionDescription}
+              </p>
+            </section>
+          )}
+
+          <section>
+            <h2 className="text-sm font-bold mb-2">メタ情報</h2>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
+              <MetaRow label="ID" value={<span className="font-mono">{def.id}</span>} />
+              <MetaRow label="コスト" value={`${def.cost} マナ`} />
+              <MetaRow label="ターゲット" value={TARGETING_LABEL[def.targeting]} />
+              <MetaRow label="effectId" value={<span className="font-mono">{def.effectId}</span>} />
+              {def.addedAt && <MetaRow label="追加日" value={def.addedAt} />}
+            </dl>
+          </section>
         </div>
       </div>
     </main>

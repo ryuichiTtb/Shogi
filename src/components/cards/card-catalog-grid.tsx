@@ -36,8 +36,12 @@ export function CardCatalogGrid({ cards }: CardCatalogGridProps) {
 
   return (
     <div className="flex flex-col gap-3 flex-1 min-h-0">
-      <div className="rounded-lg border bg-card p-3 shrink-0">
+      {/* ヘッダエリア: フィルタ + 件数表示 */}
+      <div className="rounded-lg border bg-card p-3 shrink-0 flex flex-col gap-2">
         <CardFilterBar value={filter} onChange={setFilter} />
+        <div className="text-xs text-muted-foreground border-t pt-2 tabular-nums">
+          {filtered.length} 件表示中 (全 {cards.length} 件)
+        </div>
       </div>
 
       {filtered.length === 0 ? (
@@ -46,9 +50,6 @@ export function CardCatalogGrid({ cards }: CardCatalogGridProps) {
         </div>
       ) : (
         <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1">
-          <div className="text-xs text-muted-foreground mb-2 sticky top-0 bg-background/80 backdrop-blur py-1 z-10">
-            {filtered.length} 件表示中 (全 {cards.length} 件)
-          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pb-3">
             {filtered.map((def) => (
               <CardCatalogTile key={def.id} def={def} />
