@@ -35,7 +35,7 @@ import type { Difficulty, GameConfig, GameState, Move, Player, Position } from "
 import type { CommentaryEvent } from "@/app/actions/commentary";
 import type { CardGameState, CardInstance } from "@/lib/shogi/cards/types";
 import { CARD_DEFS, CARD_USE_CONDITIONS, DRAW_COST } from "@/lib/shogi/cards/definitions";
-import { isDoublePawnLegalSquare, isPieceReturnLegalSquare, isValidCardTargetSquare, simulateCardEffect, getCheckEscapingSquares, hasSameKindTrapPlaced } from "@/lib/shogi/cards/effects";
+import { isDoublePawnLegalSquare, isPieceReturnLegalSquare, isValidCardTargetSquare, simulateCardEffect, canEscapeCheckWithCard, hasSameKindTrapPlaced } from "@/lib/shogi/cards/effects";
 import type { CardId } from "@/lib/shogi/cards/types";
 import { createGame } from "@/app/actions/game";
 
@@ -853,10 +853,11 @@ export function CardShogiGame({
         set.add(inst.defId);
         continue;
       }
-      // 王手中: 王手回避できないカードは非活性
+      // 王手中: 王手回避できないカードは非活性。Step 3 (Issue #107):
+      // 1 マスでも回避可能なら true を返す早期 return 版で、王手中の
+      // 計算量を 30-50% 削減する。
       if (inCheck) {
-        const escaping = getCheckEscapingSquares(gameState, playerColor, inst.defId as CardId);
-        if (escaping.length === 0) {
+        if (!canEscapeCheckWithCard(gameState, playerColor, inst.defId as CardId)) {
           set.add(inst.defId);
         }
       }
