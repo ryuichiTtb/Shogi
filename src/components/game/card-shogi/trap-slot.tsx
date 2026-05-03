@@ -28,11 +28,29 @@ export function TrapSlot({
   horizontal = false,
 }: TrapSlotProps) {
   // 設置済みかつ表向き: 該当トラップカードのデザインそのもので表示する (Issue #105)。
-  // CardView を inactive で描画し、効果説明は hideDescription で省略する。
-  // horizontal モードでも CardView をそのまま使う(現状 horizontal は faceDown 専用だが、
-  // 仕様拡張時に表向き horizontal が来ても整合するように同じ分岐で扱う)。
+  // CardView を inactive で描画し、効果説明は hideDescription、ラベルは hideTrapBadge、
+  // レイアウトは compactIconLayout (アイコン左上+カード名複数行) で省スペース化する。
+  // 非 fullWidth + 非 horizontal のときは元 TrapSlot 同等の枠サイズ (SIZE_CLASS) に
+  // 固定し、内部 CardView は fullWidth=true で wrapper 幅に追従させる。
+  // CardView 自然サイズ (md=128px) のままだとモバイル下端の 3 カラムレイアウトで
+  // 隣接要素 (マナゲージ等) を圧迫してしまうため。
   if (trap && !faceDown) {
     const cardInstance: CardInstance = { instanceId: trap.instanceId, defId: trap.defId };
+    if (!fullWidth && !horizontal) {
+      return (
+        <div className={cn("shrink-0", SIZE_CLASS[size])}>
+          <CardView
+            card={cardInstance}
+            size={size}
+            fullWidth
+            hideDescription
+            hideTrapBadge
+            compactIconLayout
+            inactive
+          />
+        </div>
+      );
+    }
     return (
       <CardView
         card={cardInstance}
