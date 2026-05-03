@@ -23,7 +23,6 @@ import { updateGameStatus, saveCardShogiMove } from "@/app/actions/game";
 import type {
   CardAction,
   CardGameState,
-  CardTarget,
   GameEvent,
 } from "@/lib/shogi/cards/types";
 import { CARD_DEFS, CARD_USE_CONDITIONS, DRAW_COST, MANA_PER_TURN, MANA_FAST_BONUS, FAST_THRESHOLD_MS } from "@/lib/shogi/cards/definitions";
@@ -1043,10 +1042,6 @@ export function useCardShogiGame({
     [gameConfig.playerColor],
   );
 
-  const selectCardTarget = useCallback((target: CardTarget) => {
-    dispatch({ type: "SELECT_CARD_TARGET", target });
-  }, []);
-
   const confirmPlayCard = useCallback(() => {
     dispatch({ type: "CONFIRM_PLAY_CARD" });
   }, []);
@@ -1079,7 +1074,6 @@ export function useCardShogiGame({
     drawCard,
     finalizeDraw,
     beginPlayCard,
-    selectCardTarget,
     confirmPlayCard,
     finalizePlayCard,
     cancelPlayCard,
