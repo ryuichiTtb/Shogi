@@ -8,7 +8,7 @@ import { CardShogiHistory } from "./card-shogi/card-shogi-history";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { gameResultText } from "@/lib/shogi/notation";
-import { MessageCircle, ScrollText, ChevronUp, ChevronDown } from "lucide-react";
+import { MessageCircle, ScrollText, ChevronUp, ChevronDown, X } from "lucide-react";
 import Link from "next/link";
 import type { Character } from "@/data/characters";
 import type { CommentaryEvent } from "@/app/actions/commentary";
@@ -48,30 +48,57 @@ export function MobileDrawer({
 }: MobileDrawerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("character");
+  // Step S4 (Issue #107): モバイルで盤面下端を隠さないよう、終了カードを
+  // 最小化できる。閉じると 1 行バーになり、タップで再展開。
+  const [endCardMinimized, setEndCardMinimized] = useState(false);
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-20 safe-area-bottom">
       {/* ゲーム終了表示（ドロワー外・タブバー上に常時表示）。card-shogi では hideEndCard で抑止 */}
+      {/* Step S4: 詰み/投了時に盤面が見えなくなる問題への対策で最小化可能に */}
       {!isGameActive && !hideEndCard && (
         <div
-          className="bg-card/95 backdrop-blur-sm border-t border-border px-3 py-2"
+          className="bg-card/95 backdrop-blur-sm border-t border-border"
           onClick={(e) => e.stopPropagation()}
         >
-          <Card className="p-3 text-center border-2 border-primary/20 bg-primary/5">
-            <p className="text-sm font-bold mb-2">
-              {gameResultText(gameStatus, gameWinner)}
-            </p>
-            <div className="flex gap-2 justify-center">
-              <Link href="/">
-                <Button size="sm" variant="outline">
-                  ホームへ
-                </Button>
-              </Link>
-              <Button size="sm" onClick={onPlayAgain} disabled={isPending}>
-                {isPending ? "準備中..." : "もう一局"}
-              </Button>
+          {endCardMinimized ? (
+            <button
+              type="button"
+              onClick={() => setEndCardMinimized(false)}
+              className="w-full px-3 py-1.5 text-xs flex items-center justify-center gap-1.5 transition-colors active:bg-primary/10 hover:bg-primary/5"
+              aria-label="結果を再表示"
+            >
+              <ChevronUp className="w-3.5 h-3.5" aria-hidden />
+              <span className="font-bold">{gameResultText(gameStatus, gameWinner)}</span>
+              <span className="text-muted-foreground">(タップで開く)</span>
+            </button>
+          ) : (
+            <div className="relative px-3 py-2">
+              <button
+                type="button"
+                onClick={() => setEndCardMinimized(true)}
+                aria-label="結果を閉じる"
+                className="absolute top-1 right-1 p-1.5 rounded-full transition-colors active:bg-primary/20 hover:bg-primary/10 z-10"
+              >
+                <X className="w-4 h-4" aria-hidden />
+              </button>
+              <Card className="p-3 text-center border-2 border-primary/20 bg-primary/5">
+                <p className="text-sm font-bold mb-2">
+                  {gameResultText(gameStatus, gameWinner)}
+                </p>
+                <div className="flex gap-2 justify-center">
+                  <Link href="/">
+                    <Button size="sm" variant="outline">
+                      ホームへ
+                    </Button>
+                  </Link>
+                  <Button size="sm" onClick={onPlayAgain} disabled={isPending}>
+                    {isPending ? "準備中..." : "もう一局"}
+                  </Button>
+                </div>
+              </Card>
             </div>
-          </Card>
+          )}
         </div>
       )}
 

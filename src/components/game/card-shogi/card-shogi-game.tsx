@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import { flushSync } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronUp, ChevronDown, Volume2, VolumeX } from "lucide-react";
+import { ChevronUp, ChevronDown, Volume2, VolumeX, X } from "lucide-react";
 
 import { useCardShogiGame } from "@/hooks/use-card-shogi-game";
 import { useSound } from "@/hooks/use-sound";
@@ -94,6 +94,10 @@ export function CardShogiGame({
   const [commentEvent, setCommentEvent] = useState<CommentaryEvent | null>(null);
   const [overlayEvent, setOverlayEvent] = useState<{ event: OverlayEvent; key: number; trapName?: string } | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Step S4 (Issue #107): モバイル/タブレットの終了カードを最小化できるように
+  // する。閉じると盤面・持ち駒が見え、再度展開して「もう一局」「ホームへ」を
+  // 押せる。
+  const [endCardMinimized, setEndCardMinimized] = useState(false);
   // Issue #78: ドロー演出 (山札→中央→手札)。演出完了まで自分の手番継続・操作ロック。
   const [drawFlight, setDrawFlight] = useState<{ card: CardInstance; key: number } | null>(null);
   const isDrawAnimating = drawFlight !== null;
@@ -1065,19 +1069,43 @@ export function CardShogiGame({
 
       {/* ゲーム終了表示 (card-shogi 専用、自分カードエリアの上に表示)。 */}
       {/* MobileDrawer の終了 Card は hideEndCard で抑止しているため、ここで自前表示。 */}
+      {/* Step S4 (Issue #107): モバイルで盤面下端を隠さないよう最小化可能にする。 */}
       {!isGameActive && (
-        <div className="xl:hidden shrink-0 px-3 py-2 border-t border-primary/30 bg-primary/5">
-          <Card className="p-2.5 text-center border-2 border-primary/20 bg-primary/5">
-            <p className="text-sm font-bold mb-1.5">{gameResultText(gameState.status, gameState.winner)}</p>
-            <div className="flex gap-2 justify-center">
-              <Link href="/">
-                <Button size="sm" variant="outline">ホームへ</Button>
-              </Link>
-              <Button size="sm" onClick={handlePlayAgain} disabled={isPending}>
-                {isPending ? "準備中..." : "もう一局"}
-              </Button>
+        <div className="xl:hidden shrink-0 border-t border-primary/30 bg-primary/5">
+          {endCardMinimized ? (
+            <button
+              type="button"
+              onClick={() => setEndCardMinimized(false)}
+              className="w-full px-3 py-1.5 text-xs flex items-center justify-center gap-1.5 transition-colors active:bg-primary/15 hover:bg-primary/10"
+              aria-label="結果を再表示"
+            >
+              <ChevronUp className="w-3.5 h-3.5" aria-hidden />
+              <span className="font-bold">{gameResultText(gameState.status, gameState.winner)}</span>
+              <span className="text-muted-foreground">(タップで開く)</span>
+            </button>
+          ) : (
+            <div className="relative px-3 py-2">
+              <button
+                type="button"
+                onClick={() => setEndCardMinimized(true)}
+                aria-label="結果を閉じる"
+                className="absolute top-1 right-1 p-1.5 rounded-full transition-colors active:bg-primary/20 hover:bg-primary/15 z-10"
+              >
+                <X className="w-4 h-4" aria-hidden />
+              </button>
+              <Card className="p-2.5 text-center border-2 border-primary/20 bg-primary/5">
+                <p className="text-sm font-bold mb-1.5">{gameResultText(gameState.status, gameState.winner)}</p>
+                <div className="flex gap-2 justify-center">
+                  <Link href="/">
+                    <Button size="sm" variant="outline">ホームへ</Button>
+                  </Link>
+                  <Button size="sm" onClick={handlePlayAgain} disabled={isPending}>
+                    {isPending ? "準備中..." : "もう一局"}
+                  </Button>
+                </div>
+              </Card>
             </div>
-          </Card>
+          )}
         </div>
       )}
 

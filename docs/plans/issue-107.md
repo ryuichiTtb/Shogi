@@ -96,6 +96,20 @@ Issue #107 のスコープに **「リファクタ中に発見した潜在バグ
 - 修正は Vitest による回帰テスト追加とセットで行う
 - 通常の Step (1〜5) 内で同根の修正が自然に含まれる場合は、その Step 内に組み込んで OK (本書に記録は残す)
 
+### Step S4: モバイルでゲーム終了カード (詰み/投了結果) を最小化可能に (Step 3 に含めて修正)
+
+**現象**: モバイルで詰み/投了になると、画面下部に「後手の勝ち（詰み）」+「ホームへ」+「もう一局」のカードが常時表示され、最後の盤面・持ち駒が見えなくなる
+
+**修正方針**:
+- 終了カードに右上 × ボタンを追加。タップで折りたたみ → 1 行バー (`▲ 結果テキスト (タップで開く)`) に縮小
+- 縮小バーをタップすると元のカードに戻り「ホームへ」「もう一局」を再操作可能
+- 対象:
+  - card-shogi mobile/tablet ([card-shogi-game.tsx](src/components/game/card-shogi/card-shogi-game.tsx) `xl:hidden` ブロック)
+  - standard shogi mobile ([mobile-drawer.tsx](src/components/game/mobile-drawer.tsx) `!isGameActive && !hideEndCard` ブロック)
+- 状態は各コンポーネント local state (`endCardMinimized`)。「もう一局」で URL 遷移 → 再 mount で reset されるため自動的に開いた状態に戻る
+
+**本ブランチで対応**: Step 3 (`refactor/#107-compute`) に含めて修正済み
+
 ### Step S3: タップ中フィードバックを :active で復活 + フィルタボタン UX 改善 (Step 3 に含めて修正)
 
 **現象**:
