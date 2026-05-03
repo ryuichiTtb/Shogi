@@ -8,7 +8,7 @@ import { CardShogiHistory } from "./card-shogi/card-shogi-history";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { gameResultText } from "@/lib/shogi/notation";
-import { MessageCircle, ScrollText, ChevronUp, ChevronDown, X } from "lucide-react";
+import { MessageCircle, ScrollText, ChevronUp, ChevronDown } from "lucide-react";
 import Link from "next/link";
 import type { Character } from "@/data/characters";
 import type { CommentaryEvent } from "@/app/actions/commentary";
@@ -55,13 +55,20 @@ export function MobileDrawer({
   return (
     <div className="fixed bottom-0 left-0 right-0 z-20 safe-area-bottom">
       {/* ゲーム終了表示（ドロワー外・タブバー上に常時表示）。card-shogi では hideEndCard で抑止 */}
-      {/* Step S4: 詰み/投了時に盤面が見えなくなる問題への対策で最小化可能に */}
+      {/* Step S5 (Issue #107): max-height + opacity の transition で開閉時に
+          パッと出ず滑らかに遷移。閉じるボタンはアイコン統一のため ChevronDown。 */}
       {!isGameActive && !hideEndCard && (
         <div
-          className="bg-card/95 backdrop-blur-sm border-t border-border"
+          className="bg-card/95 backdrop-blur-sm border-t border-border overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
-          {endCardMinimized ? (
+          {/* 縮小バー (常に DOM に存在し、最小化時のみ可視。max-height で smooth 遷移) */}
+          <div
+            className={cn(
+              "overflow-hidden transition-all duration-300 ease-in-out",
+              endCardMinimized ? "max-h-[40px] opacity-100" : "max-h-0 opacity-0",
+            )}
+          >
             <button
               type="button"
               onClick={() => setEndCardMinimized(false)}
@@ -72,7 +79,15 @@ export function MobileDrawer({
               <span className="font-bold">{gameResultText(gameStatus, gameWinner)}</span>
               <span className="text-muted-foreground">(タップで開く)</span>
             </button>
-          ) : (
+          </div>
+
+          {/* 結果カード本体 (常に DOM に存在し、開いた状態のときだけ可視) */}
+          <div
+            className={cn(
+              "overflow-hidden transition-all duration-300 ease-in-out",
+              endCardMinimized ? "max-h-0 opacity-0" : "max-h-[160px] opacity-100",
+            )}
+          >
             <div className="relative px-3 py-2">
               <button
                 type="button"
@@ -80,7 +95,7 @@ export function MobileDrawer({
                 aria-label="結果を閉じる"
                 className="absolute top-1 right-1 p-1.5 rounded-full transition-colors active:bg-primary/20 hover:bg-primary/10 z-10"
               >
-                <X className="w-4 h-4" aria-hidden />
+                <ChevronDown className="w-4 h-4" aria-hidden />
               </button>
               <Card className="p-3 text-center border-2 border-primary/20 bg-primary/5">
                 <p className="text-sm font-bold mb-2">
@@ -98,7 +113,7 @@ export function MobileDrawer({
                 </div>
               </Card>
             </div>
-          )}
+          </div>
         </div>
       )}
 

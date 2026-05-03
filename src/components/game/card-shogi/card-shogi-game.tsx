@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import { flushSync } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronUp, ChevronDown, Volume2, VolumeX, X } from "lucide-react";
+import { ChevronUp, ChevronDown, Volume2, VolumeX } from "lucide-react";
 
 import { useCardShogiGame } from "@/hooks/use-card-shogi-game";
 import { useSound } from "@/hooks/use-sound";
@@ -13,7 +13,7 @@ import { useCardBoardSize } from "@/hooks/use-card-board-size";
 import { ShogiBoard, type ShogiBoardHandle } from "../shogi-board";
 import { CapturedPieces } from "../captured-pieces";
 import { CardShogiHistory } from "./card-shogi-history";
-import { GameControls } from "../game-controls";
+import { GameControls, GAME_CONTROLS_HEIGHT } from "../game-controls";
 import { PromotionDialog } from "../promotion-dialog";
 import { BoardOverlay, type OverlayEvent } from "../board-overlay";
 import { CharacterPanel } from "@/components/character/character-panel";
@@ -1067,45 +1067,43 @@ export function CardShogiGame({
         </div>
       </div>
 
-      {/* ゲーム終了表示 (card-shogi 専用、自分カードエリアの上に表示)。 */}
+      {/* ゲーム終了表示 (card-shogi 専用、xl 未満レイアウト用)。 */}
       {/* MobileDrawer の終了 Card は hideEndCard で抑止しているため、ここで自前表示。 */}
-      {/* Step S4 (Issue #107): モバイルで盤面下端を隠さないよう最小化可能にする。 */}
+      {/* Step S5 (Issue #107): 手札ドロワーと同じ slide-up 演出で開閉。
+          閉じると盤面・持ち駒が完全に見え、開くボタンは GameControls スロットに配置。
+          fixed 配置で他レイアウトに影響を与えない。bottom = 下端 3 カラムセクション
+          上端 (≒100px + safe-area)、translate-y-full で完全に画面外へスライド。 */}
       {!isGameActive && (
-        <div className="xl:hidden shrink-0 border-t border-primary/30 bg-primary/5">
-          {endCardMinimized ? (
+        <div
+          className={cn(
+            "xl:hidden fixed left-0 right-0 z-30 transition-transform duration-300",
+            endCardMinimized ? "translate-y-full" : "translate-y-0",
+          )}
+          style={{ bottom: "calc(100px + env(safe-area-inset-bottom))" }}
+          aria-hidden={endCardMinimized}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="relative bg-card border-t-2 border-primary/40 shadow-2xl px-3 py-2.5">
             <button
               type="button"
-              onClick={() => setEndCardMinimized(false)}
-              className="w-full px-3 py-1.5 text-xs flex items-center justify-center gap-1.5 transition-colors active:bg-primary/15 hover:bg-primary/10"
-              aria-label="結果を再表示"
+              onClick={() => setEndCardMinimized(true)}
+              aria-label="結果を閉じる"
+              className="absolute top-1 right-1 p-1.5 rounded-full transition-colors active:bg-primary/20 hover:bg-primary/10 z-10"
             >
-              <ChevronUp className="w-3.5 h-3.5" aria-hidden />
-              <span className="font-bold">{gameResultText(gameState.status, gameState.winner)}</span>
-              <span className="text-muted-foreground">(タップで開く)</span>
+              <ChevronDown className="w-4 h-4" aria-hidden />
             </button>
-          ) : (
-            <div className="relative px-3 py-2">
-              <button
-                type="button"
-                onClick={() => setEndCardMinimized(true)}
-                aria-label="結果を閉じる"
-                className="absolute top-1 right-1 p-1.5 rounded-full transition-colors active:bg-primary/20 hover:bg-primary/15 z-10"
-              >
-                <X className="w-4 h-4" aria-hidden />
-              </button>
-              <Card className="p-2.5 text-center border-2 border-primary/20 bg-primary/5">
-                <p className="text-sm font-bold mb-1.5">{gameResultText(gameState.status, gameState.winner)}</p>
-                <div className="flex gap-2 justify-center">
-                  <Link href="/">
-                    <Button size="sm" variant="outline">ホームへ</Button>
-                  </Link>
-                  <Button size="sm" onClick={handlePlayAgain} disabled={isPending}>
-                    {isPending ? "準備中..." : "もう一局"}
-                  </Button>
-                </div>
-              </Card>
-            </div>
-          )}
+            <Card className="p-2.5 text-center border-2 border-primary/20 bg-primary/5">
+              <p className="text-sm font-bold mb-1.5">{gameResultText(gameState.status, gameState.winner)}</p>
+              <div className="flex gap-2 justify-center">
+                <Link href="/">
+                  <Button size="sm" variant="outline">ホームへ</Button>
+                </Link>
+                <Button size="sm" onClick={handlePlayAgain} disabled={isPending}>
+                  {isPending ? "準備中..." : "もう一局"}
+                </Button>
+              </div>
+            </Card>
+          </div>
         </div>
       )}
 
@@ -1144,17 +1142,37 @@ export function CardShogiGame({
       >
         {/* 左ブロック: 2段(段1の自然幅に合わせて縮小、shrink-0) */}
         <div className="shrink-0 flex flex-col gap-1">
-          {/* 段1: 待った・投了 (中央揃え、縦幅小さめ) */}
+          {/* 段1: 対局中 = 待った・投了 / 終局時 = 結果カード開閉ボタン (Step S5).
+              GameControls は終局時に何も描画しないため、終局時専用に同じ高さ
+              の slot を確保し、結果カードが閉じているときだけ「結果」ボタン
+              を出す。 */}
           <div className="flex items-center justify-center shrink-0">
-            <GameControls
-              onResign={resign}
-              onUndo={undo}
-              isMuted={isMuted}
-              onToggleMute={toggleMute}
-              canUndo={canUndo}
-              gameActive={isGameActive}
-              hideSound
-            />
+            {isGameActive ? (
+              <GameControls
+                onResign={resign}
+                onUndo={undo}
+                isMuted={isMuted}
+                onToggleMute={toggleMute}
+                canUndo={canUndo}
+                gameActive={isGameActive}
+                hideSound
+              />
+            ) : (
+              <div className="flex items-center" style={{ height: GAME_CONTROLS_HEIGHT }}>
+                {endCardMinimized && (
+                  <Button
+                    size="sm"
+                    variant="default"
+                    className="h-9 gap-1 text-xs"
+                    onClick={() => setEndCardMinimized(false)}
+                    aria-label="結果を表示"
+                  >
+                    <ChevronUp className="w-4 h-4" aria-hidden />
+                    結果
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
           {/* 段2: 手札ボタン + マナゲージ (段1 の幅に揃え、ゲージは残り分を吸収) */}
           <div className="flex-1 flex items-center gap-2">
