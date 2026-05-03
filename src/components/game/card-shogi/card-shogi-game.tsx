@@ -74,6 +74,17 @@ function shouldPlayJumpSfx(move: Move): boolean {
   return Math.max(rowDiff, colDiff) >= 2;
 }
 
+// 子コンポーネント (CapturedPieces 等) に渡す noop。
+// インライン `() => {}` を毎レンダー新しい関数として渡すと React.memo の浅い比較が
+// 無効化されてしまうため、モジュールスコープで定義して安定化する (Step 2 / Issue #107)。
+const NOOP_PIECE_CLICK: (pieceType: string) => void = () => {};
+const NOOP_UNDO: () => void = () => {};
+
+// 空配列の共有参照。pieceFlight 等で「該当なし」のケースを useMemo に通しても
+// 毎レンダー [] を new するとメモ化が無効化されるため、フラグメンテーション回避。
+const EMPTY_POSITIONS: Position[] = [];
+const EMPTY_STRINGS: string[] = [];
+
 export function CardShogiGame({
   initialGameState,
   initialCardState,
@@ -677,17 +688,23 @@ export function CardShogiGame({
   // Issue #105: 親 div に flex-1 で残り幅を割り当てるため fullWidth で追従させる。
   const ownTrapSlotMobile = <TrapSlot trap={cardState.trap[playerColor]} size="md" fullWidth />;
 
-  // Issue #82: 駒フライト中、着地点を非表示にするための props 計算
-  const hiddenBoardSquares: Position[] =
-    pieceFlight && pieceFlight.hideTarget.kind === "board"
-      ? [{ row: pieceFlight.hideTarget.row, col: pieceFlight.hideTarget.col }]
-      : [];
-  const hiddenOwnCapturedTypes: string[] =
-    pieceFlight &&
-    pieceFlight.hideTarget.kind === "captured" &&
-    pieceFlight.hideTarget.player === playerColor
-      ? [pieceFlight.hideTarget.pieceType]
-      : [];
+  // Issue #82: 駒フライト中、着地点を非表示にするための props 計算。
+  // Step 2 (Issue #107): useMemo + 空配列の共有参照で ShogiBoard / CapturedPieces の
+  // memo を効かせる。
+  const hiddenBoardSquares = useMemo<Position[]>(() => {
+    if (!pieceFlight || pieceFlight.hideTarget.kind !== "board") return EMPTY_POSITIONS;
+    return [{ row: pieceFlight.hideTarget.row, col: pieceFlight.hideTarget.col }];
+  }, [pieceFlight]);
+  const hiddenOwnCapturedTypes = useMemo<string[]>(() => {
+    if (
+      !pieceFlight ||
+      pieceFlight.hideTarget.kind !== "captured" ||
+      pieceFlight.hideTarget.player !== playerColor
+    ) {
+      return EMPTY_STRINGS;
+    }
+    return [pieceFlight.hideTarget.pieceType];
+  }, [pieceFlight, playerColor]);
 
   // 山札からのドロー可否 (Issue #82: pendingCard 中もドロー禁止に統一)
   const canDrawCard =
@@ -954,7 +971,7 @@ export function CardShogiGame({
               playerColor={playerColor}
               isCurrentPlayer={gameState.currentPlayer === aiColor && isGameActive}
               selectedHandPiece={null}
-              onPieceClick={() => {}}
+              onPieceClick={NOOP_PIECE_CLICK}
               label={character.name}
               squareSize={squareSize}
               compact={isMobile}
@@ -1078,7 +1095,7 @@ export function CardShogiGame({
         <div className="shrink-0 ml-2 border-l pl-2">
           <GameControls
             onResign={resign}
-            onUndo={() => {}}
+            onUndo={NOOP_UNDO}
             isMuted={isMuted}
             onToggleMute={toggleMute}
             canUndo={false}
@@ -1270,7 +1287,7 @@ export function CardShogiGame({
               playerColor={playerColor}
               isCurrentPlayer={gameState.currentPlayer === aiColor && isGameActive}
               selectedHandPiece={null}
-              onPieceClick={() => {}}
+              onPieceClick={NOOP_PIECE_CLICK}
               label={character.name}
               squareSize={squareSize}
             />
