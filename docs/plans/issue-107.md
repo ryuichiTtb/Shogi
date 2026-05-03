@@ -96,6 +96,40 @@ Issue #107 のスコープに **「リファクタ中に発見した潜在バグ
 - 修正は Vitest による回帰テスト追加とセットで行う
 - 通常の Step (1〜5) 内で同根の修正が自然に含まれる場合は、その Step 内に組み込んで OK (本書に記録は残す)
 
+### Step S6: 成り/不成りダイアログの誤タップ防止 (Step 3 に含めて修正)
+
+**現象**: モバイルで歩・香車などが相手陣に入ったとき、成り/不成りダイアログが表示されるが、駒を指したタップと同時にダイアログのボタンも押されてしまい、意図せず不成りが選択されることがある (touchend の合成 click や、ダイアログが指の位置に重なるなどで連鎖発火)
+
+**修正方針**:
+- [promotion-dialog.tsx](src/components/game/promotion-dialog.tsx) にダイアログオープン後 300ms のクールダウンを設定
+- クールダウン中はボタンに `pointer-events: none` を付与し、合成 click や即時 tap を一切受け付けない
+- React Compiler の "Calling setState synchronously within an effect" 警告を回避するため、`enabledForMove` 派生 state で「クールダウンを通過した move」を保持し、現在の move 参照と一致するときのみ受付可とする (move が変わると一致しなくなり自動的に false)
+- aria-disabled でアクセシビリティ補完。disabled 属性は使わない (見た目を「押せそうな状態」のまま保つと誤認するため、外見は変えず動作だけ無効化)
+
+**本ブランチで対応**: Step 3 (`refactor/#107-compute`) に含めて修正済み
+
+### Step S5: 終了カードを手札ドロワー風スライドアニメに変更 (Step 3 に含めて修正)
+
+**現象**: Step S4 で最小化機能を入れたが、最小化バーが持ち駒欄と被って表示されており、開閉が瞬間切替で違和感があった
+
+**修正方針** (ユーザー指示):
+- 「手札を開くときのようなUIの感じ」 = 手札ドロワーと同じ slide animation で開閉
+- 閉じるボタンは × ではなく ChevronDown (下向きの >)、開くは ChevronUp (上向きの >) でアイコン統一
+- 終局時には GameControls (待った・投了) が空になるため、そのスペースに「結果を表示」ボタンを配置 → 開閉ボタンが持ち駒欄と被らない
+
+**実装**:
+- [card-shogi-game.tsx](src/components/game/card-shogi/card-shogi-game.tsx)
+  - 終了カードを `xl:hidden shrink-0` のインラインから `xl:hidden fixed left-0 right-0 z-30` の slide overlay に変更
+  - `bottom: calc(100px + env(safe-area-inset-bottom))` で下端 3 カラムセクション直上に配置 (手札ドロワーと同じ仕様)
+  - `transition-transform duration-300` + `translate-y-0` (open) / `translate-y-full` (closed) で滑らかな開閉
+  - 閉じるボタン: 結果カード右上に ChevronDown
+  - 開くボタン: GameControls スロット (バトム 3 カラム左ブロック段 1) に、終局時 + 最小化中のみ表示。`GAME_CONTROLS_HEIGHT` で常に同じ高さ slot を確保しレイアウトの上下シフトを防止
+- [mobile-drawer.tsx](src/components/game/mobile-drawer.tsx) (standard shogi)
+  - 縮小バー / 結果カード本体を両方とも DOM に常駐させ、`max-height` + `opacity` の transition で滑らかに開閉
+  - 閉じるアイコンを × → ChevronDown に統一
+
+**本ブランチで対応**: Step 3 (`refactor/#107-compute`) に含めて修正済み
+
 ### Step S4: モバイルでゲーム終了カード (詰み/投了結果) を最小化可能に (Step 3 に含めて修正)
 
 **現象**: モバイルで詰み/投了になると、画面下部に「後手の勝ち（詰み）」+「ホームへ」+「もう一局」のカードが常時表示され、最後の盤面・持ち駒が見えなくなる
