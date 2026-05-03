@@ -47,6 +47,9 @@ interface CardViewProps {
   // 効果説明テキストを非表示にする (Issue #106: ダイアログプレビュー等で
   // 説明はダイアログ側に書く場合に重複を避けるため)
   hideDescription?: boolean;
+  // 「トラップ」バッジを非表示にする (Issue #105: トラップエリアに置かれたカードは
+  // トラップであることが文脈から自明なので、省スペースのためバッジを省略する)
+  hideTrapBadge?: boolean;
 }
 
 // "sm" はサムネイル(裏向きの相手手札用、縦長)
@@ -178,6 +181,7 @@ export function CardView({
   selected = false,
   fullWidth = false,
   hideDescription = false,
+  hideTrapBadge = false,
 }: CardViewProps) {
   const def = CARD_DEFS[card.defId];
 
@@ -292,7 +296,7 @@ export function CardView({
           <span className={cn("font-bold leading-tight truncate", NAME_TEXT_CLASS[size])}>{def.name}</span>
           {/* hideDescription 時はカード名横にバッジを置かず、下段(説明位置)に
             * 単独で配置する (モバイル手札で名前と被って見づらくなるため)。 */}
-          {def.kind === "trap" && !hideDescription && (
+          {def.kind === "trap" && !hideDescription && !hideTrapBadge && (
             <span
               className={cn(
                 "bg-emerald-600 text-white px-1.5 rounded font-bold leading-tight shrink-0 shadow-sm",
@@ -315,7 +319,7 @@ export function CardView({
           </div>
         )}
         {/* hideDescription 時のトラップカード: 元々説明があった位置にバッジを表示 */}
-        {hideDescription && def.kind === "trap" && (
+        {hideDescription && def.kind === "trap" && !hideTrapBadge && (
           <span
             className={cn(
               "bg-emerald-600 text-white px-1.5 rounded font-bold leading-tight shadow-sm self-start",

@@ -39,6 +39,7 @@ export function TrapSlot({
         size={size}
         fullWidth={fullWidth || horizontal}
         hideDescription
+        hideTrapBadge
         inactive
       />
     );
