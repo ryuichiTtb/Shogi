@@ -5,6 +5,7 @@ import { createInitialGameState } from "../../board";
 import { CARD_SHOGI_VARIANT } from "../../variants/card-shogi";
 import {
   addNoPromoteMark,
+  applyCheckBreak,
   applyDoublePawn,
   applyManaUp,
   applyPawnReturn,
@@ -24,6 +25,7 @@ import {
   removeNoPromoteMark,
   simulateCardEffect,
 } from "../effects";
+import { getCheckingPieces, isInCheck } from "../../moves";
 import type { CardGameState, CardInstance } from "../types";
 
 // ===== fixtures =====
@@ -659,6 +661,141 @@ describe("consumeNormalCard", () => {
   it("手札に該当カードがなければ null", () => {
     const cs = makeCardState({ mana: { sente: 5, gote: 0 } });
     expect(consumeNormalCard(cs, "sente", "missing", 3)).toBeNull();
+  });
+});
+
+// ===== 王手駒列挙 (#82) =====
+
+describe("getCheckingPieces (moves.ts)", () => {
+  it("王手なしなら空配列", () => {
+    const state = makeState();
+    placeKing(state, "sente", { row: 8, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 4 });
+    expect(getCheckingPieces(state, "sente", CARD_SHOGI_VARIANT)).toEqual([]);
+  });
+
+  it("単一王手 (歩で王手) → 1件返す", () => {
+    const state = makeState();
+    placeKing(state, "sente", { row: 8, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 4 });
+    // gote の歩が sente 玉の真上 (1段下) にある = 王手
+    place(state, { row: 7, col: 4 }, { type: "pawn", owner: "gote" });
+    const result = getCheckingPieces(state, "sente", CARD_SHOGI_VARIANT);
+    expect(result).toEqual([{ row: 7, col: 4 }]);
+  });
+
+  it("両王手 (飛車 + 角) → 2件返す", () => {
+    const state = makeState();
+    placeKing(state, "sente", { row: 4, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 0 });
+    // 飛車で縦から王手
+    place(state, { row: 0, col: 4 }, { type: "rook", owner: "gote" });
+    // 角で斜めから王手
+    place(state, { row: 7, col: 7 }, { type: "bishop", owner: "gote" });
+    const result = getCheckingPieces(state, "sente", CARD_SHOGI_VARIANT);
+    expect(result).toHaveLength(2);
+    expect(result).toContainEqual({ row: 0, col: 4 });
+    expect(result).toContainEqual({ row: 7, col: 7 });
+  });
+});
+
+// ===== 王手崩し (#82) =====
+
+describe("applyCheckBreak", () => {
+  it("王手なしなら null を返す", () => {
+    const state = makeState();
+    placeKing(state, "sente", { row: 8, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 4 });
+    expect(applyCheckBreak(state, "sente")).toBeNull();
+  });
+
+  it("単一王手の駒を持ち駒化、王手解除になる", () => {
+    const state = makeState();
+    placeKing(state, "sente", { row: 8, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 4 });
+    place(state, { row: 7, col: 4 }, { type: "pawn", owner: "gote" });
+    const result = applyCheckBreak(state, "sente");
+    expect(result).not.toBeNull();
+    expect(result!.capturedPieces).toEqual([{ row: 7, col: 4, pieceType: "pawn" }]);
+    // 王手駒は盤上から消滅
+    expect(result!.gameState.board[7][4]).toBeNull();
+    // 自分 (sente) の持ち駒に歩 1枚追加
+    expect(result!.gameState.hand.sente.pawn).toBe(1);
+    // 王手解除
+    expect(isInCheck(result!.gameState, "sente", CARD_SHOGI_VARIANT)).toBe(false);
+  });
+
+  it("両王手 (飛車 + 角) → 2駒とも持ち駒化、王手解除", () => {
+    const state = makeState();
+    placeKing(state, "sente", { row: 4, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 0 });
+    place(state, { row: 0, col: 4 }, { type: "rook", owner: "gote" });
+    place(state, { row: 7, col: 7 }, { type: "bishop", owner: "gote" });
+    const result = applyCheckBreak(state, "sente");
+    expect(result).not.toBeNull();
+    expect(result!.capturedPieces).toHaveLength(2);
+    // どちらも盤上から消滅
+    expect(result!.gameState.board[0][4]).toBeNull();
+    expect(result!.gameState.board[7][7]).toBeNull();
+    // 持ち駒に飛と角が 1枚ずつ
+    expect(result!.gameState.hand.sente.rook).toBe(1);
+    expect(result!.gameState.hand.sente.bishop).toBe(1);
+    expect(isInCheck(result!.gameState, "sente", CARD_SHOGI_VARIANT)).toBe(false);
+  });
+
+  it("成駒で王手 (龍王) → unpromote して持ち駒化", () => {
+    const state = makeState();
+    placeKing(state, "sente", { row: 8, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 4 });
+    // 龍王 (成り飛車) で王手
+    place(state, { row: 6, col: 4 }, { type: "promoted_rook", owner: "gote" });
+    const result = applyCheckBreak(state, "sente");
+    expect(result).not.toBeNull();
+    // unpromote して持ち駒は「飛」になる
+    expect(result!.capturedPieces).toEqual([{ row: 6, col: 4, pieceType: "rook" }]);
+    expect(result!.gameState.hand.sente.rook).toBe(1);
+    expect(result!.gameState.hand.sente.promoted_rook).toBeUndefined();
+  });
+
+  it("既存の持ち駒に加算する (+1)", () => {
+    const state = makeState({
+      hand: { sente: { pawn: 2 }, gote: {} },
+    });
+    placeKing(state, "sente", { row: 8, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 4 });
+    place(state, { row: 7, col: 4 }, { type: "pawn", owner: "gote" });
+    const result = applyCheckBreak(state, "sente");
+    expect(result!.gameState.hand.sente.pawn).toBe(3);
+  });
+
+  it("元の state は破壊しない (immutability)", () => {
+    const state = makeState();
+    placeKing(state, "sente", { row: 8, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 4 });
+    place(state, { row: 7, col: 4 }, { type: "pawn", owner: "gote" });
+    const before = state.board[7][4];
+    applyCheckBreak(state, "sente");
+    // 元の盤面の駒は残っている
+    expect(state.board[7][4]).toBe(before);
+    expect(state.hand.sente.pawn).toBeUndefined();
+  });
+
+  it("ディスカバードチェック (ブロッカー除去で別の駒が王手露出) も反復で解消", () => {
+    const state = makeState();
+    placeKing(state, "sente", { row: 4, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 0 });
+    // gote 飛車 (列 4 縦に通せるが gote 自分の歩で遮蔽されている)
+    place(state, { row: 0, col: 4 }, { type: "rook", owner: "gote" });
+    // gote 歩 (sente 玉の真上 = 王手駒)。これを除去すると後ろの飛車が露出して王手継続。
+    place(state, { row: 3, col: 4 }, { type: "pawn", owner: "gote" });
+    const result = applyCheckBreak(state, "sente");
+    expect(result).not.toBeNull();
+    // 反復で歩 + 飛車 の 2 枚が回収される
+    expect(result!.capturedPieces).toHaveLength(2);
+    expect(result!.gameState.hand.sente.pawn).toBe(1);
+    expect(result!.gameState.hand.sente.rook).toBe(1);
+    // 王手解除
+    expect(isInCheck(result!.gameState, "sente", CARD_SHOGI_VARIANT)).toBe(false);
   });
 });
 

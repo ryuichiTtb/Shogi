@@ -42,6 +42,7 @@ function makeInitialState(
     pendingDrawPlayer: null,
     isPlayingCard: false,
     pendingPlayCardOpponent: null,
+    isCheckBreakAnimating: false,
   };
 }
 
@@ -301,5 +302,96 @@ describe("reducer / SET_AI_THINKING / SHOW_PROMOTION_DIALOG / CANCEL_PROMOTION",
     const state = { ...makeInitialState(), promotionPendingMove: move };
     const next = reducer(state, { type: "CANCEL_PROMOTION" });
     expect(next.promotionPendingMove).toBeNull();
+  });
+});
+
+// ===== 王手崩しトラップ (#82) =====
+
+describe("reducer / 王手崩しトラップ (check_break)", () => {
+  it("MAKE_MOVE で相手 (gote) を王手 + gote が check_break セット中 → トラップ発動", () => {
+    // sente の歩 (row=4, col=4) → (row=3, col=4) に進めて gote 玉 (row=2, col=4) に王手
+    const gameState: GameState = {
+      ...createInitialGameState(CARD_SHOGI_VARIANT),
+      board: Array.from({ length: 9 }, () => Array(9).fill(null)),
+      hand: { sente: {}, gote: {} },
+      currentPlayer: "sente",
+    };
+    gameState.board[8][4] = { type: "king", owner: "sente" };
+    gameState.board[2][4] = { type: "king", owner: "gote" };
+    gameState.board[4][4] = { type: "pawn", owner: "sente" };
+    const cardState = makeInitialCardState({
+      trap: {
+        sente: null,
+        gote: { instanceId: "trap-1", defId: "check_break", owner: "gote" },
+      },
+    });
+    const state = makeInitialState(gameState, cardState);
+    const move = {
+      type: "move" as const,
+      player: "sente" as const,
+      piece: "pawn",
+      from: { row: 4, col: 4 },
+      to: { row: 3, col: 4 },
+    };
+    const next = reducer(state, { type: "MAKE_MOVE", move });
+
+    // 移動した sente 歩 (= 王手駒) が gote の持ち駒に
+    expect(next.gameState.hand.gote.pawn).toBe(1);
+    // 元の盤上 (3,4) は除去済
+    expect(next.gameState.board[3][4]).toBeNull();
+    // gote 王手解除
+    // (isInCheck の検証は effects.test.ts 側でカバー、ここではトラップが消費されたことを確認)
+    expect(next.cardState.trap.gote).toBeNull();
+    // isCheckBreakAnimating がセット
+    expect(next.isCheckBreakAnimating).toBe(true);
+    // trapTriggerEvent が emit されている
+    const trapEvent = next.eventLog.find((e) => e.kind === "trapTriggerEvent");
+    expect(trapEvent).toBeDefined();
+    if (trapEvent && trapEvent.kind === "trapTriggerEvent") {
+      expect(trapEvent.reason).toBe("check_declared");
+      expect(trapEvent.capturedPieces).toBeDefined();
+      expect(trapEvent.capturedPieces!.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("COMMIT_CHECK_BREAK で isCheckBreakAnimating がクリアされる", () => {
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(),
+      isCheckBreakAnimating: true,
+    };
+    const next = reducer(state, { type: "COMMIT_CHECK_BREAK" });
+    expect(next.isCheckBreakAnimating).toBe(false);
+  });
+
+  it("COMMIT_CHECK_BREAK は isCheckBreakAnimating=false なら state 不変", () => {
+    const state = makeInitialState();
+    const next = reducer(state, { type: "COMMIT_CHECK_BREAK" });
+    expect(next).toBe(state);
+  });
+
+  it("trap がセットされていないなら check_break は発動しない (通常の MAKE_MOVE 動作)", () => {
+    const gameState: GameState = {
+      ...createInitialGameState(CARD_SHOGI_VARIANT),
+      board: Array.from({ length: 9 }, () => Array(9).fill(null)),
+      hand: { sente: {}, gote: {} },
+      currentPlayer: "sente",
+    };
+    gameState.board[8][4] = { type: "king", owner: "sente" };
+    gameState.board[2][4] = { type: "king", owner: "gote" };
+    gameState.board[4][4] = { type: "pawn", owner: "sente" };
+    const state = makeInitialState(gameState); // trap なし
+    const move = {
+      type: "move" as const,
+      player: "sente" as const,
+      piece: "pawn",
+      from: { row: 4, col: 4 },
+      to: { row: 3, col: 4 },
+    };
+    const next = reducer(state, { type: "MAKE_MOVE", move });
+
+    // 歩は (3,4) に移動して残っている (持ち駒化されない)
+    expect(next.gameState.board[3][4]).toEqual({ type: "pawn", owner: "sente" });
+    expect(next.gameState.hand.gote.pawn).toBeUndefined();
+    expect(next.isCheckBreakAnimating).toBe(false);
   });
 });

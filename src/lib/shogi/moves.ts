@@ -374,6 +374,32 @@ export function isInCheck(state: GameState, player: Player, variant: RuleVariant
   return isSquareAttackedByFast(state.board, kingPos, opponent, variant.boardSize);
 }
 
+// 王手をかけている相手駒の位置一覧。両王手・三重王手では2件以上返る。
+// 王手崩しトラップ (#82) で「王手駒すべてを持ち駒化」する用途で使う。
+export function getCheckingPieces(
+  state: GameState,
+  player: Player,
+  variant: RuleVariant = STANDARD_VARIANT,
+): Position[] {
+  const kingPos = findKing(state.board, player, variant.boardSize);
+  if (!kingPos) return [];
+  const opponent: Player = player === "sente" ? "gote" : "sente";
+  const { rows, cols } = variant.boardSize;
+  const result: Position[] = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const piece = state.board[r][c];
+      if (!piece || piece.owner !== opponent) continue;
+      const pieceMoves = getPieceMoves(state, { row: r, col: c }, opponent, variant);
+      const attacksKing = pieceMoves.some(
+        (m) => m.type === "move" && m.to.row === kingPos.row && m.to.col === kingPos.col,
+      );
+      if (attacksKing) result.push({ row: r, col: c });
+    }
+  }
+  return result;
+}
+
 // 詰み判定
 export function isCheckmate(state: GameState, player: Player, variant: RuleVariant = STANDARD_VARIANT): boolean {
   if (!isInCheck(state, player, variant)) return false;

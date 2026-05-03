@@ -4,10 +4,10 @@
 
 import type { GameState, Player, Position } from "@/lib/shogi/types";
 import { cloneGameState } from "../board";
-import { isPawnDropCheckmate, isInCheck } from "../moves";
+import { isPawnDropCheckmate, isInCheck, getCheckingPieces } from "../moves";
 import { unpromotePieceType } from "../variants/standard";
 import { CARD_SHOGI_VARIANT } from "../variants/card-shogi";
-import type { CardGameState, CardId, CardTarget } from "./types";
+import type { CardGameState, CardId, CardTarget, TrapCapturedPiece } from "./types";
 
 // ----- no_promote 永続マーク管理 -----
 
@@ -341,6 +341,39 @@ export function canEscapeCheckWithCard(
     }
   }
   return false;
+}
+
+// 王手崩し (#82): 自玉に王手をかけている相手駒すべてを盤上から除去し、
+// player の持ち駒に unpromote した状態で加算する。両王手・複数王手にも対応。
+// 戻り値の capturedPieces は UI 演出 (各駒のフライト) で参照する適用前の位置情報。
+// 王手駒が 1 枚もない場合は null を返す (トリガーが空発火しないようガード)。
+//
+// 反復除去: ある駒を除去した結果、それを遮蔽していた裏にいた飛角等が新たに王手をかける
+// 「ディスカバードチェック」の可能性があるため、王手が解除されるまで繰り返す。
+// ループ上限は安全装置(理論上は数回で収束)。
+export function applyCheckBreak(
+  state: GameState,
+  player: Player,
+): { gameState: GameState; capturedPieces: TrapCapturedPiece[] } | null {
+  const initial = getCheckingPieces(state, player, CARD_SHOGI_VARIANT);
+  if (initial.length === 0) return null;
+
+  const newState = cloneGameState(state);
+  const capturedPieces: TrapCapturedPiece[] = [];
+  for (let iter = 0; iter < 8; iter++) {
+    const checking = getCheckingPieces(newState, player, CARD_SHOGI_VARIANT);
+    if (checking.length === 0) break;
+    for (const pos of checking) {
+      const piece = newState.board[pos.row]?.[pos.col];
+      if (!piece) continue;
+      const handPieceType = unpromotePieceType(piece.type);
+      newState.board[pos.row][pos.col] = null;
+      const currentCount = newState.hand[player][handPieceType] ?? 0;
+      newState.hand[player][handPieceType] = currentCount + 1;
+      capturedPieces.push({ row: pos.row, col: pos.col, pieceType: handPieceType });
+    }
+  }
+  return { gameState: newState, capturedPieces };
 }
 
 // 同種トラップ重複チェック (Issue #105)。

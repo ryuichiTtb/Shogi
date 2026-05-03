@@ -15,6 +15,7 @@ export type CardId =
   | "no_promote"
   | "double_pawn"
   | "piece_return"
+  | "check_break"
   | "sample_normal_common"
   | "sample_normal_rare"
   | "sample_normal_super_rare"
@@ -135,7 +136,19 @@ export type CardAction =
   // 即座に反転していたが、AI が演出中に動き出してしまうため演出完了まで保留する。
   | { type: "COMMIT_PLAY_CARD" }
   | { type: "CANCEL_PLAY_CARD" }
-  | { type: "RESET_TURN_TIMER"; player: Player };
+  | { type: "RESET_TURN_TIMER"; player: Player }
+  // 王手崩し (#82) のアニメーション完了時に呼ぶ。isCheckBreakAnimating をクリアし
+  // AI 思考とプレイヤー入力のロックを解除する。
+  | { type: "COMMIT_CHECK_BREAK" };
+
+// トラップ発動時に持ち駒化した相手駒の情報。check_break (#82) で UI が
+// 駒フライト演出を組むために使う。座標は適用前 (盤上にあった時点) の位置、
+// pieceType は unpromote 後の持ち駒種別。
+export interface TrapCapturedPiece {
+  row: number;
+  col: number;
+  pieceType: string;
+}
 
 export type GameEvent =
   | { kind: "moveEvent"; move: Move; at: number }
@@ -143,4 +156,4 @@ export type GameEvent =
   | { kind: "drawEvent"; player: Player; instance: CardInstance; at: number }
   | { kind: "cardPlayEvent"; player: Player; instance: CardInstance; target?: CardTarget; at: number }
   | { kind: "trapSetEvent"; player: Player; instance: TrapInstance; at: number }
-  | { kind: "trapTriggerEvent"; player: Player; instance: TrapInstance; reason: TrapTrigger; at: number };
+  | { kind: "trapTriggerEvent"; player: Player; instance: TrapInstance; reason: TrapTrigger; capturedPieces?: TrapCapturedPiece[]; at: number };
