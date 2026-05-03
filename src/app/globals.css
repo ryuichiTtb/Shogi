@@ -701,19 +701,18 @@
 }
 
 
-/* デッキ編成タイル: 長いカード名の自動マーキー (ping-pong) */
+/* デッキ編成タイル: 長いカード名の自動マーキー
+ * 一方向スクロール: 先頭で待機 → 左へスクロール → 末尾で待機 → 先頭へ
+ * 瞬時にスナップ → ループ。ping-pong (逆向き戻り) はしない。
+ */
 @keyframes deck-marquee {
   0%,
   12% {
     transform: translateX(0);
   }
-  44%,
-  56% {
-    transform: translateX(var(--marquee-shift, 0));
-  }
   88%,
   100% {
-    transform: translateX(0);
+    transform: translateX(var(--marquee-shift, 0));
   }
 }
 .animate-deck-marquee {

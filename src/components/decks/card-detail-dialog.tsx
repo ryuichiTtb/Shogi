@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -17,39 +17,41 @@ import type { CardId } from "@/lib/shogi/cards/types";
 const XL_W = 576;
 const XL_H = 352;
 
-// 親コンテナ幅に合わせて transform: scale で xl カードを縮小して描画する。
-// fullWidth で width だけ変えると内部要素 (アイコン/テキスト/コスト) が
-// xl 想定のまま残り横にあふれてしまうため、scale で全体を等比縮小する。
+// Dialog の固定パラメータ (CardDetailDialog 側の className と一致)
+// - mobile (< sm 640px): w = min(vw - 32, max-w-md=448), padding = p-4 (32 total)
+// - sm+:                 w = sm:max-w-sm=384, padding = p-4 (32 total)
+function computeDialogInnerWidth(vw: number): number {
+  if (vw < 640) {
+    const dialogW = Math.min(vw - 32, 448);
+    return dialogW - 32;
+  }
+  return 384 - 32;
+}
+
+// xl カード (576×352) を Dialog 内側幅に合わせて transform: scale で縮小する。
+// container 測定 (clientWidth) は grid auto-track の挙動でうまく行かない
+// ケースがあるため、viewport 幅から決定論的に算出する方式に変更。
 function ScaledXlCard({ cardId }: { cardId: CardId }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
+  // SSR 安全のため初期値は固定 (≈mobile 想定)。クライアント mount 後に上書き。
+  const [scale, setScale] = useState(0.5);
 
-  // 初期表示で正しい scale を反映するため layoutEffect で同期計算。
-  // cardId が変わったときも (Dialog を再 open したケース) 念のため再計算。
-  useLayoutEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const w = el.getBoundingClientRect().width;
-    if (w > 0) setScale(Math.min(1, w / XL_W));
-  }, [cardId]);
-
-  // 後続のリサイズ (画面回転 / dialog 表示時の遅延レイアウト) に追従。
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => {
-      const w = el.getBoundingClientRect().width;
-      if (w > 0) setScale(Math.min(1, w / XL_W));
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
+    function compute() {
+      const inner = computeDialogInnerWidth(window.innerWidth);
+      setScale(Math.min(1, inner / XL_W));
+    }
+    compute();
+    window.addEventListener("resize", compute);
+    return () => window.removeEventListener("resize", compute);
   }, []);
+
+  const visibleW = XL_W * scale;
+  const visibleH = XL_H * scale;
 
   return (
     <div
-      ref={containerRef}
-      className="w-full overflow-hidden"
-      style={{ height: XL_H * scale }}
+      className="overflow-hidden mx-auto"
+      style={{ width: visibleW, height: visibleH }}
     >
       <div
         style={{
