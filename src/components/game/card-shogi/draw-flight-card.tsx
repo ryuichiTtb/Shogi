@@ -6,6 +6,17 @@ import { AnimatePresence, motion } from "framer-motion";
 
 import type { CardInstance } from "@/lib/shogi/cards/types";
 import { CardView } from "./card-view";
+import {
+  DRAW_CARD_W as CARD_W,
+  DRAW_CARD_H as CARD_H,
+  DRAW_FADE_IN_MS as FADE_IN_MS,
+  DRAW_HOLD_MS as HOLD_MS,
+  DRAW_TOTAL_MS as TOTAL_MS,
+  DRAW_FADE_OUT_TAIL_MS as FADE_OUT_TAIL_MS,
+  DRAW_FLASH_DELAY_S as FLASH_DELAY_S,
+  DRAW_SHIMMER_DURATION_S as SHIMMER_DURATION_S,
+  DRAW_GLOW_DURATION_S as GLOW_DURATION_S,
+} from "./animation-constants";
 
 interface DrawFlightCardProps {
   cardInstance: CardInstance | null;
@@ -14,24 +25,6 @@ interface DrawFlightCardProps {
   handRectGetter: () => DOMRect | null;
   onComplete: () => void;
 }
-
-// CardView size="xl" の素サイズ (w-[36rem] = 576, h-[22rem] = 352)
-const CARD_W = 576;
-const CARD_H = 352;
-
-// 山札→中央: 500ms / 中央ホールド: 1500ms / 中央→手札: 300ms
-const FADE_IN_MS = 500;
-const HOLD_MS = 1500;
-const FADE_OUT_MS = 300;
-const TOTAL_MS = FADE_IN_MS + HOLD_MS + FADE_OUT_MS;
-// Issue #82: 中央→手札の最終 100ms で一気にフェードアウト
-// (途中までは不透明のまま、終端で急速に消える)
-const FADE_OUT_TAIL_MS = 100;
-
-// 中央到着直後にカード上を斜めに走るシマー (光) と、周辺を一瞬光らせる黄金グロウ
-const FLASH_DELAY_S = FADE_IN_MS / 1000;
-const SHIMMER_DURATION_S = 0.7;
-const GLOW_DURATION_S = 0.8;
 
 const subscribe = () => () => {};
 const getClientSnapshot = () => true;
