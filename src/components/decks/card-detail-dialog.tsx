@@ -48,10 +48,13 @@ export function CardDetailDialog({ cardId, onClose }: CardDetailDialogProps) {
               </Badge>
             </DialogTitle>
 
-            <div className="flex justify-center py-2">
+            {/* 詳細表示用の大判カード。fullWidth + size="xl" で横幅は dialog
+                内側いっぱい、高さは xl 相当 (h-[22rem])。 */}
+            <div className="py-2">
               <CardView
                 card={{ instanceId: `detail-${cardId}`, defId: cardId }}
-                size="md"
+                size="xl"
+                fullWidth
                 inactive
               />
             </div>

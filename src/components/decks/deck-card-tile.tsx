@@ -33,6 +33,9 @@ interface DeckCardTileProps {
 }
 
 const LONG_PRESS_MS = 450;
+// pointer がこの px だけ動いたら長押しはキャンセル (スクロール意図とみなす)。
+// 一度キャンセルされたら、指を離すまで再開しない。
+const LONG_PRESS_MOVE_THRESHOLD_PX = 10;
 
 // 現在のデッキ・所持カード両方で使う共通タイル。
 // モバイル (< lg): cost + icon + name のコンパクト表示 + 長押しで詳細。
@@ -54,24 +57,52 @@ export function DeckCardTile({
   // ---- 長押し検出 (compact / mobile 用) ----
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
+  const longPressStartPosRef = useRef<{ x: number; y: number } | null>(null);
 
   const cancelLongPress = useCallback(() => {
     if (longPressTimerRef.current !== null) {
       window.clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
     }
+    longPressStartPosRef.current = null;
   }, []);
 
-  const handlePointerDown = useCallback(() => {
-    if (!onLongPress || disabled) return;
-    longPressTriggeredRef.current = false;
-    cancelLongPress();
-    longPressTimerRef.current = window.setTimeout(() => {
-      longPressTriggeredRef.current = true;
-      onLongPress(cardId);
-      longPressTimerRef.current = null;
-    }, LONG_PRESS_MS);
-  }, [cancelLongPress, cardId, disabled, onLongPress]);
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLElement>) => {
+      if (!onLongPress || disabled) return;
+      longPressTriggeredRef.current = false;
+      longPressStartPosRef.current = { x: e.clientX, y: e.clientY };
+      // 既存タイマーは重複しないようクリアしてから再セット。
+      if (longPressTimerRef.current !== null) {
+        window.clearTimeout(longPressTimerRef.current);
+      }
+      longPressTimerRef.current = window.setTimeout(() => {
+        longPressTriggeredRef.current = true;
+        onLongPress(cardId);
+        longPressTimerRef.current = null;
+        longPressStartPosRef.current = null;
+      }, LONG_PRESS_MS);
+    },
+    [cardId, disabled, onLongPress],
+  );
+
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent<HTMLElement>) => {
+      // タイマー稼働中だけチェック。閾値超えたら以降の長押しは諦める。
+      if (longPressTimerRef.current === null) return;
+      const start = longPressStartPosRef.current;
+      if (!start) return;
+      const dx = e.clientX - start.x;
+      const dy = e.clientY - start.y;
+      if (
+        dx * dx + dy * dy >
+        LONG_PRESS_MOVE_THRESHOLD_PX * LONG_PRESS_MOVE_THRESHOLD_PX
+      ) {
+        cancelLongPress();
+      }
+    },
+    [cancelLongPress],
+  );
 
   function handleClick() {
     if (disabled) return;
@@ -103,6 +134,7 @@ export function DeckCardTile({
         type="button"
         onClick={handleClick}
         onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
         onPointerUp={cancelLongPress}
         onPointerLeave={cancelLongPress}
         onPointerCancel={cancelLongPress}
