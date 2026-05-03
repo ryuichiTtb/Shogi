@@ -22,20 +22,6 @@ export function createInitialCardState(deckSpec: DeckSpec[]): CardGameState {
   const senteHand = senteDeck.splice(0, 2);
   const goteHand = goteDeck.splice(0, 2);
 
-  // [TEMP / Issue #105 検証用] 同種トラップ重複防止の動作確認のため、
-  // 両プレイヤーの初期手札先頭に「成り無効化」(no_promote) を 3 枚ずつ強制投入する。
-  // 検証完了後はこのブロック全体を削除すること。
-  senteHand.unshift(
-    { instanceId: "sente-no_promote-test1", defId: "no_promote" },
-    { instanceId: "sente-no_promote-test2", defId: "no_promote" },
-    { instanceId: "sente-no_promote-test3", defId: "no_promote" },
-  );
-  goteHand.unshift(
-    { instanceId: "gote-no_promote-test1", defId: "no_promote" },
-    { instanceId: "gote-no_promote-test2", defId: "no_promote" },
-    { instanceId: "gote-no_promote-test3", defId: "no_promote" },
-  );
-
   return {
     mana: { ...INITIAL_MANA },
     manaCap: MANA_CAP,
