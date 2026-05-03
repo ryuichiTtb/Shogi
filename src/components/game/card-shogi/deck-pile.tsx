@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { cn } from "@/lib/utils";
 import { DRAW_COST } from "@/lib/shogi/cards/definitions";
 import { CardBack } from "@/components/card-back/card-back";
@@ -65,7 +66,7 @@ function StackCard({ size, dimmed }: StackCardProps) {
   );
 }
 
-export function DeckPile({
+export const DeckPile = memo(function DeckPile({
   count,
   canDraw = false,
   onDraw,
@@ -249,4 +250,4 @@ export function DeckPile({
       </button>
     </div>
   );
-}
+});

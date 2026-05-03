@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 import { moveToNotation } from "@/lib/shogi/notation";
 import type { Player, Position } from "@/lib/shogi/types";
 import type { GameEvent } from "@/lib/shogi/cards/types";
@@ -73,7 +73,7 @@ function buildEntries(eventLog: GameEvent[]): DisplayEntry[] {
   return entries;
 }
 
-export function CardShogiHistory({ eventLog }: CardShogiHistoryProps) {
+export const CardShogiHistory = memo(function CardShogiHistory({ eventLog }: CardShogiHistoryProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const entries = buildEntries(eventLog);
 
@@ -126,4 +126,4 @@ export function CardShogiHistory({ eventLog }: CardShogiHistoryProps) {
       </div>
     </div>
   );
-}
+});
