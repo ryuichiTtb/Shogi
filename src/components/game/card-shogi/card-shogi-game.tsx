@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { flushSync } from "react-dom";
+import { flushSync, createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronUp, ChevronDown, Volume2, VolumeX } from "lucide-react";
@@ -12,6 +12,7 @@ import { useCardBoardSize } from "@/hooks/use-card-board-size";
 
 import { ShogiBoard, type ShogiBoardHandle } from "../shogi-board";
 import { CapturedPieces } from "../captured-pieces";
+import { ShogiPiece } from "../shogi-piece";
 import { CardShogiHistory } from "./card-shogi-history";
 import { GameControls, GAME_CONTROLS_HEIGHT } from "../game-controls";
 import { PromotionDialog } from "../promotion-dialog";
@@ -155,9 +156,13 @@ export function CardShogiGame({
   // 駒フライト完了後に発火する中央カード演出の予約。
   const pendingPlayFlightRef = useRef<{ card: CardInstance; isTrap: boolean } | null>(null);
   // Issue #82 (王手崩し): トラップ発動による複数駒フライト演出。
-  // null: 演出なし。flights が空配列の間 (waiting) は overlay のみ表示。
-  // flights が値ありになったらフライト開始。pendingFlightCount=0 で finalize。
+  // null: 演出なし。
+  // ghosts: 王手中央表示+トラップ発動演出の間、reducer は既に駒を盤上から除去
+  //   しているため、駒の元位置に「ゴースト駒」を絶対配置で重ね描きする。
+  //   フライト開始時にクリア。
+  // flights: 値ありになったらフライト開始。pendingFlightCount=0 で finalize。
   const [checkBreakAnim, setCheckBreakAnim] = useState<{
+    ghosts: Array<{ rect: DOMRect; pieceType: string; owner: Player }>;
     flights: PieceFlightSpec[];
     flightKeyBase: number;
     hideTargets: FlightHideTarget[];
@@ -489,15 +494,22 @@ export function CardShogiGame({
           if (trapDef.id === "check_break" && ev.capturedPieces && ev.capturedPieces.length > 0) {
             const trapOwner = ev.player;
             const captures = ev.capturedPieces;
-            // 適用後の DOM (駒は持ち駒側に移動済) から rect を取得。
+            // reducer は適用済 (盤上から駒除去・持ち駒に追加) なので、
+            // 王手中央表示+トラップ発動演出の間は元位置にゴースト駒を重ね描きする。
             // fromRect: 元の盤面マス (空マスになっているがマス自体は存在)
-            // toRect: 持ち駒として既に追加されている (見えている) 表示位置
+            // toRect: 持ち駒として既に追加されている表示位置 (hideTargets で隠す)
+            const ghosts: Array<{ rect: DOMRect; pieceType: string; owner: Player }> = [];
             const flights: PieceFlightSpec[] = [];
             const hideTargets: FlightHideTarget[] = [];
             for (const cap of captures) {
               const fromRect = getBoardSquareRect(cap.row, cap.col);
               const toRect = findVisibleCapturedPieceRect(trapOwner, cap.pieceType);
               if (!fromRect) continue;
+              ghosts.push({
+                rect: fromRect,
+                pieceType: cap.originalPieceType,
+                owner: cap.originalOwner,
+              });
               const fromX = fromRect.left + fromRect.width / 2;
               const fromY = fromRect.top + fromRect.height / 2;
               const toX = toRect ? toRect.left + toRect.width / 2 : fromX;
@@ -513,11 +525,12 @@ export function CardShogiGame({
               hideTargets.push({ kind: "captured", player: trapOwner, pieceType: cap.pieceType });
             }
             // 演出ロックは reducer 側で isCheckBreakAnimating=true がセット済。
-            // hideTargets を即時セットして持ち駒の見え方をフライト開始まで隠す。
+            // ゴースト駒を盤面に重ね描きしつつ、持ち駒側はフライト着地まで隠す。
             pieceFlightKeyRef.current += captures.length;
             const flightKeyBase = pieceFlightKeyRef.current - captures.length + 1;
             setCheckBreakAnim({
-              flights: [],   // フライト発火前は空配列。hideTargets だけ先に効かせる。
+              ghosts,
+              flights: [],   // フライト発火前は空配列。ゴーストのみ表示。
               flightKeyBase,
               hideTargets,
               pendingFlightCount: flights.length,
@@ -534,9 +547,9 @@ export function CardShogiGame({
                 trapName: trapDef.name,
               });
             }, 1600);
-            // T=3900: 駒フライト並行発火
+            // T=3900: ゴーストを消し、駒フライト並行発火
             window.setTimeout(() => {
-              setCheckBreakAnim((prev) => (prev ? { ...prev, flights } : null));
+              setCheckBreakAnim((prev) => (prev ? { ...prev, ghosts: [], flights } : null));
             }, 1600 + 2300);
             break;
           }
@@ -1578,6 +1591,33 @@ export function CardShogiGame({
           onComplete={handleCheckBreakFlightComplete}
         />
       ))}
+
+      {/* Issue #82 (王手崩し): 演出中のゴースト駒。reducer は既に駒を盤上から
+          除去しているので、王手中央表示+トラップ発動演出の間だけ元位置に重ねる */}
+      {checkBreakAnim && checkBreakAnim.ghosts.length > 0 && typeof document !== "undefined" &&
+        createPortal(
+          <div className="fixed inset-0 pointer-events-none z-[50]">
+            {checkBreakAnim.ghosts.map((g, i) => (
+              <div
+                key={`ghost-${i}`}
+                style={{
+                  position: "fixed",
+                  left: g.rect.left,
+                  top: g.rect.top,
+                  width: g.rect.width,
+                  height: g.rect.height,
+                }}
+              >
+                <ShogiPiece
+                  piece={{ type: g.pieceType, owner: g.owner }}
+                  playerColor={playerColor}
+                  squareSize={g.rect.width}
+                />
+              </div>
+            ))}
+          </div>,
+          document.body,
+        )}
 
       {/* Issue #77: マナ加減算の浮遊テキスト (起点 UI 付近に表示) */}
       <ManaFlightLayer items={manaFlights} onComplete={removeManaFlight} />

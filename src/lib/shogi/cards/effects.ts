@@ -367,10 +367,18 @@ export function applyCheckBreak(
       const piece = newState.board[pos.row]?.[pos.col];
       if (!piece) continue;
       const handPieceType = unpromotePieceType(piece.type);
+      const originalPieceType = piece.type;
+      const originalOwner = piece.owner;
       newState.board[pos.row][pos.col] = null;
       const currentCount = newState.hand[player][handPieceType] ?? 0;
       newState.hand[player][handPieceType] = currentCount + 1;
-      capturedPieces.push({ row: pos.row, col: pos.col, pieceType: handPieceType });
+      capturedPieces.push({
+        row: pos.row,
+        col: pos.col,
+        pieceType: handPieceType,
+        originalPieceType,
+        originalOwner,
+      });
     }
   }
   return { gameState: newState, capturedPieces };

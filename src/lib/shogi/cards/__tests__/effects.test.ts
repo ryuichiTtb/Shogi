@@ -716,7 +716,9 @@ describe("applyCheckBreak", () => {
     place(state, { row: 7, col: 4 }, { type: "pawn", owner: "gote" });
     const result = applyCheckBreak(state, "sente");
     expect(result).not.toBeNull();
-    expect(result!.capturedPieces).toEqual([{ row: 7, col: 4, pieceType: "pawn" }]);
+    expect(result!.capturedPieces).toEqual([
+      { row: 7, col: 4, pieceType: "pawn", originalPieceType: "pawn", originalOwner: "gote" },
+    ]);
     // 王手駒は盤上から消滅
     expect(result!.gameState.board[7][4]).toBeNull();
     // 自分 (sente) の持ち駒に歩 1枚追加
@@ -743,7 +745,7 @@ describe("applyCheckBreak", () => {
     expect(isInCheck(result!.gameState, "sente", CARD_SHOGI_VARIANT)).toBe(false);
   });
 
-  it("成駒で王手 (龍王) → unpromote して持ち駒化", () => {
+  it("成駒で王手 (龍王) → unpromote して持ち駒化、original 情報も保持", () => {
     const state = makeState();
     placeKing(state, "sente", { row: 8, col: 4 });
     placeKing(state, "gote", { row: 0, col: 4 });
@@ -751,8 +753,16 @@ describe("applyCheckBreak", () => {
     place(state, { row: 6, col: 4 }, { type: "promoted_rook", owner: "gote" });
     const result = applyCheckBreak(state, "sente");
     expect(result).not.toBeNull();
-    // unpromote して持ち駒は「飛」になる
-    expect(result!.capturedPieces).toEqual([{ row: 6, col: 4, pieceType: "rook" }]);
+    // unpromote して持ち駒は「飛」になる。ゴースト駒用に original 情報も含む。
+    expect(result!.capturedPieces).toEqual([
+      {
+        row: 6,
+        col: 4,
+        pieceType: "rook",
+        originalPieceType: "promoted_rook",
+        originalOwner: "gote",
+      },
+    ]);
     expect(result!.gameState.hand.sente.rook).toBe(1);
     expect(result!.gameState.hand.sente.promoted_rook).toBeUndefined();
   });

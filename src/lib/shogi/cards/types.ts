@@ -143,11 +143,15 @@ export type CardAction =
 
 // トラップ発動時に持ち駒化した相手駒の情報。check_break (#82) で UI が
 // 駒フライト演出を組むために使う。座標は適用前 (盤上にあった時点) の位置、
-// pieceType は unpromote 後の持ち駒種別。
+// pieceType は unpromote 後の持ち駒種別、originalPieceType / originalOwner は
+// 演出中(王手中央表示・トラップ発動演出の間)に盤面に「ゴースト駒」として
+// 残像表示するための原駒情報。
 export interface TrapCapturedPiece {
   row: number;
   col: number;
   pieceType: string;
+  originalPieceType: string;
+  originalOwner: Player;
 }
 
 export type GameEvent =
