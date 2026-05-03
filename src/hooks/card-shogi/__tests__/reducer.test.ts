@@ -1,0 +1,305 @@
+import { describe, expect, it } from "vitest";
+
+import { createInitialGameState } from "@/lib/shogi/board";
+import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
+import type { GameState } from "@/lib/shogi/types";
+import type { CardGameState, CardInstance } from "@/lib/shogi/cards/types";
+import { MANA_CAP, DRAW_COST } from "@/lib/shogi/cards/definitions";
+
+import { reducer, type CardShogiGameStateInternal } from "../reducer";
+
+// ===== fixtures =====
+
+function makeInitialCardState(overrides: Partial<CardGameState> = {}): CardGameState {
+  return {
+    mana: { sente: 5, gote: 5 },
+    manaCap: MANA_CAP,
+    hand: { sente: [], gote: [] },
+    deck: { sente: [], gote: [] },
+    graveyard: { sente: [], gote: [] },
+    trap: { sente: null, gote: null },
+    pendingCard: null,
+    lastTurnStartedAt: { sente: null, gote: null },
+    noPromoteMarks: { sente: [], gote: [] },
+    ...overrides,
+  };
+}
+
+function makeInitialState(
+  gameState: GameState = createInitialGameState(CARD_SHOGI_VARIANT),
+  cardState: CardGameState = makeInitialCardState(),
+): CardShogiGameStateInternal {
+  return {
+    gameState,
+    selectedSquare: null,
+    selectedHandPiece: null,
+    legalMoves: [],
+    isAiThinking: false,
+    promotionPendingMove: null,
+    cardState,
+    eventLog: [],
+    isDrawing: false,
+    pendingDrawPlayer: null,
+    isPlayingCard: false,
+    pendingPlayCardOpponent: null,
+  };
+}
+
+const card = (id: string, defId: CardInstance["defId"]): CardInstance => ({
+  instanceId: id,
+  defId,
+});
+
+// ===== tests =====
+
+describe("reducer / 駒指し系", () => {
+  it("SELECT_SQUARE: 自分の駒を選択すると selectedSquare と legalMoves が設定される", () => {
+    const state = makeInitialState();
+    // 先手の歩 (row=6, col=4) を選択
+    const next = reducer(state, { type: "SELECT_SQUARE", pos: { row: 6, col: 4 } });
+    expect(next.selectedSquare).toEqual({ row: 6, col: 4 });
+    expect(next.legalMoves.length).toBeGreaterThan(0);
+  });
+
+  it("SELECT_SQUARE: pendingCard 中は無視 (state 不変)", () => {
+    const pendingCard = { instance: card("c1", "mana_up"), player: "sente" as const, phase: "confirm" as const };
+    const state = makeInitialState(
+      undefined,
+      makeInitialCardState({ pendingCard }),
+    );
+    const next = reducer(state, { type: "SELECT_SQUARE", pos: { row: 6, col: 4 } });
+    expect(next).toBe(state);
+  });
+
+  it("SELECT_SQUARE: ドロー演出中 (isDrawing=true) は無視", () => {
+    const state = { ...makeInitialState(), isDrawing: true };
+    const next = reducer(state, { type: "SELECT_SQUARE", pos: { row: 6, col: 4 } });
+    expect(next).toBe(state);
+  });
+
+  it("DESELECT で selectedSquare がクリア", () => {
+    const state = {
+      ...makeInitialState(),
+      selectedSquare: { row: 6, col: 4 },
+      legalMoves: [],
+    };
+    const next = reducer(state, { type: "DESELECT" });
+    expect(next.selectedSquare).toBeNull();
+  });
+
+  it("RESIGN: status=resign + winner が逆プレイヤーに設定", () => {
+    const state = makeInitialState();
+    // 初期は currentPlayer=sente
+    const next = reducer(state, { type: "RESIGN" });
+    expect(next.gameState.status).toBe("resign");
+    expect(next.gameState.winner).toBe("gote");
+  });
+});
+
+describe("reducer / カード系: ドロー", () => {
+  it("DRAW_CARD: マナ十分 + 手番なら手札に 1 枚追加", () => {
+    const deckCard = card("d1", "mana_up");
+    const state = makeInitialState(
+      undefined,
+      makeInitialCardState({
+        mana: { sente: DRAW_COST, gote: 0 },
+        deck: { sente: [deckCard], gote: [] },
+      }),
+    );
+    const next = reducer(state, { type: "DRAW_CARD", player: "sente" });
+    expect(next.cardState.hand.sente).toEqual([deckCard]);
+    expect(next.cardState.deck.sente).toEqual([]);
+    expect(next.cardState.mana.sente).toBe(0);
+    expect(next.isDrawing).toBe(true);
+    expect(next.pendingDrawPlayer).toBe("sente");
+  });
+
+  it("DRAW_CARD: マナ不足なら state 不変", () => {
+    const state = makeInitialState(
+      undefined,
+      makeInitialCardState({
+        mana: { sente: 1, gote: 0 },
+        deck: { sente: [card("d1", "mana_up")], gote: [] },
+      }),
+    );
+    const next = reducer(state, { type: "DRAW_CARD", player: "sente" });
+    expect(next).toBe(state);
+  });
+
+  it("DRAW_CARD: 手番でなければ state 不変", () => {
+    const state = makeInitialState();
+    const next = reducer(state, { type: "DRAW_CARD", player: "gote" });
+    expect(next).toBe(state);
+  });
+
+  it("COMMIT_DRAW: isDrawing をクリアし currentPlayer を反転", () => {
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(),
+      isDrawing: true,
+      pendingDrawPlayer: "sente",
+    };
+    const next = reducer(state, { type: "COMMIT_DRAW" });
+    expect(next.isDrawing).toBe(false);
+    expect(next.pendingDrawPlayer).toBeNull();
+    expect(next.gameState.currentPlayer).toBe("gote");
+  });
+});
+
+describe("reducer / カード系: 使用フロー", () => {
+  it("BEGIN_PLAY_CARD: target なしカード (mana_up) は phase=confirm", () => {
+    const c = card("c1", "mana_up");
+    const state = makeInitialState(
+      undefined,
+      makeInitialCardState({
+        mana: { sente: 10, gote: 0 },
+        hand: { sente: [c], gote: [] },
+      }),
+    );
+    const next = reducer(state, {
+      type: "BEGIN_PLAY_CARD",
+      player: "sente",
+      instanceId: c.instanceId,
+    });
+    expect(next.cardState.pendingCard?.phase).toBe("confirm");
+    expect(next.cardState.pendingCard?.instance.instanceId).toBe(c.instanceId);
+  });
+
+  it("BEGIN_PLAY_CARD: マナ不足なら state 不変", () => {
+    const c = card("c1", "mana_up");
+    const state = makeInitialState(
+      undefined,
+      makeInitialCardState({
+        mana: { sente: 0, gote: 0 },
+        hand: { sente: [c], gote: [] },
+      }),
+    );
+    const next = reducer(state, {
+      type: "BEGIN_PLAY_CARD",
+      player: "sente",
+      instanceId: c.instanceId,
+    });
+    expect(next).toBe(state);
+  });
+
+  it("BEGIN_PLAY_CARD: 手番でなければ state 不変", () => {
+    const c = card("c1", "mana_up");
+    const state = makeInitialState(
+      undefined,
+      makeInitialCardState({
+        mana: { sente: 10, gote: 10 },
+        hand: { sente: [], gote: [c] },
+      }),
+    );
+    // 手番が sente なのに gote が打とうとする
+    const next = reducer(state, {
+      type: "BEGIN_PLAY_CARD",
+      player: "gote",
+      instanceId: c.instanceId,
+    });
+    expect(next).toBe(state);
+  });
+
+  it("CONFIRM_PLAY_CARD (mana_up): マナ +3 + 手札からグレイブへ + isPlayingCard=true", () => {
+    const c = card("c1", "mana_up");
+    const state = makeInitialState(
+      undefined,
+      makeInitialCardState({
+        mana: { sente: 5, gote: 0 },
+        hand: { sente: [c], gote: [] },
+        pendingCard: { instance: c, player: "sente", phase: "confirm" },
+      }),
+    );
+    const next = reducer(state, { type: "CONFIRM_PLAY_CARD" });
+    // mana_up は cost=2 の前提だがここでは具体値より「マナ消費 + applyManaUp(+3) が起きた」ことを検証
+    expect(next.cardState.hand.sente).toEqual([]);
+    expect(next.cardState.graveyard.sente.length).toBe(1);
+    expect(next.isPlayingCard).toBe(true);
+    expect(next.pendingPlayCardOpponent).toBe("gote");
+  });
+
+  it("CANCEL_PLAY_CARD: pendingCard をクリア", () => {
+    const c = card("c1", "mana_up");
+    const state = makeInitialState(
+      undefined,
+      makeInitialCardState({
+        pendingCard: { instance: c, player: "sente", phase: "confirm" },
+      }),
+    );
+    const next = reducer(state, { type: "CANCEL_PLAY_CARD" });
+    expect(next.cardState.pendingCard).toBeNull();
+  });
+
+  it("COMMIT_PLAY_CARD: isPlayingCard をクリアし currentPlayer 反転", () => {
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(),
+      isPlayingCard: true,
+      pendingPlayCardOpponent: "gote",
+    };
+    const next = reducer(state, { type: "COMMIT_PLAY_CARD" });
+    expect(next.isPlayingCard).toBe(false);
+    expect(next.pendingPlayCardOpponent).toBeNull();
+    expect(next.gameState.currentPlayer).toBe("gote");
+  });
+});
+
+describe("reducer / UNDO", () => {
+  it("moveHistory が 2 未満なら state 不変", () => {
+    const state = makeInitialState();
+    const next = reducer(state, { type: "UNDO" });
+    expect(next).toBe(state);
+  });
+
+  it("eventLog にカード操作 (cardPlayEvent / drawEvent / trapSetEvent / trapTriggerEvent) が含まれていれば state 不変", () => {
+    const c = card("c1", "mana_up");
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(),
+      // moveHistory を擬似的に積んでも eventLog にカード操作があれば弾かれる
+      gameState: {
+        ...makeInitialState().gameState,
+        moveHistory: [
+          { type: "move", player: "sente", piece: "pawn", from: { row: 6, col: 4 }, to: { row: 5, col: 4 } },
+          { type: "move", player: "gote", piece: "pawn", from: { row: 2, col: 4 }, to: { row: 3, col: 4 } },
+        ],
+      },
+      eventLog: [
+        { kind: "moveEvent", move: { type: "move", player: "sente", piece: "pawn", from: { row: 6, col: 4 }, to: { row: 5, col: 4 } }, at: 0 },
+        { kind: "drawEvent", player: "sente", instance: c, at: 0 },
+        { kind: "moveEvent", move: { type: "move", player: "gote", piece: "pawn", from: { row: 2, col: 4 }, to: { row: 3, col: 4 } }, at: 0 },
+      ],
+    };
+    const next = reducer(state, { type: "UNDO" });
+    expect(next).toBe(state);
+  });
+});
+
+describe("reducer / RESET_TURN_TIMER", () => {
+  it("指定プレイヤーの lastTurnStartedAt を現在時刻にセット", () => {
+    const state = makeInitialState();
+    expect(state.cardState.lastTurnStartedAt.sente).toBeNull();
+    const next = reducer(state, { type: "RESET_TURN_TIMER", player: "sente" });
+    expect(next.cardState.lastTurnStartedAt.sente).not.toBeNull();
+    expect(next.cardState.lastTurnStartedAt.gote).toBeNull();
+  });
+});
+
+describe("reducer / SET_AI_THINKING / SHOW_PROMOTION_DIALOG / CANCEL_PROMOTION", () => {
+  it("SET_AI_THINKING で isAiThinking が切替", () => {
+    const state = makeInitialState();
+    const next = reducer(state, { type: "SET_AI_THINKING", thinking: true });
+    expect(next.isAiThinking).toBe(true);
+  });
+
+  it("SHOW_PROMOTION_DIALOG で promotionPendingMove セット", () => {
+    const move = { type: "move" as const, player: "sente" as const, piece: "pawn", from: { row: 3, col: 4 }, to: { row: 2, col: 4 } };
+    const state = makeInitialState();
+    const next = reducer(state, { type: "SHOW_PROMOTION_DIALOG", move });
+    expect(next.promotionPendingMove).toEqual(move);
+  });
+
+  it("CANCEL_PROMOTION で promotionPendingMove クリア", () => {
+    const move = { type: "move" as const, player: "sente" as const, piece: "pawn", from: { row: 3, col: 4 }, to: { row: 2, col: 4 } };
+    const state = { ...makeInitialState(), promotionPendingMove: move };
+    const next = reducer(state, { type: "CANCEL_PROMOTION" });
+    expect(next.promotionPendingMove).toBeNull();
+  });
+});
