@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useCallback, useState } from "react";
 
+import { SFX_FILES } from "@/lib/audio/manifest";
+
 // Howler.jsのSSR対応（サーバーサイドでは何もしない）
 type HowlInstance = {
   play: () => number | undefined;
@@ -18,23 +20,31 @@ type HowlConstructor = new (options: {
   html5?: boolean;
 }) => HowlInstance;
 
-const SFX_FILES: Record<string, string> = {
-  piece_move: "/sounds/piece-move.mp3",
-  piece_jump: "/sounds/jump.mp3",
-  piece_capture: "/sounds/piece-capture.mp3",
-  piece_promote: "/sounds/piece-promote.mp3",
-  piece_drop: "/sounds/piece-drop.mp3",
-  check: "/sounds/check.mp3",
-  game_over: "/sounds/game-over.mp3",
-  game_start: "/sounds/game-start.mp3",
-  // カード将棋用 SE (Phase 0 では既存ファイルをエイリアスとして再利用、Phase A 以降で差替予定)
-  card_draw: "/sounds/piece-drop.mp3",
-  card_play: "/sounds/piece-move.mp3",
-  mana_charge: "/sounds/piece-promote.mp3",
-  trap_trigger: "/sounds/check.mp3",
-};
+// Step 4 (Issue #107): Howler の AudioContext を early unlock するヘルパ。
+// Safari 等は autoplay policy で AudioContext が suspended のまま開始される
+// ため、ユーザージェスチャ (対局開始ボタン onClick 等) で resume() を明示
+// 呼出する必要がある。これを呼ばないと最初の SE が無音になる/遅延する。
+//
+// 動的 import 経由で Howler 本体をロードした上で Howler.ctx?.resume() を await。
+// 既に ロード済みの場合は再 import が cache hit するため軽い。
+export async function prepareAudio(): Promise<void> {
+  if (typeof window === "undefined") return;
+  try {
+    const mod = (await import("howler")) as unknown as {
+      Howler: { ctx?: AudioContext | null };
+    };
+    const ctx = mod.Howler?.ctx;
+    if (ctx && ctx.state === "suspended") {
+      await ctx.resume();
+    }
+  } catch {
+    // Howler 未対応環境 / 動的 import 失敗時は無視 (BGM/SE 自体が動かない)
+  }
+}
 
-export function useSound(bgmTrack?: string) {
+// bgmTrack の受け取り型を string | string[] に拡張 (将来 OGG/MP3 fallback ペアを
+// 受け取れるよう)。Howler の src は配列を受け取り順次フォールバックする。
+export function useSound(bgmTrack?: string | string[]) {
   const [isMuted, setIsMuted] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const bgmRef = useRef<HowlInstance | null>(null);
@@ -68,8 +78,9 @@ export function useSound(bgmTrack?: string) {
     const prev = bgmRef.current;
     setTimeout(() => prev?.stop(), 500);
 
+    const srcs = Array.isArray(bgmTrack) ? bgmTrack : [bgmTrack];
     const newBgm = new HowlRef.current({
-      src: [bgmTrack],
+      src: srcs,
       volume: isMuted ? 0 : 0.3,
       loop: true,
       html5: true,
@@ -81,7 +92,10 @@ export function useSound(bgmTrack?: string) {
     return () => {
       newBgm.stop();
     };
-  }, [bgmTrack]);
+    // bgmTrack が配列のときも primary URL の変化で再生し直したい。
+    // 単純化のため Array.isArray でも依存に渡す (= 配列参照変化で再発火)。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [Array.isArray(bgmTrack) ? bgmTrack[0] : bgmTrack]);
 
   const playSfx = useCallback(
     (sound: keyof typeof SFX_FILES) => {
