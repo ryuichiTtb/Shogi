@@ -700,3 +700,22 @@
   100% { background-position: -10% 0; }
 }
 
+
+/* デッキ編成タイル: 長いカード名の自動マーキー (ping-pong) */
+@keyframes deck-marquee {
+  0%,
+  12% {
+    transform: translateX(0);
+  }
+  44%,
+  56% {
+    transform: translateX(var(--marquee-shift, 0));
+  }
+  88%,
+  100% {
+    transform: translateX(0);
+  }
+}
+.animate-deck-marquee {
+  animation: deck-marquee 8s ease-in-out infinite;
+}

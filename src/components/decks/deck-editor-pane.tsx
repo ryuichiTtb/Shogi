@@ -335,6 +335,11 @@ export function DeckEditorPane({
           <header className="p-2 border-b shrink-0">
             <h3 className="text-xs font-semibold">
               現在のデッキ ({entries.length} 種 / {validation.totalCount} 枚)
+              {/* モバイル限定の長押しヒント。inline で表示することで縦幅を
+                  消費せず、初見ユーザーにも操作を伝える。 */}
+              <span className="lg:hidden font-normal text-muted-foreground ml-1 text-[9px]">
+                · 長押しで詳細
+              </span>
             </h3>
           </header>
           <div className="flex-1 min-h-0 overflow-y-auto p-2">

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -11,6 +12,59 @@ import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
 import { KIND_INFO, RARITY_INFO } from "@/lib/shogi/cards/labels";
 import { cn } from "@/lib/utils";
 import type { CardId } from "@/lib/shogi/cards/types";
+
+// CardView size="xl" の natural size (内部レイアウトはこの寸法を前提)。
+const XL_W = 576;
+const XL_H = 352;
+
+// 親コンテナ幅に合わせて transform: scale で xl カードを縮小して描画する。
+// fullWidth で width だけ変えると内部要素 (アイコン/テキスト/コスト) が
+// xl 想定のまま残り横にあふれてしまうため、scale で全体を等比縮小する。
+function ScaledXlCard({ cardId }: { cardId: CardId }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+
+  // 初期表示で正しい scale を反映するため layoutEffect で同期計算。
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    setScale(Math.min(1, el.clientWidth / XL_W));
+  }, []);
+
+  // 後続のリサイズ (画面回転 / dialog 表示) にも追従。
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      setScale(Math.min(1, el.clientWidth / XL_W));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  return (
+    <div
+      ref={containerRef}
+      className="w-full overflow-hidden"
+      style={{ height: XL_H * scale }}
+    >
+      <div
+        style={{
+          width: XL_W,
+          height: XL_H,
+          transformOrigin: "top left",
+          transform: `scale(${scale})`,
+        }}
+      >
+        <CardView
+          card={{ instanceId: `detail-${cardId}`, defId: cardId }}
+          size="xl"
+          inactive
+        />
+      </div>
+    </div>
+  );
+}
 
 interface CardDetailDialogProps {
   cardId: CardId | null;
@@ -48,15 +102,9 @@ export function CardDetailDialog({ cardId, onClose }: CardDetailDialogProps) {
               </Badge>
             </DialogTitle>
 
-            {/* 詳細表示用の大判カード。fullWidth + size="xl" で横幅は dialog
-                内側いっぱい、高さは xl 相当 (h-[22rem])。 */}
+            {/* 詳細表示用の大判カード。dialog 横幅に合わせて等比縮小。 */}
             <div className="py-2">
-              <CardView
-                card={{ instanceId: `detail-${cardId}`, defId: cardId }}
-                size="xl"
-                fullWidth
-                inactive
-              />
+              <ScaledXlCard cardId={cardId} />
             </div>
 
             <div className="space-y-2 text-xs">

@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
 import { RARITY_INFO } from "@/lib/shogi/cards/labels";
 import type { CardId } from "@/lib/shogi/cards/types";
+import { MarqueeText } from "./marquee-text";
 
 export type DeckArea = "deck" | "owned";
 
@@ -138,7 +139,15 @@ export function DeckCardTile({
         onPointerUp={cancelLongPress}
         onPointerLeave={cancelLongPress}
         onPointerCancel={cancelLongPress}
+        // 長押し時の text 選択 / iOS Safari の callout (コピー / 共有メニュー) /
+        // Android Chrome の context menu を抑止。
+        onContextMenu={(e) => e.preventDefault()}
         disabled={disabled}
+        style={{
+          WebkitUserSelect: "none",
+          WebkitTouchCallout: "none",
+          userSelect: "none",
+        }}
         className={cn(
           "lg:hidden w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md border-2",
           "transition-all touch-manipulation select-none",
@@ -156,9 +165,11 @@ export function DeckCardTile({
         <span className="text-base shrink-0" aria-hidden>
           {def.icon}
         </span>
-        <span className="text-[11px] font-medium truncate flex-1 text-left">
-          {def.name}
-        </span>
+        {/* container 幅より長いカード名は ping-pong スクロールで全文を見せる。 */}
+        <MarqueeText
+          text={def.name}
+          className="text-[11px] font-medium flex-1 text-left"
+        />
       </button>
 
       {/* デスクトップ: フル CardView */}
