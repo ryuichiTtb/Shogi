@@ -852,12 +852,13 @@ export function useCardShogiGame({
         return;
       }
 
-      setTimeout(() => {
-        // 駒移動を適用(reducer 内でトラップフィルタ適用)
-        dispatch({ type: "MAKE_MOVE", move });
-        dispatch({ type: "SET_AI_THINKING", thinking: false });
-        onComment?.("ai_move");
-      }, 500);
+      // Step 3 (Issue #107): 旧実装は AI 着手後にさらに 500ms 待機していた。
+      // getAiMove 自体に 100-300ms かかる上に固定 500ms で体感が重くなるため
+      // 撤廃し即時 dispatch する。React 19 では Promise.then 内の連続 dispatch
+      // も自動 batch されるため複数 re-render は発生しない想定。
+      dispatch({ type: "MAKE_MOVE", move });
+      dispatch({ type: "SET_AI_THINKING", thinking: false });
+      onComment?.("ai_move");
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.gameState.currentPlayer, state.gameState.status, state.cardState.pendingCard, state.isDrawing]);
