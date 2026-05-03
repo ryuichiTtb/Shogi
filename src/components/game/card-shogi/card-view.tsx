@@ -270,10 +270,10 @@ export function CardView({
         ))}
       {compactIconLayout ? (
         // コンパクト・アイコン左上配置レイアウト (Issue #105)。
-        // float-left でコスト+アイコンを左上に置き、カード名を回り込みで折り返す。
-        // 名前が短ければ右側に並び、長ければアイコン下方へ自然に流れる。
-        <div className="relative z-10 w-full h-full p-1 overflow-hidden">
-          <div className="float-left mr-1 flex flex-col items-center gap-0 leading-none">
+        // 2カラム: 左にコスト+アイコン (上揃え固定列)、右にカード名 (縦中央揃え・複数行)。
+        // 名前は line-clamp で末尾省略 (...) になり、左カラム下に流入しない。
+        <div className="relative z-10 w-full h-full p-1 flex flex-row gap-1.5 overflow-hidden">
+          <div className="flex flex-col items-center gap-0 leading-none shrink-0 self-start">
             <span
               className={cn(
                 "rounded-full font-bold tabular-nums whitespace-nowrap inline-flex items-center gap-0.5 px-1 leading-tight",
@@ -301,13 +301,19 @@ export function CardView({
               {def.icon}
             </span>
           </div>
-          <div
-            className={cn(
-              "font-bold leading-tight break-all",
-              size === "lg" ? "text-[13px]" : size === "sm" ? "text-[10px]" : "text-[12px]",
-            )}
-          >
-            {def.name}
+          <div className="flex-1 min-w-0 flex items-center">
+            <div
+              className={cn(
+                "font-bold leading-tight break-all w-full",
+                size === "sm"
+                  ? "text-[10px] line-clamp-2"
+                  : size === "lg"
+                    ? "text-[13px] line-clamp-5"
+                    : "text-[12px] line-clamp-4",
+              )}
+            >
+              {def.name}
+            </div>
           </div>
         </div>
       ) : (
