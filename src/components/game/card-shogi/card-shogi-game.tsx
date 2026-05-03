@@ -47,8 +47,10 @@ import { CardPlayDialog, CardTargetingNotice } from "./card-play-dialog";
 import { DrawFlightCard } from "./draw-flight-card";
 import { CardPlayFlight } from "./card-play-flight";
 import { PieceFlight, type PieceFlightSpec } from "./piece-flight";
-import { ManaFlightLayer, type ManaFlightItem } from "./mana-flight";
-import { FastMoveBadgeLayer, type FastMoveBadgeItem } from "./fast-move-badge";
+import { ManaFlightLayer } from "./mana-flight";
+import { FastMoveBadgeLayer } from "./fast-move-badge";
+import { useManaFlightLayer } from "./use-mana-flight-layer";
+import { useFastMoveBadgeLayer } from "./use-fast-move-badge-layer";
 
 interface SerializableGameConfig {
   variantId: string;
@@ -124,11 +126,11 @@ export function CardShogiGame({
   const boardTabletRef = useRef<ShogiBoardHandle>(null);
   const boardXlRef = useRef<ShogiBoardHandle>(null);
   // マナ増減の浮遊テキスト (Issue #77)。各イベントを起点 UI 付近で表示する。
-  const [manaFlights, setManaFlights] = useState<ManaFlightItem[]>([]);
-  const manaFlightIdRef = useRef(0);
+  // Step 5 (Issue #107): state / id ref / trigger / remove は useManaFlightLayer
+  // フックに集約。再描画 skip は useState 内部の参照比較任せのため変更なし。
+  const { items: manaFlights, trigger: triggerManaFlight, remove: removeManaFlight } = useManaFlightLayer();
   // 早指し時のバッジ。マナ +N と同じ駒位置イベントから派生し、駒の少し下に表示。
-  const [fastMoveBadges, setFastMoveBadges] = useState<FastMoveBadgeItem[]>([]);
-  const fastMoveBadgeIdRef = useRef(0);
+  const { items: fastMoveBadges, trigger: triggerFastMoveBadge, remove: removeFastMoveBadge } = useFastMoveBadgeLayer();
   // カード使用時、reducer がカードを hand から削除する前に DOMRect を保管する。
   // cardPlayEvent / trapSetEvent / マナUP の manaChargeEvent(reason: card) の起点として使う。
   const playedCardRectRef = useRef<{ id: string; rect: DOMRect } | null>(null);
@@ -298,28 +300,6 @@ export function CardShogiGame({
       if (rect && rect.width > 0 && rect.height > 0) return rect;
     }
     return null;
-  }, []);
-
-  const triggerManaFlight = useCallback((delta: number, rect: DOMRect | null) => {
-    if (!rect || delta === 0) return;
-    manaFlightIdRef.current += 1;
-    const id = manaFlightIdRef.current;
-    setManaFlights((prev) => [...prev, { id, delta, rect }]);
-  }, []);
-
-  const removeManaFlight = useCallback((id: number) => {
-    setManaFlights((prev) => prev.filter((f) => f.id !== id));
-  }, []);
-
-  const triggerFastMoveBadge = useCallback((rect: DOMRect | null) => {
-    if (!rect) return;
-    fastMoveBadgeIdRef.current += 1;
-    const id = fastMoveBadgeIdRef.current;
-    setFastMoveBadges((prev) => [...prev, { id, rect }]);
-  }, []);
-
-  const removeFastMoveBadge = useCallback((id: number) => {
-    setFastMoveBadges((prev) => prev.filter((b) => b.id !== id));
   }, []);
 
   // 表示中の手札の中から該当カード DOM を見つけて DOMRect を返す。
