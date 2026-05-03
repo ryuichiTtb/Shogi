@@ -202,16 +202,26 @@ export function applyPawnReturn(
   player: Player,
   target: Position,
 ): GameState | null {
-  const piece = state.board[target.row]?.[target.col];
-  if (!piece) return null;
-  if (piece.owner !== player) return null;
-  if (piece.type !== "pawn" && piece.type !== "promoted_pawn") return null;
-
+  if (!isPawnReturnLegalSquare(state, player, target)) return null;
   const newState = cloneGameState(state);
   newState.board[target.row][target.col] = null;
   const currentCount = newState.hand[player]["pawn"] ?? 0;
   newState.hand[player]["pawn"] = currentCount + 1;
   return newState;
+}
+
+// 歩戻しの選択可能マスを判定する純粋関数。UI ハイライトと効果適用の両方から使う。
+// - 対象が自分の歩 (pawn) または と金 (promoted_pawn) であること
+export function isPawnReturnLegalSquare(
+  state: GameState,
+  player: Player,
+  target: Position,
+): boolean {
+  const piece = state.board[target.row]?.[target.col];
+  if (!piece) return false;
+  if (piece.owner !== player) return false;
+  if (piece.type !== "pawn" && piece.type !== "promoted_pawn") return false;
+  return true;
 }
 
 // ----- 王手中のカード使用判定 (Issue #82) -----
@@ -240,6 +250,48 @@ export function simulateCardEffect(
       // mana_up / no_promote / sample_* 等は GameState を変えないので null
       return null;
   }
+}
+
+// ターゲット指定型カードの選択可能マスを判定する共通ヘルパ (Step S1 / 2026-05-03)。
+// handleSquareClick の駒フライト起動前と reducer 直前の selectSquare の両方から呼ぶ。
+// 検証順序を 1 箇所に集約することで、無効マスでフライト演出だけ走る現象を防ぐ。
+//
+// 振る舞い:
+// - target が square でなければ false
+// - カード種別ごとの妥当性 (自駒の歩 / 自駒で玉でなくピンでない / 二歩配置可) を検証
+// - 王手中なら、そのマスへの適用が王手回避になることも要求
+// - target なしカード (mana_up / no_promote) は target を取らないので適用範囲外 → false
+export function isValidCardTargetSquare(
+  state: GameState,
+  player: Player,
+  defId: CardId,
+  target: Position,
+): boolean {
+  switch (defId) {
+    case "pawn_return":
+      if (!isPawnReturnLegalSquare(state, player, target)) return false;
+      break;
+    case "piece_return":
+      if (!isPieceReturnLegalSquare(state, player, target)) return false;
+      break;
+    case "double_pawn":
+      if (!isDoublePawnLegalSquare(state, player, target)) return false;
+      break;
+    default:
+      // mana_up / no_promote / sample_* など target なしカードは square 対象外
+      return false;
+  }
+  // 王手中: 適用結果が王手解除になることを要求
+  const variant = CARD_SHOGI_VARIANT;
+  if (isInCheck(state, player, variant)) {
+    const after = simulateCardEffect(state, player, defId, {
+      kind: "square",
+      row: target.row,
+      col: target.col,
+    });
+    if (!after || isInCheck(after, player, variant)) return false;
+  }
+  return true;
 }
 
 // 王手回避になるマスを列挙する。王手中のカード使用可否・配置先制限の両方で参照される。

@@ -35,7 +35,7 @@ import type { Difficulty, GameConfig, GameState, Move, Player, Position } from "
 import type { CommentaryEvent } from "@/app/actions/commentary";
 import type { CardGameState, CardInstance } from "@/lib/shogi/cards/types";
 import { CARD_DEFS, CARD_USE_CONDITIONS, DRAW_COST } from "@/lib/shogi/cards/definitions";
-import { isDoublePawnLegalSquare, isPieceReturnLegalSquare, simulateCardEffect, getCheckEscapingSquares, hasSameKindTrapPlaced } from "@/lib/shogi/cards/effects";
+import { isDoublePawnLegalSquare, isPieceReturnLegalSquare, isValidCardTargetSquare, simulateCardEffect, getCheckEscapingSquares, hasSameKindTrapPlaced } from "@/lib/shogi/cards/effects";
 import type { CardId } from "@/lib/shogi/cards/types";
 import { createGame } from "@/app/actions/game";
 
@@ -348,6 +348,21 @@ export function CardShogiGame({
     if (rect) playedCardRectRef.current = { id: pc.instance.instanceId, rect };
   }, [cardState.pendingCard, findVisibleCardRect]);
 
+  // 直前に使用したカードの DOMRect を取得 (triggerManaFlight 等の起点として利用)。
+  // instanceId 指定時 (cardPlayEvent / trapSetEvent): キャッシュの id 一致を確認、
+  //   不一致なら手札中央にフォールバック。
+  // instanceId 未指定時 (manaChargeEvent reason="card"): キャッシュ rect をそのまま再利用。
+  const getOriginRect = useCallback(
+    (instanceId?: string): DOMRect | null => {
+      const cached = playedCardRectRef.current;
+      if (instanceId !== undefined) {
+        return cached?.id === instanceId ? cached.rect : getHandRect();
+      }
+      return cached?.rect ?? getHandRect();
+    },
+    [getHandRect],
+  );
+
   const handleConfirmPlayCard = useCallback(() => {
     cachePendingCardRect();
     // Issue #82: 駒フライト用 rect キャッシュは handleSquareClick 側 (盤面ターゲット
@@ -380,9 +395,7 @@ export function CardShogiGame({
           playSfx("card_play");
           const def = CARD_DEFS[ev.instance.defId];
           if (def.cost > 0) {
-            const cached = playedCardRectRef.current;
-            const rect = cached?.id === ev.instance.instanceId ? cached.rect : getHandRect();
-            triggerManaFlight(-def.cost, rect);
+            triggerManaFlight(-def.cost, getOriginRect(ev.instance.instanceId));
           }
           // Issue #82: 駒移動カード(歩戻し/駒戻し/二歩指し)は handleSquareClick 内で
           // flushSync により先回り発火済み。ここでは:
@@ -443,18 +456,14 @@ export function CardShogiGame({
             if (ev.fastMove) triggerFastMoveBadge(rect);
           } else {
             // カード由来 (マナUP等): 直前に使用したカードの位置 (なければ手札中央)
-            const cached = playedCardRectRef.current;
-            const rect = cached?.rect ?? getHandRect();
-            triggerManaFlight(ev.amount, rect);
+            triggerManaFlight(ev.amount, getOriginRect());
           }
           break;
         case "trapSetEvent": {
           playSfx("card_play");
           const def = CARD_DEFS[ev.instance.defId];
           if (def.cost > 0) {
-            const cached = playedCardRectRef.current;
-            const rect = cached?.id === ev.instance.instanceId ? cached.rect : getHandRect();
-            triggerManaFlight(-def.cost, rect);
+            triggerManaFlight(-def.cost, getOriginRect(ev.instance.instanceId));
           }
           // Issue #106: トラップセット時も中央へカード本体を表示
           // CardInstance に詰め直し (TrapInstance.owner は CardView 側で参照しないため捨てる)
@@ -480,7 +489,7 @@ export function CardShogiGame({
       }
     }
     lastEventIndexRef.current = eventLog.length;
-  }, [eventLog, isReady, playSfx, playerColor, triggerManaFlight, triggerFastMoveBadge, getDeckRect, getHandRect, getBoardSquareRect]);
+  }, [eventLog, isReady, playSfx, playerColor, triggerManaFlight, triggerFastMoveBadge, getDeckRect, getOriginRect, getBoardSquareRect]);
 
   // Issue #78 / #82: 演出中(ドロー / カード使用)は盤面・手札・カード操作・背景クリックをロックする
   const handleSquareClick = useCallback(
@@ -493,8 +502,15 @@ export function CardShogiGame({
       // reducer 内で CONFIRM_PLAY_CARD を即時再帰実行するため、handleConfirmPlayCard
       // を経由しない。駒フライト用 rect / spec を取り、可能なら効果適用前に
       // flushSync で setPieceFlight を発火して「効果適用 → 駒出現」の隙間を消す。
+      // Step S1 (Issue #107): 無効マスをタップした場合は selectSquare 側で弾かれるが、
+      // それより前に flushSync で駒フライトを起動してしまうとフライト + 中央カード
+      // 演出が空振りする。ここで isValidCardTargetSquare を先行ガードする。
       if (cardState.pendingCard && cardState.pendingCard.phase === "selectTarget") {
         const def = CARD_DEFS[cardState.pendingCard.instance.defId];
+        if (!isValidCardTargetSquare(gameState, playerColor, def.id, pos)) {
+          selectSquare(pos);
+          return;
+        }
         const cardInstance = cardState.pendingCard.instance;
         pendingPieceFlightRef.current = null;
 
@@ -553,7 +569,7 @@ export function CardShogiGame({
       cardState.pendingCard,
       cachePendingCardRect,
       playerColor,
-      gameState.board,
+      gameState,
       findVisibleCapturedPieceRect,
       getBoardSquareRect,
     ],

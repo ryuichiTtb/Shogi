@@ -4,6 +4,13 @@ import { useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 
+import {
+  FAST_MOVE_DURATION_S as DURATION_S,
+  FAST_MOVE_BOX_W as BOX_W,
+  FAST_MOVE_BOX_H as BOX_H,
+  FAST_MOVE_OFFSET_BELOW_PIECE_PX as OFFSET_BELOW_PIECE_PX,
+} from "./animation-constants";
+
 export interface FastMoveBadgeItem {
   id: number;
   rect: DOMRect;
@@ -17,12 +24,6 @@ interface FastMoveBadgeLayerProps {
 const subscribe = () => () => {};
 const getClientSnapshot = () => true;
 const getServerSnapshot = () => false;
-
-const DURATION_S = 1.0;
-const BOX_W = 160;
-const BOX_H = 48;
-// 駒下端からの余白(マナ +N の浮遊と被らないよう少し下に配置)
-const OFFSET_BELOW_PIECE_PX = 4;
 // 盤面の木目背景に黒文字が埋もれないよう、白で 8 方向に縁取りする
 const TEXT_STROKE = [
   "-2px -2px 0 #fff",

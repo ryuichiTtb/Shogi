@@ -5,6 +5,12 @@ import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 
 import { cn } from "@/lib/utils";
+import {
+  MANA_FLIGHT_DURATION_S as DURATION_S,
+  MANA_FLIGHT_FLOAT_DISTANCE_PX as FLOAT_DISTANCE_PX,
+  MANA_FLIGHT_BOX_W as BOX_W,
+  MANA_FLIGHT_BOX_H as BOX_H,
+} from "./animation-constants";
 
 export interface ManaFlightItem {
   id: number;
@@ -20,11 +26,6 @@ interface ManaFlightLayerProps {
 const subscribe = () => () => {};
 const getClientSnapshot = () => true;
 const getServerSnapshot = () => false;
-
-const DURATION_S = 1.1;
-const FLOAT_DISTANCE_PX = 60;
-const BOX_W = 200;
-const BOX_H = 56;
 
 export function ManaFlightLayer({ items, onComplete }: ManaFlightLayerProps) {
   const isClient = useSyncExternalStore(subscribe, getClientSnapshot, getServerSnapshot);
