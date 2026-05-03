@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { cn } from "@/lib/utils";
 import { PIECE_DEF_MAP } from "@/lib/shogi/variants/standard";
 import type { Piece, Player } from "@/lib/shogi/types";
@@ -67,7 +68,7 @@ function getPieceSizeRatio(type: string): number {
   return 1.0;
 }
 
-export function ShogiPiece({
+export const ShogiPiece = memo(function ShogiPiece({
   piece,
   isSelected = false,
   isSmall = false,
@@ -150,4 +151,4 @@ export function ShogiPiece({
       </div>
     </div>
   );
-}
+});

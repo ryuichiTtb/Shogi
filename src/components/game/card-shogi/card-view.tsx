@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { cn } from "@/lib/utils";
 import type { CardInstance, CardRarity } from "@/lib/shogi/cards/types";
 import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
@@ -176,7 +177,7 @@ const EPIC_ORBS_BY_SIZE: Record<CardViewSize, OrbVariant[]> = {
   ],
 };
 
-export function CardView({
+export const CardView = memo(function CardView({
   card,
   faceDown = false,
   onClick,
@@ -393,4 +394,4 @@ export function CardView({
       )}
     </button>
   );
-}
+});

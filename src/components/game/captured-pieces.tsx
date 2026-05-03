@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { cn } from "@/lib/utils";
 import type { Hand, Player } from "@/lib/shogi/types";
 import { ShogiPiece } from "./shogi-piece";
@@ -29,7 +30,7 @@ export const CAPTURED_PIECES_HEIGHT = 72;
 // compact: モバイル時の縦幅縮小用 (駒は 36px、ラベル省略可)
 export const CAPTURED_PIECES_HEIGHT_COMPACT = 52;
 
-export function CapturedPieces({
+export const CapturedPieces = memo(function CapturedPieces({
   hand,
   player,
   playerColor,
@@ -104,4 +105,4 @@ export function CapturedPieces({
       </div>
     </div>
   );
-}
+});
