@@ -96,6 +96,29 @@ Issue #107 のスコープに **「リファクタ中に発見した潜在バグ
 - 修正は Vitest による回帰テスト追加とセットで行う
 - 通常の Step (1〜5) 内で同根の修正が自然に含まれる場合は、その Step 内に組み込んで OK (本書に記録は残す)
 
+### Step S2: モバイル hover の挙動不正 + カードデザイン UX 改善 (Step 3 に含めて修正)
+
+**対象画面**: マスターカタログ ([/cards](src/app/cards/page.tsx)) / カードデザイン ([/card-design](src/app/card-design/page.tsx))
+
+**バグ・要望**:
+
+- **a. モバイル hover 不正**: タップでホバー演出 (lift + 黄色) が発火し、ドラッグで他カードに張り付いて不自然な動きになる
+  - **原因**: [globals.css:443-470](src/app/globals.css#L443) の `.card-hover-focus:hover` が `(hover: hover) and (pointer: fine)` でガードされていないため、touch device でも `:hover` が成立し続ける
+  - **修正**: 該当 hover ルールを `@media (hover: hover) and (pointer: fine)` で囲む
+
+- **b. カードデザインの hover から黄色を消す**: lift 効果のみ残し、黄色 outline / overlay / drop-shadow を削除
+  - **原因**: マスターカタログと同じ `card-hover-focus` クラスを使い回している
+  - **修正**: 黄色を含まない新クラス `.card-hover-lift` を globals.css に追加し、card-design ページでは `card-hover-focus` から `card-hover-lift` に差し替え + `card-hover-overlay` 子要素を削除
+
+- **c. マスターカタログのカード選択時にローディングマスク**: 詳細画面 (`/cards/[id]`) への遷移中に `<LoadingOverlay show fullScreen />` を表示
+  - **修正対象**: [card-catalog-tile.tsx](src/components/cards/card-catalog-tile.tsx) — `useState` で loading 状態を管理し、onClick で `setLoading(true)` → `router.push()`
+
+- **d. カードデザインのヘッダ固定 + モバイルカード幅縮小**:
+  - 「ホーム」リンク + カードデザインの説明書きエリアを `sticky top-0 z-40` で固定
+  - モバイルでは CardBack プレビュー (各カード本体) を縮小。`MOCK_SIZE_CLASS` (sizes.ts) は対局画面でも使われるため触らず、card-design ページ側のラッパに `transform: scale()` の CSS を当てる
+
+**本ブランチで対応**: Step 3 (`refactor/#107-compute`) に含めて修正済み
+
 ### Step S1: ターゲット選択フェーズで無効マスをタップすると演出が走る (Step 1 に含めて修正)
 
 - **対象カード**: `double_pawn` (二歩指し) / `pawn_return` (歩戻し) / `piece_return` (駒戻し)
