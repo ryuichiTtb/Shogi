@@ -9,10 +9,10 @@ import { CHARACTERS } from "@/data/characters";
 import { createGame } from "@/app/actions/game";
 import type { Difficulty, Player } from "@/lib/shogi/types";
 import { cn } from "@/lib/utils";
-import Link from "next/link";
-import { History, Swords, Layers, Palette } from "lucide-react";
+import { History, Swords, Layers, Library, Palette } from "lucide-react";
 import { ThemeSelector } from "@/components/game/theme-selector";
 import { ModeSelector, type GameMode } from "@/components/home/mode-selector";
+import { LoadingOverlay } from "@/components/loading-overlay";
 
 const DIFFICULTY_INFO: Record<Difficulty, { label: string; description: string; color: string }> = {
   beginner: { label: "初級", description: "将棋を覚えたばかりの方に", color: "bg-green-100 text-green-800 border-green-200" },
@@ -25,7 +25,10 @@ type ColorOption = Player | "random";
 
 export default function Home() {
   const router = useRouter();
-  const [isLoading, setIsLoading] = useState(false);
+  // 進行中のメッセージ。null=非アクティブ。null 以外なら LoadingOverlay を出し
+  // 全ボタンを disabled にする。各ハンドラから個別の状態を持たせず一元管理。
+  const [pendingLabel, setPendingLabel] = useState<string | null>(null);
+  const isPending = pendingLabel !== null;
   const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty>("beginner");
   const [selectedColor, setSelectedColor] = useState<ColorOption>("sente");
   const [selectedMode, setSelectedMode] = useState<GameMode>("standard");
@@ -54,7 +57,8 @@ export default function Home() {
   const selectedCharacter = CHARACTERS.find((c) => c.difficulty === selectedDifficulty)!;
 
   async function handleStart() {
-    setIsLoading(true);
+    if (isPending) return;
+    setPendingLabel("準備中...");
     try {
       const color: Player =
         selectedColor === "random"
@@ -72,8 +76,16 @@ export default function Home() {
       router.push(`/game/${gameId}`);
     } catch (e) {
       console.error(e);
-      setIsLoading(false);
+      setPendingLabel(null);
     }
+  }
+
+  // ナビゲーション (Link の代替)。クリック → overlay 表示 + router.push。
+  // ページ遷移完了時にこのコンポーネントは unmount するので明示リセット不要。
+  function navigateTo(href: string, label = "読み込み中...") {
+    if (isPending) return;
+    setPendingLabel(label);
+    router.push(href);
   }
 
   const colorOptions: { value: ColorOption; icon: string; label: string; desc: string }[] = [
@@ -244,54 +256,73 @@ export default function Home() {
           size="lg"
           className="w-full text-sm sm:text-base py-3 sm:py-6 shrink-0"
           onClick={handleStart}
-          disabled={isLoading}
+          disabled={isPending}
         >
-          {isLoading ? (
-            <span className="flex items-center gap-2">
-              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              準備中...
-            </span>
-          ) : (
-            `${selectedCharacter.name}と対局開始！`
-          )}
+          {`${selectedCharacter.name}と対局開始！`}
         </Button>
 
         {/* カード機能セクション (カード将棋モード時のみ) */}
         {selectedMode === "card-shogi" && (
-          <div className="grid grid-cols-2 gap-2 shrink-0">
-            <Link
-              href="/cards"
+          <div className="grid grid-cols-3 gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => navigateTo("/cards")}
+              disabled={isPending}
               className={cn(
                 "flex items-center justify-center gap-1.5 py-2.5 rounded-lg border-2 border-border",
-                "bg-card text-sm font-medium hover:border-primary/40 transition-colors",
+                "bg-card text-xs sm:text-sm font-medium hover:border-primary/40 transition-colors",
+                "disabled:opacity-60 disabled:cursor-not-allowed",
               )}
             >
               <Layers className="w-4 h-4" />
               カード一覧
-            </Link>
-            <Link
-              href="/card-design"
+            </button>
+            <button
+              type="button"
+              onClick={() => navigateTo("/decks")}
+              disabled={isPending}
               className={cn(
                 "flex items-center justify-center gap-1.5 py-2.5 rounded-lg border-2 border-border",
-                "bg-card text-sm font-medium hover:border-primary/40 transition-colors",
+                "bg-card text-xs sm:text-sm font-medium hover:border-primary/40 transition-colors",
+                "disabled:opacity-60 disabled:cursor-not-allowed",
+              )}
+            >
+              <Library className="w-4 h-4" />
+              デッキ編成
+            </button>
+            <button
+              type="button"
+              onClick={() => navigateTo("/card-design")}
+              disabled={isPending}
+              className={cn(
+                "flex items-center justify-center gap-1.5 py-2.5 rounded-lg border-2 border-border",
+                "bg-card text-xs sm:text-sm font-medium hover:border-primary/40 transition-colors",
+                "disabled:opacity-60 disabled:cursor-not-allowed",
               )}
             >
               <Palette className="w-4 h-4" />
               カードデザイン
-            </Link>
+            </button>
           </div>
         )}
 
         {/* 棋譜履歴へのリンク */}
         <div className="text-center shrink-0">
-          <Link
-            href="/history"
-            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          <button
+            type="button"
+            onClick={() => navigateTo("/history")}
+            disabled={isPending}
+            className={cn(
+              "inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors",
+              "disabled:opacity-60 disabled:cursor-not-allowed",
+            )}
           >
             <History className="w-4 h-4" />
             対局履歴を見る
-          </Link>
+          </button>
         </div>
+
+        <LoadingOverlay show={isPending} fullScreen message={pendingLabel ?? "読み込み中..."} />
       </div>
     </main>
   );

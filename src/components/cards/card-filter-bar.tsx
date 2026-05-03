@@ -112,7 +112,8 @@ function FilterRow<T extends string>({
   const allActive = allOptions.every((id) => selected.has(id));
   return (
     <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-      <span className="text-[10px] sm:text-xs font-medium text-muted-foreground w-11 sm:w-16 shrink-0">{label}</span>
+      {/* ラベルは「ステータス」(5 char) が折り返さない幅を確保。 */}
+      <span className="text-[10px] sm:text-xs font-medium text-muted-foreground w-14 sm:w-16 shrink-0 whitespace-nowrap">{label}</span>
       <div className="flex flex-wrap gap-1 sm:gap-1.5">
         <button
           type="button"

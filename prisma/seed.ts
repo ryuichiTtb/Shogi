@@ -84,12 +84,13 @@ async function main() {
   });
   console.log(`  - DeckEntry: ${playableDefs.length} 種を各2枚 (廃止 ${removedDeckEntries.count} 件削除)`);
 
-  // 5. PlayerCardCollection (所持カード) を全種2枚で初期化(将来のガチャ・編成画面用)
+  // 5. PlayerCardCollection (所持カード) を全種10枚で初期化(編成画面の検証用に潤沢に)
+  const OWNED_COUNT_PER_CARD = 10;
   for (const def of playableDefs) {
     await prisma.playerCardCollection.upsert({
       where: { userId_cardId: { userId: DEFAULT_PLAYER_ID, cardId: def.id } },
-      create: { userId: DEFAULT_PLAYER_ID, cardId: def.id, count: 2 },
-      update: { count: 2 },
+      create: { userId: DEFAULT_PLAYER_ID, cardId: def.id, count: OWNED_COUNT_PER_CARD },
+      update: { count: OWNED_COUNT_PER_CARD },
     });
   }
   // 既に投入済みの廃止カード PlayerCardCollection を掃除
@@ -99,7 +100,7 @@ async function main() {
       cardId: { in: ALL_CARD_DEFS.filter((d) => d.status === "deprecated").map((d) => d.id) },
     },
   });
-  console.log(`  - PlayerCardCollection: ${playableDefs.length} 種を各2枚 (廃止 ${removedCollections.count} 件削除)`);
+  console.log(`  - PlayerCardCollection: ${playableDefs.length} 種を各${OWNED_COUNT_PER_CARD}枚 (廃止 ${removedCollections.count} 件削除)`);
 
   console.log("✓ Seed completed");
 }

@@ -139,16 +139,18 @@ function DrawFlightInner({
   // フェード開始タイミング (TOTAL の終端 FADE_OUT_TAIL_MS 手前)
   const tFadeStart = (TOTAL_MS - FADE_OUT_TAIL_MS) / TOTAL_MS;
 
-  // 回転 (Issue #82 ユーザー指示で更新):
+  // 回転 (Issue #89 ユーザー指示で更新):
   //   rotateY:
-  //     0 → 中央 で 2.5周 (=900°、最終的に 180° 相当 → 表面手前)
-  //     中央以降は 900° のまま維持 (表向きのまま手札へ)
+  //     deck→中央 の中間地点 (50%) から 0.5 回転 (0→180°)。前半 50% は 0° で
+  //     待機し、終端=中央到着で 180°。中央以降は 180° のまま維持。
   //   rotateZ:
   //     0 → 中央 で 2周 (=720°)
   //     中央 → 手札 で +3周 (=+1080°、累積 1800°)
   // 表/裏切替は子要素の backface-visibility hidden で自動。
   // 注意: filter 系プロパティ(drop-shadow 等)は preserve-3d を flatten させるため
   //       外側 motion.div には付けず、内側面に box-shadow ベースの shadow-2xl を当てる。
+  // rotateY の回転開始点 (deck→中央 の 50% 地点)
+  const tSpinStart = t1 * 0.5;
   return (
     <motion.div
       initial={{
@@ -186,15 +188,24 @@ function DrawFlightInner({
     >
       <motion.div
         animate={{
-          // 山札→中央で 2.5周 (0→900°)、中央以降は維持 (表向きのまま手札へ)
-          rotateY: [0, 900, 900, 900],
-          // 山札→中央 で 2周 (0→720°)、中央→手札 で +3周 (720°→1800°)
+          // rotateY: deck→中央 の最後 25% で 0.5 回転 (0→180°)、中央以降は維持。
+          // 前半は 0° のまま裏向きで静止し、中央到着直前に半回転して表面が手前に来る。
+          rotateY: [0, 0, 180, 180, 180],
+          // rotateZ: 山札→中央 で 2周 (0→720°)、中央→手札 で +3周 (720°→1800°)
           rotateZ: [0, 720, 720, 1800],
         }}
         transition={{
           duration: TOTAL_MS / 1000,
+          // rotateZ 用の既定 times/ease (4 キーフレームに対応)
           times: [0, t1, t2, 1],
           ease: ["easeOut", "linear", "linear"],
+          // rotateY は別 times: [0, tSpinStart, t1, t2, 1] (5 キーフレーム)
+          // 0→tSpinStart は 0° で静止、tSpinStart→t1 で 0→360° (easeIn でスナップ感)
+          rotateY: {
+            duration: TOTAL_MS / 1000,
+            times: [0, tSpinStart, t1, t2, 1],
+            ease: ["linear", "easeIn", "linear", "linear"],
+          },
         }}
         style={{
           width: "100%",
