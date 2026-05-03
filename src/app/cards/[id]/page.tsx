@@ -60,9 +60,14 @@ export default async function CardDetailPage({ params }: CardDetailPageProps) {
         {/* 固定ヘッダ: 実物プレビュー + バッジ */}
         <div className="shrink-0 flex flex-col gap-3 items-center pb-3 mb-3 border-b">
           <div className="hidden md:block">
+            {/* PC ヘッダは縦長すぎて下のテキストがスクロール内に押し込まれるため、
+                横幅は維持しつつ縦幅だけ縮める (デフォルト 22rem → 16rem)。
+                内側のコスト+アイコン (text-9xl=128px) と padding (p-6=48px) で
+                約 17rem 分が必要なため 16rem が下限の目安。 */}
             <CardView
               card={{ instanceId: `detail-${def.id}`, defId: def.id }}
               size="xl"
+              className="h-[16rem]"
             />
           </div>
           <div className="md:hidden w-full max-w-sm">
