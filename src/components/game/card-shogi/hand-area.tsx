@@ -46,15 +46,25 @@ export function HandArea({
   }
 
   // 重ね表示(stack): 隣接カードを重ねる。Phase 0 では相手手札の裏向き表示で使用。
+  // 表示は最大 STACK_MAX_VISIBLE 枚までに制限し、超過分は「×N」ラベルで補う
+  // (Issue #105: モバイルで手札が増えると相手バーが見切れるため)。
   if (layout === "stack") {
     const overlapClass = size === "sm" ? "-ml-9" : size === "md" ? "-ml-14" : "-ml-16";
+    const STACK_MAX_VISIBLE = 5;
+    const total = hand.length;
+    const visible = hand.slice(0, STACK_MAX_VISIBLE);
     return (
-      <div className="flex flex-row items-center" aria-label={`カード ${hand.length}枚`}>
-        {hand.map((c, i) => (
+      <div className="flex flex-row items-center" aria-label={`カード ${total}枚`}>
+        {visible.map((c, i) => (
           <div key={c.instanceId} className={cn(i > 0 && overlapClass)}>
             <CardView card={c} faceDown={faceDown} size={size} />
           </div>
         ))}
+        {total > STACK_MAX_VISIBLE && (
+          <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-muted text-foreground text-[10px] font-bold leading-none shrink-0 self-center">
+            ×{total}
+          </span>
+        )}
       </div>
     );
   }
