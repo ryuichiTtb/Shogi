@@ -67,7 +67,8 @@ async function main() {
   // 廃止カードは DeckEntry / PlayerCardCollection には投入しない(Card マスタには履歴として残す)
   const playableDefs = ALL_CARD_DEFS.filter((d) => d.status !== "deprecated");
 
-  // 4. DeckEntry を 各カード2枚ずつ計6枚で構成(設計ドキュメント 3.5)
+  // 4. DeckEntry を 各カード2枚ずつで構成 (Phase A 時点 / 設計ドキュメント 3.5)。
+  //    新カード追加時は ALL_CARD_DEFS に含まれていれば自動的に各2枚で投入される。
   for (const def of playableDefs) {
     await prisma.deckEntry.upsert({
       where: { deckId_cardId: { deckId: defaultDeck.id, cardId: def.id } },
