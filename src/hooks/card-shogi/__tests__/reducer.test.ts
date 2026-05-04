@@ -622,4 +622,48 @@ describe("reducer / 二手指し (double_move)", () => {
     const next = reducer(state, { type: "UNDO" });
     expect(next).toBe(state);
   });
+
+  // 回帰テスト: バグ報告「1手目で王手後、2手目で相手玉を取れる」
+  // 修正後: SELECT_SQUARE で生成される 2手目候補に玉取り手は含まれない
+  it("SELECT_SQUARE 2手目: 1手目王手後の盤面で玉取り手は legalMoves に含まれない", () => {
+    // 1手目完了後の仮想盤面: sente 飛車 (1,4) が gote 玉 (0,4) を直接攻撃
+    const gameState: GameState = {
+      board: Array.from({ length: 9 }, () => Array(9).fill(null)),
+      hand: { sente: {}, gote: {} },
+      currentPlayer: "sente", // 二手指し override で sente のまま
+      moveHistory: [],
+      positionHistory: [],
+      status: "active",
+      moveCount: 1,
+    };
+    gameState.board[8][4] = { type: "king", owner: "sente" };
+    gameState.board[0][4] = { type: "king", owner: "gote" };
+    gameState.board[1][4] = { type: "rook", owner: "sente" };
+
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(gameState),
+      doubleMove: {
+        active: "sente",
+        movesLeft: 1,
+        mateInOneAvailable: false,
+        preState: {
+          gameState,
+          cardState: makeInitialCardState(),
+          eventLog: [],
+        },
+      },
+    };
+
+    // sente 飛車 (1,4) を選択
+    const next = reducer(state, {
+      type: "SELECT_SQUARE",
+      pos: { row: 1, col: 4 },
+    });
+
+    // legalMoves には飛車が玉を取る手 (0,4) が含まれていてはいけない
+    const kingCapture = next.legalMoves.find(
+      (m) => m.type === "move" && m.to.row === 0 && m.to.col === 4 && m.captured === "king",
+    );
+    expect(kingCapture).toBeUndefined();
+  });
 });

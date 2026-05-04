@@ -971,6 +971,66 @@ describe("getDoubleMoveFirstLegalMoves (moves.ts)", () => {
   });
 });
 
+// ===== Issue #82: 玉取り (king capture) の合法手除外 (回帰テスト) =====
+// バグ報告: 1手目で飛車を動かして相手玉に王手 → 2手目で相手玉を直接取れてしまう。
+// 修正: 1手目・2手目どちらの候補からも `m.captured === "king"` を除外する。
+
+describe("二手指し: 相手玉を取る手の除外 (Issue #82 回帰テスト)", () => {
+  function makeRookCheckPosition(): GameState {
+    // sente 玉 (8,4)、gote 玉 (0,4)、sente 飛車 (4,4)
+    // sente 飛車は (0,4) 〜 (4,4) を column 4 でスライドできる。
+    // 1手目で飛車を (1,4) や (4,5) などへ動かして王手を作れる。
+    // 2手目で飛車を (0,4) = gote 玉位置 にスライドさせる手は除外されているべき。
+    const state = makeState();
+    placeKing(state, "sente", { row: 8, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 4 });
+    place(state, { row: 4, col: 4 }, { type: "rook", owner: "sente" });
+    return state;
+  }
+
+  it("getDoubleMoveSecondLegalMoves: 1手目で王手後の盤面で相手玉を取る手は除外される", () => {
+    // 想定: sente 飛車が (1,4) にいて、gote 玉 (0,4) を直接攻撃中の盤面。
+    const state = makeState();
+    placeKing(state, "sente", { row: 8, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 4 });
+    place(state, { row: 1, col: 4 }, { type: "rook", owner: "sente" });
+    // この盤面で sente の合法手 (= 2手目候補) を取得
+    const moves = getDoubleMoveSecondLegalMoves(state, "sente", true, CARD_SHOGI_VARIANT);
+    // 飛車を (0,4) に動かして玉を取る手が含まれていないこと
+    const kingCaptureMove = moves.find(
+      (m) => m.type === "move" && m.to.row === 0 && m.to.col === 4 && m.captured === "king",
+    );
+    expect(kingCaptureMove).toBeUndefined();
+  });
+
+  it("getDoubleMoveSecondLegalMoves: mateInOneAvailable=true でも玉取りは除外される", () => {
+    const state = makeState();
+    placeKing(state, "sente", { row: 8, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 4 });
+    place(state, { row: 1, col: 4 }, { type: "rook", owner: "sente" });
+    const moves = getDoubleMoveSecondLegalMoves(state, "sente", true, CARD_SHOGI_VARIANT);
+    expect(moves.find((m) => m.captured === "king")).toBeUndefined();
+  });
+
+  it("getKingSafePseudoLegalMoves: 相手玉を取る手は除外される", () => {
+    const state = makeState();
+    placeKing(state, "sente", { row: 8, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 4 });
+    place(state, { row: 1, col: 4 }, { type: "rook", owner: "sente" });
+    const moves = getKingSafePseudoLegalMoves(state, "sente", CARD_SHOGI_VARIANT);
+    expect(moves.find((m) => m.captured === "king")).toBeUndefined();
+  });
+
+  it("getDoubleMoveFirstLegalMoves: 1手目で相手玉を取る手は除外される (1手目段階での防御)", () => {
+    // 想定: sente 飛車が (4,4) にいて、column 4 上に gote 玉 (0,4) が見える。
+    // ただし通常将棋の不変条件では発生しない盤面 (sente の番開始時に gote が王手中)。
+    // 防御的フィルタの動作確認のため、強制的に飛車が直接玉に届く盤面で検証。
+    const state = makeRookCheckPosition();
+    const moves = getDoubleMoveFirstLegalMoves(state, "sente", true, CARD_SHOGI_VARIANT);
+    expect(moves.find((m) => m.captured === "king")).toBeUndefined();
+  });
+});
+
 // ===== Initial state sanity (createInitialGameState は本テスト群の入力土台) =====
 
 describe("CARD_SHOGI_VARIANT 初期状態", () => {

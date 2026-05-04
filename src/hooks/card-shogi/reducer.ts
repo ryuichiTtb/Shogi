@@ -288,8 +288,15 @@ function isKingInCheckAfterMove(gameState: GameState, move: Move): boolean {
   return isInCheck(nextState, move.player, CARD_SHOGI_VARIANT);
 }
 
+// 「相手玉を取る手」かどうか。Move.captured は移動先の駒種が入る。
+// 通常将棋では交互ターン不変条件で発生しないが、二手指しでは
+// 1手目で王手 → 2手目で玉取り のシーケンスが起きうるため明示的に除外する。
+function isKingCaptureMove(move: Move): boolean {
+  return move.captured === "king";
+}
+
 // Issue #82 (二手指し): 1手目候補のフィルタ。
-// 「玉が即座に取られない」+「∃ 2手目 (詰み禁止フィルタ済) または 1手目で詰み」を満たす手のみ返す。
+// 「玉が即座に取られない」+「相手玉を取らない」+「∃ 2手目 (詰み禁止フィルタ済) または 1手目で詰み」を満たす手のみ返す。
 // 王手中の場合は王手放置を許す (RELAXED ルール)、王手中でない場合は通常の合法性 + 上記条件。
 function filterDoubleMoveFirstCandidates(
   gameState: GameState,
@@ -301,6 +308,9 @@ function filterDoubleMoveFirstCandidates(
   const inCheck = isInCheck(gameState, player, CARD_SHOGI_VARIANT);
 
   return candidates.filter((m1) => {
+    // 相手玉を取る手は不可 (実質的に発生しないが防御的)
+    if (isKingCaptureMove(m1)) return false;
+
     // 王手中でない場合: 通常の合法性 (自玉の王手放置不可)
     if (!inCheck && isKingInCheckAfterMove(gameState, m1)) return false;
 
@@ -313,13 +323,14 @@ function filterDoubleMoveFirstCandidates(
     // 1手目で相手玉に詰みなら 2手目不要 → OK
     if (isCheckmate(after1, opponent, CARD_SHOGI_VARIANT)) return true;
 
-    // 2手目候補 ≥ 1 必須 (詰み禁止フィルタ済)
+    // 2手目候補 ≥ 1 必須 (詰み禁止フィルタ済 + 相手玉取り除外済)
     const second = legalSecondMoves(after1, player, mateInOneAvailable);
     return second.length > 0;
   });
 }
 
-// 2手目候補 (詰み禁止フィルタ済)。getLegalMoves(全合法手) + drop の合法手の合計
+// 2手目候補 (詰み禁止フィルタ済 + 相手玉取り除外済)。
+// getLegalMoves(全合法手) + drop の合法手の合計から「相手玉を取る手」を除外。
 function legalSecondMoves(
   stateAfterFirst: GameState,
   player: Player,
@@ -334,6 +345,7 @@ function legalSecondMoves(
       if (piece && piece.owner === player) {
         const moves = getPieceMoves(stateAfterFirst, { row: r, col: c }, player, CARD_SHOGI_VARIANT);
         for (const m of moves) {
+          if (isKingCaptureMove(m)) continue;
           if (!isKingInCheckAfterMove(stateAfterFirst, m)) boardMoves.push(m);
         }
       }
@@ -346,7 +358,7 @@ function legalSecondMoves(
   return all.filter((m) => !isCheckmate(applyMove(stateAfterFirst, m), opponent, CARD_SHOGI_VARIANT));
 }
 
-// 2手目フィルタ: 通常の合法性 + (mateInOneAvailable=false なら詰み手除外)
+// 2手目フィルタ: 通常の合法性 + 相手玉取り除外 + (mateInOneAvailable=false なら詰み手除外)
 function filterDoubleMoveSecondCandidates(
   gameState: GameState,
   player: Player,
@@ -355,6 +367,8 @@ function filterDoubleMoveSecondCandidates(
 ): Move[] {
   const opponent: Player = player === "sente" ? "gote" : "sente";
   return candidates.filter((m) => {
+    // 相手玉を取る手は不可 (1手目で王手 → 2手目で玉取り を防ぐ)
+    if (isKingCaptureMove(m)) return false;
     if (isKingInCheckAfterMove(gameState, m)) return false;
     if (mateInOneAvailable) return true;
     return !isCheckmate(applyMove(gameState, m), opponent, CARD_SHOGI_VARIANT);
