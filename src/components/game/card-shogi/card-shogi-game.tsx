@@ -453,21 +453,35 @@ export function CardShogiGame({
         case "drawEvent": {
           // Issue #130: source 別の挙動分岐。
           // - SFX: 自分は即時、相手は 100ms 遅延 (連鎖時に重なり防止)
-          // - 演出キュー: 自分のドローのみ push (AI ドロー演出は本 Issue でも自分側カード飛行は省略)
+          // - 演出キュー: 自分のドローのみ push (相手ドローは中央演出を出さない)
           // - manaFlight: 手動ドロー (= マナ消費あり) のときのみ
-          // - aria-live: auto かつ自分側のみ「自動ドローしました」を 1500ms debounce で通知
+          // - aria-live: auto のとき (sente/gote 両方)「自動ドローしました」を 1500ms debounce で通知
+          //
+          // 【重要なロックバグ修正】
+          // 相手 (AI) 側の auto-draw でも reducer は isDrawing=true を立てる
+          // (applyTurnEndEffects の発火対象は player に依存しない)。
+          // 自分側 (isSelf=true) と異なり drawFlightQueue に push しないため、
+          // DrawFlightCard の onComplete → finalizeDraw が呼ばれず、isDrawing が
+          // 永続する。次に自分の手番が回ってきても selectSquare / drawCard /
+          // beginPlayCard の全ガードが効いて操作完全ロックという重大バグが
+          // 発生する。相手側ドローでも一定の視覚的待ち時間 (~600ms) を確保した上で
+          // 必ず finalizeDraw を呼んで isDrawing をクリアする。
           const source = ev.source ?? "manual";
           const isSelf = ev.player === playerColor;
           if (isSelf) {
             playSfx("card_draw");
-          } else {
-            scheduleTimer(() => playSfx("card_draw"), 100);
-          }
-          if (isSelf) {
             setDrawFlightQueue((q) => [
               ...q,
               { card: ev.instance, source, key: nextFlightKey() },
             ]);
+          } else {
+            scheduleTimer(() => playSfx("card_draw"), 100);
+            // 相手側ドロー: 中央 DrawFlightCard を再生しないため、ここで
+            // 明示的に finalizeDraw を予約しないと isDrawing が永続する。
+            // 600ms = 視覚フィードバック (相手 deck 枚数表示の変化 / aria-live 通知)
+            // を読み取れる最低時間。短すぎると flicker、長すぎると AI 思考が
+            // テンポを乱す。
+            scheduleTimer(() => finalizeDraw(), 600);
           }
           if (source === "manual" && isSelf) {
             triggerManaFlight(-DRAW_COST, getDeckRect());
@@ -653,7 +667,7 @@ export function CardShogiGame({
       }
     }
     lastEventIndexRef.current = eventLog.length;
-  }, [eventLog, isReady, playSfx, playerColor, triggerManaFlight, triggerFastMoveBadge, getDeckRect, getOriginRect, getBoardSquareRect, findVisibleCapturedPieceRect, scheduleTimer, nextFlightKey]);
+  }, [eventLog, isReady, playSfx, playerColor, triggerManaFlight, triggerFastMoveBadge, getDeckRect, getOriginRect, getBoardSquareRect, findVisibleCapturedPieceRect, scheduleTimer, nextFlightKey, finalizeDraw]);
 
   // Issue #78 / #82: 演出中(ドロー / カード使用 / 王手崩しトラップ)は盤面・手札・カード操作・背景クリックをロックする
   const handleSquareClick = useCallback(
