@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createInitialGameState } from "@/lib/shogi/board";
 import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
 import type { GameState } from "@/lib/shogi/types";
-import type { CardGameState, CardInstance } from "@/lib/shogi/cards/types";
+import type { CardGameState, CardInstance, GameEvent } from "@/lib/shogi/cards/types";
 import { MANA_CAP, DRAW_COST } from "@/lib/shogi/cards/definitions";
 
 import { reducer, type CardShogiGameStateInternal } from "../reducer";
@@ -43,6 +43,7 @@ function makeInitialState(
     isPlayingCard: false,
     pendingPlayCardOpponent: null,
     isCheckBreakAnimating: false,
+    doubleMove: null,
   };
 }
 
@@ -393,5 +394,232 @@ describe("reducer / 王手崩しトラップ (check_break)", () => {
     expect(next.gameState.board[3][4]).toEqual({ type: "pawn", owner: "sente" });
     expect(next.gameState.hand.gote.pawn).toBeUndefined();
     expect(next.isCheckBreakAnimating).toBe(false);
+  });
+});
+
+// ===== Issue #82: 二手指し (double_move) =====
+
+describe("reducer / 二手指し (double_move)", () => {
+  function makeBaseGameState(): GameState {
+    const state = createInitialGameState(CARD_SHOGI_VARIANT);
+    return state;
+  }
+
+  it("CONFIRM_PLAY_CARD (double_move): doubleMove セット + マナ -6 + cardPlayEvent 追加 + currentPlayer 維持", () => {
+    const c = card("dm1", "double_move");
+    const state = makeInitialState(
+      makeBaseGameState(),
+      makeInitialCardState({
+        mana: { sente: 10, gote: 0 },
+        hand: { sente: [c], gote: [] },
+        pendingCard: { instance: c, player: "sente", phase: "confirm" },
+      }),
+    );
+    const next = reducer(state, { type: "CONFIRM_PLAY_CARD" });
+
+    expect(next.cardState.mana.sente).toBe(4); // 10 - 6
+    expect(next.cardState.hand.sente).toEqual([]);
+    expect(next.cardState.graveyard.sente.length).toBe(1);
+    expect(next.doubleMove).not.toBeNull();
+    expect(next.doubleMove?.active).toBe("sente");
+    expect(next.doubleMove?.movesLeft).toBe(2);
+    expect(next.doubleMove?.preState.cardState.graveyard.sente.length).toBe(1);
+    expect(next.isPlayingCard).toBe(true);
+    expect(next.pendingPlayCardOpponent).toBe("gote");
+    // cardPlayEvent が eventLog に追加
+    const last = next.eventLog[next.eventLog.length - 1];
+    expect(last.kind).toBe("cardPlayEvent");
+  });
+
+  it("COMMIT_PLAY_CARD (二手指し中): currentPlayer 反転を skip", () => {
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(makeBaseGameState()),
+      isPlayingCard: true,
+      pendingPlayCardOpponent: "gote",
+      doubleMove: {
+        active: "sente",
+        movesLeft: 2,
+        mateInOneAvailable: false,
+        preState: {
+          gameState: makeBaseGameState(),
+          cardState: makeInitialCardState(),
+          eventLog: [],
+        },
+      },
+    };
+    const next = reducer(state, { type: "COMMIT_PLAY_CARD" });
+    // currentPlayer は反転しない (sente のまま)
+    expect(next.gameState.currentPlayer).toBe("sente");
+    expect(next.isPlayingCard).toBe(false);
+    expect(next.pendingPlayCardOpponent).toBeNull();
+    expect(next.doubleMove).not.toBeNull();
+  });
+
+  it("MAKE_MOVE 1手目 (movesLeft=2): currentPlayer 維持 + movesLeft=1 + マナチャージなし", () => {
+    const gameState = makeBaseGameState();
+    const cardState = makeInitialCardState({ mana: { sente: 4, gote: 0 } });
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(gameState, cardState),
+      doubleMove: {
+        active: "sente",
+        movesLeft: 2,
+        mateInOneAvailable: false,
+        preState: { gameState, cardState, eventLog: [] },
+      },
+    };
+
+    const move = {
+      type: "move" as const,
+      player: "sente" as const,
+      piece: "pawn",
+      from: { row: 6, col: 4 },
+      to: { row: 5, col: 4 },
+    };
+    const next = reducer(state, { type: "MAKE_MOVE", move });
+
+    expect(next.gameState.currentPlayer).toBe("sente"); // 自分のターン継続
+    expect(next.doubleMove?.movesLeft).toBe(1);
+    expect(next.cardState.mana.sente).toBe(4); // マナチャージなし
+  });
+
+  it("MAKE_MOVE 2手目 (movesLeft=1): currentPlayer 反転 + doubleMove クリア + マナチャージなし", () => {
+    const gameState = makeBaseGameState();
+    const cardState = makeInitialCardState({ mana: { sente: 4, gote: 0 } });
+    // 1手目を仮想的に適用済みの状態
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(gameState, cardState),
+      doubleMove: {
+        active: "sente",
+        movesLeft: 1,
+        mateInOneAvailable: false,
+        preState: { gameState, cardState, eventLog: [] },
+      },
+    };
+
+    const move = {
+      type: "move" as const,
+      player: "sente" as const,
+      piece: "pawn",
+      from: { row: 6, col: 4 },
+      to: { row: 5, col: 4 },
+    };
+    const next = reducer(state, { type: "MAKE_MOVE", move });
+
+    expect(next.gameState.currentPlayer).toBe("gote"); // 相手ターンへ
+    expect(next.doubleMove).toBeNull();
+    expect(next.cardState.mana.sente).toBe(4); // マナチャージなし (カード使用扱い)
+  });
+
+  it("UNDO_DOUBLE_MOVE_FIRST: movesLeft=1 で動作、preState から完全復元", () => {
+    const preGameState = makeBaseGameState();
+    const preCardState = makeInitialCardState({ mana: { sente: 4, gote: 0 } });
+    const preEventLog: GameEvent[] = [];
+
+    // 1手目適用後の仮想状態
+    const afterFirstMoveState = createInitialGameState(CARD_SHOGI_VARIANT);
+    afterFirstMoveState.board[5][4] = { type: "pawn", owner: "sente" };
+    afterFirstMoveState.board[6][4] = null;
+
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(afterFirstMoveState, preCardState),
+      doubleMove: {
+        active: "sente",
+        movesLeft: 1,
+        mateInOneAvailable: false,
+        preState: { gameState: preGameState, cardState: preCardState, eventLog: preEventLog },
+      },
+    };
+
+    const next = reducer(state, { type: "UNDO_DOUBLE_MOVE_FIRST" });
+
+    expect(next.gameState).toEqual(preGameState); // 完全復元
+    expect(next.cardState).toEqual(preCardState);
+    expect(next.eventLog).toEqual(preEventLog);
+    expect(next.doubleMove?.movesLeft).toBe(2); // 1手目前に戻る
+  });
+
+  it("UNDO_DOUBLE_MOVE_FIRST: movesLeft=2 では state 不変 (1手目未適用)", () => {
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(makeBaseGameState()),
+      doubleMove: {
+        active: "sente",
+        movesLeft: 2,
+        mateInOneAvailable: false,
+        preState: {
+          gameState: makeBaseGameState(),
+          cardState: makeInitialCardState(),
+          eventLog: [],
+        },
+      },
+    };
+    const next = reducer(state, { type: "UNDO_DOUBLE_MOVE_FIRST" });
+    expect(next).toBe(state);
+  });
+
+  it("UNDO_DOUBLE_MOVE_FIRST: doubleMove 未セットなら state 不変", () => {
+    const state = makeInitialState();
+    const next = reducer(state, { type: "UNDO_DOUBLE_MOVE_FIRST" });
+    expect(next).toBe(state);
+  });
+
+  it("BEGIN_PLAY_CARD: 二手指し中は他カード使用禁止 (state 不変)", () => {
+    const c = card("dm1", "double_move");
+    const otherC = card("ot1", "mana_up");
+    const cardState = makeInitialCardState({
+      mana: { sente: 10, gote: 0 },
+      hand: { sente: [otherC], gote: [] },
+    });
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(makeBaseGameState(), cardState),
+      doubleMove: {
+        active: "sente",
+        movesLeft: 1,
+        mateInOneAvailable: false,
+        preState: { gameState: makeBaseGameState(), cardState, eventLog: [] },
+      },
+    };
+    void c;
+    const next = reducer(state, {
+      type: "BEGIN_PLAY_CARD",
+      player: "sente",
+      instanceId: otherC.instanceId,
+    });
+    expect(next).toBe(state);
+  });
+
+  it("DRAW_CARD: 二手指し中はドロー禁止 (state 不変)", () => {
+    const cardState = makeInitialCardState({
+      mana: { sente: 10, gote: 0 },
+      deck: { sente: [card("d1", "mana_up")], gote: [] },
+    });
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(makeBaseGameState(), cardState),
+      doubleMove: {
+        active: "sente",
+        movesLeft: 1,
+        mateInOneAvailable: false,
+        preState: { gameState: makeBaseGameState(), cardState, eventLog: [] },
+      },
+    };
+    const next = reducer(state, { type: "DRAW_CARD", player: "sente" });
+    expect(next).toBe(state);
+  });
+
+  it("UNDO: 二手指し中は state 不変 (待った不可)", () => {
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(makeBaseGameState()),
+      doubleMove: {
+        active: "sente",
+        movesLeft: 1,
+        mateInOneAvailable: false,
+        preState: {
+          gameState: makeBaseGameState(),
+          cardState: makeInitialCardState(),
+          eventLog: [],
+        },
+      },
+    };
+    const next = reducer(state, { type: "UNDO" });
+    expect(next).toBe(state);
   });
 });

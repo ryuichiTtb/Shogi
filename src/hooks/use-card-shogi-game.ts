@@ -49,6 +49,7 @@ export function useCardShogiGame({
     isPlayingCard: false,
     pendingPlayCardOpponent: null,
     isCheckBreakAnimating: false,
+    doubleMove: null,
   });
 
   const aiPlayer: Player = gameConfig.playerColor === "sente" ? "gote" : "sente";
