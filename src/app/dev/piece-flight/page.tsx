@@ -93,10 +93,13 @@ export default function PieceFlightDevPage() {
     const toX = stageRect.left + preset.to.x;
     const toY = stageRect.top + preset.to.y;
 
-    // 計算結果のプレビュー (本体ロジックと同じ計算式)
+    // 計算結果のプレビュー (本体ロジックと同じ計算式)。
+    // 回転は 360° の整数倍に丸める (PieceFlight 本体と同じ)。
     const distance = Math.hypot(toX - fromX, toY - fromY);
     const durationMs = Math.max(minDurationMs, (distance / speedPxPerSec) * 1000);
-    const rotateDeg = (durationMs / 1000 / rotationSecPerTurn) * 360;
+    const idealRotations = durationMs / 1000 / rotationSecPerTurn;
+    const numRotations = Math.max(1, Math.round(idealRotations));
+    const rotateDeg = numRotations * 360;
     setLastDuration(durationMs);
     setLastRotateDeg(rotateDeg);
 

@@ -117,8 +117,15 @@ function PieceFlightInner({
   const dy = spec.toY - spec.fromY;
   const distance = Math.hypot(dx, dy);
   const durationMs = Math.max(minDur, (distance / speed) * 1000);
-  // 回転総量は duration から逆算 (回転速度 rotPeriod sec/回転 一定)
-  const rotateDeg = (durationMs / 1000 / rotPeriod) * 360;
+  // 回転総量は duration から逆算 (回転速度 rotPeriod sec/回転 一定)。
+  // ただし最終的な回転角は 360° の整数倍に丸める。これをしないと
+  // 例) 600ms / 0.4 sec/turn = 1.5 回転 = 540° となり終端で駒が
+  // 逆さま (180°) に着地してしまう。
+  // 整数回転に丸めることで、駒は必ず元の向きと同じ向きで着地する。
+  // (副作用: 実効回転速度は配置 rotPeriod から最大 ±50% 程度ぶれる)
+  const idealRotations = durationMs / 1000 / rotPeriod;
+  const numRotations = Math.max(1, Math.round(idealRotations));
+  const rotateDeg = numRotations * 360;
 
   // タブ非アクティブ時の onAnimationComplete 遅延に備えた保険タイマー
   const completedRef = useRef(false);
