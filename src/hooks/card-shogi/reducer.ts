@@ -30,6 +30,7 @@ import {
   applyPawnReturn,
   applyPieceReturn,
   applyDoublePawn,
+  applyCheckBreak,
   getCheckEscapingSquares,
   applyTrapSet,
   applyTrapClear,
@@ -73,6 +74,10 @@ export interface CardShogiGameStateInternal {
   // true の間は currentPlayer 反転を保留し、AI 自動応手・ユーザー操作をブロックする。
   isPlayingCard: boolean;
   pendingPlayCardOpponent: Player | null;
+  // 王手崩しトラップ (#82) の演出中フラグ。MAKE_MOVE / CONFIRM_PROMOTION で
+  // トラップが発動した直後に true、UI 演出 (王手中央表示 → トラップ発動 → 駒フライト) 完了時の
+  // COMMIT_CHECK_BREAK で false。true の間は AI 思考とユーザー操作をブロックする。
+  isCheckBreakAnimating: boolean;
 }
 
 // 移動 + マナチャージ + トラップフィルタ を一括適用。
@@ -86,6 +91,8 @@ function makeMoveWithEffects(
   cardState: CardGameState;
   events: GameEvent[];
   finalMove: Move;
+  // 王手崩しトラップが発動した場合のみ true。MAKE_MOVE 側で isCheckBreakAnimating をセットする。
+  triggeredCheckBreak: boolean;
 } {
   const opponent: Player = move.player === "sente" ? "gote" : "sente";
   const events: GameEvent[] = [];
@@ -146,8 +153,45 @@ function makeMoveWithEffects(
     cardStateNext = addNoPromoteMark(cardStateNext, finalMove.player, pendingMarkAdd);
   }
 
+  // 4.5 王手崩しトラップ (#82)
+  // 移動の結果、相手 (= トラップ所有者候補) が王手中になり、かつ check_break
+  // トラップがセットされていれば自動発動。王手駒すべてを盤上から除去し、
+  // トラップ所有者の持ち駒に unpromote 加算する。
+  let postTrapGameState = nextGameState;
+  let triggeredCheckBreak = false;
+  const opponentTrapPostMove = cardStateNext.trap[opponent];
+  if (
+    opponentTrapPostMove &&
+    opponentTrapPostMove.defId === "check_break" &&
+    isInCheck(nextGameState, opponent, CARD_SHOGI_VARIANT)
+  ) {
+    const result = applyCheckBreak(nextGameState, opponent);
+    if (result) {
+      postTrapGameState = result.gameState;
+      // 取られた相手 (= move.player) の駒に no_promote マークがあれば消失
+      for (const cap of result.capturedPieces) {
+        if (hasNoPromoteMark(cardStateNext, finalMove.player, { row: cap.row, col: cap.col })) {
+          cardStateNext = removeNoPromoteMark(cardStateNext, finalMove.player, {
+            row: cap.row,
+            col: cap.col,
+          });
+        }
+      }
+      cardStateNext = applyTrapClear(cardStateNext, opponent);
+      events.push({
+        kind: "trapTriggerEvent",
+        player: opponent,
+        instance: opponentTrapPostMove,
+        reason: "check_declared",
+        capturedPieces: result.capturedPieces,
+        at: Date.now(),
+      });
+      triggeredCheckBreak = true;
+    }
+  }
+
   // 5. ゲーム終了判定 + 移動イベントログ
-  const evaluated = evaluateGameEnd(nextGameState, CARD_SHOGI_VARIANT);
+  const evaluated = evaluateGameEnd(postTrapGameState, CARD_SHOGI_VARIANT);
   events.push({ kind: "moveEvent", move: finalMove, at: Date.now() });
 
   // 6. マナチャージ(指した側、早指し判定)
@@ -185,6 +229,7 @@ function makeMoveWithEffects(
     cardState: cardStateNext,
     events,
     finalMove,
+    triggeredCheckBreak,
   };
 }
 
@@ -295,6 +340,7 @@ export function reducer(
         selectedHandPiece: null,
         legalMoves: [],
         promotionPendingMove: null,
+        isCheckBreakAnimating: result.triggeredCheckBreak || state.isCheckBreakAnimating,
       };
     }
 
@@ -319,6 +365,7 @@ export function reducer(
         promotionPendingMove: null,
         selectedSquare: null,
         legalMoves: [],
+        isCheckBreakAnimating: result.triggeredCheckBreak || state.isCheckBreakAnimating,
       };
     }
 
@@ -701,6 +748,10 @@ export function reducer(
           },
         },
       };
+
+    case "COMMIT_CHECK_BREAK":
+      if (!state.isCheckBreakAnimating) return state;
+      return { ...state, isCheckBreakAnimating: false };
 
     default:
       return state;

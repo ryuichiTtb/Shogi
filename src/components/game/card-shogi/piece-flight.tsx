@@ -35,13 +35,30 @@ interface PieceFlightProps {
   // プレイヤー視点(駒の向き)
   playerColor: Player;
   onComplete: () => void;
+  // 検証用 (dev /piece-flight 等) のオプション上書き。本番経路では未指定で
+  // animation-constants の値が使われる。
+  speedPxPerSec?: number;
+  rotationSecPerTurn?: number;
+  minDurationMs?: number;
+  pieceSize?: number;
+  ease?: "linear" | "easeIn" | "easeOut" | "easeInOut" | "circIn" | "circOut" | "anticipate";
 }
 
 const subscribe = () => () => {};
 const getClientSnapshot = () => true;
 const getServerSnapshot = () => false;
 
-export function PieceFlight({ spec, flightKey, playerColor, onComplete }: PieceFlightProps) {
+export function PieceFlight({
+  spec,
+  flightKey,
+  playerColor,
+  onComplete,
+  speedPxPerSec,
+  rotationSecPerTurn,
+  minDurationMs,
+  pieceSize,
+  ease,
+}: PieceFlightProps) {
   const isClient = useSyncExternalStore(subscribe, getClientSnapshot, getServerSnapshot);
   if (!isClient) return null;
 
@@ -54,6 +71,11 @@ export function PieceFlight({ spec, flightKey, playerColor, onComplete }: PieceF
             spec={spec}
             playerColor={playerColor}
             onComplete={onComplete}
+            speedPxPerSec={speedPxPerSec}
+            rotationSecPerTurn={rotationSecPerTurn}
+            minDurationMs={minDurationMs}
+            pieceSize={pieceSize}
+            ease={ease}
           />
         )}
       </AnimatePresence>
@@ -66,18 +88,44 @@ function PieceFlightInner({
   spec,
   playerColor,
   onComplete,
+  speedPxPerSec,
+  rotationSecPerTurn,
+  minDurationMs,
+  pieceSize,
+  ease,
 }: {
   spec: PieceFlightSpec;
   playerColor: Player;
   onComplete: () => void;
+  speedPxPerSec?: number;
+  rotationSecPerTurn?: number;
+  minDurationMs?: number;
+  pieceSize?: number;
+  ease?: PieceFlightProps["ease"];
 }) {
-  // 距離に応じた duration を算出 (移動速度 SPEED_PX_PER_SEC 一定)
+  const speed = speedPxPerSec ?? SPEED_PX_PER_SEC;
+  const rotPeriod = rotationSecPerTurn ?? ROTATION_SEC_PER_TURN;
+  const minDur = minDurationMs ?? MIN_DURATION_MS;
+  const size = pieceSize ?? PIECE_SIZE;
+  // 既定 easing は dev 検証で採用された easeInOut (2026-05-04)。
+  // 旧実装は linear を採用していたが、最小再生時間を 600ms に伸ばしたため
+  // 始終点で減速がかかる easeInOut の方が違和感が少なくなった。
+  const easing = ease ?? "easeInOut";
+
+  // 距離に応じた duration を算出 (移動速度 speed 一定)
   const dx = spec.toX - spec.fromX;
   const dy = spec.toY - spec.fromY;
   const distance = Math.hypot(dx, dy);
-  const durationMs = Math.max(MIN_DURATION_MS, (distance / SPEED_PX_PER_SEC) * 1000);
-  // 回転総量は duration から逆算 (回転速度 0.2s/回転 = 5 回転/秒 一定)
-  const rotateDeg = (durationMs / 1000 / ROTATION_SEC_PER_TURN) * 360;
+  const durationMs = Math.max(minDur, (distance / speed) * 1000);
+  // 回転総量は duration から逆算 (回転速度 rotPeriod sec/回転 一定)。
+  // ただし最終的な回転角は 360° の整数倍に丸める。これをしないと
+  // 例) 600ms / 0.4 sec/turn = 1.5 回転 = 540° となり終端で駒が
+  // 逆さま (180°) に着地してしまう。
+  // 整数回転に丸めることで、駒は必ず元の向きと同じ向きで着地する。
+  // (副作用: 実効回転速度は配置 rotPeriod から最大 ±50% 程度ぶれる)
+  const idealRotations = durationMs / 1000 / rotPeriod;
+  const numRotations = Math.max(1, Math.round(idealRotations));
+  const rotateDeg = numRotations * 360;
 
   // タブ非アクティブ時の onAnimationComplete 遅延に備えた保険タイマー
   const completedRef = useRef(false);
@@ -95,27 +143,26 @@ function PieceFlightInner({
   return (
     <motion.div
       initial={{
-        x: spec.fromX - PIECE_SIZE / 2,
-        y: spec.fromY - PIECE_SIZE / 2,
+        x: spec.fromX - size / 2,
+        y: spec.fromY - size / 2,
         rotate: 0,
       }}
       animate={{
-        x: spec.toX - PIECE_SIZE / 2,
-        y: spec.toY - PIECE_SIZE / 2,
+        x: spec.toX - size / 2,
+        y: spec.toY - size / 2,
         rotate: rotateDeg,
       }}
       transition={{
         duration: durationMs / 1000,
-        // Issue #82 ユーザー指示: 移動・回転とも等速 (linear)
-        ease: "linear",
+        ease: easing,
       }}
       onAnimationComplete={handleComplete}
       style={{
         position: "fixed",
         left: 0,
         top: 0,
-        width: PIECE_SIZE,
-        height: PIECE_SIZE,
+        width: size,
+        height: size,
         willChange: "transform",
         zIndex: 55,
       }}
@@ -123,7 +170,7 @@ function PieceFlightInner({
       <ShogiPiece
         piece={{ type: spec.pieceType, owner: spec.owner }}
         playerColor={playerColor}
-        squareSize={PIECE_SIZE}
+        squareSize={size}
       />
     </motion.div>
   );

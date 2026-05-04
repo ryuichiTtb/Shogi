@@ -48,6 +48,7 @@ export function useCardShogiGame({
     pendingDrawPlayer: null,
     isPlayingCard: false,
     pendingPlayCardOpponent: null,
+    isCheckBreakAnimating: false,
   });
 
   const aiPlayer: Player = gameConfig.playerColor === "sente" ? "gote" : "sente";
@@ -75,7 +76,9 @@ export function useCardShogiGame({
       // Issue #78: ドロー演出中は AI 思考をブロック (COMMIT_DRAW 後に再評価される)
       state.isDrawing ||
       // Issue #82: カード使用演出中は AI 思考をブロック (COMMIT_PLAY_CARD 後に再評価)
-      state.isPlayingCard
+      state.isPlayingCard ||
+      // Issue #82 (王手崩し): トラップ演出中は AI 思考をブロック (COMMIT_CHECK_BREAK 後に再評価)
+      state.isCheckBreakAnimating
     ) {
       return;
     }
@@ -135,6 +138,8 @@ export function useCardShogiGame({
       // ※ pendingCard.selectTarget 時は currentPlayer 反転前なのでここを通る必要があるため、
       //   isDrawing / isPlayingCard だけを弾く。
       if (state.isDrawing || state.isPlayingCard) return;
+      // Issue #82 (王手崩し): トラップ演出中は盤面操作禁止
+      if (state.isCheckBreakAnimating) return;
 
       // pendingCard が selectTarget フェーズなら、盤面クリックをターゲット指定として扱う。
       // カード種別ごとの妥当性 + 王手中の王手回避要件は isValidCardTargetSquare に集約
@@ -224,10 +229,11 @@ export function useCardShogiGame({
     (pieceType: string) => {
       if (state.cardState.pendingCard) return;
       if (state.isDrawing || state.isPlayingCard) return; // Issue #82: 演出中は弾く
+      if (state.isCheckBreakAnimating) return; // Issue #82 (王手崩し): トラップ演出中
       if (state.gameState.currentPlayer !== gameConfig.playerColor) return;
       dispatch({ type: "SELECT_HAND_PIECE", pieceType });
     },
-    [state.gameState.currentPlayer, gameConfig.playerColor, state.cardState.pendingCard, state.isDrawing, state.isPlayingCard],
+    [state.gameState.currentPlayer, gameConfig.playerColor, state.cardState.pendingCard, state.isDrawing, state.isPlayingCard, state.isCheckBreakAnimating],
   );
 
   const confirmPromotion = useCallback((promote: boolean) => {
@@ -283,6 +289,11 @@ export function useCardShogiGame({
     dispatch({ type: "CANCEL_PLAY_CARD" });
   }, []);
 
+  // Issue #82 (王手崩し): トラップ演出完了時に呼ぶ。AI 思考とユーザー操作のロックを解除。
+  const finalizeCheckBreak = useCallback(() => {
+    dispatch({ type: "COMMIT_CHECK_BREAK" });
+  }, []);
+
   return {
     gameState: state.gameState,
     selectedSquare: state.selectedSquare,
@@ -305,7 +316,9 @@ export function useCardShogiGame({
     confirmPlayCard,
     finalizePlayCard,
     cancelPlayCard,
+    finalizeCheckBreak,
     isDrawing: state.isDrawing,
     isPlayingCard: state.isPlayingCard,
+    isCheckBreakAnimating: state.isCheckBreakAnimating,
   };
 }

@@ -200,6 +200,46 @@
   animation: trap-trigger-flash 1.6s ease-out forwards;
 }
 
+/* カード将棋 (Issue #82 王手崩し): トラップ発動瞬間に対象駒(ゴースト)へ
+ * 「トラップに食らった」ことが分かるヒット演出を加える。紫フラッシュ + 軽い
+ * シェイク (0-280ms) → 余震 (280-600ms) → 持続的な紫グロー (600ms-終端)。
+ * forwards で最終状態を保持し、フライト開始 (T=3900) で unmount される。 */
+@keyframes ghost-trap-hit {
+  0%   { filter: drop-shadow(0 0 0 transparent) brightness(1); transform: rotate(0deg) scale(1); }
+  /* 衝撃: 紫フラッシュ + 大きく振動 */
+  7%   { filter: drop-shadow(0 0 24px rgba(168, 85, 247, 1)) brightness(1.7); transform: rotate(-5deg) scale(1.1); }
+  14%  { filter: drop-shadow(0 0 22px rgba(168, 85, 247, 0.95)) brightness(1.5); transform: rotate(4deg) scale(1.07); }
+  /* 余震: 揺れが収まりつつ紫オーラ */
+  21%  { filter: drop-shadow(0 0 20px rgba(168, 85, 247, 0.9)) brightness(1.4); transform: rotate(-3deg) scale(1.05); }
+  28%  { filter: drop-shadow(0 0 18px rgba(168, 85, 247, 0.85)) brightness(1.3); transform: rotate(2deg) scale(1.03); }
+  /* 安定: 控えめな紫グロー pulse でトラップに捕まったまま漂わせる */
+  40%  { filter: drop-shadow(0 0 16px rgba(168, 85, 247, 0.75)) brightness(1.2); transform: rotate(0deg) scale(1); }
+  100% { filter: drop-shadow(0 0 18px rgba(168, 85, 247, 0.85)) brightness(1.15); transform: rotate(0deg) scale(1); }
+}
+.animate-ghost-trap-hit {
+  animation: ghost-trap-hit 1.5s ease-out forwards;
+}
+
+/* カード将棋 (Issue #82 王手崩し): トラップ発動時、ゴースト駒に重ねる
+ * 「刀で斬られた」斬撃エフェクト。SVG の line を stroke-dasharray で
+ * 右上→左下に高速描画 (0-120ms)、ピーク輝度 → 余韻 (赤グロー保持) →
+ * 60-100% でフェードアウト。動きの中心は親の transformOrigin に追従。 */
+@keyframes ghost-slash {
+  /* 0-120ms: 高速で右上→左下に斬る (ピーク輝度) */
+  0%   { stroke-dasharray: 0 200; opacity: 1; filter: drop-shadow(0 0 14px rgba(239, 68, 68, 1)) brightness(1.4); }
+  8%   { stroke-dasharray: 200 0; opacity: 1; filter: drop-shadow(0 0 14px rgba(239, 68, 68, 1)) brightness(1.4); }
+  /* 120-300ms: 輝度が落ち着く */
+  20%  { stroke-dasharray: 200 0; opacity: 1; filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.85)) brightness(1.1); }
+  /* 300-900ms: 赤グローを保ちつつ斬り跡を維持 */
+  60%  { stroke-dasharray: 200 0; opacity: 1; filter: drop-shadow(0 0 6px rgba(239, 68, 68, 0.7)); }
+  /* 900-1500ms: フェードアウト */
+  100% { stroke-dasharray: 200 0; opacity: 0; filter: none; }
+}
+.ghost-slash-line {
+  stroke-dasharray: 0 200;
+  animation: ghost-slash 1.5s ease-out forwards;
+}
+
 /* カード将棋: ドロー演出完了時に手札の対象カードがふわっと光る (Issue #78) */
 @keyframes hand-card-flash {
   0%   { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0); }
