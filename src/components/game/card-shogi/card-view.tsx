@@ -56,6 +56,10 @@ interface CardViewProps {
   // カード名を回り込み (float) で複数行表示できるようにする。
   // hideDescription / hideTrapBadge と組み合わせて使用する想定。
   compactIconLayout?: boolean;
+  // 外側 button 要素に追加する className。
+  // SIZE_CLASS の縦横や FULL_WIDTH_HEIGHT を一部だけ上書きしたい場合に使う
+  // (例: マスターカタログ詳細ページの PC ヘッダで縦幅だけ縮める用途)。
+  className?: string;
 }
 
 // "sm" はサムネイル(裏向きの相手手札用、縦長)
@@ -189,6 +193,7 @@ export const CardView = memo(function CardView({
   hideDescription = false,
   hideTrapBadge = false,
   compactIconLayout = false,
+  className,
 }: CardViewProps) {
   const def = CARD_DEFS[card.defId];
 
@@ -245,6 +250,8 @@ export const CardView = memo(function CardView({
             : "cursor-pointer card-hover-focus",
         // 選択時は ring で強調(枠のレア度色は維持)
         selected && "ring-2 ring-primary ring-offset-1 ring-offset-background",
+        // 外部からの上書き (tailwind-merge で h-/w- 等の競合を後勝ちで解決)
+        className,
       )}
       aria-label={`${def.name} (マナコスト ${def.cost})`}
     >

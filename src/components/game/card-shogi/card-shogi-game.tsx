@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { flushSync } from "react-dom";
+import { flushSync, createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronUp, ChevronDown, Volume2, VolumeX } from "lucide-react";
@@ -12,6 +12,7 @@ import { useCardBoardSize } from "@/hooks/use-card-board-size";
 
 import { ShogiBoard, type ShogiBoardHandle } from "../shogi-board";
 import { CapturedPieces } from "../captured-pieces";
+import { ShogiPiece } from "../shogi-piece";
 import { CardShogiHistory } from "./card-shogi-history";
 import { GameControls, GAME_CONTROLS_HEIGHT } from "../game-controls";
 import { PromotionDialog } from "../promotion-dialog";
@@ -47,6 +48,7 @@ import { CardPlayDialog, CardTargetingNotice } from "./card-play-dialog";
 import { DrawFlightCard } from "./draw-flight-card";
 import { CardPlayFlight } from "./card-play-flight";
 import { PieceFlight, type PieceFlightSpec } from "./piece-flight";
+import { useFlightParams } from "@/lib/dev/flight-params";
 import { ManaFlightLayer } from "./mana-flight";
 import { FastMoveBadgeLayer } from "./fast-move-badge";
 import { useManaFlightLayer } from "./use-mana-flight-layer";
@@ -154,9 +156,28 @@ export function CardShogiGame({
   } | null>(null);
   // 駒フライト完了後に発火する中央カード演出の予約。
   const pendingPlayFlightRef = useRef<{ card: CardInstance; isTrap: boolean } | null>(null);
+  // Issue #82 (王手崩し): トラップ発動による複数駒フライト演出。
+  // null: 演出なし。
+  // ghosts: 王手中央表示+トラップ発動演出の間、reducer は既に駒を盤上から除去
+  //   しているため、駒の元位置に「ゴースト駒」を絶対配置で重ね描きする。
+  //   フライト開始時にクリア。
+  // hitActive: トラップ発動タイミング (T=1600) で true に切り替わり、
+  //   ゴースト駒に紫フラッシュ+シェイク+グローのヒット演出を付与する。
+  // flights: 値ありになったらフライト開始。pendingFlightCount=0 で finalize。
+  const [checkBreakAnim, setCheckBreakAnim] = useState<{
+    ghosts: Array<{ rect: DOMRect; pieceType: string; owner: Player }>;
+    hitActive: boolean;
+    flights: PieceFlightSpec[];
+    flightKeyBase: number;
+    hideTargets: FlightHideTarget[];
+    pendingFlightCount: number;
+  } | null>(null);
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const { squareSize, isMobile, viewportHeight } = useCardBoardSize();
+  // 開発者用 dev /piece-flight で保存されたフライト演出パラメータ。
+  // 未保存時は animation-constants の既定値が返る。
+  const flightParams = useFlightParams();
 
   const gameConfig: GameConfig = {
     ...serializableConfig,
@@ -207,7 +228,9 @@ export function CardShogiGame({
     confirmPlayCard,
     finalizePlayCard,
     cancelPlayCard,
+    finalizeCheckBreak,
     isPlayingCard,
+    isCheckBreakAnimating,
   } = useCardShogiGame({
     initialState: initialGameState,
     initialCardState,
@@ -472,24 +495,92 @@ export function CardShogiGame({
           }
           break;
         }
-        case "trapTriggerEvent":
+        case "trapTriggerEvent": {
+          const trapDef = CARD_DEFS[ev.instance.defId];
+          // Issue #82 (王手崩し): 王手 → トラップ発動 → 駒フライト の3段演出
+          if (trapDef.id === "check_break" && ev.capturedPieces && ev.capturedPieces.length > 0) {
+            const trapOwner = ev.player;
+            const captures = ev.capturedPieces;
+            // reducer は適用済 (盤上から駒除去・持ち駒に追加) なので、
+            // 王手中央表示+トラップ発動演出の間は元位置にゴースト駒を重ね描きする。
+            // fromRect: 元の盤面マス (空マスになっているがマス自体は存在)
+            // toRect: 持ち駒として既に追加されている表示位置 (hideTargets で隠す)
+            const ghosts: Array<{ rect: DOMRect; pieceType: string; owner: Player }> = [];
+            const flights: PieceFlightSpec[] = [];
+            const hideTargets: FlightHideTarget[] = [];
+            for (const cap of captures) {
+              const fromRect = getBoardSquareRect(cap.row, cap.col);
+              const toRect = findVisibleCapturedPieceRect(trapOwner, cap.pieceType);
+              if (!fromRect) continue;
+              ghosts.push({
+                rect: fromRect,
+                pieceType: cap.originalPieceType,
+                owner: cap.originalOwner,
+              });
+              const fromX = fromRect.left + fromRect.width / 2;
+              const fromY = fromRect.top + fromRect.height / 2;
+              const toX = toRect ? toRect.left + toRect.width / 2 : fromX;
+              const toY = toRect ? toRect.top + toRect.height / 2 : fromY;
+              flights.push({
+                pieceType: cap.pieceType,
+                owner: trapOwner,
+                fromX,
+                fromY,
+                toX,
+                toY,
+              });
+              hideTargets.push({ kind: "captured", player: trapOwner, pieceType: cap.pieceType });
+            }
+            // 演出ロックは reducer 側で isCheckBreakAnimating=true がセット済。
+            // ゴースト駒を盤面に重ね描きしつつ、持ち駒側はフライト着地まで隠す。
+            pieceFlightKeyRef.current += captures.length;
+            const flightKeyBase = pieceFlightKeyRef.current - captures.length + 1;
+            setCheckBreakAnim({
+              ghosts,
+              hitActive: false,
+              flights: [],   // フライト発火前は空配列。ゴーストのみ表示。
+              flightKeyBase,
+              hideTargets,
+              pendingFlightCount: flights.length,
+            });
+            // T=0: 王手中央表示 (1600ms = 100 fadeIn + 1000 hold + 500 fadeOut)
+            playSfx("check");
+            setOverlayEvent({ event: "check", key: Date.now() });
+            // T=1600: トラップ発動演出 (2300ms = 200 fadeIn + 1500 hold + 600 fadeOut)
+            //   + ゴースト駒へヒット演出 (紫フラッシュ + シェイク + 持続グロー)
+            window.setTimeout(() => {
+              playSfx("trap_trigger");
+              setOverlayEvent({
+                event: "trap_trigger",
+                key: Date.now(),
+                trapName: trapDef.name,
+              });
+              setCheckBreakAnim((prev) => (prev ? { ...prev, hitActive: true } : null));
+            }, 1600);
+            // T=3900: ゴーストを消し、駒フライト並行発火
+            window.setTimeout(() => {
+              setCheckBreakAnim((prev) => (prev ? { ...prev, ghosts: [], flights } : null));
+            }, 1600 + 2300);
+            break;
+          }
+          // 既存トラップ (no_promote 等): 即時オーバーレイ
           playSfx("trap_trigger");
-          // R16/R20: トラップ発動を画面中央オーバーレイで明示、トラップ名も併記
           setOverlayEvent({
             event: "trap_trigger",
             key: Date.now(),
-            trapName: CARD_DEFS[ev.instance.defId].name,
+            trapName: trapDef.name,
           });
           break;
+        }
       }
     }
     lastEventIndexRef.current = eventLog.length;
-  }, [eventLog, isReady, playSfx, playerColor, triggerManaFlight, triggerFastMoveBadge, getDeckRect, getOriginRect, getBoardSquareRect]);
+  }, [eventLog, isReady, playSfx, playerColor, triggerManaFlight, triggerFastMoveBadge, getDeckRect, getOriginRect, getBoardSquareRect, findVisibleCapturedPieceRect]);
 
-  // Issue #78 / #82: 演出中(ドロー / カード使用)は盤面・手札・カード操作・背景クリックをロックする
+  // Issue #78 / #82: 演出中(ドロー / カード使用 / 王手崩しトラップ)は盤面・手札・カード操作・背景クリックをロックする
   const handleSquareClick = useCallback(
     (pos: Position) => {
-      if (isDrawAnimating || isPlayingCard) return;
+      if (isDrawAnimating || isPlayingCard || isCheckBreakAnimating) return;
       // 歩戻し等のターゲット選択フェーズで盤面クリックが confirm に直結するため、ここでも矩形を捕捉
       if (cardState.pendingCard) cachePendingCardRect();
 
@@ -571,22 +662,22 @@ export function CardShogiGame({
   );
   const handleHandPieceClick = useCallback(
     (piece: Parameters<typeof selectHandPiece>[0]) => {
-      if (isDrawAnimating || isPlayingCard) return;
+      if (isDrawAnimating || isPlayingCard || isCheckBreakAnimating) return;
       selectHandPiece(piece);
     },
-    [isDrawAnimating, isPlayingCard, selectHandPiece],
+    [isDrawAnimating, isPlayingCard, isCheckBreakAnimating, selectHandPiece],
   );
   const handleBeginPlayCard = useCallback(
     (id: string) => {
-      if (isDrawAnimating || isPlayingCard) return;
+      if (isDrawAnimating || isPlayingCard || isCheckBreakAnimating) return;
       beginPlayCard(id);
     },
-    [isDrawAnimating, isPlayingCard, beginPlayCard],
+    [isDrawAnimating, isPlayingCard, isCheckBreakAnimating, beginPlayCard],
   );
   const handleDeselect = useCallback(() => {
-    if (isDrawAnimating || isPlayingCard) return;
+    if (isDrawAnimating || isPlayingCard || isCheckBreakAnimating) return;
     deselect();
-  }, [isDrawAnimating, isPlayingCard, deselect]);
+  }, [isDrawAnimating, isPlayingCard, isCheckBreakAnimating, deselect]);
 
   // 演出中は最新ドローカードを手札表示から除外し、演出完了後に手札に現れたように見せる
   const displayedOwnHand = useMemo(() => {
@@ -680,15 +771,50 @@ export function CardShogiGame({
     return [{ row: pieceFlight.hideTarget.row, col: pieceFlight.hideTarget.col }];
   }, [pieceFlight]);
   const hiddenOwnCapturedTypes = useMemo<string[]>(() => {
+    const result: string[] = [];
     if (
-      !pieceFlight ||
-      pieceFlight.hideTarget.kind !== "captured" ||
-      pieceFlight.hideTarget.player !== playerColor
+      pieceFlight &&
+      pieceFlight.hideTarget.kind === "captured" &&
+      pieceFlight.hideTarget.player === playerColor
     ) {
-      return EMPTY_STRINGS;
+      result.push(pieceFlight.hideTarget.pieceType);
     }
-    return [pieceFlight.hideTarget.pieceType];
-  }, [pieceFlight, playerColor]);
+    // Issue #82 (王手崩し): トラップ演出中、自分側の持ち駒に流入する駒種を隠す
+    if (checkBreakAnim) {
+      for (const ht of checkBreakAnim.hideTargets) {
+        if (ht.kind === "captured" && ht.player === playerColor) {
+          result.push(ht.pieceType);
+        }
+      }
+    }
+    return result.length === 0 ? EMPTY_STRINGS : result;
+  }, [pieceFlight, playerColor, checkBreakAnim]);
+  // Issue #82 (王手崩し): 相手側 (AI) のトラップ発動時、相手の持ち駒に流入する駒種を隠す
+  const hiddenOpponentCapturedTypes = useMemo<string[]>(() => {
+    if (!checkBreakAnim) return EMPTY_STRINGS;
+    const result: string[] = [];
+    for (const ht of checkBreakAnim.hideTargets) {
+      if (ht.kind === "captured" && ht.player === aiColor) {
+        result.push(ht.pieceType);
+      }
+    }
+    return result.length === 0 ? EMPTY_STRINGS : result;
+  }, [checkBreakAnim, aiColor]);
+
+  // Issue #82 (王手崩し): 1 枚分のフライト完了で pendingFlightCount を減算。
+  // 0 になったら finalizeCheckBreak で AI 思考とユーザー操作のロックを解除。
+  const handleCheckBreakFlightComplete = useCallback(() => {
+    setCheckBreakAnim((prev) => {
+      if (!prev) return null;
+      const next = prev.pendingFlightCount - 1;
+      if (next <= 0) {
+        // すべて完了 → finalize
+        finalizeCheckBreak();
+        return null;
+      }
+      return { ...prev, pendingFlightCount: next };
+    });
+  }, [finalizeCheckBreak]);
 
   // 山札からのドロー可否 (Issue #82: pendingCard 中もドロー禁止に統一)
   const canDrawCard =
@@ -698,6 +824,7 @@ export function CardShogiGame({
     !inCheck &&
     !isDrawAnimating &&
     !isPlayingCard &&
+    !isCheckBreakAnimating &&
     cardState.pendingCard === null;
 
   const opponentDeckPile = <DeckPile count={cardState.deck[aiColor].length} size="md" showDrawCost />;
@@ -737,8 +864,8 @@ export function CardShogiGame({
   // 手札の操作可否 (Issue #82 で王手仕様変更):
   // - 王手中も「王手回避になるカードのみ使用可」とする方針に変更したため、inCheck で
   //   一律 disabled にはしない。個別カードの非活性化は unusableCardIds 側で制御する。
-  // - ドロー演出中・カード使用演出中・別カード使用中は引き続き全体ロック
-  const handDisabled = !isPlayerTurn || !isGameActive || cardState.pendingCard !== null || isDrawAnimating || isPlayingCard;
+  // - ドロー演出中・カード使用演出中・別カード使用中・王手崩し演出中は引き続き全体ロック
+  const handDisabled = !isPlayerTurn || !isGameActive || cardState.pendingCard !== null || isDrawAnimating || isPlayingCard || isCheckBreakAnimating;
 
   // 待った可否 (P28): 駒指し2手以上 / 自分の手番 / AI 思考中でない / pendingCard 無し / 過去2手の間にカード操作なし
   const canUndo = useMemo(() => {
@@ -960,6 +1087,7 @@ export function CardShogiGame({
               label={character.name}
               squareSize={squareSize}
               compact={isMobile}
+              hiddenPieceTypes={hiddenOpponentCapturedTypes}
             />
           </div>
 
@@ -1330,6 +1458,7 @@ export function CardShogiGame({
               onPieceClick={NOOP_PIECE_CLICK}
               label={character.name}
               squareSize={squareSize}
+              hiddenPieceTypes={hiddenOpponentCapturedTypes}
             />
           </div>
           <div className="relative shrink-0">
@@ -1455,13 +1584,94 @@ export function CardShogiGame({
         onComplete={handlePlayFlightComplete}
       />
 
-      {/* Issue #82: 駒移動カード(歩戻し / 駒戻し / 二歩指し)の駒回転フライト演出 */}
+      {/* Issue #82: 駒移動カード(歩戻し / 駒戻し / 二歩指し)の駒回転フライト演出。
+          pieceSize は盤上マスサイズ (squareSize) を渡し、フライト中の駒サイズを
+          実際の盤駒と揃える。speed/rotation/min/ease は dev /piece-flight の
+          保存値 (なければ animation-constants の既定値) を反映。 */}
       <PieceFlight
         spec={pieceFlight?.spec ?? null}
         flightKey={pieceFlight?.key ?? null}
         playerColor={playerColor}
+        pieceSize={squareSize}
+        speedPxPerSec={flightParams.speedPxPerSec}
+        rotationSecPerTurn={flightParams.rotationSecPerTurn}
+        minDurationMs={flightParams.minDurationMs}
+        ease={flightParams.ease}
         onComplete={handlePieceFlightComplete}
       />
+
+      {/* Issue #82 (王手崩し): トラップ発動による複数駒並行フライト演出 */}
+      {checkBreakAnim?.flights.map((spec, idx) => (
+        <PieceFlight
+          key={`cb-${checkBreakAnim.flightKeyBase + idx}`}
+          spec={spec}
+          flightKey={checkBreakAnim.flightKeyBase + idx}
+          playerColor={playerColor}
+          pieceSize={squareSize}
+          speedPxPerSec={flightParams.speedPxPerSec}
+          rotationSecPerTurn={flightParams.rotationSecPerTurn}
+          minDurationMs={flightParams.minDurationMs}
+          ease={flightParams.ease}
+          onComplete={handleCheckBreakFlightComplete}
+        />
+      ))}
+
+      {/* Issue #82 (王手崩し): 演出中のゴースト駒。reducer は既に駒を盤上から
+          除去しているので、王手中央表示+トラップ発動演出の間だけ元位置に重ねる。
+          z-[5] は BoardOverlay (z-10) より下、ShogiBoard 本体 (z-auto/0) より上
+          になるよう意図的に低く設定 (王手・トラップ発動の中央演出をゴーストより
+          手前に表示するため)。 */}
+      {checkBreakAnim && checkBreakAnim.ghosts.length > 0 && typeof document !== "undefined" &&
+        createPortal(
+          <div className="fixed inset-0 pointer-events-none z-[5]">
+            {checkBreakAnim.ghosts.map((g, i) => (
+              <div
+                key={`ghost-${i}`}
+                className={cn(checkBreakAnim.hitActive && "animate-ghost-trap-hit")}
+                style={{
+                  position: "fixed",
+                  left: g.rect.left,
+                  top: g.rect.top,
+                  width: g.rect.width,
+                  height: g.rect.height,
+                  // 紫グローや scale が transform で動くため、変換中心を中央に固定
+                  transformOrigin: "center center",
+                }}
+              >
+                <ShogiPiece
+                  piece={{ type: g.pieceType, owner: g.owner }}
+                  playerColor={playerColor}
+                  squareSize={g.rect.width}
+                />
+                {/* Issue #82 (王手崩し): 刀で斬られたような赤い斬撃 (右上→左下)。
+                    hitActive=true (=トラップ発動) と同時に SVG が mount され
+                    ghost-slash アニメーション (stroke-dasharray 描画) が走る。
+                    親の hit アニメーション (シェイク・スケール) と同時並行。 */}
+                {checkBreakAnim.hitActive && (
+                  <svg
+                    viewBox="0 0 100 100"
+                    preserveAspectRatio="none"
+                    className="absolute inset-0 w-full h-full pointer-events-none"
+                    aria-hidden
+                  >
+                    <line
+                      x1="100"
+                      y1="0"
+                      x2="0"
+                      y2="100"
+                      stroke="#ef4444"
+                      strokeWidth="5"
+                      strokeLinecap="round"
+                      vectorEffect="non-scaling-stroke"
+                      className="ghost-slash-line"
+                    />
+                  </svg>
+                )}
+              </div>
+            ))}
+          </div>,
+          document.body,
+        )}
 
       {/* Issue #77: マナ加減算の浮遊テキスト (起点 UI 付近に表示) */}
       <ManaFlightLayer items={manaFlights} onComplete={removeManaFlight} />

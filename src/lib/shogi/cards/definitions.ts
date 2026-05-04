@@ -88,8 +88,8 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
     kind: "normal",
     name: "二歩指し",
     description: "持ち駒の歩 1枚を、自分の歩がいる列の空マスに打つ",
-    cost: 3,
-    rarity: "rare",
+    cost: 2,
+    rarity: "common",
     effectId: "double_pawn",
     targeting: "square",
     icon: "🎴",
@@ -121,6 +121,26 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
       "- 自分の盤上に玉以外の駒が1枚以上ある\n- 戻したい駒を盤上から退かしたときに、自玉が王手になる場合は対象外\n  (例: 自玉と相手の飛車の間にいる金を戻すと、飛車の利きが通って王手になるためその金は戻せない)",
     addedAt: "2026-05-02",
     relatedIssues: [82],
+  },
+
+  check_break: {
+    id: "check_break",
+    kind: "trap",
+    name: "王手崩し",
+    description: "相手が王手してきたとき、王手駒をすべて持ち駒にする",
+    cost: 5,
+    rarity: "rare",
+    effectId: "check_break",
+    targeting: "none",
+    icon: "⚔️",
+    status: "active",
+    phase: "A",
+    detailDescription:
+      "自分の盤面に1枚だけセットできるトラップカード。\n相手の手で自玉が王手になったとき、王手をかけている相手の駒をすべて自分の持ち駒に加えて発動する。\n\n【発動】\n- 自玉が王手された瞬間に自動発動\n- 1枚だけセット可\n- 自分の盤面に同種のトラップが既にセットされている間は使用不可 (Issue #105)\n\n【効果】\n- 王手をかけている相手の駒をすべて取り、自分の持ち駒に加える\n- 両王手・複数王手の場合は、王手している駒すべてが同時に対象\n  (例: 飛車と角の両王手なら、飛車も角も同時に持ち駒化)\n- 成駒は成り解除されて元の駒種で持ち駒になる(龍王→飛 / 龍馬→角 / と金→歩 など、通常の取り駒と同じ)\n- 「成り不可」状態 (no_promote) が付与された駒を取った場合、状態は失われる\n- 王手駒がすべて除去されるため、効果適用後は必ず王手解除されている\n- トラップ自体は発動と同時に破棄される",
+    useConditionDescription:
+      "- 自分の盤面に「王手崩し」トラップが既にセットされていない",
+    addedAt: "2026-05-03",
+    relatedIssues: [82, 105],
   },
 
   no_promote: {

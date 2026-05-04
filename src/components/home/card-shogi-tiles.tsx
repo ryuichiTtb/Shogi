@@ -1,11 +1,12 @@
 // Issue #117: 新ホームに並べるカード将棋機能タイル。
-// カード一覧 / デッキ編成 / カードデザインの 3 枚 + 将来枠 (ガチャ Coming Soon)。
+// 4 枚 (デッキ編成 / カードデザイン / カード一覧 / フライト検証用) + 将来枠 (ガチャ Coming Soon)。
+// 順序は #82 でユーザーが整えた配置に揃え、4 枚目に開発者向けのフライト検証導線を含める。
 // クリックで親ページの onNavigate(href, label) を呼び、LoadingOverlay と整合させる。
 "use client";
 
 import { useEffect, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { Layers, Library, Palette, Sparkles, Lock } from "lucide-react";
+import { Layers, Library, Palette, Sparkles, Lock, Wrench } from "lucide-react";
 
 import {
   CARD_BACK_STYLES,
@@ -26,10 +27,12 @@ interface TileDef {
   Icon: typeof Layers;
 }
 
+// #82 で整理された並び順: デッキ編成 → カードデザイン → カード一覧 → フライト検証用
 const TILES: TileDef[] = [
-  { href: "/cards",       label: "カード一覧",     description: "全カードを見る",    Icon: Layers },
-  { href: "/decks",       label: "デッキ編成",     description: "デッキを編成する",  Icon: Library },
-  { href: "/card-design", label: "カードデザイン", description: "裏面を選ぶ",        Icon: Palette },
+  { href: "/decks",            label: "デッキ編成",     description: "デッキを編成する",      Icon: Library },
+  { href: "/card-design",      label: "カードデザイン", description: "裏面を選ぶ",            Icon: Palette },
+  { href: "/cards",            label: "カード一覧",     description: "全カードを見る",        Icon: Layers },
+  { href: "/dev/piece-flight", label: "フライト検証",   description: "演出パラメータ調整",    Icon: Wrench },
 ];
 
 export function CardShogiTiles({ onNavigate, disabled = false }: CardShogiTilesProps) {
@@ -47,7 +50,8 @@ export function CardShogiTiles({ onNavigate, disabled = false }: CardShogiTilesP
 
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-3 gap-2">
+      {/* 4 枚なので 2x2 (mobile) / 4 列 (sm 以上) で並べる */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {TILES.map((tile, idx) => {
           const subText = tile.href === "/card-design" ? `裏面: ${currentStyleLabel}` : tile.description;
           return (
