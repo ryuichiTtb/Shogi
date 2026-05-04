@@ -13,6 +13,26 @@ const DEFAULT_PLAYER_ID = "default-player";
 async function main() {
   console.log("Seeding card-shogi data...");
 
+  // 0. ALL_CARD_DEFS から削除されたカードのレコードを掃除する。
+  //    deprecated ステータスは Card マスタに残すが、ALL_CARD_DEFS から完全削除された
+  //    カード (例: サンプルカード sample_*) は孤立レコードになるため全削除する。
+  //    FK 制約があるため、子テーブル (DeckEntry / PlayerCardCollection) → Card の順で削除。
+  const validCardIds = ALL_CARD_DEFS.map((d) => d.id);
+  const orphanDeckEntries = await prisma.deckEntry.deleteMany({
+    where: { cardId: { notIn: validCardIds } },
+  });
+  const orphanCollections = await prisma.playerCardCollection.deleteMany({
+    where: { cardId: { notIn: validCardIds } },
+  });
+  const orphanCards = await prisma.card.deleteMany({
+    where: { id: { notIn: validCardIds } },
+  });
+  if (orphanDeckEntries.count + orphanCollections.count + orphanCards.count > 0) {
+    console.log(
+      `  - 孤立レコード削除: Card ${orphanCards.count} 件 / DeckEntry ${orphanDeckEntries.count} 件 / PlayerCardCollection ${orphanCollections.count} 件`,
+    );
+  }
+
   // 1. Card マスタを upsert
   for (const def of ALL_CARD_DEFS) {
     await prisma.card.upsert({
