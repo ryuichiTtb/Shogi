@@ -45,6 +45,7 @@ import { HandArea } from "./hand-area";
 import { TrapSlot } from "./trap-slot";
 import { DeckPile } from "./deck-pile";
 import { CardPlayDialog, CardTargetingNotice } from "./card-play-dialog";
+import { DoubleMoveNotice } from "./double-move-notice";
 import { DrawFlightCard } from "./draw-flight-card";
 import { CardPlayFlight } from "./card-play-flight";
 import { PieceFlight, type PieceFlightSpec } from "./piece-flight";
@@ -231,6 +232,8 @@ export function CardShogiGame({
     finalizeCheckBreak,
     isPlayingCard,
     isCheckBreakAnimating,
+    doubleMove,
+    undoDoubleMoveFirst,
   } = useCardShogiGame({
     initialState: initialGameState,
     initialCardState,
@@ -1566,6 +1569,19 @@ export function CardShogiGame({
         pendingCard={cardState.pendingCard}
         onCancel={cancelPlayCard}
       />
+      {/* Issue #82: 二手指し (double_move) 中の上端バナー + 戻すボタン */}
+      {doubleMove && !isPlayingCard && (
+        <DoubleMoveNotice
+          movesLeft={doubleMove.movesLeft}
+          canUndoFirst={
+            doubleMove.movesLeft === 1 &&
+            isGameActive &&
+            !isCheckBreakAnimating &&
+            !isPlayingCard
+          }
+          onUndoFirst={undoDoubleMoveFirst}
+        />
+      )}
 
       {/* Issue #78: ドロー中央演出 (山札→中央→手札の DOMRect 追従) */}
       <DrawFlightCard
