@@ -80,12 +80,21 @@ export interface CardShogiGameStateInternal {
   isCheckBreakAnimating: boolean;
 }
 
+// 移動処理のモード切替 (Issue #82 二手指し)。
+// - "normal": 通常の指し手 (マナチャージ + 早指しタイマークリア)
+// - "double_move_first": 二手指しの 1手目 (マナチャージなし + タイマークリアなし、ターン継続中)
+// - "double_move_second": 二手指しの 2手目 (マナチャージなし、タイマークリアあり、ターン交代)
+// 二手指しはカード使用扱いのため、1手目・2手目とも通常のマナチャージ (+1〜+2) は発生しない
+// (カードコスト -6 のみ消費、これは CONFIRM_PLAY_CARD 側で処理済み)。
+export type MakeMoveMode = "normal" | "double_move_first" | "double_move_second";
+
 // 移動 + マナチャージ + トラップフィルタ を一括適用。
 // CONFIRM_PROMOTION と MAKE_MOVE の両方から呼ばれる。
 function makeMoveWithEffects(
   gameState: GameState,
   cardState: CardGameState,
   move: Move,
+  options?: { mode?: MakeMoveMode },
 ): {
   gameState: GameState;
   cardState: CardGameState;
@@ -94,6 +103,7 @@ function makeMoveWithEffects(
   // 王手崩しトラップが発動した場合のみ true。MAKE_MOVE 側で isCheckBreakAnimating をセットする。
   triggeredCheckBreak: boolean;
 } {
+  const mode: MakeMoveMode = options?.mode ?? "normal";
   const opponent: Player = move.player === "sente" ? "gote" : "sente";
   const events: GameEvent[] = [];
 
@@ -194,35 +204,47 @@ function makeMoveWithEffects(
   const evaluated = evaluateGameEnd(postTrapGameState, CARD_SHOGI_VARIANT);
   events.push({ kind: "moveEvent", move: finalMove, at: Date.now() });
 
-  // 6. マナチャージ(指した側、早指し判定)
-  const lastStarted = cardStateNext.lastTurnStartedAt[move.player];
-  const isFastMove =
-    lastStarted !== null && Date.now() - lastStarted < FAST_THRESHOLD_MS;
-  const manaAmount =
-    MANA_PER_TURN + (isFastMove ? MANA_FAST_BONUS : 0);
-  cardStateNext = {
-    ...cardStateNext,
-    mana: {
-      ...cardStateNext.mana,
-      [move.player]: Math.min(
-        cardStateNext.manaCap,
-        cardStateNext.mana[move.player] + manaAmount,
-      ),
-    },
-    // 指した側のタイマーはクリア。次の自分の番開始時に再セット
-    lastTurnStartedAt: {
-      ...cardStateNext.lastTurnStartedAt,
-      [move.player]: null,
-    },
-  };
-  events.push({
-    kind: "manaChargeEvent",
-    player: move.player,
-    amount: manaAmount,
-    reason: "turn",
-    fastMove: isFastMove,
-    at: Date.now(),
-  });
+  // 6. マナチャージ + lastTurnStartedAt クリア (mode で挙動を切替)
+  if (mode === "normal") {
+    // 通常の指し手: マナチャージ + 早指し判定 + タイマークリア
+    const lastStarted = cardStateNext.lastTurnStartedAt[move.player];
+    const isFastMove =
+      lastStarted !== null && Date.now() - lastStarted < FAST_THRESHOLD_MS;
+    const manaAmount =
+      MANA_PER_TURN + (isFastMove ? MANA_FAST_BONUS : 0);
+    cardStateNext = {
+      ...cardStateNext,
+      mana: {
+        ...cardStateNext.mana,
+        [move.player]: Math.min(
+          cardStateNext.manaCap,
+          cardStateNext.mana[move.player] + manaAmount,
+        ),
+      },
+      lastTurnStartedAt: {
+        ...cardStateNext.lastTurnStartedAt,
+        [move.player]: null,
+      },
+    };
+    events.push({
+      kind: "manaChargeEvent",
+      player: move.player,
+      amount: manaAmount,
+      reason: "turn",
+      fastMove: isFastMove,
+      at: Date.now(),
+    });
+  } else if (mode === "double_move_second") {
+    // 二手指しの 2手目: マナチャージなし。lastTurnStartedAt のみクリア (ターン交代)
+    cardStateNext = {
+      ...cardStateNext,
+      lastTurnStartedAt: {
+        ...cardStateNext.lastTurnStartedAt,
+        [move.player]: null,
+      },
+    };
+  }
+  // mode === "double_move_first": どちらもしない (ターン継続中のため)
 
   return {
     gameState: evaluated,
