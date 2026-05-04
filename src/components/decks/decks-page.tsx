@@ -86,9 +86,21 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
   useEffect(() => {
     if (!selectedId) return;
     let cancelled = false;
-    getDeckDetail(selectedId).then((d) => {
-      if (!cancelled) setDetail(d);
-    });
+    // Issue #117 (#128): Server Action 失敗を unhandled rejection にしないため
+    // 明示的に catch + actionError 表示。ローディング状態に張り付きを防ぐ。
+    getDeckDetail(selectedId)
+      .then((d) => {
+        if (!cancelled) setDetail(d);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        console.error("getDeckDetail failed", e);
+        setActionError(
+          e instanceof Error
+            ? `デッキの読み込みに失敗しました: ${e.message}`
+            : "デッキの読み込みに失敗しました。再度お試しください。",
+        );
+      });
     return () => {
       cancelled = true;
     };
@@ -401,7 +413,9 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
         <div className="min-h-0 flex flex-col flex-1 lg:flex-none">
           {/* フレーム自体は常に描画。中身だけを「内容/スケルトン/未選択」で切替。
               これで読み込み中もエリアが消えず、高さもジャンプしない。 */}
-          <div className="rounded-lg border bg-card flex flex-col min-h-0 flex-1">
+          {/* relative: DeckEditorPane 内の保存中 LoadingOverlay (absolute) を
+              この枠内に閉じ込めるため。 */}
+          <div className="relative rounded-lg border bg-card flex flex-col min-h-0 flex-1">
             {selectedId && currentDetail ? (
               <DeckEditorPane
                 key={selectedId}

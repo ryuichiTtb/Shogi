@@ -7,13 +7,15 @@ import { Button } from "@/components/ui/button";
 import { gameResultText } from "@/lib/shogi/notation";
 import { getCharacterById } from "@/data/characters";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Inbox } from "lucide-react";
+import { AppBackground } from "@/components/layout/app-background";
 
 export default async function HistoryPage() {
   const games = await getGameHistory();
 
   return (
     <main className="min-h-[100dvh] min-h-screen py-8 px-4 max-w-2xl mx-auto safe-area-inset">
+      <AppBackground variant="page" />
       <div className="flex items-center gap-3 mb-6">
         <Link href="/">
           <Button variant="ghost" size="sm" className="gap-1.5">
@@ -27,6 +29,7 @@ export default async function HistoryPage() {
       {games.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
+            <Inbox className="w-12 h-12 mx-auto mb-3 opacity-60" aria-hidden />
             <p>まだ対局がありません</p>
             <Link href="/">
               <Button className="mt-4">最初の対局を始める</Button>
@@ -42,7 +45,7 @@ export default async function HistoryPage() {
 
             return (
               <Link key={game.id} href={`/game/${game.id}`}>
-                <Card className="hover:shadow-md transition-shadow cursor-pointer">
+                <Card className="card-hover-lift hover:shadow-md transition-shadow cursor-pointer bg-card/85 backdrop-blur-sm">
                   <CardContent className="py-3 px-4">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">

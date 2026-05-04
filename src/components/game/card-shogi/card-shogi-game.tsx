@@ -1169,6 +1169,7 @@ export function CardShogiGame({
             gameWinner={gameState.winner}
             onPlayAgain={handlePlayAgain}
             isPending={isPending}
+            homeHref="/"
             cardEventLog={eventLog}
             hideEndCard
           />

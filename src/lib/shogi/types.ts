@@ -21,3 +21,7 @@ export type {
   GameStatus,
   GameState,
 } from "./variants/types";
+
+// ホーム/対局セットアップ画面で扱うモード識別子。
+// createGame() の variantId 引数 (string 型) に渡される。
+export type GameMode = "card-shogi" | "standard";

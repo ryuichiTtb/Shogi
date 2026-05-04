@@ -172,6 +172,83 @@
   }
 }
 
+/* Issue #117: ホームのデザイン用トークン */
+:root {
+  --hero-overlay-from: oklch(0.97 0.05 80);
+  --hero-overlay-to: oklch(1 0 0 / 0);
+  --orb-size-lg: 280px;
+  --orb-blur-lg: 80px;
+}
+.dark {
+  --hero-overlay-from: oklch(0.30 0.08 80 / 0.6);
+  --hero-overlay-to: oklch(0 0 0 / 0);
+}
+
+/* Issue #117: 全画面背景の浮遊オーブ。
+ * card-rarity-orb と異なり box-shadow は使わず、filter:blur + opacity + transform
+ * のみで表現することでモバイル Safari の GPU フィルレート負荷を抑える。 */
+.home-bg-orb {
+  position: absolute;
+  width: var(--orb-size-lg, 280px);
+  height: var(--orb-size-lg, 280px);
+  border-radius: 50%;
+  filter: blur(var(--orb-blur-lg, 80px));
+  opacity: 0.25;
+  pointer-events: none;
+  will-change: transform;
+}
+.home-bg-orb-a {
+  top: -10%;
+  left: -10%;
+  animation: home-bg-orb-drift-a 18s ease-in-out infinite;
+}
+.home-bg-orb-b {
+  bottom: -15%;
+  right: -10%;
+  animation: home-bg-orb-drift-b 22s ease-in-out infinite;
+}
+@keyframes home-bg-orb-drift-a {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50%      { transform: translate3d(40px, 30px, 0); }
+}
+@keyframes home-bg-orb-drift-b {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50%      { transform: translate3d(-30px, -40px, 0); }
+}
+
+/* Issue #117: ホーム CTA の脈動グロー。box-shadow ではなく
+ * ::after 疑似要素の opacity + scale で GPU 合成完結。
+ * 1.5s 待機 → 6 サイクル (約 14.4s) で自動停止。 */
+.home-cta-pulse {
+  position: relative;
+  isolation: isolate;
+}
+.home-cta-pulse::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  z-index: -1;
+  background: radial-gradient(circle, rgba(251, 191, 36, 0.55) 0%, transparent 70%);
+  opacity: 0;
+  animation: home-cta-pulse 2.4s ease-in-out 1.5s 6;
+  will-change: transform, opacity;
+}
+@keyframes home-cta-pulse {
+  0%, 100% { opacity: 0;    transform: scale(1); }
+  50%      { opacity: 0.95; transform: scale(1.05); }
+}
+
+/* Issue #117: Hero カードスタックの上下フロート (4s loop) */
+@keyframes hero-card-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-6px); }
+}
+.animate-hero-card-float {
+  animation: hero-card-float 4s ease-in-out infinite;
+  will-change: transform;
+}
+
 /* カード将棋: 山札がドロー可能なときの誘目アニメーション (R13/R14)
    通常色合いから「より明るく」脈動。最暗時でも非活性に見えない明度を維持。
    shadow を併用して輝度の変化を強調。 */
@@ -882,5 +959,17 @@
   /* 山札ドロー誘発のグロウパルス */
   .animate-deck-draw {
     animation: deck-draw-glow 3.2s ease-in-out infinite;
+  }
+
+  /* Issue #117: ホーム背景の浮遊オーブ・CTA 脈動・Hero フロートを停止 */
+  .home-bg-orb-a,
+  .home-bg-orb-b {
+    animation: none;
+  }
+  .home-cta-pulse::after {
+    animation: none;
+  }
+  .animate-hero-card-float {
+    animation: none;
   }
 }

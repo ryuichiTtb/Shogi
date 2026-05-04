@@ -24,10 +24,19 @@ async function loadDeckSpecForUser(userId: string): Promise<DeckSpec[]> {
   if (!deck) {
     throw new Error(`No default deck found for user ${userId}. Run "npx prisma db seed".`);
   }
-  // 廃止カード(status: "deprecated")が DB の DeckEntry に残っていても初期デッキには含めない。
-  // seed 再実行で削除されるはずだが、未再実行の環境向けのランタイムガード。
+  // Issue #117 (#128): 以下 2 種を初期デッキから除外。除外しないと
+  // (a) deprecated カード: 効果ロジックが消えており playCard で例外
+  // (b) orphan カード (CARD_DEFS に居ない: 例 check_break): CardView 描画時に
+  //     `CARD_DEFS[defId]` が undefined → `def.rarity` で NPE → 対局画面クラッシュ
   return deck.entries
-    .filter((e) => CARD_DEFS[e.cardId as DeckSpec["defId"]]?.status !== "deprecated")
+    .filter((e) => {
+      const def = CARD_DEFS[e.cardId as DeckSpec["defId"]];
+      // orphan は弾く
+      if (!def) return false;
+      // deprecated は弾く
+      if (def.status === "deprecated") return false;
+      return true;
+    })
     .map((e) => ({
       defId: e.cardId as DeckSpec["defId"],
       count: e.count,

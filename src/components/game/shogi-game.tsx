@@ -270,7 +270,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
                 {gameResultText(gameState.status, gameState.winner)}
               </p>
               <div className="flex gap-2 justify-center">
-                <Link href="/">
+                <Link href="/classic">
                   <Button size="sm" variant="outline">
                     ホームへ
                   </Button>
@@ -295,6 +295,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
             gameWinner={gameState.winner}
             onPlayAgain={handlePlayAgain}
             isPending={isPending}
+            homeHref="/classic"
           />
         </div>
       </div>

@@ -13,6 +13,7 @@ import {
   type CardBackStyle,
 } from "@/components/card-back/style-options";
 import type { MockSize } from "@/components/card-back/sizes";
+import { AppBackground } from "@/components/layout/app-background";
 import { cn } from "@/lib/utils";
 
 const NORMAL_SIZES: MockSize[] = ["sm", "md", "lg"];
@@ -87,11 +88,12 @@ export default function CardDesignPage() {
   const { style: currentStyle, setStyle } = useCardBackStyle();
 
   return (
-    <main className="min-h-dvh bg-gradient-to-b from-slate-50 dark:from-slate-950 to-background pb-16">
+    <main className="min-h-dvh pb-16">
+      <AppBackground variant="page" />
       {/* Step S2 (Issue #107): ホームリンク + 説明書きエリアを sticky 固定。
           スクロール時もヘッダが画面上端に残る。背景は半透明 + backdrop-blur で
           下のリストが透けないようにする。 */}
-      <header className="sticky top-0 z-40 bg-slate-50/90 dark:bg-slate-950/90 backdrop-blur-sm border-b border-border/50">
+      <header className="sticky top-0 z-40 bg-background/90 backdrop-blur-sm border-b border-border/50">
         <div className="max-w-5xl mx-auto px-4 py-3 sm:py-4 w-full flex items-center gap-3">
           <Link
             href="/"
