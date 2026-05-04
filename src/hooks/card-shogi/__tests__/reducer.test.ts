@@ -671,4 +671,73 @@ describe("reducer / 自動ドロー (#130)", () => {
     expect(next.cardState.drawProgress.sente).toBe(3);
     expect(next.cardState.drawProgress.gote).toBe(3);
   });
+
+  it("DRAW_COST=2: マナ 2 で manual draw 成立、マナ 1 では state 不変", () => {
+    // commit 1 で DRAW_COST が 3→2 に下がった事を保証する回帰テスト
+    expect(DRAW_COST).toBe(2);
+    const c = card("d-cost", "mana_up");
+    // mana=2: 成立
+    const stateOk = makeInitialState(
+      undefined,
+      makeInitialCardState({
+        mana: { sente: 2, gote: 0 },
+        deck: { sente: [c], gote: [] },
+      }),
+    );
+    const okNext = reducer(stateOk, { type: "DRAW_CARD", player: "sente" });
+    expect(okNext.cardState.mana.sente).toBe(0);
+    expect(okNext.cardState.hand.sente).toEqual([c]);
+    expect(okNext.isDrawing).toBe(true);
+    // mana=1: 不成立
+    const stateNg = makeInitialState(
+      undefined,
+      makeInitialCardState({
+        mana: { sente: 1, gote: 0 },
+        deck: { sente: [c], gote: [] },
+      }),
+    );
+    const ngNext = reducer(stateNg, { type: "DRAW_CARD", player: "sente" });
+    expect(ngNext).toBe(stateNg);
+  });
+
+  it("AI 二重発火防止: gote の MAKE_MOVE で auto-draw 発火後、currentPlayer は反転済 + isDrawing=true を維持", () => {
+    // gote 手番、drawProgress[gote]=4。gote が 1 手指すと drawProgress=5 → auto-draw 発火。
+    // 結果として currentPlayer は sente に反転済 (applyMove 結果) かつ
+    // isDrawing=true (=auto-draw 演出中) で、AI useEffect の再発火条件を満たさないこと。
+    const gameState: GameState = {
+      ...createInitialGameState(CARD_SHOGI_VARIANT),
+      currentPlayer: "gote",
+    };
+    const deckCard = card("auto-gote", "mana_up");
+    const state = makeInitialState(
+      gameState,
+      makeInitialCardState({
+        deck: { sente: [], gote: [deckCard] },
+        drawProgress: { sente: 0, gote: AUTO_DRAW_INTERVAL - 1 },
+      }),
+    );
+    const goteMove = {
+      type: "move" as const,
+      player: "gote" as const,
+      piece: "pawn",
+      from: { row: 2, col: 4 },
+      to: { row: 3, col: 4 },
+    };
+    const next = reducer(state, { type: "MAKE_MOVE", move: goteMove });
+    // currentPlayer は applyMove で sente に反転済
+    expect(next.gameState.currentPlayer).toBe("sente");
+    // auto-draw が発火し isDrawing=true
+    expect(next.isDrawing).toBe(true);
+    expect(next.pendingDrawPlayer).toBe("gote");
+    expect(next.pendingDrawSource).toBe("auto");
+    // hand[gote] にカード追加、deck[gote] 空
+    expect(next.cardState.hand.gote).toEqual([deckCard]);
+    expect(next.cardState.deck.gote).toEqual([]);
+    // drawProgress[gote] リセット
+    expect(next.cardState.drawProgress.gote).toBe(0);
+    // 次に MAKE_MOVE をもう 1 回呼んでも、本テストでは AI 二重発火は reducer 自体ではなく
+    // use-card-shogi-game.ts の useEffect ガード (state.isDrawing チェック) で防がれる。
+    // ここでは reducer 出力が「ガード条件を満たす状態 (currentPlayer flipped + isDrawing=true)」
+    // になっていることを保証する。
+  });
 });
