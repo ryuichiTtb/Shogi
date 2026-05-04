@@ -65,6 +65,7 @@ function makeCardState(overrides: Partial<CardGameState> = {}): CardGameState {
     pendingCard: null,
     lastTurnStartedAt: { sente: null, gote: null },
     noPromoteMarks: { sente: [], gote: [] },
+    drawProgress: { sente: 0, gote: 0 },
     ...overrides,
   };
 }

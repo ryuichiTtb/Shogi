@@ -117,6 +117,11 @@ export interface CardGameState {
   lastTurnStartedAt: Record<Player, number | null>;
   // no_promote の永続マーク。各プレイヤーの「成り不可」駒の現在位置リスト。
   noPromoteMarks: Record<Player, PieceMark[]>;
+  // Issue #130: 自動ドロー進捗。各プレイヤーごとに「自分の手番が終わるたびに +1」で
+  // カウントし、AUTO_DRAW_INTERVAL に到達するとマナ消費なしで自動ドローが発火する。
+  // 値域は 0..AUTO_DRAW_INTERVAL を想定。山札枯渇時は加算が AUTO_DRAW_INTERVAL を
+  // 超えうるが、UI では Math.min(progress, interval) でクランプして表示する。
+  drawProgress: Record<Player, number>;
 }
 
 // Step 5 (Issue #107): 旧 CHARGE_MANA / SET_TRAP / TRIGGER_TRAP は dead code
@@ -154,10 +159,16 @@ export interface TrapCapturedPiece {
   originalOwner: Player;
 }
 
+// Issue #130: ドロー発火源。手動 (DRAW_CARD コマンド) か、自動 (AUTO_DRAW_INTERVAL 到達)
+// かを区別する。UNDO のブロック判定 (auto はブロックしない) と UI 演出 (色味・規模) で参照。
+// optional とすることで、過去の DB 保存ログ (source 未記録時代) との互換を保つ。
+// 未指定は manual 扱い (`(ev.source ?? "manual")` のフォールバックを各参照箇所で使う)。
+export type DrawSource = "manual" | "auto";
+
 export type GameEvent =
   | { kind: "moveEvent"; move: Move; at: number }
   | { kind: "manaChargeEvent"; player: Player; amount: number; reason: "turn" | "card"; fastMove?: boolean; at: number }
-  | { kind: "drawEvent"; player: Player; instance: CardInstance; at: number }
+  | { kind: "drawEvent"; player: Player; instance: CardInstance; source?: DrawSource; at: number }
   | { kind: "cardPlayEvent"; player: Player; instance: CardInstance; target?: CardTarget; at: number }
   | { kind: "trapSetEvent"; player: Player; instance: TrapInstance; at: number }
   | { kind: "trapTriggerEvent"; player: Player; instance: TrapInstance; reason: TrapTrigger; capturedPieces?: TrapCapturedPiece[]; at: number };

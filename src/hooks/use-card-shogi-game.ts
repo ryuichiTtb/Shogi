@@ -46,6 +46,7 @@ export function useCardShogiGame({
     eventLog: [],
     isDrawing: false,
     pendingDrawPlayer: null,
+    pendingDrawSource: null,
     isPlayingCard: false,
     pendingPlayCardOpponent: null,
     isCheckBreakAnimating: false,

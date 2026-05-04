@@ -4,7 +4,7 @@ import { createInitialGameState } from "@/lib/shogi/board";
 import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
 import type { GameState } from "@/lib/shogi/types";
 import type { CardGameState, CardInstance } from "@/lib/shogi/cards/types";
-import { MANA_CAP, DRAW_COST } from "@/lib/shogi/cards/definitions";
+import { MANA_CAP, DRAW_COST, AUTO_DRAW_INTERVAL } from "@/lib/shogi/cards/definitions";
 
 import { reducer, type CardShogiGameStateInternal } from "../reducer";
 
@@ -21,6 +21,7 @@ function makeInitialCardState(overrides: Partial<CardGameState> = {}): CardGameS
     pendingCard: null,
     lastTurnStartedAt: { sente: null, gote: null },
     noPromoteMarks: { sente: [], gote: [] },
+    drawProgress: { sente: 0, gote: 0 },
     ...overrides,
   };
 }
@@ -40,6 +41,7 @@ function makeInitialState(
     eventLog: [],
     isDrawing: false,
     pendingDrawPlayer: null,
+    pendingDrawSource: null,
     isPlayingCard: false,
     pendingPlayCardOpponent: null,
     isCheckBreakAnimating: false,
@@ -393,5 +395,186 @@ describe("reducer / 王手崩しトラップ (check_break)", () => {
     expect(next.gameState.board[3][4]).toEqual({ type: "pawn", owner: "sente" });
     expect(next.gameState.hand.gote.pawn).toBeUndefined();
     expect(next.isCheckBreakAnimating).toBe(false);
+  });
+});
+
+// ===== 自動ドロー (#130) =====
+
+describe("reducer / 自動ドロー (#130)", () => {
+  // 共通: 1 マス前進する歩の move
+  const sentePawnMove = {
+    type: "move" as const,
+    player: "sente" as const,
+    piece: "pawn",
+    from: { row: 6, col: 4 },
+    to: { row: 5, col: 4 },
+  };
+
+  it("MAKE_MOVE で drawProgress[mover] が +1 される", () => {
+    const state = makeInitialState();
+    expect(state.cardState.drawProgress.sente).toBe(0);
+    const next = reducer(state, { type: "MAKE_MOVE", move: sentePawnMove });
+    expect(next.cardState.drawProgress.sente).toBe(1);
+    expect(next.cardState.drawProgress.gote).toBe(0);
+  });
+
+  it("CONFIRM_PROMOTION で drawProgress[mover] が +1 される (成り宣言したケース)", () => {
+    // 成り対象範囲 (row<=2) の sente 歩を作成
+    const gameState: GameState = {
+      ...createInitialGameState(CARD_SHOGI_VARIANT),
+      board: Array.from({ length: 9 }, () => Array(9).fill(null)),
+      hand: { sente: {}, gote: {} },
+      currentPlayer: "sente",
+    };
+    gameState.board[8][4] = { type: "king", owner: "sente" };
+    gameState.board[0][8] = { type: "king", owner: "gote" };
+    gameState.board[3][4] = { type: "pawn", owner: "sente" };
+    const state = makeInitialState(gameState);
+    const move = {
+      type: "move" as const,
+      player: "sente" as const,
+      piece: "pawn",
+      from: { row: 3, col: 4 },
+      to: { row: 2, col: 4 },
+    };
+    const stateWithPending = { ...state, promotionPendingMove: move };
+    const next = reducer(stateWithPending, { type: "CONFIRM_PROMOTION", promote: true });
+    expect(next.cardState.drawProgress.sente).toBe(1);
+    expect(next.cardState.drawProgress.gote).toBe(0);
+  });
+
+  it("DRAW_CARD → COMMIT_DRAW (manual) で drawProgress[drawer] が +1 される (連鎖発火しない正常系)", () => {
+    const deckCard = card("d1", "mana_up");
+    const state = makeInitialState(
+      undefined,
+      makeInitialCardState({
+        mana: { sente: DRAW_COST, gote: 0 },
+        deck: { sente: [deckCard, card("d2", "mana_up")], gote: [] },
+      }),
+    );
+    expect(state.cardState.drawProgress.sente).toBe(0);
+    const drawn = reducer(state, { type: "DRAW_CARD", player: "sente" });
+    // DRAW_CARD 単体では drawProgress は変化しない (COMMIT_DRAW で加算)
+    expect(drawn.cardState.drawProgress.sente).toBe(0);
+    expect(drawn.pendingDrawSource).toBe("manual");
+    const committed = reducer(drawn, { type: "COMMIT_DRAW" });
+    expect(committed.cardState.drawProgress.sente).toBe(1);
+    expect(committed.gameState.currentPlayer).toBe("gote");
+    expect(committed.isDrawing).toBe(false);
+    expect(committed.pendingDrawSource).toBeNull();
+  });
+
+  it("CONFIRM_PLAY_CARD → COMMIT_PLAY_CARD で drawProgress[player] が +1 される", () => {
+    const c = card("c1", "mana_up");
+    const state = makeInitialState(
+      undefined,
+      makeInitialCardState({
+        mana: { sente: 5, gote: 0 },
+        hand: { sente: [c], gote: [] },
+        pendingCard: { instance: c, player: "sente", phase: "confirm" },
+      }),
+    );
+    const confirmed = reducer(state, { type: "CONFIRM_PLAY_CARD" });
+    // CONFIRM_PLAY_CARD では drawProgress は変化しない (COMMIT_PLAY_CARD で加算)
+    expect(confirmed.cardState.drawProgress.sente).toBe(0);
+    const committed = reducer(confirmed, { type: "COMMIT_PLAY_CARD" });
+    expect(committed.cardState.drawProgress.sente).toBe(1);
+    expect(committed.gameState.currentPlayer).toBe("gote");
+  });
+
+  it("drawProgress=4 で MAKE_MOVE → 自動ドローが発火 (isDrawing=true, source=auto)", () => {
+    const deckCard = card("d1", "pawn_return");
+    const state = makeInitialState(
+      undefined,
+      makeInitialCardState({
+        deck: { sente: [deckCard], gote: [] },
+        drawProgress: { sente: AUTO_DRAW_INTERVAL - 1, gote: 0 },
+      }),
+    );
+    const next = reducer(state, { type: "MAKE_MOVE", move: sentePawnMove });
+    expect(next.cardState.drawProgress.sente).toBe(0);
+    expect(next.cardState.hand.sente).toEqual([deckCard]);
+    expect(next.cardState.deck.sente).toEqual([]);
+    expect(next.isDrawing).toBe(true);
+    expect(next.pendingDrawPlayer).toBe("sente");
+    expect(next.pendingDrawSource).toBe("auto");
+    // drawEvent (auto) が emit されている
+    const drawEvents = next.eventLog.filter((e) => e.kind === "drawEvent");
+    expect(drawEvents.length).toBe(1);
+    if (drawEvents[0].kind === "drawEvent") {
+      expect(drawEvents[0].source).toBe("auto");
+      expect(drawEvents[0].player).toBe("sente");
+    }
+  });
+
+  it("drawProgress=4 で 手動ドロー → COMMIT_DRAW(manual) で auto-draw 連鎖発火 (二段階)", () => {
+    const deckCard1 = card("d1", "mana_up");
+    const deckCard2 = card("d2", "pawn_return");
+    const state = makeInitialState(
+      undefined,
+      makeInitialCardState({
+        mana: { sente: DRAW_COST, gote: 0 },
+        deck: { sente: [deckCard1, deckCard2], gote: [] },
+        drawProgress: { sente: AUTO_DRAW_INTERVAL - 1, gote: 0 },
+      }),
+    );
+    // 1段目: 手動ドロー
+    const drawn = reducer(state, { type: "DRAW_CARD", player: "sente" });
+    expect(drawn.cardState.hand.sente).toEqual([deckCard1]);
+    expect(drawn.cardState.deck.sente).toEqual([deckCard2]);
+    expect(drawn.pendingDrawSource).toBe("manual");
+    // drawProgress は DRAW_CARD では変化しない
+    expect(drawn.cardState.drawProgress.sente).toBe(AUTO_DRAW_INTERVAL - 1);
+
+    // 2段目: COMMIT_DRAW(manual) → drawProgress 4→5 でしきい値到達 → auto-draw 連鎖
+    const committed = reducer(drawn, { type: "COMMIT_DRAW" });
+    // 連鎖 auto-draw が発火: hand に 2 枚目の deckCard2 が追加
+    expect(committed.cardState.hand.sente).toEqual([deckCard1, deckCard2]);
+    expect(committed.cardState.deck.sente).toEqual([]);
+    expect(committed.cardState.drawProgress.sente).toBe(0);
+    // isDrawing は連鎖 auto-draw 用に再度 true、source=auto
+    expect(committed.isDrawing).toBe(true);
+    expect(committed.pendingDrawPlayer).toBe("sente");
+    expect(committed.pendingDrawSource).toBe("auto");
+    // currentPlayer は manual COMMIT_DRAW で gote に反転済 (auto は反転しない)
+    expect(committed.gameState.currentPlayer).toBe("gote");
+    // drawEvent が 2 件 (manual + auto)
+    const drawEvents = committed.eventLog.filter((e) => e.kind === "drawEvent");
+    expect(drawEvents.length).toBe(2);
+    if (drawEvents[0].kind === "drawEvent" && drawEvents[1].kind === "drawEvent") {
+      expect(drawEvents[0].source).toBe("manual");
+      expect(drawEvents[1].source).toBe("auto");
+    }
+  });
+
+  it("deck 空時: drawProgress が 5 に達してもドローは発火せず isDrawing=false のまま", () => {
+    const state = makeInitialState(
+      undefined,
+      makeInitialCardState({
+        deck: { sente: [], gote: [] },
+        drawProgress: { sente: AUTO_DRAW_INTERVAL - 1, gote: 0 },
+      }),
+    );
+    const next = reducer(state, { type: "MAKE_MOVE", move: sentePawnMove });
+    // 進捗は 5 に達したが、deck 空なので発火せず加算のみ
+    expect(next.cardState.drawProgress.sente).toBe(AUTO_DRAW_INTERVAL);
+    expect(next.cardState.hand.sente).toEqual([]);
+    expect(next.isDrawing).toBe(false);
+    expect(next.pendingDrawSource).toBeNull();
+    // drawEvent は emit されない
+    const drawEvents = next.eventLog.filter((e) => e.kind === "drawEvent");
+    expect(drawEvents.length).toBe(0);
+  });
+
+  it("両者独立カウント: sente の MAKE_MOVE は gote の drawProgress に影響しない", () => {
+    const state = makeInitialState(
+      undefined,
+      makeInitialCardState({
+        drawProgress: { sente: 2, gote: 3 },
+      }),
+    );
+    const next = reducer(state, { type: "MAKE_MOVE", move: sentePawnMove });
+    expect(next.cardState.drawProgress.sente).toBe(3);
+    expect(next.cardState.drawProgress.gote).toBe(3);
   });
 });

@@ -24,6 +24,7 @@ import {
   MANA_PER_TURN,
   MANA_FAST_BONUS,
   FAST_THRESHOLD_MS,
+  AUTO_DRAW_INTERVAL,
 } from "@/lib/shogi/cards/definitions";
 import {
   applyManaUp,
@@ -70,6 +71,10 @@ export interface CardShogiGameStateInternal {
   // true の間は currentPlayer 反転を保留し、AI 自動応手をブロックする。
   isDrawing: boolean;
   pendingDrawPlayer: Player | null;
+  // Issue #130: ドロー発火源。"manual" は DRAW_CARD コマンド由来 (currentPlayer 未反転、
+  // COMMIT_DRAW で反転 + applyTurnEndEffects 実行)。"auto" は applyTurnEndEffects のしきい値
+  // 到達由来 (currentPlayer は呼び元で既に反転済、COMMIT_DRAW ではフラグクリアのみ)。
+  pendingDrawSource: "manual" | "auto" | null;
   // カード使用演出中フラグ。CONFIRM_PLAY_CARD で true、演出完了時の COMMIT_PLAY_CARD で false。
   // true の間は currentPlayer 反転を保留し、AI 自動応手・ユーザー操作をブロックする。
   isPlayingCard: boolean;
@@ -238,6 +243,62 @@ function isKingInCheckAfterMove(gameState: GameState, move: Move): boolean {
   return isInCheck(nextState, move.player, CARD_SHOGI_VARIANT);
 }
 
+// Issue #130: 「player の手番が終わった」直後に呼び、自動ドロー進捗を加算する。
+// しきい値 (AUTO_DRAW_INTERVAL) 到達 + 山札にカードあり、の条件を満たすと自動ドローを
+// 発火する。発火時は drawProgress を 0 にリセットし、isDrawing/pendingDrawPlayer/
+// pendingDrawSource をセットして UI 演出を起動する。
+//
+// 呼び出し規約:
+// - 呼び出し元 (MAKE_MOVE / CONFIRM_PROMOTION / COMMIT_DRAW(manual) / COMMIT_PLAY_CARD)
+//   で「currentPlayer の反転」は事前に済ませておくこと。本ヘルパーは反転を行わない。
+// - player は「手番が終わった = ドロー進捗を加算する側」のプレイヤーを渡す。
+//   currentPlayer (= 反転後の手番) ではなく、直前まで指していた側。
+//
+// 山札枯渇時は drawProgress を加算するだけで発火しない (進捗カップなし、加算は継続)。
+// UI 表示は Math.min(progress, AUTO_DRAW_INTERVAL) でクランプ。
+function applyTurnEndEffects(
+  state: CardShogiGameStateInternal,
+  player: Player,
+): CardShogiGameStateInternal {
+  const current = state.cardState.drawProgress[player];
+  const next = current + 1;
+  const deck = state.cardState.deck[player];
+
+  if (next < AUTO_DRAW_INTERVAL || deck.length === 0) {
+    // しきい値未到達、または deck 枯渇で発火不可: 進捗のみ加算
+    return {
+      ...state,
+      cardState: {
+        ...state.cardState,
+        drawProgress: { ...state.cardState.drawProgress, [player]: next },
+      },
+    };
+  }
+
+  // しきい値到達 + deck あり: 自動ドロー発火
+  const [top, ...rest] = deck;
+  return {
+    ...state,
+    // 自動ドロー発火時は駒選択状態をクリア (DRAW_CARD と同じ挙動)
+    selectedSquare: null,
+    selectedHandPiece: null,
+    legalMoves: [],
+    cardState: {
+      ...state.cardState,
+      drawProgress: { ...state.cardState.drawProgress, [player]: 0 },
+      deck: { ...state.cardState.deck, [player]: rest },
+      hand: { ...state.cardState.hand, [player]: [...state.cardState.hand[player], top] },
+    },
+    eventLog: [
+      ...state.eventLog,
+      { kind: "drawEvent", player, instance: top, source: "auto", at: Date.now() },
+    ],
+    isDrawing: true,
+    pendingDrawPlayer: player,
+    pendingDrawSource: "auto",
+  };
+}
+
 export function reducer(
   state: CardShogiGameStateInternal,
   action: Action,
@@ -331,7 +392,7 @@ export function reducer(
 
     case "MAKE_MOVE": {
       const result = makeMoveWithEffects(state.gameState, state.cardState, action.move);
-      return {
+      const stateAfter: CardShogiGameStateInternal = {
         ...state,
         gameState: result.gameState,
         cardState: result.cardState,
@@ -342,6 +403,8 @@ export function reducer(
         promotionPendingMove: null,
         isCheckBreakAnimating: result.triggeredCheckBreak || state.isCheckBreakAnimating,
       };
+      // Issue #130: 自分の手番が終わった瞬間 = 自動ドロー進捗 +1
+      return applyTurnEndEffects(stateAfter, action.move.player);
     }
 
     case "SET_AI_THINKING":
@@ -357,7 +420,7 @@ export function reducer(
         ? { ...pendingMove, promote: true }
         : pendingMove;
       const result = makeMoveWithEffects(state.gameState, state.cardState, moveWithPromote);
-      return {
+      const stateAfter: CardShogiGameStateInternal = {
         ...state,
         gameState: result.gameState,
         cardState: result.cardState,
@@ -367,6 +430,8 @@ export function reducer(
         legalMoves: [],
         isCheckBreakAnimating: result.triggeredCheckBreak || state.isCheckBreakAnimating,
       };
+      // Issue #130: 自分の手番が終わった瞬間 = 自動ドロー進捗 +1
+      return applyTurnEndEffects(stateAfter, moveWithPromote.player);
     }
 
     case "CANCEL_PROMOTION":
@@ -510,20 +575,26 @@ export function reducer(
         legalMoves: [],
         eventLog: [
           ...state.eventLog,
-          { kind: "drawEvent", player: action.player, instance: top, at: Date.now() },
+          { kind: "drawEvent", player: action.player, instance: top, source: "manual", at: Date.now() },
         ],
         isDrawing: true,
         pendingDrawPlayer: action.player,
+        pendingDrawSource: "manual",
       };
     }
 
     case "COMMIT_DRAW": {
       if (!state.isDrawing || !state.pendingDrawPlayer) return state;
       const drawer = state.pendingDrawPlayer;
-      const opponent: Player = drawer === "sente" ? "gote" : "sente";
-      return {
+      // Issue #130: 発火源で挙動分岐。
+      // - manual: currentPlayer 未反転なので反転 + applyTurnEndEffects (drawProgress +1、
+      //   しきい値到達なら auto-draw 連鎖発火)
+      // - auto: currentPlayer は呼び元 (MAKE_MOVE / CONFIRM_PROMOTION / COMMIT_PLAY_CARD /
+      //   COMMIT_DRAW(manual)) で既に反転済 + drawProgress も同箇所で 0 リセット済。
+      //   ここではフラグクリア + lastTurnStartedAt クリアのみ行う。
+      const source = state.pendingDrawSource ?? "manual";
+      const cleared: CardShogiGameStateInternal = {
         ...state,
-        gameState: { ...state.gameState, currentPlayer: opponent },
         cardState: {
           ...state.cardState,
           lastTurnStartedAt: {
@@ -533,7 +604,17 @@ export function reducer(
         },
         isDrawing: false,
         pendingDrawPlayer: null,
+        pendingDrawSource: null,
       };
+      if (source === "auto") {
+        return cleared;
+      }
+      const opponent: Player = drawer === "sente" ? "gote" : "sente";
+      const flipped: CardShogiGameStateInternal = {
+        ...cleared,
+        gameState: { ...cleared.gameState, currentPlayer: opponent },
+      };
+      return applyTurnEndEffects(flipped, drawer);
     }
 
     case "BEGIN_PLAY_CARD": {
@@ -714,7 +795,7 @@ export function reducer(
       if (!state.isPlayingCard || !state.pendingPlayCardOpponent) return state;
       const opponent = state.pendingPlayCardOpponent;
       const player: Player = opponent === "sente" ? "gote" : "sente";
-      return {
+      const stateAfter: CardShogiGameStateInternal = {
         ...state,
         gameState: { ...state.gameState, currentPlayer: opponent },
         cardState: {
@@ -727,6 +808,8 @@ export function reducer(
         isPlayingCard: false,
         pendingPlayCardOpponent: null,
       };
+      // Issue #130: カード使用も「自分の手番が終わった瞬間」に該当 → drawProgress +1
+      return applyTurnEndEffects(stateAfter, player);
     }
 
     case "CANCEL_PLAY_CARD": {
