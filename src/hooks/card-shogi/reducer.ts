@@ -49,6 +49,7 @@ import {
   moveNoPromoteMark,
   hasSameKindTrapPlaced,
 } from "@/lib/shogi/cards/effects";
+import { getUndoScope } from "./undo-policy";
 
 export type ShogiAction =
   | { type: "SELECT_SQUARE"; pos: Position }
@@ -669,36 +670,17 @@ export function reducer(
       // 1手目戻しは UNDO_DOUBLE_MOVE_FIRST 専用アクションを使う。
       if (state.doubleMove) return state;
       // 駒指しの最後の 2 手 (プレイヤー + AI) を巻き戻す。
-      // 仕様 (P28): 過去 2 手の間にカード操作 (drawCard/cardPlay/trapSet/trapTrigger) が含まれる場合は undo 不可。
+      // 仕様 (P28): 過去 2 ターン (= プレイヤー切替 2 回までのスコープ) にカード操作
+      // (drawCard/cardPlay/trapSet/trapTrigger) が含まれる場合は undo 不可。
+      // 同色 moveEvent の連続 (= 二手指しの 1手目+2手目) は同じターン扱いで通り抜ける。
       // 含まれない場合は、移動巻き戻し + その 2 手分のターンチャージマナを巻き戻す。
+      // 判定ロジックは undo-policy.ts に集約 (canUndo memo と共通化)。
       const history = state.gameState.moveHistory;
       if (history.length < 2) return state;
 
-      // eventLog の末尾から moveEvent 2 件分のスコープを確認し、間にカード操作があるか判定
       const log = state.eventLog;
-      let movesSeen = 0;
-      let hasCardOp = false;
-      let scopeStartIndex = 0; // この index 以降が undo 対象スコープ
-      for (let i = log.length - 1; i >= 0; i--) {
-        const ev = log[i];
-        if (ev.kind === "moveEvent") {
-          movesSeen++;
-          if (movesSeen === 2) {
-            scopeStartIndex = i;
-            break;
-          }
-        } else if (
-          ev.kind === "cardPlayEvent" ||
-          ev.kind === "drawEvent" ||
-          ev.kind === "trapSetEvent" ||
-          ev.kind === "trapTriggerEvent"
-        ) {
-          hasCardOp = true;
-          break;
-        }
-      }
-      if (hasCardOp) return state;
-      if (movesSeen < 2) return state;
+      const scopeStartIndex = getUndoScope(log);
+      if (scopeStartIndex === null) return state;
 
       // 巻き戻すターンチャージマナを集計
       let revertSenteMana = 0;

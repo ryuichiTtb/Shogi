@@ -667,3 +667,139 @@ describe("reducer / 二手指し (double_move)", () => {
     expect(kingCapture).toBeUndefined();
   });
 });
+
+// ===== Issue #82 反映: 待った の カード操作直後ガード (回帰テスト) =====
+// 過去 2 ターン (= プレイヤー切替 2 回までの範囲) に カード操作系イベント
+// (cardPlayEvent / drawEvent / trapSetEvent / trapTriggerEvent) があれば、
+// reducer の UNDO は state を変えず返す。
+//
+// 既存の通常カード代表 + 二手指し の代表 2 ケースで結合動作を検証。
+
+describe("reducer / UNDO カード操作ガード (Issue #82)", () => {
+  it("通常カード使用直後 (cardPlayEvent → 相手手) → UNDO は state 不変", () => {
+    const gameState: GameState = {
+      board: Array.from({ length: 9 }, () => Array(9).fill(null)),
+      hand: { sente: {}, gote: {} },
+      currentPlayer: "sente",
+      moveHistory: [
+        // 過去に sente, gote の通常手が 1 件ずつあるとする (待った には 2 手必要)
+        { type: "move", from: { row: 6, col: 4 }, to: { row: 5, col: 4 }, piece: "pawn", player: "sente" },
+        { type: "move", from: { row: 2, col: 4 }, to: { row: 3, col: 4 }, piece: "pawn", player: "gote" },
+      ],
+      positionHistory: [],
+      status: "active",
+      moveCount: 2,
+    };
+    const eventLog: GameEvent[] = [
+      { kind: "moveEvent", move: gameState.moveHistory[0], at: 1 },
+      { kind: "manaChargeEvent", player: "sente", reason: "turn", amount: 1, at: 2 },
+      { kind: "moveEvent", move: gameState.moveHistory[1], at: 3 },
+      { kind: "manaChargeEvent", player: "gote", reason: "turn", amount: 1, at: 4 },
+      // sente が通常カードを使用 → cardPlayEvent (sente の手番消費 = moveEvent なし)
+      {
+        kind: "cardPlayEvent",
+        player: "sente",
+        instance: { instanceId: "c1", defId: "pawn_return" },
+        at: 5,
+      },
+      // gote の手番
+      { kind: "moveEvent", move: gameState.moveHistory[1], at: 6 },
+      { kind: "manaChargeEvent", player: "gote", reason: "turn", amount: 1, at: 7 },
+    ];
+
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(gameState),
+      eventLog,
+    };
+
+    const next = reducer(state, { type: "UNDO" });
+    // state 不変であること (block されたら元の state を返す)
+    expect(next).toBe(state);
+  });
+
+  it("二手指し使用後 (cardPlayEvent → 1手目 + 2手目 → 相手手) → UNDO は state 不変", () => {
+    const gameState: GameState = {
+      board: Array.from({ length: 9 }, () => Array(9).fill(null)),
+      hand: { sente: {}, gote: {} },
+      currentPlayer: "sente",
+      moveHistory: [
+        // 1手目, 2手目, gote の 3 手 (待った 対象は最後の 2 手 = 2手目 + gote)
+        { type: "move", from: { row: 6, col: 4 }, to: { row: 5, col: 4 }, piece: "pawn", player: "sente" },
+        { type: "move", from: { row: 5, col: 4 }, to: { row: 4, col: 4 }, piece: "pawn", player: "sente" },
+        { type: "move", from: { row: 2, col: 4 }, to: { row: 3, col: 4 }, piece: "pawn", player: "gote" },
+      ],
+      positionHistory: [],
+      status: "active",
+      moveCount: 3,
+    };
+    const eventLog: GameEvent[] = [
+      // sente が double_move カードを使用
+      {
+        kind: "cardPlayEvent",
+        player: "sente",
+        instance: { instanceId: "dm1", defId: "double_move" },
+        at: 1,
+      },
+      // 1手目 (sente moveEvent、manaChargeEvent なし: double_move_first モード)
+      { kind: "moveEvent", move: gameState.moveHistory[0], at: 2 },
+      // 2手目 (sente moveEvent、manaChargeEvent なし: double_move_second モード)
+      { kind: "moveEvent", move: gameState.moveHistory[1], at: 3 },
+      // gote の手番
+      { kind: "moveEvent", move: gameState.moveHistory[2], at: 4 },
+      { kind: "manaChargeEvent", player: "gote", reason: "turn", amount: 1, at: 5 },
+    ];
+
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(gameState),
+      eventLog,
+    };
+
+    const next = reducer(state, { type: "UNDO" });
+    // state 不変であること (cardPlayEvent が直近 2 ターン内に検出されて block)
+    expect(next).toBe(state);
+  });
+
+  it("通常進行 (カード操作なし、4 手以上) → UNDO は実行され state が変わる", () => {
+    const gameState: GameState = {
+      board: Array.from({ length: 9 }, () => Array(9).fill(null)),
+      hand: { sente: {}, gote: {} },
+      currentPlayer: "sente",
+      moveHistory: [
+        { type: "move", from: { row: 6, col: 4 }, to: { row: 5, col: 4 }, piece: "pawn", player: "sente" },
+        { type: "move", from: { row: 2, col: 4 }, to: { row: 3, col: 4 }, piece: "pawn", player: "gote" },
+        { type: "move", from: { row: 6, col: 5 }, to: { row: 5, col: 5 }, piece: "pawn", player: "sente" },
+        { type: "move", from: { row: 2, col: 5 }, to: { row: 3, col: 5 }, piece: "pawn", player: "gote" },
+      ],
+      positionHistory: [],
+      status: "active",
+      moveCount: 4,
+    };
+    const eventLog: GameEvent[] = [
+      { kind: "moveEvent", move: gameState.moveHistory[0], at: 1 },
+      { kind: "manaChargeEvent", player: "sente", reason: "turn", amount: 1, at: 2 },
+      { kind: "moveEvent", move: gameState.moveHistory[1], at: 3 },
+      { kind: "manaChargeEvent", player: "gote", reason: "turn", amount: 1, at: 4 },
+      { kind: "moveEvent", move: gameState.moveHistory[2], at: 5 },
+      { kind: "manaChargeEvent", player: "sente", reason: "turn", amount: 1, at: 6 },
+      { kind: "moveEvent", move: gameState.moveHistory[3], at: 7 },
+      { kind: "manaChargeEvent", player: "gote", reason: "turn", amount: 1, at: 8 },
+    ];
+
+    const cardState = makeInitialCardState({ mana: { sente: 5, gote: 5 } });
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(gameState, cardState),
+      eventLog,
+    };
+
+    const next = reducer(state, { type: "UNDO" });
+    // state が変わること (UNDO が実行された)
+    expect(next).not.toBe(state);
+    // moveHistory が 2 件減ること
+    expect(next.gameState.moveHistory.length).toBe(2);
+    // マナが巻き戻ること (sente: 5-1=4, gote: 5-1=4)
+    expect(next.cardState.mana.sente).toBe(4);
+    expect(next.cardState.mana.gote).toBe(4);
+    // eventLog が scope 前まで truncate されること
+    expect(next.eventLog.length).toBe(4); // 元の 8 件のうち 後半 4 件が削除
+  });
+});

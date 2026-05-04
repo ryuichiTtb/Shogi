@@ -9,6 +9,7 @@ import { ChevronUp, ChevronDown, Volume2, VolumeX } from "lucide-react";
 import { useCardShogiGame } from "@/hooks/use-card-shogi-game";
 import { useSound } from "@/hooks/use-sound";
 import { useCardBoardSize } from "@/hooks/use-card-board-size";
+import { getUndoScope } from "@/hooks/card-shogi/undo-policy";
 
 import { ShogiBoard, type ShogiBoardHandle } from "../shogi-board";
 import { CapturedPieces } from "../captured-pieces";
@@ -873,30 +874,17 @@ export function CardShogiGame({
   // Issue #82 (二手指し): 二手指し中は手札・ドローも無効化 (reducer 側でも弾くが UI でも明示)
   const handDisabled = !isPlayerTurn || !isGameActive || cardState.pendingCard !== null || isDrawAnimating || isPlayingCard || isCheckBreakAnimating || doubleMove !== null;
 
-  // 待った可否 (P28): 駒指し2手以上 / 自分の手番 / AI 思考中でない / pendingCard 無し / 過去2手の間にカード操作なし
-  // Issue #82 (二手指し): 二手指し中は通常の「待った」を不可
+  // 待った可否 (P28): 駒指し2手以上 / 自分の手番 / AI 思考中でない / pendingCard 無し /
+  // 過去2ターンにカード操作なし。
+  // Issue #82 (二手指し): 二手指し中は通常の「待った」を不可。
+  // スコープ判定は reducer の UNDO ケースと共通化 (undo-policy.ts)。
   const canUndo = useMemo(() => {
     if (gameState.moveHistory.length < 2) return false;
     if (!isPlayerTurn) return false;
     if (isAiThinking) return false;
     if (cardState.pendingCard) return false;
     if (doubleMove) return false;
-    let movesSeen = 0;
-    for (let i = eventLog.length - 1; i >= 0; i--) {
-      const ev = eventLog[i];
-      if (ev.kind === "moveEvent") {
-        movesSeen++;
-        if (movesSeen === 2) break;
-      } else if (
-        ev.kind === "cardPlayEvent" ||
-        ev.kind === "drawEvent" ||
-        ev.kind === "trapSetEvent" ||
-        ev.kind === "trapTriggerEvent"
-      ) {
-        return false;
-      }
-    }
-    return movesSeen >= 2;
+    return getUndoScope(eventLog) !== null;
   }, [gameState.moveHistory.length, isPlayerTurn, isAiThinking, cardState.pendingCard, doubleMove, eventLog]);
 
   // 歩戻し等のターゲット選択時にハイライトする盤面マス
