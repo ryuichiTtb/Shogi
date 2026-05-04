@@ -111,6 +111,12 @@ export function useCardShogiGame({
   // DB 保存(state 変更を監視して、最新の moveCount で保存)
   const lastSavedMoveCountRef = useRef(initialState.moveCount);
   useEffect(() => {
+    // Issue #82 (二手指し): 二手指し中 (1手目完了直後 等) は save しない。
+    // 2手目完了で doubleMove=null になった時に通常通り save 発火する。
+    // これにより 1手目分の GameMove レコードは作られず、リロード時の DB 状態は
+    // カード使用前にロールバックする (二手指しキャンセル相当)。
+    if (state.doubleMove !== null) return;
+
     const moveCount = state.gameState.moveCount;
     if (moveCount <= lastSavedMoveCountRef.current) return;
     const lastMove = state.gameState.moveHistory[state.gameState.moveHistory.length - 1];
@@ -133,7 +139,7 @@ export function useCardShogiGame({
     ).catch((e) => {
       console.error("saveCardShogiMove failed", e);
     });
-  }, [state.gameState, state.cardState, gameId]);
+  }, [state.gameState, state.cardState, state.doubleMove, gameId]);
 
   // ----- 公開API -----
 
@@ -307,6 +313,12 @@ export function useCardShogiGame({
     dispatch({ type: "COMMIT_CHECK_BREAK" });
   }, []);
 
+  // Issue #82 (二手指し): 1手目を取り消して preState から復元。
+  // movesLeft===1 の時のみ動作 (詰み確定後・演出中は reducer 側でガード)。
+  const undoDoubleMoveFirst = useCallback(() => {
+    dispatch({ type: "UNDO_DOUBLE_MOVE_FIRST" });
+  }, []);
+
   return {
     gameState: state.gameState,
     selectedSquare: state.selectedSquare,
@@ -330,8 +342,10 @@ export function useCardShogiGame({
     finalizePlayCard,
     cancelPlayCard,
     finalizeCheckBreak,
+    undoDoubleMoveFirst,
     isDrawing: state.isDrawing,
     isPlayingCard: state.isPlayingCard,
     isCheckBreakAnimating: state.isCheckBreakAnimating,
+    doubleMove: state.doubleMove,
   };
 }
