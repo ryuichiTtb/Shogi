@@ -30,6 +30,10 @@ interface ShogiBoardProps {
   // カード将棋 (Issue #82): 駒フライト中、着地点の駒を非表示にするためのマス。
   // 指定したマスの駒は visibility: hidden で消す (レイアウトは保持)。
   hiddenSquares?: Position[];
+  // カード将棋 (Issue #82 二手指し): 「禁止された詰み手」のマス。
+  // 赤背景 + × アイコンを表示し、クリック時にダイアログで禁止理由を説明する。
+  // クリック自体は通常通り onSquareClick が発火するので、禁止マスかどうかの判定は呼出元 (UI) で行う。
+  forbiddenMateSquares?: Position[];
 }
 
 // 先手目線のラベル
@@ -50,6 +54,7 @@ interface BoardSquareProps {
   isSelected: boolean;
   isLegalTarget: boolean;
   isCardTarget: boolean;
+  isForbiddenMate: boolean;
   isNoPromote: boolean;
   isHidden: boolean;
   isLastMoveSq: boolean;
@@ -72,6 +77,7 @@ const BoardSquare = memo(function BoardSquare({
   isSelected,
   isLegalTarget,
   isCardTarget,
+  isForbiddenMate,
   isNoPromote,
   isHidden,
   isLastMoveSq,
@@ -110,6 +116,8 @@ const BoardSquare = memo(function BoardSquare({
         isLegalTarget && piece && "bg-red-200/70 dark:bg-red-700/40",
         // カード効果のターゲット候補(歩戻し等) - 既存の合法手ハイライトより優先
         isCardTarget && "bg-amber-300/80 dark:bg-amber-500/40 ring-2 ring-inset ring-amber-500 dark:ring-amber-300 animate-pulse",
+        // 二手指し 2手目で禁止された詰み手 (Issue #82) - 合法手ハイライトより優先
+        isForbiddenMate && "bg-red-400/60 dark:bg-red-700/50 ring-2 ring-inset ring-red-600 dark:ring-red-400",
         // プレイヤーのターンでない・AI思考中は操作不可
         !canHover && !isCardTarget && "cursor-not-allowed",
         // ホバー
@@ -138,6 +146,24 @@ const BoardSquare = memo(function BoardSquare({
             className="rounded-full bg-blue-500/50"
             style={{ width: dotSize, height: dotSize }}
           />
+        </div>
+      )}
+
+      {/* 二手指し 2手目: 禁止された詰み手 (Issue #82) - 赤背景 + × アイコン */}
+      {isForbiddenMate && (
+        <div
+          className="absolute inset-0 flex items-center justify-center pointer-events-none z-30"
+          aria-label="禁止された詰み手"
+        >
+          <span
+            className="text-red-700 dark:text-red-300 font-bold leading-none select-none"
+            style={{
+              fontSize: Math.max(20, squareSize * 0.6),
+              filter: "drop-shadow(0 0 3px rgba(255,255,255,0.8))",
+            }}
+          >
+            ×
+          </span>
         </div>
       )}
 
@@ -196,6 +222,7 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
     cardTargetSquares,
     noPromoteSquares,
     hiddenSquares,
+    forbiddenMateSquares,
   },
   forwardedRef,
 ) {
@@ -232,11 +259,27 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
   const hiddenSet = new Set(
     (hiddenSquares ?? []).map((p) => `${p.row}-${p.col}`)
   );
+  const forbiddenMateSet = new Set(
+    (forbiddenMateSquares ?? []).map((p) => `${p.row}-${p.col}`)
+  );
 
   const isGote = playerColor === "gote";
+  // タップスナップ対象は legalMoves + forbiddenMateMoves。
+  // 禁止マスもタップで反応する (UI 側で禁止理由ダイアログを表示する) ため、スナップ対象に含める。
+  const tapSnapMoves = forbiddenMateSquares && forbiddenMateSquares.length > 0
+    ? [
+        ...legalMoves,
+        ...forbiddenMateSquares.map((p) => ({
+          type: "move" as const,
+          to: p,
+          piece: "",
+          player: currentPlayer,
+        })),
+      ]
+    : legalMoves;
   const { gridRef, pointerHandlers } = useTouchHandler({
     squareSize,
-    legalMoves,
+    legalMoves: tapSnapMoves,
     selectedSquare,
     isGote,
     onSquareClick,
@@ -303,6 +346,7 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
                 selectedSquare?.col === colIdx;
               const isLegalTarget = legalMoveSet.has(`${rowIdx}-${colIdx}`);
               const isCardTarget = cardTargetSet.has(`${rowIdx}-${colIdx}`);
+              const isForbiddenMate = forbiddenMateSet.has(`${rowIdx}-${colIdx}`);
               const isNoPromote = noPromoteSet.has(`${rowIdx}-${colIdx}`);
               const isHidden = hiddenSet.has(`${rowIdx}-${colIdx}`);
               const isLastMoveSq = isLastMoveSquare(rowIdx, colIdx);
@@ -323,6 +367,7 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
                   isSelected={isSelected}
                   isLegalTarget={isLegalTarget}
                   isCardTarget={isCardTarget}
+                  isForbiddenMate={isForbiddenMate}
                   isNoPromote={isNoPromote}
                   isHidden={isHidden}
                   isLastMoveSq={isLastMoveSq}

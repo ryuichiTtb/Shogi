@@ -44,6 +44,7 @@ function makeInitialState(
     pendingPlayCardOpponent: null,
     isCheckBreakAnimating: false,
     doubleMove: null,
+    forbiddenMateMoves: [],
   };
 }
 
@@ -405,7 +406,33 @@ describe("reducer / 二手指し (double_move)", () => {
     return state;
   }
 
-  it("CONFIRM_PLAY_CARD (double_move): doubleMove セット + マナ -6 + cardPlayEvent 追加 + currentPlayer 維持", () => {
+  // テスト用 doubleMove ファクトリ。preFirstMoveState/preCardState/cardInstance/cardCost を
+  // 持つ新仕様の構造を 1 箇所で集約。
+  function makeDM(opts: {
+    movesLeft: 1 | 2;
+    mateInOneAvailable?: boolean;
+    cardInstance?: CardInstance;
+    gameStateSnapshot?: GameState;
+    cardStateSnapshot?: CardGameState;
+    eventLogSnapshot?: GameEvent[];
+  }) {
+    const snapshot = {
+      gameState: opts.gameStateSnapshot ?? makeBaseGameState(),
+      cardState: opts.cardStateSnapshot ?? makeInitialCardState(),
+      eventLog: opts.eventLogSnapshot ?? [],
+    };
+    return {
+      active: "sente" as const,
+      movesLeft: opts.movesLeft,
+      mateInOneAvailable: opts.mateInOneAvailable ?? false,
+      cardInstance: opts.cardInstance ?? card("dm-fixture", "double_move"),
+      cardCost: 6,
+      preFirstMoveState: snapshot,
+      preCardState: snapshot,
+    };
+  }
+
+  it("CONFIRM_PLAY_CARD (double_move) [新仕様]: doubleMove のみセット、カード消費・マナ・eventLog は変えない", () => {
     const c = card("dm1", "double_move");
     const state = makeInitialState(
       makeBaseGameState(),
@@ -417,55 +444,47 @@ describe("reducer / 二手指し (double_move)", () => {
     );
     const next = reducer(state, { type: "CONFIRM_PLAY_CARD" });
 
-    expect(next.cardState.mana.sente).toBe(4); // 10 - 6
-    expect(next.cardState.hand.sente).toEqual([]);
-    expect(next.cardState.graveyard.sente.length).toBe(1);
+    // 新仕様: マナ・手札・graveyard・eventLog は CONFIRM では変えない (2手目完了で finalize)
+    expect(next.cardState.mana.sente).toBe(10);
+    expect(next.cardState.hand.sente).toEqual([c]);
+    expect(next.cardState.graveyard.sente.length).toBe(0);
+    expect(next.eventLog.length).toBe(state.eventLog.length); // cardPlayEvent はまだ push されない
+    // pendingCard はクリアされる
+    expect(next.cardState.pendingCard).toBeNull();
+    // doubleMove はセットされる
     expect(next.doubleMove).not.toBeNull();
     expect(next.doubleMove?.active).toBe("sente");
     expect(next.doubleMove?.movesLeft).toBe(2);
-    expect(next.doubleMove?.preState.cardState.graveyard.sente.length).toBe(1);
-    expect(next.isPlayingCard).toBe(true);
-    expect(next.pendingPlayCardOpponent).toBe("gote");
-    // cardPlayEvent が eventLog に追加
-    const last = next.eventLog[next.eventLog.length - 1];
-    expect(last.kind).toBe("cardPlayEvent");
+    expect(next.doubleMove?.cardInstance).toEqual(c);
+    expect(next.doubleMove?.cardCost).toBe(6);
+    // 演出はまだ起動しない (2手目完了で起動)
+    expect(next.isPlayingCard).toBe(false);
   });
 
-  it("COMMIT_PLAY_CARD (二手指し中): currentPlayer 反転を skip", () => {
+  it("COMMIT_PLAY_CARD: pendingPlayCardOpponent=null (新仕様 finalize 経由) なら currentPlayer は変えない", () => {
+    // 新仕様: 2手目完了時に finalizeDoubleMoveCardConsumption が isPlayingCard=true +
+    // pendingPlayCardOpponent=null をセットする。COMMIT_PLAY_CARD はこれを検知して再 flip しない。
     const state: CardShogiGameStateInternal = {
       ...makeInitialState(makeBaseGameState()),
       isPlayingCard: true,
-      pendingPlayCardOpponent: "gote",
-      doubleMove: {
-        active: "sente",
-        movesLeft: 2,
-        mateInOneAvailable: false,
-        preState: {
-          gameState: makeBaseGameState(),
-          cardState: makeInitialCardState(),
-          eventLog: [],
-        },
-      },
+      pendingPlayCardOpponent: null, // 新仕様: 2手目 finalize 経由はこれが null
     };
     const next = reducer(state, { type: "COMMIT_PLAY_CARD" });
-    // currentPlayer は反転しない (sente のまま)
+    // currentPlayer は変えない (sente のまま)
     expect(next.gameState.currentPlayer).toBe("sente");
     expect(next.isPlayingCard).toBe(false);
-    expect(next.pendingPlayCardOpponent).toBeNull();
-    expect(next.doubleMove).not.toBeNull();
   });
 
-  it("MAKE_MOVE 1手目 (movesLeft=2): currentPlayer 維持 + movesLeft=1 + マナチャージなし", () => {
+  it("MAKE_MOVE 1手目 (movesLeft=2): currentPlayer 維持 + movesLeft=1 + カード未消費 (新仕様)", () => {
+    const c = card("dm1", "double_move");
     const gameState = makeBaseGameState();
-    const cardState = makeInitialCardState({ mana: { sente: 4, gote: 0 } });
+    const cardState = makeInitialCardState({
+      mana: { sente: 10, gote: 0 },
+      hand: { sente: [c], gote: [] },
+    });
     const state: CardShogiGameStateInternal = {
       ...makeInitialState(gameState, cardState),
-      doubleMove: {
-        active: "sente",
-        movesLeft: 2,
-        mateInOneAvailable: false,
-        preState: { gameState, cardState, eventLog: [] },
-      },
+      doubleMove: makeDM({ movesLeft: 2, cardInstance: c, gameStateSnapshot: gameState, cardStateSnapshot: cardState }),
     };
 
     const move = {
@@ -477,23 +496,25 @@ describe("reducer / 二手指し (double_move)", () => {
     };
     const next = reducer(state, { type: "MAKE_MOVE", move });
 
-    expect(next.gameState.currentPlayer).toBe("sente"); // 自分のターン継続
+    expect(next.gameState.currentPlayer).toBe("sente");
     expect(next.doubleMove?.movesLeft).toBe(1);
-    expect(next.cardState.mana.sente).toBe(4); // マナチャージなし
+    // 新仕様: 1手目時点ではカードはまだ手札にあり、マナも消費されていない
+    expect(next.cardState.hand.sente).toEqual([c]);
+    expect(next.cardState.mana.sente).toBe(10);
+    // 演出もまだ起動しない
+    expect(next.isPlayingCard).toBe(false);
   });
 
-  it("MAKE_MOVE 2手目 (movesLeft=1): currentPlayer 反転 + doubleMove クリア + マナチャージなし", () => {
+  it("MAKE_MOVE 2手目 (movesLeft=1): currentPlayer 反転 + doubleMove クリア + カード finalize (新仕様)", () => {
+    const c = card("dm1", "double_move");
     const gameState = makeBaseGameState();
-    const cardState = makeInitialCardState({ mana: { sente: 4, gote: 0 } });
-    // 1手目を仮想的に適用済みの状態
+    const cardState = makeInitialCardState({
+      mana: { sente: 10, gote: 0 },
+      hand: { sente: [c], gote: [] },
+    });
     const state: CardShogiGameStateInternal = {
       ...makeInitialState(gameState, cardState),
-      doubleMove: {
-        active: "sente",
-        movesLeft: 1,
-        mateInOneAvailable: false,
-        preState: { gameState, cardState, eventLog: [] },
-      },
+      doubleMove: makeDM({ movesLeft: 1, cardInstance: c, gameStateSnapshot: gameState, cardStateSnapshot: cardState }),
     };
 
     const move = {
@@ -505,14 +526,22 @@ describe("reducer / 二手指し (double_move)", () => {
     };
     const next = reducer(state, { type: "MAKE_MOVE", move });
 
-    expect(next.gameState.currentPlayer).toBe("gote"); // 相手ターンへ
+    expect(next.gameState.currentPlayer).toBe("gote"); // ターン交代
     expect(next.doubleMove).toBeNull();
-    expect(next.cardState.mana.sente).toBe(4); // マナチャージなし (カード使用扱い)
+    // 新仕様: 2手目完了で finalize → カード消費 + マナ -6 + cardPlayEvent push + 演出開始
+    expect(next.cardState.hand.sente).toEqual([]);
+    expect(next.cardState.graveyard.sente.length).toBe(1);
+    expect(next.cardState.mana.sente).toBe(4); // 10 - 6
+    expect(next.isPlayingCard).toBe(true); // 中央演出開始
+    expect(next.pendingPlayCardOpponent).toBeNull(); // currentPlayer は既に flip 済なので null
+    // cardPlayEvent が eventLog に追加される
+    const cardPlayEvent = next.eventLog.find((e) => e.kind === "cardPlayEvent");
+    expect(cardPlayEvent).toBeDefined();
   });
 
-  it("UNDO_DOUBLE_MOVE_FIRST: movesLeft=1 で動作、preState から完全復元", () => {
+  it("UNDO_DOUBLE_MOVE_FIRST: movesLeft=1 で動作、preFirstMoveState から復元 (movesLeft=2 へ)", () => {
     const preGameState = makeBaseGameState();
-    const preCardState = makeInitialCardState({ mana: { sente: 4, gote: 0 } });
+    const preCardState = makeInitialCardState({ mana: { sente: 10, gote: 0 } });
     const preEventLog: GameEvent[] = [];
 
     // 1手目適用後の仮想状態
@@ -522,35 +551,27 @@ describe("reducer / 二手指し (double_move)", () => {
 
     const state: CardShogiGameStateInternal = {
       ...makeInitialState(afterFirstMoveState, preCardState),
-      doubleMove: {
-        active: "sente",
+      doubleMove: makeDM({
         movesLeft: 1,
-        mateInOneAvailable: false,
-        preState: { gameState: preGameState, cardState: preCardState, eventLog: preEventLog },
-      },
+        gameStateSnapshot: preGameState,
+        cardStateSnapshot: preCardState,
+        eventLogSnapshot: preEventLog,
+      }),
     };
 
     const next = reducer(state, { type: "UNDO_DOUBLE_MOVE_FIRST" });
 
-    expect(next.gameState).toEqual(preGameState); // 完全復元
+    expect(next.gameState).toEqual(preGameState); // 1手目 が undo
     expect(next.cardState).toEqual(preCardState);
     expect(next.eventLog).toEqual(preEventLog);
-    expect(next.doubleMove?.movesLeft).toBe(2); // 1手目前に戻る
+    expect(next.doubleMove?.movesLeft).toBe(2); // movesLeft=2 へ
+    expect(next.doubleMove).not.toBeNull(); // doubleMove は維持
   });
 
   it("UNDO_DOUBLE_MOVE_FIRST: movesLeft=2 では state 不変 (1手目未適用)", () => {
     const state: CardShogiGameStateInternal = {
       ...makeInitialState(makeBaseGameState()),
-      doubleMove: {
-        active: "sente",
-        movesLeft: 2,
-        mateInOneAvailable: false,
-        preState: {
-          gameState: makeBaseGameState(),
-          cardState: makeInitialCardState(),
-          eventLog: [],
-        },
-      },
+      doubleMove: makeDM({ movesLeft: 2 }),
     };
     const next = reducer(state, { type: "UNDO_DOUBLE_MOVE_FIRST" });
     expect(next).toBe(state);
@@ -559,6 +580,72 @@ describe("reducer / 二手指し (double_move)", () => {
   it("UNDO_DOUBLE_MOVE_FIRST: doubleMove 未セットなら state 不変", () => {
     const state = makeInitialState();
     const next = reducer(state, { type: "UNDO_DOUBLE_MOVE_FIRST" });
+    expect(next).toBe(state);
+  });
+
+  it("CANCEL_DOUBLE_MOVE: movesLeft=2 でカード使用前の状態に完全復元 (新仕様)", () => {
+    const c = card("dm1", "double_move");
+    const preGameState = makeBaseGameState();
+    const preCardState = makeInitialCardState({
+      mana: { sente: 10, gote: 0 },
+      hand: { sente: [c], gote: [] },
+    });
+    const preEventLog: GameEvent[] = [];
+
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(preGameState, preCardState),
+      doubleMove: makeDM({
+        movesLeft: 2,
+        cardInstance: c,
+        gameStateSnapshot: preGameState,
+        cardStateSnapshot: preCardState,
+        eventLogSnapshot: preEventLog,
+      }),
+    };
+
+    const next = reducer(state, { type: "CANCEL_DOUBLE_MOVE" });
+
+    // カードは手札に残ったまま、マナも消費されない、doubleMove は null
+    expect(next.cardState.hand.sente).toEqual([c]);
+    expect(next.cardState.mana.sente).toBe(10);
+    expect(next.doubleMove).toBeNull();
+    expect(next.eventLog).toEqual(preEventLog);
+  });
+
+  it("CANCEL_DOUBLE_MOVE: movesLeft=1 (1手目適用後) でも完全復元", () => {
+    const c = card("dm1", "double_move");
+    const preGameState = makeBaseGameState();
+    const preCardState = makeInitialCardState({
+      mana: { sente: 10, gote: 0 },
+      hand: { sente: [c], gote: [] },
+    });
+
+    // 1手目適用後の仮想状態
+    const afterFirstMoveState = createInitialGameState(CARD_SHOGI_VARIANT);
+    afterFirstMoveState.board[5][4] = { type: "pawn", owner: "sente" };
+    afterFirstMoveState.board[6][4] = null;
+
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(afterFirstMoveState, preCardState),
+      doubleMove: makeDM({
+        movesLeft: 1,
+        cardInstance: c,
+        gameStateSnapshot: preGameState,
+        cardStateSnapshot: preCardState,
+        eventLogSnapshot: [],
+      }),
+    };
+
+    const next = reducer(state, { type: "CANCEL_DOUBLE_MOVE" });
+
+    expect(next.gameState).toEqual(preGameState); // 1手目 も undo
+    expect(next.cardState).toEqual(preCardState);
+    expect(next.doubleMove).toBeNull();
+  });
+
+  it("CANCEL_DOUBLE_MOVE: doubleMove 未セットなら state 不変", () => {
+    const state = makeInitialState();
+    const next = reducer(state, { type: "CANCEL_DOUBLE_MOVE" });
     expect(next).toBe(state);
   });
 
@@ -571,14 +658,8 @@ describe("reducer / 二手指し (double_move)", () => {
     });
     const state: CardShogiGameStateInternal = {
       ...makeInitialState(makeBaseGameState(), cardState),
-      doubleMove: {
-        active: "sente",
-        movesLeft: 1,
-        mateInOneAvailable: false,
-        preState: { gameState: makeBaseGameState(), cardState, eventLog: [] },
-      },
+      doubleMove: makeDM({ movesLeft: 1, cardInstance: c }),
     };
-    void c;
     const next = reducer(state, {
       type: "BEGIN_PLAY_CARD",
       player: "sente",
@@ -594,12 +675,7 @@ describe("reducer / 二手指し (double_move)", () => {
     });
     const state: CardShogiGameStateInternal = {
       ...makeInitialState(makeBaseGameState(), cardState),
-      doubleMove: {
-        active: "sente",
-        movesLeft: 1,
-        mateInOneAvailable: false,
-        preState: { gameState: makeBaseGameState(), cardState, eventLog: [] },
-      },
+      doubleMove: makeDM({ movesLeft: 1 }),
     };
     const next = reducer(state, { type: "DRAW_CARD", player: "sente" });
     expect(next).toBe(state);
@@ -608,16 +684,7 @@ describe("reducer / 二手指し (double_move)", () => {
   it("UNDO: 二手指し中は state 不変 (待った不可)", () => {
     const state: CardShogiGameStateInternal = {
       ...makeInitialState(makeBaseGameState()),
-      doubleMove: {
-        active: "sente",
-        movesLeft: 1,
-        mateInOneAvailable: false,
-        preState: {
-          gameState: makeBaseGameState(),
-          cardState: makeInitialCardState(),
-          eventLog: [],
-        },
-      },
+      doubleMove: makeDM({ movesLeft: 1 }),
     };
     const next = reducer(state, { type: "UNDO" });
     expect(next).toBe(state);
@@ -642,16 +709,7 @@ describe("reducer / 二手指し (double_move)", () => {
 
     const state: CardShogiGameStateInternal = {
       ...makeInitialState(gameState),
-      doubleMove: {
-        active: "sente",
-        movesLeft: 1,
-        mateInOneAvailable: false,
-        preState: {
-          gameState,
-          cardState: makeInitialCardState(),
-          eventLog: [],
-        },
-      },
+      doubleMove: makeDM({ movesLeft: 1, gameStateSnapshot: gameState }),
     };
 
     // sente 飛車 (1,4) を選択
@@ -801,5 +859,123 @@ describe("reducer / UNDO カード操作ガード (Issue #82)", () => {
     expect(next.cardState.mana.gote).toBe(4);
     // eventLog が scope 前まで truncate されること
     expect(next.eventLog.length).toBe(4); // 元の 8 件のうち 後半 4 件が削除
+  });
+});
+
+// ===== Issue #82: 二手指し 2手目 - 禁止された詰み手 (forbiddenMateMoves) =====
+// mateInOneAvailable=false 時、2手目で相手玉を詰ませる手は禁止。
+// 従来は legalMoves から完全に除外していたが、UX 改善のため
+// forbiddenMateMoves という別配列で管理し、UI で赤×表示 + クリック時に
+// 禁止理由ダイアログを出せるようにする。
+
+describe("reducer / 二手指し 2手目 forbiddenMateMoves (Issue #82)", () => {
+  function makeMatePosition() {
+    // sente の頭金詰め盤面 (effects.test.ts と同じセットアップ)
+    // gote 玉 (0,4) 周囲を gote 桂で塞ぎ、sente 金 (2,4) で 1,4 を守る。
+    // 持ち駒に sente 金。1,4 に金を打てば詰み。
+    const board: GameState["board"] = Array.from({ length: 9 }, () => Array(9).fill(null));
+    board[8][0] = { type: "king", owner: "sente" };
+    board[0][4] = { type: "king", owner: "gote" };
+    board[0][3] = { type: "knight", owner: "gote" };
+    board[0][5] = { type: "knight", owner: "gote" };
+    board[1][3] = { type: "knight", owner: "gote" };
+    board[1][5] = { type: "knight", owner: "gote" };
+    board[2][4] = { type: "gold", owner: "sente" };
+    return board;
+  }
+
+  it("SELECT_HAND_PIECE: 2手目 + mateInOneAvailable=false で詰み手は forbiddenMateMoves に分離される", () => {
+    const board = makeMatePosition();
+    const gameState: GameState = {
+      board,
+      hand: { sente: { gold: 1 }, gote: {} },
+      currentPlayer: "sente",
+      moveHistory: [],
+      positionHistory: [],
+      status: "active",
+      moveCount: 0,
+    };
+
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(gameState),
+      doubleMove: {
+        active: "sente",
+        movesLeft: 1, // 2手目
+        mateInOneAvailable: false, // 1手詰めは元々できない設定
+        cardInstance: card("dm-fixture", "double_move"),
+        cardCost: 6,
+        preFirstMoveState: { gameState, cardState: makeInitialCardState(), eventLog: [] },
+        preCardState: { gameState, cardState: makeInitialCardState(), eventLog: [] },
+      },
+    };
+
+    // 持ち駒の金を選択 → drop 候補を取得
+    const next = reducer(state, { type: "SELECT_HAND_PIECE", pieceType: "gold" });
+
+    // 1,4 への金打ち (詰み) が forbiddenMateMoves に入る
+    const forbiddenAt14 = next.forbiddenMateMoves.find(
+      (m) => m.type === "drop" && m.dropPiece === "gold" && m.to.row === 1 && m.to.col === 4,
+    );
+    expect(forbiddenAt14).toBeDefined();
+
+    // 同じ手は legalMoves には含まれない
+    const legalAt14 = next.legalMoves.find(
+      (m) => m.type === "drop" && m.dropPiece === "gold" && m.to.row === 1 && m.to.col === 4,
+    );
+    expect(legalAt14).toBeUndefined();
+  });
+
+  it("SELECT_HAND_PIECE: 2手目 + mateInOneAvailable=true なら詰み手も legalMoves に含まれ、forbiddenMateMoves は空", () => {
+    const board = makeMatePosition();
+    const gameState: GameState = {
+      board,
+      hand: { sente: { gold: 1 }, gote: {} },
+      currentPlayer: "sente",
+      moveHistory: [],
+      positionHistory: [],
+      status: "active",
+      moveCount: 0,
+    };
+
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(gameState),
+      doubleMove: {
+        active: "sente",
+        movesLeft: 1,
+        mateInOneAvailable: true, // 1手詰めができる設定
+        cardInstance: card("dm-fixture", "double_move"),
+        cardCost: 6,
+        preFirstMoveState: { gameState, cardState: makeInitialCardState(), eventLog: [] },
+        preCardState: { gameState, cardState: makeInitialCardState(), eventLog: [] },
+      },
+    };
+
+    const next = reducer(state, { type: "SELECT_HAND_PIECE", pieceType: "gold" });
+
+    // 1,4 への金打ちが legalMoves にも含まれる
+    const legalAt14 = next.legalMoves.find(
+      (m) => m.type === "drop" && m.dropPiece === "gold" && m.to.row === 1 && m.to.col === 4,
+    );
+    expect(legalAt14).toBeDefined();
+
+    // forbiddenMateMoves は空
+    expect(next.forbiddenMateMoves.length).toBe(0);
+  });
+
+  it("DESELECT で forbiddenMateMoves もクリアされる", () => {
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(),
+      forbiddenMateMoves: [
+        { type: "drop", dropPiece: "gold", piece: "gold", to: { row: 1, col: 4 }, player: "sente" },
+      ],
+    };
+    const next = reducer(state, { type: "DESELECT" });
+    expect(next.forbiddenMateMoves.length).toBe(0);
+  });
+
+  it("通常時 (二手指しでない) は forbiddenMateMoves が常に空", () => {
+    const state = makeInitialState();
+    const next = reducer(state, { type: "SELECT_SQUARE", pos: { row: 6, col: 4 } });
+    expect(next.forbiddenMateMoves.length).toBe(0);
   });
 });

@@ -47,6 +47,7 @@ import { TrapSlot } from "./trap-slot";
 import { DeckPile } from "./deck-pile";
 import { CardPlayDialog, CardTargetingNotice } from "./card-play-dialog";
 import { DoubleMoveNotice } from "./double-move-notice";
+import { ForbiddenMateDialog } from "./forbidden-mate-dialog";
 import { DrawFlightCard } from "./draw-flight-card";
 import { CardPlayFlight } from "./card-play-flight";
 import { PieceFlight, type PieceFlightSpec } from "./piece-flight";
@@ -174,6 +175,8 @@ export function CardShogiGame({
     hideTargets: FlightHideTarget[];
     pendingFlightCount: number;
   } | null>(null);
+  // Issue #82 (二手指し): 2手目で禁止された詰み手をクリックされたときに表示する案内ダイアログ。
+  const [forbiddenMateDialogOpen, setForbiddenMateDialogOpen] = useState(false);
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const { squareSize, isMobile, viewportHeight } = useCardBoardSize();
@@ -213,6 +216,7 @@ export function CardShogiGame({
     selectedSquare,
     selectedHandPiece,
     legalMoves,
+    forbiddenMateMoves,
     isAiThinking,
     promotionPendingMove,
     cardState,
@@ -235,6 +239,7 @@ export function CardShogiGame({
     isCheckBreakAnimating,
     doubleMove,
     undoDoubleMoveFirst,
+    cancelDoubleMove,
   } = useCardShogiGame({
     initialState: initialGameState,
     initialCardState,
@@ -585,6 +590,17 @@ export function CardShogiGame({
   const handleSquareClick = useCallback(
     (pos: Position) => {
       if (isDrawAnimating || isPlayingCard || isCheckBreakAnimating) return;
+
+      // Issue #82 (二手指し 2手目): 禁止された詰み手のマスをクリック → 説明ダイアログ表示
+      // (赤×表示で視覚的にも禁止が分かるが、なぜダメかを文章でも伝えて UX 向上)
+      const isForbiddenMateClick = forbiddenMateMoves.some(
+        (m) => m.to.row === pos.row && m.to.col === pos.col,
+      );
+      if (isForbiddenMateClick) {
+        setForbiddenMateDialogOpen(true);
+        return;
+      }
+
       // 歩戻し等のターゲット選択フェーズで盤面クリックが confirm に直結するため、ここでも矩形を捕捉
       if (cardState.pendingCard) cachePendingCardRect();
 
@@ -655,6 +671,8 @@ export function CardShogiGame({
     [
       isDrawAnimating,
       isPlayingCard,
+      isCheckBreakAnimating,
+      forbiddenMateMoves,
       selectSquare,
       cardState.pendingCard,
       cachePendingCardRect,
@@ -1105,6 +1123,7 @@ export function CardShogiGame({
               cardTargetSquares={cardTargetSquares}
               noPromoteSquares={noPromoteSquares}
               hiddenSquares={hiddenBoardSquares}
+              forbiddenMateSquares={forbiddenMateMoves.map((m) => m.to)}
             />
             <BoardOverlay
               key={overlayEvent?.key}
@@ -1474,6 +1493,7 @@ export function CardShogiGame({
               cardTargetSquares={cardTargetSquares}
               noPromoteSquares={noPromoteSquares}
               hiddenSquares={hiddenBoardSquares}
+              forbiddenMateSquares={forbiddenMateMoves.map((m) => m.to)}
             />
             <BoardOverlay
               key={overlayEvent?.key}
@@ -1562,7 +1582,12 @@ export function CardShogiGame({
         pendingCard={cardState.pendingCard}
         onCancel={cancelPlayCard}
       />
-      {/* Issue #82: 二手指し (double_move) 中の上端バナー + 戻すボタン */}
+      {/* Issue #82 (二手指し): 2手目で禁止された詰み手をクリックした時のお知らせダイアログ */}
+      <ForbiddenMateDialog
+        open={forbiddenMateDialogOpen}
+        onClose={() => setForbiddenMateDialogOpen(false)}
+      />
+      {/* Issue #82: 二手指し (double_move) 中の上端バナー + 戻すボタン + キャンセルボタン */}
       {doubleMove && !isPlayingCard && (
         <DoubleMoveNotice
           movesLeft={doubleMove.movesLeft}
@@ -1572,7 +1597,13 @@ export function CardShogiGame({
             !isCheckBreakAnimating &&
             !isPlayingCard
           }
+          canCancel={
+            isGameActive &&
+            !isCheckBreakAnimating &&
+            !isPlayingCard
+          }
           onUndoFirst={undoDoubleMoveFirst}
+          onCancel={cancelDoubleMove}
         />
       )}
 

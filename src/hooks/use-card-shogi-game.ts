@@ -50,6 +50,7 @@ export function useCardShogiGame({
     pendingPlayCardOpponent: null,
     isCheckBreakAnimating: false,
     doubleMove: null,
+    forbiddenMateMoves: [],
   });
 
   const aiPlayer: Player = gameConfig.playerColor === "sente" ? "gote" : "sente";
@@ -313,10 +314,17 @@ export function useCardShogiGame({
     dispatch({ type: "COMMIT_CHECK_BREAK" });
   }, []);
 
-  // Issue #82 (二手指し): 1手目を取り消して preState から復元。
-  // movesLeft===1 の時のみ動作 (詰み確定後・演出中は reducer 側でガード)。
+  // Issue #82 (二手指し): 1手目を取り消して preFirstMoveState から復元。
+  // movesLeft===1 の時のみ動作。カードはまだ使用したまま、もう一度 1手目を選び直せる。
   const undoDoubleMoveFirst = useCallback(() => {
     dispatch({ type: "UNDO_DOUBLE_MOVE_FIRST" });
+  }, []);
+
+  // Issue #82 (二手指し / 新仕様): カード使用自体をキャンセル。
+  // preCardState から完全復元、カードは手札に戻り、マナも消費されない。
+  // movesLeft=2 (1手目前) でも movesLeft=1 (1手目後) でも実行可能。
+  const cancelDoubleMove = useCallback(() => {
+    dispatch({ type: "CANCEL_DOUBLE_MOVE" });
   }, []);
 
   return {
@@ -324,6 +332,9 @@ export function useCardShogiGame({
     selectedSquare: state.selectedSquare,
     selectedHandPiece: state.selectedHandPiece,
     legalMoves: state.legalMoves,
+    // Issue #82 (二手指し): 2手目で「禁止された詰み手」(mateInOneAvailable=false 時)。
+    // UI で赤×表示し、クリック時にダイアログで禁止理由を説明するため legalMoves と別管理。
+    forbiddenMateMoves: state.forbiddenMateMoves,
     isAiThinking: state.isAiThinking,
     promotionPendingMove: state.promotionPendingMove,
     cardState: state.cardState,
@@ -343,6 +354,7 @@ export function useCardShogiGame({
     cancelPlayCard,
     finalizeCheckBreak,
     undoDoubleMoveFirst,
+    cancelDoubleMove,
     isDrawing: state.isDrawing,
     isPlayingCard: state.isPlayingCard,
     isCheckBreakAnimating: state.isCheckBreakAnimating,

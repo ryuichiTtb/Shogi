@@ -24,7 +24,7 @@ import {
 import { evaluateGameEnd } from "@/lib/shogi/rules";
 import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
 
-import type { CardAction, CardGameState, GameEvent } from "@/lib/shogi/cards/types";
+import type { CardAction, CardGameState, CardInstance, GameEvent } from "@/lib/shogi/cards/types";
 import {
   CARD_DEFS,
   CARD_USE_CONDITIONS,
@@ -62,8 +62,13 @@ export type ShogiAction =
   | { type: "CANCEL_PROMOTION" }
   | { type: "RESIGN" }
   | { type: "UNDO" }
-  // Issue #82 (二手指し): 1手目を取り消して preState から復元するアクション。
+  // Issue #82 (二手指し): 1手目を取り消して preFirstMoveState から復元するアクション。
+  // カードはまだ使用したまま (movesLeft=2 で再開、もう一度 1手目を選び直せる)。
   | { type: "UNDO_DOUBLE_MOVE_FIRST" }
+  // Issue #82 (二手指し / 新仕様): カード使用自体をキャンセル。
+  // preCardState から完全復元 → カードは手札に戻り、マナも消費されない。
+  // movesLeft=2 でも movesLeft=1 でも実行可能 (= 2手目完了前ならいつでもキャンセル可)。
+  | { type: "CANCEL_DOUBLE_MOVE" }
   | { type: "BEGIN_TURN_TIMER"; player: Player };
 
 export type Action = ShogiAction | CardAction;
@@ -73,6 +78,10 @@ export interface CardShogiGameStateInternal {
   selectedSquare: Position | null;
   selectedHandPiece: string | null;
   legalMoves: Move[];
+  // Issue #82 (二手指し): 2手目で「mateInOneAvailable=false なら禁止される詰み手」。
+  // legalMoves とは別管理。UI で赤×表示し、クリック時にダイアログで禁止理由を説明するため。
+  // 通常時 / 二手指し以外の場面では常に空。
+  forbiddenMateMoves: Move[];
   isAiThinking: boolean;
   promotionPendingMove: Move | null;
   cardState: CardGameState;
@@ -93,15 +102,33 @@ export interface CardShogiGameStateInternal {
   // null 以外の間は doubleMove.active プレイヤーが続けて 1手目・2手目を指す。
   // - movesLeft=2: カード使用直後 (CONFIRM_PLAY_CARD で設定)、これから 1手目
   // - movesLeft=1: 1手目完了 (MAKE_MOVE で 2 → 1)、これから 2手目
-  // - 2手目完了で null クリア (MAKE_MOVE)
-  // - 「戻す」ボタン (UNDO_DOUBLE_MOVE_FIRST) で preState から復元、movesLeft=2 へ
+  // - 2手目完了で null クリア (MAKE_MOVE)、ここでカード本体が消費・cardPlayEvent 発行・演出開始
+  // - 「1手目を戻す」(UNDO_DOUBLE_MOVE_FIRST) で preFirstMoveState から復元、movesLeft=2 へ
+  // - 「キャンセル」(CANCEL_DOUBLE_MOVE) で preCardState から復元、doubleMove=null
+  //
+  // 重要 (新仕様): カード本体の消費・mana 減算・cardPlayEvent push は CONFIRM_PLAY_CARD では
+  // 行わず、2手目完了時 (MAKE_MOVE 内) で初めて確定する。これにより 1手目までの
+  // 操作はキャンセル可能 (= カードを使用しなかったことに戻せる)。
   // 永続化しない (DB save は 2手目完了で 1回のみ)。リロード時は in-memory のみ消失し
   // DB は カード使用前 (二手指し中は save スキップなのでカード未使用) に戻る。
   doubleMove: {
     active: Player;
     movesLeft: 1 | 2;
     mateInOneAvailable: boolean;
-    preState: {
+    // 2手目完了時に消費するカードのインスタンスとコスト。CONFIRM_PLAY_CARD 時に格納。
+    cardInstance: CardInstance;
+    cardCost: number;
+    // 1手目を取り消して 2手目選択前の状態に戻すためのスナップショット。
+    // 新仕様では CONFIRM_PLAY_CARD でカード未消費なので、preFirstMoveState は preCardState と同値。
+    // 構造を維持するためフィールドは残す (将来 1手目で何か state を変えるカードが出た時の拡張点)。
+    preFirstMoveState: {
+      gameState: GameState;
+      cardState: CardGameState;
+      eventLog: GameEvent[];
+    };
+    // カード使用自体をキャンセルして「カードを使わなかったことに」戻すためのスナップショット。
+    // CONFIRM_PLAY_CARD で記録 (= カード使用直前 = pendingCard 確定直前の状態)。
+    preCardState: {
       gameState: GameState;
       cardState: CardGameState;
       eventLog: GameEvent[];
@@ -359,53 +386,82 @@ function legalSecondMoves(
   return all.filter((m) => !isCheckmate(applyMove(stateAfterFirst, m), opponent, CARD_SHOGI_VARIANT));
 }
 
-// 2手目フィルタ: 通常の合法性 + 相手玉取り除外 + (mateInOneAvailable=false なら詰み手除外)
+// 2手目候補を「合法手」と「禁止された詰み手」に分割する (Issue #82)。
+// mateInOneAvailable=false 時に詰み手を UI で「禁止マス (赤×)」として表示し、
+// クリック時にダイアログで禁止理由を説明するため、別配列で管理する。
+// それ以外のフィルタ条件 (玉取り / 自玉王手放置) は両方から除外。
+function partitionDoubleMoveSecondCandidates(
+  gameState: GameState,
+  player: Player,
+  candidates: Move[],
+  mateInOneAvailable: boolean,
+): { legal: Move[]; forbiddenMate: Move[] } {
+  const opponent: Player = player === "sente" ? "gote" : "sente";
+  const legal: Move[] = [];
+  const forbiddenMate: Move[] = [];
+  for (const m of candidates) {
+    if (isKingCaptureMove(m)) continue;
+    if (isKingInCheckAfterMove(gameState, m)) continue;
+    if (mateInOneAvailable) {
+      legal.push(m);
+      continue;
+    }
+    if (isCheckmate(applyMove(gameState, m), opponent, CARD_SHOGI_VARIANT)) {
+      forbiddenMate.push(m);
+    } else {
+      legal.push(m);
+    }
+  }
+  return { legal, forbiddenMate };
+}
+
+// 後方互換: 既存呼び出し元 (filterDoubleMoveSecondCandidates) は legal だけ取り出す形で残す。
 function filterDoubleMoveSecondCandidates(
   gameState: GameState,
   player: Player,
   candidates: Move[],
   mateInOneAvailable: boolean,
 ): Move[] {
-  const opponent: Player = player === "sente" ? "gote" : "sente";
-  return candidates.filter((m) => {
-    // 相手玉を取る手は不可 (1手目で王手 → 2手目で玉取り を防ぐ)
-    if (isKingCaptureMove(m)) return false;
-    if (isKingInCheckAfterMove(gameState, m)) return false;
-    if (mateInOneAvailable) return true;
-    return !isCheckmate(applyMove(gameState, m), opponent, CARD_SHOGI_VARIANT);
-  });
+  return partitionDoubleMoveSecondCandidates(gameState, player, candidates, mateInOneAvailable).legal;
 }
 
-// 駒選択時の合法手生成。doubleMove モード切替を含む。
+// 駒選択時の合法手 + 禁止された詰み手を生成。doubleMove モード切替を含む。
 // noPromote マークと doubleMove フィルタを統一して適用。
+// forbiddenMate: 二手指し 2手目で「mateInOneAvailable=false なら禁止」となる詰み手。
+// UI で赤×表示し、クリック時にダイアログで禁止理由を説明するため別配列で管理。
 function legalMovesForPieceSelect(
   state: CardShogiGameStateInternal,
   pos: Position,
-): Move[] {
+): { legal: Move[]; forbiddenMate: Move[] } {
   const { gameState } = state;
   const piece = gameState.board[pos.row]?.[pos.col];
-  if (!piece || piece.owner !== gameState.currentPlayer) return [];
+  if (!piece || piece.owner !== gameState.currentPlayer) return { legal: [], forbiddenMate: [] };
 
   const moves = getPieceMoves(gameState, pos, gameState.currentPlayer, CARD_SHOGI_VARIANT);
   const noPromote = hasNoPromoteMark(state.cardState, gameState.currentPlayer, pos);
-  let filtered = moves.filter((m) => !(noPromote && m.type === "move" && m.promote));
+  const filteredByNoPromote = moves.filter((m) => !(noPromote && m.type === "move" && m.promote));
 
   const dm = state.doubleMove;
   if (dm && dm.movesLeft === 2) {
-    filtered = filterDoubleMoveFirstCandidates(gameState, gameState.currentPlayer, filtered, dm.mateInOneAvailable);
-  } else if (dm && dm.movesLeft === 1) {
-    filtered = filterDoubleMoveSecondCandidates(gameState, gameState.currentPlayer, filtered, dm.mateInOneAvailable);
-  } else {
-    filtered = filtered.filter((m) => !isKingInCheckAfterMove(gameState, m));
+    return {
+      legal: filterDoubleMoveFirstCandidates(gameState, gameState.currentPlayer, filteredByNoPromote, dm.mateInOneAvailable),
+      forbiddenMate: [],
+    };
   }
-  return filtered;
+  if (dm && dm.movesLeft === 1) {
+    return partitionDoubleMoveSecondCandidates(gameState, gameState.currentPlayer, filteredByNoPromote, dm.mateInOneAvailable);
+  }
+  return {
+    legal: filteredByNoPromote.filter((m) => !isKingInCheckAfterMove(gameState, m)),
+    forbiddenMate: [],
+  };
 }
 
-// 手駒選択時の合法手生成。doubleMove モード切替を含む。
+// 手駒選択時の合法手 + 禁止された詰み手を生成。doubleMove モード切替を含む。
 function legalDropMovesForHandSelect(
   state: CardShogiGameStateInternal,
   pieceType: string,
-): Move[] {
+): { legal: Move[]; forbiddenMate: Move[] } {
   const { gameState } = state;
   const dm = state.doubleMove;
 
@@ -417,15 +473,53 @@ function legalDropMovesForHandSelect(
     ? getDropMoves(gameState, gameState.currentPlayer, CARD_SHOGI_VARIANT)
     : getLegalDropMoves(gameState, gameState.currentPlayer, CARD_SHOGI_VARIANT);
 
-  let candidates = baseDrops.filter((m) => m.type === "drop" && m.dropPiece === pieceType);
+  const candidates = baseDrops.filter((m) => m.type === "drop" && m.dropPiece === pieceType);
 
   if (dm && dm.movesLeft === 2) {
-    candidates = filterDoubleMoveFirstCandidates(gameState, gameState.currentPlayer, candidates, dm.mateInOneAvailable);
-  } else if (dm && dm.movesLeft === 1) {
-    // getLegalDropMoves は王手放置を既に除外済なので、ここでは詰み禁止のみ追加
-    candidates = filterDoubleMoveSecondCandidates(gameState, gameState.currentPlayer, candidates, dm.mateInOneAvailable);
+    return {
+      legal: filterDoubleMoveFirstCandidates(gameState, gameState.currentPlayer, candidates, dm.mateInOneAvailable),
+      forbiddenMate: [],
+    };
   }
-  return candidates;
+  if (dm && dm.movesLeft === 1) {
+    return partitionDoubleMoveSecondCandidates(gameState, gameState.currentPlayer, candidates, dm.mateInOneAvailable);
+  }
+  return { legal: candidates, forbiddenMate: [] };
+}
+
+// Issue #82 (二手指し / 新仕様): 2手目完了時 (もしくは 1手目で詰みが成立した時) に
+// double_move カードを finalize する。CONFIRM_PLAY_CARD 時点ではカード消費を遅延しているため、
+// ここで初めて: 手札→graveyard、マナ -cardCost、cardPlayEvent push、isPlayingCard=true (演出開始)。
+// pendingPlayCardOpponent は null に設定し、COMMIT_PLAY_CARD で再 currentPlayer flip しないようにする
+// (currentPlayer は既に makeMoveWithEffects 内 applyMove で opponent に flip 済)。
+function finalizeDoubleMoveCardConsumption(
+  state: CardShogiGameStateInternal,
+  dm: NonNullable<CardShogiGameStateInternal["doubleMove"]>,
+): CardShogiGameStateInternal {
+  const consumed = consumeNormalCard(
+    state.cardState,
+    dm.active,
+    dm.cardInstance.instanceId,
+    dm.cardCost,
+  );
+  if (!consumed) {
+    // 異常系: 二手指し中に手札からカードが消えるケース (バグ or 競合)。
+    // 防御的に演出だけスキップして state はそのまま返す (二手指し終了は維持)。
+    return state;
+  }
+  const event: GameEvent = {
+    kind: "cardPlayEvent",
+    player: dm.active,
+    instance: dm.cardInstance,
+    at: Date.now(),
+  };
+  return {
+    ...state,
+    cardState: consumed,
+    eventLog: [...state.eventLog, event],
+    isPlayingCard: true,
+    pendingPlayCardOpponent: null, // currentPlayer は既に flip 済なので COMMIT_PLAY_CARD で再 flip しない
+  };
 }
 
 export function reducer(
@@ -435,7 +529,7 @@ export function reducer(
   // pendingCard 中は通常の駒指しを弾く(ただし target 選択フェーズでは盤面クリックを SELECT_CARD_TARGET に変換するのは呼び出し側)
   switch (action.type) {
     case "DESELECT":
-      return { ...state, selectedSquare: null, selectedHandPiece: null, legalMoves: [] };
+      return { ...state, selectedSquare: null, selectedHandPiece: null, legalMoves: [], forbiddenMateMoves: [] };
 
     case "SELECT_SQUARE": {
       if (state.cardState.pendingCard) return state;
@@ -458,9 +552,10 @@ export function reducer(
             selectedHandPiece: null,
             selectedSquare: null,
             legalMoves: [],
+            forbiddenMateMoves: [],
           };
         }
-        return { ...state, selectedHandPiece: null, selectedSquare: null, legalMoves: [] };
+        return { ...state, selectedHandPiece: null, selectedSquare: null, legalMoves: [], forbiddenMateMoves: [] };
       }
 
       if (selectedSquare) {
@@ -477,23 +572,24 @@ export function reducer(
               promotionPendingMove: targetMove,
               selectedSquare: null,
               legalMoves: [],
+              forbiddenMateMoves: [],
             };
           }
-          return { ...state, selectedSquare: null, legalMoves: [] };
+          return { ...state, selectedSquare: null, legalMoves: [], forbiddenMateMoves: [] };
         }
 
-        const filtered = legalMovesForPieceSelect(state, pos);
+        const { legal, forbiddenMate } = legalMovesForPieceSelect(state, pos);
         const piece = gameState.board[pos.row]?.[pos.col];
         if (piece && piece.owner === gameState.currentPlayer) {
-          return { ...state, selectedSquare: pos, legalMoves: filtered };
+          return { ...state, selectedSquare: pos, legalMoves: legal, forbiddenMateMoves: forbiddenMate };
         }
-        return { ...state, selectedSquare: null, legalMoves: [] };
+        return { ...state, selectedSquare: null, legalMoves: [], forbiddenMateMoves: [] };
       }
 
       const piece = gameState.board[pos.row]?.[pos.col];
       if (piece && piece.owner === gameState.currentPlayer) {
-        const filtered = legalMovesForPieceSelect(state, pos);
-        return { ...state, selectedSquare: pos, selectedHandPiece: null, legalMoves: filtered };
+        const { legal, forbiddenMate } = legalMovesForPieceSelect(state, pos);
+        return { ...state, selectedSquare: pos, selectedHandPiece: null, legalMoves: legal, forbiddenMateMoves: forbiddenMate };
       }
 
       return state;
@@ -503,12 +599,13 @@ export function reducer(
       if (state.cardState.pendingCard) return state;
       // ドロー演出 / カード使用演出中は手駒選択禁止 (Issue #82)
       if (state.isDrawing || state.isPlayingCard) return state;
-      const movesForPiece = legalDropMovesForHandSelect(state, action.pieceType);
+      const { legal, forbiddenMate } = legalDropMovesForHandSelect(state, action.pieceType);
       return {
         ...state,
         selectedHandPiece: action.pieceType,
         selectedSquare: null,
-        legalMoves: movesForPiece,
+        legalMoves: legal,
+        forbiddenMateMoves: forbiddenMate,
       };
     }
 
@@ -523,32 +620,45 @@ export function reducer(
         const result = makeMoveWithEffects(state.gameState, state.cardState, action.move, {
           mode: "double_move_first",
         });
-        // 1手目で詰みが成立 (相手玉) したら即終了
+        // 1手目で詰みが成立 (相手玉) したら即終了 + カード finalize (新仕様)
         const gameOver = result.gameState.status !== "active";
+        if (gameOver) {
+          return finalizeDoubleMoveCardConsumption({
+            ...state,
+            gameState: result.gameState,
+            cardState: result.cardState,
+            eventLog: [...state.eventLog, ...result.events],
+            selectedSquare: null,
+            selectedHandPiece: null,
+            legalMoves: [],
+            forbiddenMateMoves: [],
+            promotionPendingMove: null,
+            doubleMove: null,
+            isCheckBreakAnimating: result.triggeredCheckBreak || state.isCheckBreakAnimating,
+          }, dm);
+        }
+        // 詰みでないなら currentPlayer を dm.active (自分) に戻して 2手目へ。カードはまだ消費しない。
         return {
           ...state,
-          // 1手目で詰みなら gameState はそのまま (status="checkmate")。
-          // 詰みでないなら currentPlayer を dm.active (自分) に戻して 2手目へ。
-          gameState: gameOver
-            ? result.gameState
-            : { ...result.gameState, currentPlayer: dm.active },
+          gameState: { ...result.gameState, currentPlayer: dm.active },
           cardState: result.cardState,
           eventLog: [...state.eventLog, ...result.events],
           selectedSquare: null,
           selectedHandPiece: null,
           legalMoves: [],
+          forbiddenMateMoves: [],
           promotionPendingMove: null,
-          doubleMove: gameOver ? null : { ...dm, movesLeft: 1 },
+          doubleMove: { ...dm, movesLeft: 1 },
           isCheckBreakAnimating: result.triggeredCheckBreak || state.isCheckBreakAnimating,
         };
       }
 
-      // 二手指し中の 2手目 (movesLeft === 1)
+      // 二手指し中の 2手目 (movesLeft === 1) → カード finalize (新仕様)
       if (dm && dm.movesLeft === 1) {
         const result = makeMoveWithEffects(state.gameState, state.cardState, action.move, {
           mode: "double_move_second",
         });
-        return {
+        return finalizeDoubleMoveCardConsumption({
           ...state,
           gameState: result.gameState, // currentPlayer は applyMove で正しく opponent に
           cardState: result.cardState,
@@ -556,10 +666,11 @@ export function reducer(
           selectedSquare: null,
           selectedHandPiece: null,
           legalMoves: [],
+          forbiddenMateMoves: [],
           promotionPendingMove: null,
           doubleMove: null, // 二手指し終了
           isCheckBreakAnimating: result.triggeredCheckBreak || state.isCheckBreakAnimating,
-        };
+        }, dm);
       }
 
       // 通常 MAKE_MOVE
@@ -572,6 +683,7 @@ export function reducer(
         selectedSquare: null,
         selectedHandPiece: null,
         legalMoves: [],
+        forbiddenMateMoves: [],
         promotionPendingMove: null,
         isCheckBreakAnimating: result.triggeredCheckBreak || state.isCheckBreakAnimating,
       };
@@ -600,28 +712,42 @@ export function reducer(
           mode: "double_move_first",
         });
         const gameOver = result.gameState.status !== "active";
+        if (gameOver) {
+          return finalizeDoubleMoveCardConsumption({
+            ...state,
+            gameState: result.gameState,
+            cardState: result.cardState,
+            eventLog: [...state.eventLog, ...result.events],
+            promotionPendingMove: null,
+            selectedSquare: null,
+            selectedHandPiece: null,
+            legalMoves: [],
+            forbiddenMateMoves: [],
+            doubleMove: null,
+            isCheckBreakAnimating: result.triggeredCheckBreak || state.isCheckBreakAnimating,
+          }, dm);
+        }
         return {
           ...state,
-          gameState: gameOver
-            ? result.gameState
-            : { ...result.gameState, currentPlayer: dm.active },
+          gameState: { ...result.gameState, currentPlayer: dm.active },
           cardState: result.cardState,
           eventLog: [...state.eventLog, ...result.events],
           promotionPendingMove: null,
           selectedSquare: null,
           selectedHandPiece: null,
           legalMoves: [],
-          doubleMove: gameOver ? null : { ...dm, movesLeft: 1 },
+          forbiddenMateMoves: [],
+          doubleMove: { ...dm, movesLeft: 1 },
           isCheckBreakAnimating: result.triggeredCheckBreak || state.isCheckBreakAnimating,
         };
       }
 
-      // 二手指し中の 2手目: mode=double_move_second
+      // 二手指し中の 2手目: mode=double_move_second → カード finalize (新仕様)
       if (dm && dm.movesLeft === 1) {
         const result = makeMoveWithEffects(state.gameState, state.cardState, moveWithPromote, {
           mode: "double_move_second",
         });
-        return {
+        return finalizeDoubleMoveCardConsumption({
           ...state,
           gameState: result.gameState,
           cardState: result.cardState,
@@ -630,9 +756,10 @@ export function reducer(
           selectedSquare: null,
           selectedHandPiece: null,
           legalMoves: [],
+          forbiddenMateMoves: [],
           doubleMove: null,
           isCheckBreakAnimating: result.triggeredCheckBreak || state.isCheckBreakAnimating,
-        };
+        }, dm);
       }
 
       // 通常 CONFIRM_PROMOTION
@@ -645,6 +772,7 @@ export function reducer(
         promotionPendingMove: null,
         selectedSquare: null,
         legalMoves: [],
+        forbiddenMateMoves: [],
         isCheckBreakAnimating: result.triggeredCheckBreak || state.isCheckBreakAnimating,
       };
     }
@@ -655,6 +783,7 @@ export function reducer(
         promotionPendingMove: null,
         selectedSquare: null,
         legalMoves: [],
+        forbiddenMateMoves: [],
       };
 
     case "RESIGN": {
@@ -707,6 +836,7 @@ export function reducer(
         selectedSquare: null,
         selectedHandPiece: null,
         legalMoves: [],
+        forbiddenMateMoves: [],
         promotionPendingMove: null,
         cardState: {
           ...state.cardState,
@@ -774,6 +904,7 @@ export function reducer(
         selectedSquare: null,
         selectedHandPiece: null,
         legalMoves: [],
+        forbiddenMateMoves: [],
         eventLog: [
           ...state.eventLog,
           { kind: "drawEvent", player: action.player, instance: top, at: Date.now() },
@@ -846,6 +977,7 @@ export function reducer(
         selectedSquare: null,
         selectedHandPiece: null,
         legalMoves: [],
+        forbiddenMateMoves: [],
       };
     }
 
@@ -932,21 +1064,44 @@ export function reducer(
         if (!afterConsume) return state;
         nextCardState = afterConsume;
       } else if (def.effectId === "double_move") {
-        // Issue #82 (二手指し): カード消費 + マナ -6 + 二手指しモード突入。
-        // 盤面は変化しない。1手目・2手目はカード使用後の MAKE_MOVE で順に処理される。
-        const afterConsume = consumeNormalCard(state.cardState, player, pending.instance.instanceId, def.cost);
-        if (!afterConsume) return state;
-        nextCardState = afterConsume;
-        // gameState は変化しないが、王手中ガードが evaluateGameEnd の結果を要求するためそのまま継承
+        // Issue #82 (二手指し / 新仕様): CONFIRM 時点ではカード消費・マナ減算・
+        // cardPlayEvent push を一切行わず、二手指しモードに突入するだけ。
+        // 1手目までの操作はキャンセル可能 (CANCEL_DOUBLE_MOVE で preCardState から復元)。
+        // 実際のカード消費・mana 減算・cardPlayEvent push・カード使用演出 (isPlayingCard=true)
+        // は 2手目完了時に MAKE_MOVE 内で finalize する。
+        // 王手中の使用可否は既に BEGIN_PLAY_CARD の use condition で判定済。
+        // pendingCard クリア + doubleMove セット のみで return する (下の共通処理は通らない)。
+        const preCardSnapshot = {
+          gameState: state.gameState,
+          cardState: state.cardState,
+          eventLog: state.eventLog,
+        };
+        return {
+          ...state,
+          // pendingCard だけクリア。マナ・手札・eventLog は変えない。
+          cardState: { ...state.cardState, pendingCard: null },
+          selectedSquare: null,
+          selectedHandPiece: null,
+          legalMoves: [],
+          forbiddenMateMoves: [],
+          // isPlayingCard も false のまま (中央演出は 2手目完了後に発火)
+          doubleMove: {
+            active: player,
+            movesLeft: 2,
+            mateInOneAvailable: hasOneMoveMate(state.gameState, player, CARD_SHOGI_VARIANT),
+            cardInstance: pending.instance,
+            cardCost: def.cost,
+            preFirstMoveState: preCardSnapshot,
+            preCardState: preCardSnapshot,
+          },
+        };
       } else {
         return state;
       }
 
       // 王手中の最終ガード (Issue #82): 王手中だった場合、適用後の盤面で
       // 王手が解除されている必要がある。解除されない手は不正なので状態変更しない。
-      // double_move は即時の盤面効果がなく 2手以内に解消する設計のため、このガード対象外。
-      // (王手中の使用可否は既に BEGIN_PLAY_CARD の use condition で判定済)
-      if (def.effectId !== "double_move" && isInCheck(state.gameState, player, CARD_SHOGI_VARIANT)) {
+      if (isInCheck(state.gameState, player, CARD_SHOGI_VARIANT)) {
         if (isInCheck(nextGameState, player, CARD_SHOGI_VARIANT)) {
           return state;
         }
@@ -978,23 +1133,6 @@ export function reducer(
 
       const nextEventLog = [...state.eventLog, event];
 
-      // Issue #82 (二手指し): double_move カード使用直後に二手指しモードを開始
-      const isDoubleMove = def.effectId === "double_move";
-      const doubleMove = isDoubleMove
-        ? {
-            active: player,
-            movesLeft: 2 as const,
-            mateInOneAvailable: hasOneMoveMate(state.gameState, player, CARD_SHOGI_VARIANT),
-            // preState はカード使用直後 (cardPlayEvent 含む) のスナップショット。
-            // 戻すボタンでカード使用は維持しつつ 1手目だけ取り消せるように。
-            preState: {
-              gameState: nextGameState,
-              cardState: nextCardState,
-              eventLog: nextEventLog,
-            },
-          }
-        : state.doubleMove;
-
       return {
         ...state,
         gameState: nextGameState,
@@ -1003,24 +1141,22 @@ export function reducer(
         selectedSquare: null,
         selectedHandPiece: null,
         legalMoves: [],
+        forbiddenMateMoves: [],
         eventLog: nextEventLog,
         isPlayingCard: true,
         pendingPlayCardOpponent: opponent,
-        doubleMove,
       };
     }
 
     case "COMMIT_PLAY_CARD": {
-      if (!state.isPlayingCard || !state.pendingPlayCardOpponent) return state;
+      if (!state.isPlayingCard) return state;
 
-      // Issue #82 (二手指し): doubleMove モード中は currentPlayer 反転と
-      // lastTurnStartedAt クリアを skip (これらは 2手目完了で MAKE_MOVE 内 makeMoveWithEffects が処理)
-      if (state.doubleMove) {
-        return {
-          ...state,
-          isPlayingCard: false,
-          pendingPlayCardOpponent: null,
-        };
+      // Issue #82 (二手指し / 新仕様): finalizeDoubleMoveCardConsumption 経由で
+      // isPlayingCard=true がセットされた場合、pendingPlayCardOpponent は null。
+      // currentPlayer は既に 2手目 makeMoveWithEffects で flip 済なので、再 flip しない。
+      // isPlayingCard だけクリアして演出終了とする。
+      if (!state.pendingPlayCardOpponent) {
+        return { ...state, isPlayingCard: false };
       }
 
       const opponent = state.pendingPlayCardOpponent;
@@ -1076,18 +1212,45 @@ export function reducer(
       if (state.isCheckBreakAnimating) return state;
       if (state.isPlayingCard) return state;
 
+      // 1手目だけを取り消す → preFirstMoveState から復元、doubleMove は維持 (movesLeft=2 へ)
       return {
         ...state,
-        gameState: dm.preState.gameState,
-        cardState: dm.preState.cardState,
-        eventLog: dm.preState.eventLog,
+        gameState: dm.preFirstMoveState.gameState,
+        cardState: dm.preFirstMoveState.cardState,
+        eventLog: dm.preFirstMoveState.eventLog,
         selectedSquare: null,
         selectedHandPiece: null,
         legalMoves: [],
+        forbiddenMateMoves: [],
         promotionPendingMove: null,
-        // 演出系フラグも明示リセット (preState 時点では当然 false)
+        // 演出系フラグも明示リセット (preFirstMoveState 時点では当然 false)
         isCheckBreakAnimating: false,
         doubleMove: { ...dm, movesLeft: 2 },
+      };
+    }
+
+    case "CANCEL_DOUBLE_MOVE": {
+      const dm = state.doubleMove;
+      if (!dm) return state;
+      // 詰み確定後はキャンセル不可 (game over で doubleMove は既に null になっているはずだが防御的)
+      if (state.gameState.status !== "active") return state;
+      // 演出中はキャンセル不可
+      if (state.isCheckBreakAnimating) return state;
+      if (state.isPlayingCard) return state;
+
+      // カード使用自体を取り消す → preCardState から完全復元、doubleMove=null
+      return {
+        ...state,
+        gameState: dm.preCardState.gameState,
+        cardState: dm.preCardState.cardState,
+        eventLog: dm.preCardState.eventLog,
+        selectedSquare: null,
+        selectedHandPiece: null,
+        legalMoves: [],
+        forbiddenMateMoves: [],
+        promotionPendingMove: null,
+        isCheckBreakAnimating: false,
+        doubleMove: null,
       };
     }
 
