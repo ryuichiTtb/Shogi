@@ -317,7 +317,14 @@ export const INITIAL_MANA: Record<"sente" | "gote", number> = {
 export const MANA_CAP = 20;
 
 // マナを消費して山札からドロー
-export const DRAW_COST = 3;
+// Issue #130 で 3 → 2 に引き下げ。自動ドロー (AUTO_DRAW_INTERVAL) と併存させるため、
+// 手動ドローは「自動を待たずに今すぐ引きたい」加速行動と位置づけ直してコストを下げた。
+export const DRAW_COST = 2;
+
+// 経過手数による自動ドローの間隔 (Issue #130)。
+// 「自分の手番が終わるたびに +1」のカウントが本値に到達すると、マナ消費なしで山札から 1 枚引く。
+// 駒移動・手動ドロー・カード使用・トラップ設置のすべてが「手番終了」としてカウント対象。
+export const AUTO_DRAW_INTERVAL = 5;
 
 // 1ターン消費すると +1、早指し(FAST_THRESHOLD_MS 以内)で +2
 export const MANA_PER_TURN = 1;
