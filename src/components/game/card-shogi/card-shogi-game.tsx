@@ -820,6 +820,7 @@ export function CardShogiGame({
   }, [finalizeCheckBreak]);
 
   // 山札からのドロー可否 (Issue #82: pendingCard 中もドロー禁止に統一)
+  // 二手指し中もドロー禁止 (Issue #82)
   const canDrawCard =
     cardState.mana[playerColor] >= DRAW_COST &&
     isPlayerTurn &&
@@ -828,7 +829,8 @@ export function CardShogiGame({
     !isDrawAnimating &&
     !isPlayingCard &&
     !isCheckBreakAnimating &&
-    cardState.pendingCard === null;
+    cardState.pendingCard === null &&
+    doubleMove === null;
 
   const opponentDeckPile = <DeckPile count={cardState.deck[aiColor].length} size="md" showDrawCost />;
   const ownDeckPile = (
@@ -868,14 +870,17 @@ export function CardShogiGame({
   // - 王手中も「王手回避になるカードのみ使用可」とする方針に変更したため、inCheck で
   //   一律 disabled にはしない。個別カードの非活性化は unusableCardIds 側で制御する。
   // - ドロー演出中・カード使用演出中・別カード使用中・王手崩し演出中は引き続き全体ロック
-  const handDisabled = !isPlayerTurn || !isGameActive || cardState.pendingCard !== null || isDrawAnimating || isPlayingCard || isCheckBreakAnimating;
+  // Issue #82 (二手指し): 二手指し中は手札・ドローも無効化 (reducer 側でも弾くが UI でも明示)
+  const handDisabled = !isPlayerTurn || !isGameActive || cardState.pendingCard !== null || isDrawAnimating || isPlayingCard || isCheckBreakAnimating || doubleMove !== null;
 
   // 待った可否 (P28): 駒指し2手以上 / 自分の手番 / AI 思考中でない / pendingCard 無し / 過去2手の間にカード操作なし
+  // Issue #82 (二手指し): 二手指し中は通常の「待った」を不可
   const canUndo = useMemo(() => {
     if (gameState.moveHistory.length < 2) return false;
     if (!isPlayerTurn) return false;
     if (isAiThinking) return false;
     if (cardState.pendingCard) return false;
+    if (doubleMove) return false;
     let movesSeen = 0;
     for (let i = eventLog.length - 1; i >= 0; i--) {
       const ev = eventLog[i];
@@ -892,7 +897,7 @@ export function CardShogiGame({
       }
     }
     return movesSeen >= 2;
-  }, [gameState.moveHistory.length, isPlayerTurn, isAiThinking, cardState.pendingCard, eventLog]);
+  }, [gameState.moveHistory.length, isPlayerTurn, isAiThinking, cardState.pendingCard, doubleMove, eventLog]);
 
   // 歩戻し等のターゲット選択時にハイライトする盤面マス
   const cardTargetSquares: Position[] = useMemo(() => {
