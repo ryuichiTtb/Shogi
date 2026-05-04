@@ -272,22 +272,11 @@ export default function Home() {
           {`${selectedCharacter.name}と対局開始！`}
         </Button>
 
-        {/* カード機能セクション (カード将棋モード時のみ) */}
+        {/* カード機能セクション (カード将棋モード時のみ)。
+            上段: デッキ編成 / カードデザイン (一般)
+            下段: カード一覧 / フライト検証用 (開発者用) */}
         {selectedMode === "card-shogi" && (
-          <div className="grid grid-cols-3 gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => navigateTo("/cards")}
-              disabled={isPending}
-              className={cn(
-                "flex items-center justify-center gap-1.5 py-2.5 rounded-lg border-2 border-border",
-                "bg-card text-xs sm:text-sm font-medium hover:border-primary/40 transition-colors",
-                "disabled:opacity-60 disabled:cursor-not-allowed",
-              )}
-            >
-              <Layers className="w-4 h-4" />
-              カード一覧
-            </button>
+          <div className="grid grid-cols-2 gap-2 shrink-0">
             <button
               type="button"
               onClick={() => navigateTo("/decks")}
@@ -314,11 +303,37 @@ export default function Home() {
               <Palette className="w-4 h-4" />
               カードデザイン
             </button>
+            <button
+              type="button"
+              onClick={() => navigateTo("/cards")}
+              disabled={isPending}
+              className={cn(
+                "flex items-center justify-center gap-1.5 py-2.5 rounded-lg border-2 border-border",
+                "bg-card text-xs sm:text-sm font-medium hover:border-primary/40 transition-colors",
+                "disabled:opacity-60 disabled:cursor-not-allowed",
+              )}
+            >
+              <Layers className="w-4 h-4" />
+              カード一覧
+            </button>
+            <button
+              type="button"
+              onClick={() => navigateTo("/dev/piece-flight")}
+              disabled={isPending}
+              className={cn(
+                "flex items-center justify-center gap-1.5 py-2.5 rounded-lg border-2 border-border",
+                "bg-card text-xs sm:text-sm font-medium hover:border-primary/40 transition-colors",
+                "disabled:opacity-60 disabled:cursor-not-allowed",
+              )}
+            >
+              <Wrench className="w-4 h-4" />
+              フライト検証用
+            </button>
           </div>
         )}
 
         {/* 棋譜履歴へのリンク */}
-        <div className="text-center shrink-0 flex flex-col items-center gap-1.5">
+        <div className="text-center shrink-0">
           <button
             type="button"
             onClick={() => navigateTo("/history")}
@@ -330,21 +345,6 @@ export default function Home() {
           >
             <History className="w-4 h-4" />
             対局履歴を見る
-          </button>
-
-          {/* 開発者用リンク (Issue #82): フライト演出パラメータの調整・保存。
-              一旦は無条件で表示。後で本番非表示化したい場合は環境変数等でガード。 */}
-          <button
-            type="button"
-            onClick={() => navigateTo("/dev/piece-flight")}
-            disabled={isPending}
-            className={cn(
-              "inline-flex items-center gap-1.5 text-xs text-muted-foreground/70 hover:text-foreground transition-colors",
-              "disabled:opacity-60 disabled:cursor-not-allowed",
-            )}
-          >
-            <Wrench className="w-3.5 h-3.5" />
-            開発者: フライト演出 検証
           </button>
         </div>
 
