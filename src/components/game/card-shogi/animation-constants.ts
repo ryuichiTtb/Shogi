@@ -66,3 +66,33 @@ export const FAST_MOVE_OFFSET_BELOW_PIECE_PX = 4;
 // ===== Mana Gauge (mana-gauge.tsx) =====
 // マナ増減セグメントのフェード時間。
 export const MANA_GAUGE_SEGMENT_DURATION_S = 2.4;
+
+// ===== Auto Draw Ceremony (#130) =====
+// 経過手数による自動ドロー専用の演出パラメータ。
+// 既存 manual draw (DRAW_*) とは色味・前段 (Burst+Trail) が異なる。
+export const AUTO_DRAW_BURST_DURATION_MS = 450;
+export const AUTO_DRAW_TRAIL_DURATION_MS = 280;
+export const AUTO_DRAW_RING_COLLAPSE_MS = 280;
+// primed パルスの周期と最大ループ数 (= 1.4s × 6 = 8.4s でフォールバック停止)
+export const AUTO_DRAW_PRIMED_PULSE_S = 1.4;
+export const AUTO_DRAW_PRIMED_MAX_LOOPS = 6;
+// リング進捗の補間時間 (stroke-dashoffset の transition)
+export const AUTO_DRAW_RING_TRANSITION_MS = 320;
+// firing → 0/5 復帰までの余韻時間
+export const AUTO_DRAW_COOLDOWN_MS = 600;
+
+// 演出フェーズ別の開始オフセット (ms)。AutoDrawBurst.tsx はこの object のみを参照し、
+// 内部に ms リテラルを書かない。テンポ調整時はここだけ編集する。
+// Phase 0 = reducer の prev=4 && next=0 検知 + displayProgress を 1 frame だけ
+// 強制 5 にして「リング満タン」を 1 frame 描画する。
+export const AUTO_DRAW_PHASE_OFFSETS = {
+  ringCollapse: 16,    // Phase 1: リング崩壊開始
+  burst: 96,           // Phase 2: 粒子バースト開始 (16 + 80)
+  trail: 216,          // Phase 3: 中央へのトレイル開始 (16 + 200)
+  cardFlight: 366,     // Phase 4: DrawFlightCard fade-in 開始 (16 + 350)
+  cardHold: 866,       // Phase 5: 中央保持 開始 (16 + 850)
+  cardFadeOut: 2366,   // Phase 6: 手札へのフェードアウト開始 (16 + 2350)
+  cooldown: 2666,      // Phase 7: 演出全体終了 (= AUTO_DRAW_TOTAL_MS の同値)
+} as const;
+// 命名重複の防止 (二重メンテバグ回避): TOTAL_MS は cooldown の alias 再エクスポート。
+export const AUTO_DRAW_TOTAL_MS = AUTO_DRAW_PHASE_OFFSETS.cooldown;

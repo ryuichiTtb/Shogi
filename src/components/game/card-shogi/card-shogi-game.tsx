@@ -46,6 +46,7 @@ import { TrapSlot } from "./trap-slot";
 import { DeckPile } from "./deck-pile";
 import { CardPlayDialog, CardTargetingNotice } from "./card-play-dialog";
 import { DrawFlightCard } from "./draw-flight-card";
+import { AutoDrawBurst } from "./auto-draw-burst";
 import { CardPlayFlight } from "./card-play-flight";
 import { PieceFlight, type PieceFlightSpec } from "./piece-flight";
 import { useFlightParams } from "@/lib/dev/flight-params";
@@ -102,9 +103,58 @@ export function CardShogiGame({
   // する。閉じると盤面・持ち駒が見え、再度展開して「もう一局」「ホームへ」を
   // 押せる。
   const [endCardMinimized, setEndCardMinimized] = useState(false);
-  // Issue #78: ドロー演出 (山札→中央→手札)。演出完了まで自分の手番継続・操作ロック。
-  const [drawFlight, setDrawFlight] = useState<{ card: CardInstance; key: number } | null>(null);
-  const isDrawAnimating = drawFlight !== null;
+  // Issue #78 + #130: ドロー演出キュー (FIFO)。
+  // 旧実装は単一スロット (drawFlight) で manual 直後に auto-draw が発火すると
+  // setDrawFlight が上書きされ manual 演出が中断されるバグがあった (#130)。
+  // FIFO 化により manual → auto の連鎖でも順次 2 枚を再生する。
+  // 連鎖時 (同一 ms 内 push) でも key 衝突しないよう ref counter で連番発番。
+  type DrawFlightItem = {
+    card: CardInstance;
+    source: "manual" | "auto";
+    key: number;
+  };
+  const [drawFlightQueue, setDrawFlightQueue] = useState<DrawFlightItem[]>([]);
+  const currentDrawFlight = drawFlightQueue[0] ?? null;
+  const isDrawAnimating = drawFlightQueue.length > 0;
+  const flightKeyCounterRef = useRef(0);
+  const nextFlightKey = useCallback(() => {
+    flightKeyCounterRef.current += 1;
+    return flightKeyCounterRef.current;
+  }, []);
+  // Issue #130: AutoDrawBurst は currentDrawFlight が auto に切り替わった瞬間に起動。
+  // 単一スロット (origin + key) で、burstKey の更新で AnimatePresence が新規 mount する。
+  const [autoBurst, setAutoBurst] = useState<{
+    origin: { x: number; y: number };
+    scale: "self" | "opponent";
+    key: number;
+  } | null>(null);
+  // Issue #130: aria-live 用の発動通知メッセージ。1500ms debounce。
+  const [autoDrawLiveMessage, setAutoDrawLiveMessage] = useState("");
+  // Issue #130: 手札着地時の emerald flash (auto-draw 用)。
+  // 既存 freshlyDrawnId (amber) と区別するため別 state で持つ。
+  const [autoFreshlyDrawnId, setAutoFreshlyDrawnId] = useState<string | null>(null);
+  // Issue #130 G-2: 複数 setTimeout を unmount 時に一括 cleanup する共通パターン。
+  // ① opponent SFX 100ms 遅延、② aria-live 1500ms debounce、③ emerald flash 700ms
+  // クリアの 3 種で使用。timersRef で id を集中管理し、cleanup で全解除。
+  const timersRef = useRef<Set<number>>(new Set());
+  const scheduleTimer = useCallback((callback: () => void, delay: number): number => {
+    const id = window.setTimeout(() => {
+      timersRef.current.delete(id);
+      callback();
+    }, delay);
+    timersRef.current.add(id);
+    return id;
+  }, []);
+  useEffect(() => {
+    // ref は安定参照だが lint 警告回避のためローカルにコピーしてから cleanup
+    const timers = timersRef.current;
+    return () => {
+      timers.forEach((id) => window.clearTimeout(id));
+      timers.clear();
+    };
+  }, []);
+  // aria-live のタイマー id (連続発火時に古いタイマーをキャンセルして 1500ms 維持)
+  const liveMessageTimerRef = useRef<number | null>(null);
   // Issue #106: カード使用/トラップセット時の中央演出 (中央にパッと出現+キラッと光る)。
   // ドロー演出と異なり手番をロックせず短時間 (~1.2s) で抜ける。
   const [playFlight, setPlayFlight] = useState<{
@@ -400,15 +450,43 @@ export function CardShogiGame({
       const ev = newEvents[i];
       const absoluteIdx = startIdx + i;
       switch (ev.kind) {
-        case "drawEvent":
-          playSfx("card_draw");
-          // Issue #78: 自分のドローのみ中央演出 (AI ドローは Phase 0 では発生しない想定だが防御的に絞る)
-          if (ev.player === playerColor) {
-            setDrawFlight({ card: ev.instance, key: Date.now() });
+        case "drawEvent": {
+          // Issue #130: source 別の挙動分岐。
+          // - SFX: 自分は即時、相手は 100ms 遅延 (連鎖時に重なり防止)
+          // - 演出キュー: 自分のドローのみ push (AI ドロー演出は本 Issue でも自分側カード飛行は省略)
+          // - manaFlight: 手動ドロー (= マナ消費あり) のときのみ
+          // - aria-live: auto かつ自分側のみ「自動ドローしました」を 1500ms debounce で通知
+          const source = ev.source ?? "manual";
+          const isSelf = ev.player === playerColor;
+          if (isSelf) {
+            playSfx("card_draw");
+          } else {
+            scheduleTimer(() => playSfx("card_draw"), 100);
           }
-          // Issue #77: 山札の位置で -5 マナ表示
-          triggerManaFlight(-DRAW_COST, getDeckRect());
+          if (isSelf) {
+            setDrawFlightQueue((q) => [
+              ...q,
+              { card: ev.instance, source, key: nextFlightKey() },
+            ]);
+          }
+          if (source === "manual" && isSelf) {
+            triggerManaFlight(-DRAW_COST, getDeckRect());
+          }
+          if (source === "auto") {
+            // 連続発火時 (sente auto → gote auto) は古いタイマーを cancel して
+            // 新しい 1500ms 計測を開始 (重複読み上げ防止)
+            if (liveMessageTimerRef.current !== null) {
+              window.clearTimeout(liveMessageTimerRef.current);
+              timersRef.current.delete(liveMessageTimerRef.current);
+            }
+            setAutoDrawLiveMessage("自動ドローしました");
+            liveMessageTimerRef.current = scheduleTimer(() => {
+              setAutoDrawLiveMessage("");
+              liveMessageTimerRef.current = null;
+            }, 1500);
+          }
           break;
+        }
         case "cardPlayEvent": {
           playSfx("card_play");
           const def = CARD_DEFS[ev.instance.defId];
@@ -575,7 +653,7 @@ export function CardShogiGame({
       }
     }
     lastEventIndexRef.current = eventLog.length;
-  }, [eventLog, isReady, playSfx, playerColor, triggerManaFlight, triggerFastMoveBadge, getDeckRect, getOriginRect, getBoardSquareRect, findVisibleCapturedPieceRect]);
+  }, [eventLog, isReady, playSfx, playerColor, triggerManaFlight, triggerFastMoveBadge, getDeckRect, getOriginRect, getBoardSquareRect, findVisibleCapturedPieceRect, scheduleTimer, nextFlightKey]);
 
   // Issue #78 / #82: 演出中(ドロー / カード使用 / 王手崩しトラップ)は盤面・手札・カード操作・背景クリックをロックする
   const handleSquareClick = useCallback(
@@ -679,11 +757,37 @@ export function CardShogiGame({
     deselect();
   }, [isDrawAnimating, isPlayingCard, isCheckBreakAnimating, deselect]);
 
-  // 演出中は最新ドローカードを手札表示から除外し、演出完了後に手札に現れたように見せる
+  // 演出中は最新ドローカードを手札表示から除外し、演出完了後に手札に現れたように見せる。
+  // FIFO 化により queue 内の全カード ID を hidden 対象にする (#130)。
   const displayedOwnHand = useMemo(() => {
-    if (!drawFlight) return cardState.hand[playerColor];
-    return cardState.hand[playerColor].filter((c) => c.instanceId !== drawFlight.card.instanceId);
-  }, [cardState.hand, playerColor, drawFlight]);
+    if (drawFlightQueue.length === 0) return cardState.hand[playerColor];
+    const hiddenIds = new Set(drawFlightQueue.map((q) => q.card.instanceId));
+    return cardState.hand[playerColor].filter((c) => !hiddenIds.has(c.instanceId));
+  }, [cardState.hand, playerColor, drawFlightQueue]);
+
+  // Issue #130: queue 先頭が auto に切り替わった瞬間に AutoDrawBurst を起動。
+  // burstKey の更新で AnimatePresence が新規 mount し、Burst が再生される。
+  // 連続 auto-draw (sente auto → gote auto) でも個別に再生される。
+  // 自分側 = 山札 rect 中心、相手側 = AI deck の中心 (= getDeckRect() を流用、
+  // self/opponent を distinguish するため別 ref が必要だが、現状は自分側 deck rect
+  // のみ参照可能なため相手側演出は scale=opponent + 同 rect 起点で簡略化)。
+  const lastBurstFlightKeyRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!currentDrawFlight) return;
+    if (currentDrawFlight.source !== "auto") return;
+    if (lastBurstFlightKeyRef.current === currentDrawFlight.key) return;
+    lastBurstFlightKeyRef.current = currentDrawFlight.key;
+    const rect = getDeckRect();
+    if (!rect) return;
+    setAutoBurst({
+      origin: { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 },
+      // 現状は自分側 deck rect のみ取得可能。AI 側 deck rect は未取得のため、
+      // 相手 auto-draw でも同 rect を起点にしつつ scale=opponent で控えめ表現する。
+      // 将来 AI 側 deck rect を取得できるようになったら scale 切替条件を更新する。
+      scale: "self",
+      key: currentDrawFlight.key,
+    });
+  }, [currentDrawFlight, getDeckRect]);
 
   // Issue #82 (修正): フローを「カード使用 → 駒フライト → 中央カード演出 → finalize」へ。
   // - cardPlayEvent エフェクト側で「駒フライト or 中央カード演出」のどちらを先に発火するか判断
@@ -711,16 +815,27 @@ export function CardShogiGame({
     finalizePlayCard();
   }, [finalizePlayCard]);
 
-  // ドロー演出完了: currentPlayer を相手に渡し、手札の対象カードを一瞬フラッシュさせる
+  // ドロー演出完了: queue から先頭を pop し、currentPlayer を相手に渡し、
+  // 手札の対象カードを一瞬フラッシュさせる。
+  // - manual: amber flash (既存 freshlyDrawnId / 0.9s)
+  // - auto:   emerald flash (新規 autoFreshlyDrawnId / 0.7s)
   const handleDrawFlightComplete = useCallback(() => {
-    const id = drawFlight?.card.instanceId ?? null;
-    setDrawFlight(null);
+    const item = currentDrawFlight;
+    setDrawFlightQueue((q) => q.slice(1));
     finalizeDraw();
-    if (id) {
-      setFreshlyDrawnId(id);
-      window.setTimeout(() => {
-        setFreshlyDrawnId((prev) => (prev === id ? null : prev));
-      }, 900);
+    if (item) {
+      const id = item.card.instanceId;
+      if (item.source === "auto") {
+        setAutoFreshlyDrawnId(id);
+        scheduleTimer(() => {
+          setAutoFreshlyDrawnId((prev) => (prev === id ? null : prev));
+        }, 700);
+      } else {
+        setFreshlyDrawnId(id);
+        scheduleTimer(() => {
+          setFreshlyDrawnId((prev) => (prev === id ? null : prev));
+        }, 900);
+      }
     }
     // Issue #82: 手札スクロールを最後尾へ。PC は縦スクロール、モバイルは横スクロール。
     // どちらの場合でも scrollTop / scrollLeft を最大に設定すれば、該当しない軸は無視される。
@@ -743,7 +858,7 @@ export function CardShogiGame({
         });
       });
     }
-  }, [drawFlight, finalizeDraw]);
+  }, [currentDrawFlight, finalizeDraw, scheduleTimer]);
 
   // ----- レイアウト用ヘルパ -----
 
@@ -993,6 +1108,7 @@ export function CardShogiGame({
       size="md"
       disabled={handDisabled}
       flashCardId={freshlyDrawnId}
+      autoFlashCardId={autoFreshlyDrawnId}
       unusableCardIds={unusableCardIds}
     />
   );
@@ -1358,6 +1474,7 @@ export function CardShogiGame({
             size="md"
             disabled={handDisabled}
             flashCardId={freshlyDrawnId}
+            autoFlashCardId={autoFreshlyDrawnId}
             hideCardDescription
             onCardClick={handleBeginPlayCard}
             unusableCardIds={unusableCardIds}
@@ -1443,6 +1560,7 @@ export function CardShogiGame({
               disabled={handDisabled}
               fullWidth
               flashCardId={freshlyDrawnId}
+              autoFlashCardId={autoFreshlyDrawnId}
               onCardClick={handleBeginPlayCard}
               unusableCardIds={unusableCardIds}
             />
@@ -1588,14 +1706,31 @@ export function CardShogiGame({
         onCancel={cancelPlayCard}
       />
 
-      {/* Issue #78: ドロー中央演出 (山札→中央→手札の DOMRect 追従) */}
+      {/* Issue #78: ドロー中央演出 (山札→中央→手札の DOMRect 追従)。
+          Issue #130: variant ごとに色味を切替 (manual=amber, auto=emerald + 自動ドローラベル)。
+          FIFO 化により queue 先頭のみを描画、onComplete で pop して次の演出に移る。 */}
       <DrawFlightCard
-        cardInstance={drawFlight?.card ?? null}
-        flightKey={drawFlight?.key ?? null}
+        cardInstance={currentDrawFlight?.card ?? null}
+        flightKey={currentDrawFlight?.key ?? null}
+        variant={currentDrawFlight?.source ?? "manual"}
         deckRectGetter={getDeckRect}
         handRectGetter={getHandRect}
         onComplete={handleDrawFlightComplete}
       />
+
+      {/* Issue #130: 自動ドロー専用 Burst 演出 (ring collapse + particles + trail)。
+          DrawFlightCard より z-index 1 階層上 (z-[70])、currentDrawFlight が
+          source="auto" に切り替わった瞬間に useEffect から起動される。 */}
+      <AutoDrawBurst
+        origin={autoBurst?.origin ?? null}
+        scale={autoBurst?.scale ?? "self"}
+        burstKey={autoBurst?.key}
+      />
+
+      {/* Issue #130: 自動ドロー発動の SR 通知。1500ms debounce で連続発火時は最後の通知のみ。 */}
+      <span className="sr-only" aria-live="polite" aria-atomic="true">
+        {autoDrawLiveMessage}
+      </span>
 
       {/* Issue #106: カード使用/トラップセット時の中央演出 (中央にパッと出現+キラッと光る) */}
       <CardPlayFlight

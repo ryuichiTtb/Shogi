@@ -1,9 +1,19 @@
 "use client";
 
-import { memo } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { motion, useReducedMotion } from "framer-motion";
+
 import { cn } from "@/lib/utils";
 import { AUTO_DRAW_INTERVAL, DRAW_COST } from "@/lib/shogi/cards/definitions";
 import { CardBack } from "@/components/card-back/card-back";
+import {
+  AUTO_DRAW_PRIMED_MAX_LOOPS,
+  AUTO_DRAW_PRIMED_PULSE_S,
+  AUTO_DRAW_RING_TRANSITION_MS,
+} from "./animation-constants";
+
+// SSR 環境で useLayoutEffect の警告を回避するための条件分岐 (browser only)。
+const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 interface DeckPileProps {
   count: number;
@@ -88,11 +98,37 @@ export const DeckPile = memo(function DeckPile({
 }: DeckPileProps) {
   const isEmpty = count === 0;
   const interactable = canDraw && count > 0 && !!onDraw;
+  const reducedMotion = useReducedMotion();
   // Issue #130: 進捗ゲージ用の派生値。山札枯渇時は drawProgress が interval を超え得るため
   // 表示は Math.min でクランプして 0..interval に収める。
   const hasProgress = showProgress && progress !== undefined && interval > 0;
   const clampedProgress = hasProgress ? Math.min(Math.max(progress!, 0), interval) : 0;
-  const remainingTurns = hasProgress ? Math.max(0, interval - clampedProgress) : 0;
+
+  // displayProgress: reducer は同期的に 4→0 へ瞬間遷移するため、UI 側で「リング満タン
+  // (interval/interval)」状態を 1 frame だけ強制描画して firing 演出の起点を作る。
+  // useLayoutEffect で setDisplayProgress(interval) → rAF で setDisplayProgress(0) の
+  // 2 段階セット。それ以外のときは clampedProgress をそのまま使う。
+  const [displayProgress, setDisplayProgress] = useState(clampedProgress);
+  const prevProgressRef = useRef(clampedProgress);
+  useIsoLayoutEffect(() => {
+    const prev = prevProgressRef.current;
+    const next = clampedProgress;
+    prevProgressRef.current = next;
+    // 4→0 遷移を検知 (= reducer が auto-draw 発火で進捗をリセット)
+    if (prev === interval - 1 && next === 0) {
+      setDisplayProgress(interval); // 1 frame だけ満タン描画
+      const rafId = window.requestAnimationFrame(() => {
+        setDisplayProgress(0);
+      });
+      return () => window.cancelAnimationFrame(rafId);
+    }
+    setDisplayProgress(next);
+  }, [clampedProgress, interval]);
+
+  const remainingTurns = hasProgress
+    ? Math.max(0, interval - Math.min(displayProgress, interval))
+    : 0;
+  const isPrimed = hasProgress && displayProgress === interval - 1;
   // 山札 button フォーカス時に SR で必ず読まれるよう、aria-label に統合する。
   // (リング自体に role=progressbar を付けてもフォーカスは button が握るため別途必要)
   const autoDrawHint = hasProgress && !isEmpty ? ` (自動ドローまで${remainingTurns}手)` : "";
@@ -245,7 +281,10 @@ export const DeckPile = memo(function DeckPile({
             5 セグメントは strokeDasharray で「等分の点線→塗り進捗」として描画。
             preserveAspectRatio="none" + vector-effect="non-scaling-stroke" で
             縦横比に依存せず一定の線幅・等分セグメントを維持する。
-            commit 4 で primed パルスと firing 検知 (1-frame phantom 5/5) を追加予定。 */}
+            primed (= displayProgress === interval - 1) のときは emerald-300 +
+            amber-200 二重描画 + 1.4s パルス (最大 6 ループ)。reduced-motion 時は
+            パルス停止。displayProgress は 4→0 遷移時に 1 frame だけ強制 5 描画
+            (= firing の起点、useLayoutEffect で実装)。 */}
         {hasProgress && !isEmpty && (
           <svg
             className="absolute inset-0 z-10 pointer-events-none"
@@ -254,8 +293,8 @@ export const DeckPile = memo(function DeckPile({
             role="progressbar"
             aria-valuemin={0}
             aria-valuemax={interval}
-            aria-valuenow={clampedProgress}
-            aria-label={`自動ドロー進捗 ${clampedProgress}/${interval}`}
+            aria-valuenow={Math.min(displayProgress, interval)}
+            aria-label={`自動ドロー進捗 ${Math.min(displayProgress, interval)}/${interval}`}
           >
             {/* track: 5 セグメント等分の薄い縁取り */}
             <rect
@@ -272,8 +311,28 @@ export const DeckPile = memo(function DeckPile({
               pathLength={interval}
               strokeDasharray={`${(interval - 0.5) / interval} ${0.5 / interval}`}
             />
-            {/* progress: 通常 emerald-400/85, primed (interval-1) は emerald-300 + amber 二重 */}
-            <rect
+            {/* primed 時の amber 二重ストローク (内側 1px) */}
+            {isPrimed && (
+              <rect
+                x={2}
+                y={2}
+                width={96}
+                height={96}
+                rx={3}
+                ry={3}
+                fill="none"
+                stroke="rgb(254 240 138 / 0.7)" /* amber-200 */
+                strokeWidth={1}
+                strokeLinecap="round"
+                vectorEffect="non-scaling-stroke"
+                pathLength={interval}
+                strokeDasharray={interval}
+                strokeDashoffset={interval - Math.min(displayProgress, interval)}
+                style={{ transform: "translate(0.5px, 0.5px)" }}
+              />
+            )}
+            {/* progress: 通常 emerald-400/85, primed は emerald-300 (主層) */}
+            <motion.rect
               x={2}
               y={2}
               width={96}
@@ -281,18 +340,31 @@ export const DeckPile = memo(function DeckPile({
               rx={3}
               ry={3}
               fill="none"
-              stroke={
-                clampedProgress === interval - 1 ? "rgb(110 231 183 / 0.95)" : "rgb(52 211 153 / 0.85)"
-              }
-              strokeWidth={clampedProgress === interval - 1 ? 2.6 : 2}
+              stroke={isPrimed ? "rgb(110 231 183 / 0.95)" : "rgb(52 211 153 / 0.85)"}
+              strokeWidth={isPrimed ? 2.6 : 2}
               strokeLinecap="round"
               vectorEffect="non-scaling-stroke"
               pathLength={interval}
               strokeDasharray={interval}
-              strokeDashoffset={interval - clampedProgress}
+              strokeDashoffset={interval - Math.min(displayProgress, interval)}
+              animate={
+                reducedMotion || !isPrimed
+                  ? undefined
+                  : { opacity: [0.85, 1, 0.85], scale: [1, 1.015, 1] }
+              }
+              transition={
+                reducedMotion || !isPrimed
+                  ? undefined
+                  : {
+                      duration: AUTO_DRAW_PRIMED_PULSE_S,
+                      repeat: AUTO_DRAW_PRIMED_MAX_LOOPS,
+                      ease: "easeInOut",
+                    }
+              }
               style={{
-                transition: "stroke-dashoffset 320ms cubic-bezier(0.22, 1, 0.36, 1)",
-                filter: clampedProgress >= interval - 1 ? "drop-shadow(0 0 4px rgb(52 211 153 / 0.5))" : undefined,
+                transformOrigin: "center center",
+                transition: `stroke-dashoffset ${AUTO_DRAW_RING_TRANSITION_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`,
+                filter: isPrimed ? "drop-shadow(0 0 6px rgb(52 211 153 / 0.55))" : undefined,
               }}
             />
           </svg>
