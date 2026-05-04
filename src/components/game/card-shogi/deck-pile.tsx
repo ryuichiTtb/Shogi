@@ -2,7 +2,7 @@
 
 import { memo } from "react";
 import { cn } from "@/lib/utils";
-import { DRAW_COST } from "@/lib/shogi/cards/definitions";
+import { AUTO_DRAW_INTERVAL, DRAW_COST } from "@/lib/shogi/cards/definitions";
 import { CardBack } from "@/components/card-back/card-back";
 
 interface DeckPileProps {
@@ -18,6 +18,13 @@ interface DeckPileProps {
   dimmed?: boolean;
   // true のとき横長表示にしてズレカードを描画しない (相手細バー等の縦幅圧縮で使用)
   horizontal?: boolean;
+  // Issue #130: 自動ドロー進捗 (drawProgress[player])。0..interval の値域を想定。
+  // undefined のときはゲージを描画しない (旧呼び出し互換)。
+  progress?: number;
+  // Issue #130: 自動ドローしきい値。既定 AUTO_DRAW_INTERVAL=5。
+  interval?: number;
+  // Issue #130: 進捗ゲージを描画するか。両者表示が既定。
+  showProgress?: boolean;
 }
 
 const SIZE_CLASS = {
@@ -75,12 +82,23 @@ export const DeckPile = memo(function DeckPile({
   fullWidth = false,
   dimmed = false,
   horizontal = false,
+  progress,
+  interval = AUTO_DRAW_INTERVAL,
+  showProgress = true,
 }: DeckPileProps) {
   const isEmpty = count === 0;
   const interactable = canDraw && count > 0 && !!onDraw;
+  // Issue #130: 進捗ゲージ用の派生値。山札枯渇時は drawProgress が interval を超え得るため
+  // 表示は Math.min でクランプして 0..interval に収める。
+  const hasProgress = showProgress && progress !== undefined && interval > 0;
+  const clampedProgress = hasProgress ? Math.min(Math.max(progress!, 0), interval) : 0;
+  const remainingTurns = hasProgress ? Math.max(0, interval - clampedProgress) : 0;
+  // 山札 button フォーカス時に SR で必ず読まれるよう、aria-label に統合する。
+  // (リング自体に role=progressbar を付けてもフォーカスは button が握るため別途必要)
+  const autoDrawHint = hasProgress && !isEmpty ? ` (自動ドローまで${remainingTurns}手)` : "";
 
-  // 横長モード: 縦長の SIZE_CLASS は使わず、2行構成で横幅を圧縮
-  // 行1: 💎×5 (showDrawCost 時) / 行2: 山札 ×N
+  // 横長モード: 縦長の SIZE_CLASS は使わず、2 行 (+ 進捗 1 行) 構成で横幅を圧縮
+  // 行1: 💎×N (showDrawCost 時) / 行2: 山札 ×N / 行3 (#130): 進捗ドット ●●●●○
   // h-full で親 (items-stretch) の高さに追従可能
   if (horizontal) {
     return (
@@ -98,7 +116,11 @@ export const DeckPile = memo(function DeckPile({
           interactable && "bg-gradient-to-br from-amber-500 to-amber-700 border-amber-300 cursor-pointer hover:scale-[1.02] animate-deck-draw",
         )}
         aria-label={
-          isEmpty ? "山札 (空)" : interactable ? `山札からドロー (残${count}枚)` : `山札 (残${count}枚)`
+          isEmpty
+            ? "山札 (空)"
+            : interactable
+              ? `山札からドロー (残${count}枚)${autoDrawHint}`
+              : `山札 (残${count}枚)${autoDrawHint}`
         }
       >
         {showDrawCost && !isEmpty && (
@@ -115,6 +137,19 @@ export const DeckPile = memo(function DeckPile({
         )}
         <span className="text-[11px] font-bold leading-tight">山札 ×{count}</span>
         {isEmpty && <span className="text-[10px] opacity-90 leading-tight">空</span>}
+        {/* Issue #130: 横長モードはリング描画を省略しドット 5 個 (●●●●○) で進捗を表現 */}
+        {hasProgress && !isEmpty && (
+          <span
+            className="flex items-center gap-[1px] text-[10px] leading-none text-emerald-200/85 tabular-nums"
+            aria-hidden
+          >
+            {Array.from({ length: interval }).map((_, i) => (
+              <span key={i} className={i < clampedProgress ? "text-emerald-300" : "text-slate-300/40"}>
+                ●
+              </span>
+            ))}
+          </span>
+        )}
         {interactable && <span className="text-[10px] text-amber-200 font-bold leading-tight animate-bounce">DRAW!</span>}
       </button>
     );
@@ -184,8 +219,8 @@ export const DeckPile = memo(function DeckPile({
           isEmpty
             ? "山札 (空)"
             : interactable
-              ? `山札からドロー (残${count}枚、コスト${DRAW_COST})`
-              : `山札 (残${count}枚)`
+              ? `山札からドロー (残${count}枚、コスト${DRAW_COST})${autoDrawHint}`
+              : `山札 (残${count}枚)${autoDrawHint}`
         }
       >
         {/* 裏面 (CardBack) を背景として最下層に。空の時は非表示。 */}
@@ -201,6 +236,66 @@ export const DeckPile = memo(function DeckPile({
               )}
             />
           </div>
+        )}
+
+        {/* Issue #130: 自動ドロー進捗リング。
+            CardBack の直上、テキストの直下に重ね、SVG の rounded-rect ストロークで
+            カードシルエットを縁取る。プラン記載の「circle」は実装上、左上の
+            DRAW_COST バッジ (cyan, 11時方向) と重なるため、矩形ストロークで代替。
+            5 セグメントは strokeDasharray で「等分の点線→塗り進捗」として描画。
+            preserveAspectRatio="none" + vector-effect="non-scaling-stroke" で
+            縦横比に依存せず一定の線幅・等分セグメントを維持する。
+            commit 4 で primed パルスと firing 検知 (1-frame phantom 5/5) を追加予定。 */}
+        {hasProgress && !isEmpty && (
+          <svg
+            className="absolute inset-0 z-10 pointer-events-none"
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={interval}
+            aria-valuenow={clampedProgress}
+            aria-label={`自動ドロー進捗 ${clampedProgress}/${interval}`}
+          >
+            {/* track: 5 セグメント等分の薄い縁取り */}
+            <rect
+              x={2}
+              y={2}
+              width={96}
+              height={96}
+              rx={3}
+              ry={3}
+              fill="none"
+              stroke="rgb(51 65 85 / 0.4)"
+              strokeWidth={2}
+              vectorEffect="non-scaling-stroke"
+              pathLength={interval}
+              strokeDasharray={`${(interval - 0.5) / interval} ${0.5 / interval}`}
+            />
+            {/* progress: 通常 emerald-400/85, primed (interval-1) は emerald-300 + amber 二重 */}
+            <rect
+              x={2}
+              y={2}
+              width={96}
+              height={96}
+              rx={3}
+              ry={3}
+              fill="none"
+              stroke={
+                clampedProgress === interval - 1 ? "rgb(110 231 183 / 0.95)" : "rgb(52 211 153 / 0.85)"
+              }
+              strokeWidth={clampedProgress === interval - 1 ? 2.6 : 2}
+              strokeLinecap="round"
+              vectorEffect="non-scaling-stroke"
+              pathLength={interval}
+              strokeDasharray={interval}
+              strokeDashoffset={interval - clampedProgress}
+              style={{
+                transition: "stroke-dashoffset 320ms cubic-bezier(0.22, 1, 0.36, 1)",
+                filter: clampedProgress >= interval - 1 ? "drop-shadow(0 0 4px rgb(52 211 153 / 0.5))" : undefined,
+              }}
+            />
+          </svg>
         )}
 
         {/* ドローコストを左上に「💎 × N」形式で表示 (空の時は不要なので非表示) */}
@@ -248,6 +343,24 @@ export const DeckPile = memo(function DeckPile({
           </div>
         )}
       </button>
+
+      {/* Issue #130: 自動ドロー進捗マイクロテキスト「次のドローまで N」。
+          山札 button の真下、stack 余白の中に配置。空時・進捗未指定時・
+          horizontal モードでは表示しない (horizontal は別途ドット表現)。
+          コントラスト比確保のため emerald-200 + drop-shadow を併用。 */}
+      {hasProgress && !isEmpty && (
+        <div
+          className={cn(
+            "absolute left-0 right-0 text-center pointer-events-none select-none",
+            "text-emerald-200/90 leading-none font-medium tabular-nums",
+            "drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]",
+            size === "sm" ? "text-[8px] -bottom-3" : "text-[10px] -bottom-3.5",
+          )}
+          aria-hidden
+        >
+          次のドローまで {remainingTurns}
+        </div>
+      )}
     </div>
   );
 });

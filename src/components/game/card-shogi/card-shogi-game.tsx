@@ -827,7 +827,14 @@ export function CardShogiGame({
     !isCheckBreakAnimating &&
     cardState.pendingCard === null;
 
-  const opponentDeckPile = <DeckPile count={cardState.deck[aiColor].length} size="md" showDrawCost />;
+  const opponentDeckPile = (
+    <DeckPile
+      count={cardState.deck[aiColor].length}
+      size="md"
+      showDrawCost
+      progress={cardState.drawProgress[aiColor]}
+    />
+  );
   const ownDeckPile = (
     <DeckPile
       count={cardState.deck[playerColor].length}
@@ -836,6 +843,7 @@ export function CardShogiGame({
       size="md"
       showDrawCost
       dimmed={!isPlayerTurn || !isGameActive}
+      progress={cardState.drawProgress[playerColor]}
     />
   );
   // モバイル細バー(上端)の相手山札はテキストバッジ形式に変更したため別途インラインで表示 (P22)。
@@ -848,6 +856,7 @@ export function CardShogiGame({
       size="md"
       showDrawCost
       dimmed={!isPlayerTurn || !isGameActive}
+      progress={cardState.drawProgress[playerColor]}
     />
   );
 
@@ -1064,7 +1073,12 @@ export function CardShogiGame({
               stackMaxVisible={10}
             />
           </div>
-          <DeckPile count={cardState.deck[aiColor].length} size="sm" showDrawCost />
+          <DeckPile
+            count={cardState.deck[aiColor].length}
+            size="sm"
+            showDrawCost
+            progress={cardState.drawProgress[aiColor]}
+          />
           <TrapSlot trap={cardState.trap[aiColor]} faceDown size="sm" />
         </div>
       </section>
@@ -1408,6 +1422,7 @@ export function CardShogiGame({
                 showDrawCost
                 fullWidth
                 dimmed={!isPlayerTurn || !isGameActive}
+                progress={cardState.drawProgress[playerColor]}
               />
             </div>
             <div className="flex-1 min-w-0">
@@ -1529,7 +1544,13 @@ export function CardShogiGame({
           <div className="shrink-0 w-full">{opponentManaGauge}</div>
           <div className="flex gap-2 shrink-0 w-full">
             <div className="flex-1 min-w-0">
-              <DeckPile count={cardState.deck[aiColor].length} size="lg" fullWidth showDrawCost />
+              <DeckPile
+                count={cardState.deck[aiColor].length}
+                size="lg"
+                fullWidth
+                showDrawCost
+                progress={cardState.drawProgress[aiColor]}
+              />
             </div>
             <div className="flex-1 min-w-0">
               <TrapSlot trap={cardState.trap[aiColor]} faceDown size="lg" fullWidth />
