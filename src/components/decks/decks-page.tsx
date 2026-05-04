@@ -413,7 +413,9 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
         <div className="min-h-0 flex flex-col flex-1 lg:flex-none">
           {/* フレーム自体は常に描画。中身だけを「内容/スケルトン/未選択」で切替。
               これで読み込み中もエリアが消えず、高さもジャンプしない。 */}
-          <div className="rounded-lg border bg-card flex flex-col min-h-0 flex-1">
+          {/* relative: DeckEditorPane 内の保存中 LoadingOverlay (absolute) を
+              この枠内に閉じ込めるため。 */}
+          <div className="relative rounded-lg border bg-card flex flex-col min-h-0 flex-1">
             {selectedId && currentDetail ? (
               <DeckEditorPane
                 key={selectedId}

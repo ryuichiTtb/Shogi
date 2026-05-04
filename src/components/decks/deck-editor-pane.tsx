@@ -24,6 +24,7 @@ import { OwnedCardPicker } from "./owned-card-picker";
 import { DeckCardTile, type DeckArea } from "./deck-card-tile";
 import { DeckFlightLayer, type DeckFlightItem } from "./deck-flight-layer";
 import { CardDetailDialog } from "./card-detail-dialog";
+import { LoadingOverlay } from "@/components/loading-overlay";
 
 interface DeckFlight extends DeckFlightItem {
   // 行先タイル (deck 側のとき) の identity。フライト中に重ねる元タイルを
@@ -398,6 +399,11 @@ export function DeckEditorPane({
         cardId={detailCardId}
         onClose={() => setDetailCardId(null)}
       />
+
+      {/* 保存中ローディングマスク。
+          親 (DecksPage の編集枠 div) に position:relative が付与されているため
+          absolute で枠内のみを覆う。fullScreen=false で枠サイズに収まる。 */}
+      <LoadingOverlay show={isPending} message="保存中..." />
     </>
   );
 }
