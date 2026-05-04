@@ -107,7 +107,10 @@ function PieceFlightInner({
   const rotPeriod = rotationSecPerTurn ?? ROTATION_SEC_PER_TURN;
   const minDur = minDurationMs ?? MIN_DURATION_MS;
   const size = pieceSize ?? PIECE_SIZE;
-  const easing = ease ?? "linear";
+  // 既定 easing は dev 検証で採用された easeInOut (2026-05-04)。
+  // 旧実装は linear を採用していたが、最小再生時間を 600ms に伸ばしたため
+  // 始終点で減速がかかる easeInOut の方が違和感が少なくなった。
+  const easing = ease ?? "easeInOut";
 
   // 距離に応じた duration を算出 (移動速度 speed 一定)
   const dx = spec.toX - spec.fromX;

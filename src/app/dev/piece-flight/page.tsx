@@ -67,7 +67,8 @@ export default function PieceFlightDevPage() {
   const [rotationSecPerTurn, setRotationSecPerTurn] = useState(DEFAULT_ROT_SEC);
   const [minDurationMs, setMinDurationMs] = useState(DEFAULT_MIN_MS);
   const [pieceSize, setPieceSize] = useState(DEFAULT_PIECE_SIZE);
-  const [ease, setEase] = useState<EaseOption>("linear");
+  // 本番デフォルトは easeInOut (2026-05-04 に linear から変更)
+  const [ease, setEase] = useState<EaseOption>("easeInOut");
   const [pieceType, setPieceType] = useState("pawn");
   const [owner, setOwner] = useState<Player>("sente");
   const [playerColor, setPlayerColor] = useState<Player>("sente");
@@ -360,7 +361,7 @@ export default function PieceFlightDevPage() {
             </div>
 
             <div className="text-[11px] text-muted-foreground">
-              本番値: 移動 {DEFAULT_SPEED} px/sec / 回転 {DEFAULT_ROT_SEC} sec/turn / 最小 {DEFAULT_MIN_MS}ms / 駒 {DEFAULT_PIECE_SIZE}px
+              本番値: 移動 {DEFAULT_SPEED} px/sec / 回転 {DEFAULT_ROT_SEC} sec/turn / 最小 {DEFAULT_MIN_MS}ms / 駒 squareSize (本番) ・ {DEFAULT_PIECE_SIZE}px (フォールバック) / easing easeInOut
             </div>
           </Card>
         </div>

@@ -1579,11 +1579,14 @@ export function CardShogiGame({
         onComplete={handlePlayFlightComplete}
       />
 
-      {/* Issue #82: 駒移動カード(歩戻し / 駒戻し / 二歩指し)の駒回転フライト演出 */}
+      {/* Issue #82: 駒移動カード(歩戻し / 駒戻し / 二歩指し)の駒回転フライト演出。
+          pieceSize は盤上マスサイズ (squareSize) を渡し、フライト中の駒サイズを
+          実際の盤駒と揃える。 */}
       <PieceFlight
         spec={pieceFlight?.spec ?? null}
         flightKey={pieceFlight?.key ?? null}
         playerColor={playerColor}
+        pieceSize={squareSize}
         onComplete={handlePieceFlightComplete}
       />
 
@@ -1594,6 +1597,7 @@ export function CardShogiGame({
           spec={spec}
           flightKey={checkBreakAnim.flightKeyBase + idx}
           playerColor={playerColor}
+          pieceSize={squareSize}
           onComplete={handleCheckBreakFlightComplete}
         />
       ))}
