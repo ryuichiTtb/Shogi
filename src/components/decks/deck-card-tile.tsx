@@ -64,6 +64,15 @@ export function DeckCardTile({
 }: DeckCardTileProps) {
   const ref = useRef<HTMLDivElement>(null);
   const def = CARD_DEFS[cardId];
+  // Issue #117 (#128): server 側で orphan を弾いているので通常は発生しないが、
+  // データドリフト時に画面全体クラッシュさせない最終防御として早期 return。
+  // (CARD_DEFS に居ない cardId が来た場合 = `def === undefined` で `def.rarity` NPE になる)
+  if (!def) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn(`[DeckCardTile] Unknown cardId "${cardId}" — skipping render`);
+    }
+    return null;
+  }
 
   // ---- 長押し検出 (compact / mobile 用) ----
   const longPressTimerRef = useRef<number | null>(null);

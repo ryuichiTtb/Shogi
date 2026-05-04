@@ -16,6 +16,10 @@ import type { CardId, CardRarity } from "@/lib/shogi/cards/types";
 // 認証・ガチャ機能が入るまでの暫定処置。
 const OWNED_COUNT_PER_CARD = 10;
 
+// Issue #117 (#128): 現行 CARD_DEFS に存在する cardId 集合 (orphan 検出用)。
+// DB に居残っている未知 cardId (過去の試験データ等) を一括クリーンアップする際に使う。
+const VALID_CARD_IDS: Set<string> = new Set(ALL_CARD_DEFS.map((d) => d.id));
+
 async function ensureOwnedCardsForUser(userId: string): Promise<void> {
   // Card マスタの存在を保証 (seed 未実行環境向け)。upsert なので副作用は冪等。
   await Promise.all(
@@ -55,15 +59,43 @@ async function ensureOwnedCardsForUser(userId: string): Promise<void> {
       }),
     ),
   );
-  // 廃止カードは所持から除去
-  await prisma.playerCardCollection.deleteMany({
-    where: {
-      userId,
-      cardId: {
-        in: ALL_CARD_DEFS.filter((d) => d.status === "deprecated").map((d) => d.id),
-      },
-    },
+
+  // Issue #117 (#128): orphan cleanup。
+  // 過去に存在したが現行 CARD_DEFS に居ない cardId (例: check_break) や、
+  // 廃止 (status: "deprecated") カードを所持・デッキから一括除去する。
+  // 残しておくと client 側で `CARD_DEFS[cardId]` が undefined になり描画 crash する。
+  const userOwned = await prisma.playerCardCollection.findMany({
+    where: { userId },
+    select: { cardId: true },
   });
+  const orphanOwnedCardIds = userOwned
+    .map((o) => o.cardId)
+    .filter((cardId) => !VALID_CARD_IDS.has(cardId));
+  const deprecatedIdSet: Set<string> = new Set(
+    ALL_CARD_DEFS.filter((d) => d.status === "deprecated").map((d) => d.id),
+  );
+  const ownedRemovalIds = Array.from(
+    new Set<string>([...orphanOwnedCardIds, ...deprecatedIdSet]),
+  );
+  if (ownedRemovalIds.length > 0) {
+    await prisma.playerCardCollection.deleteMany({
+      where: { userId, cardId: { in: ownedRemovalIds } },
+    });
+  }
+
+  // 同様に DeckEntry からも orphan / deprecated を除去
+  const userDeckEntries = await prisma.deckEntry.findMany({
+    where: { deck: { userId } },
+    select: { id: true, cardId: true },
+  });
+  const orphanDeckEntryIds = userDeckEntries
+    .filter((e) => !VALID_CARD_IDS.has(e.cardId) || deprecatedIdSet.has(e.cardId))
+    .map((e) => e.id);
+  if (orphanDeckEntryIds.length > 0) {
+    await prisma.deckEntry.deleteMany({
+      where: { id: { in: orphanDeckEntryIds } },
+    });
+  }
 }
 
 export interface DeckSummary {
@@ -103,7 +135,10 @@ export async function listDecksForCurrentUser(): Promise<DeckSummary[]> {
     id: d.id,
     name: d.name,
     isDefault: d.isDefault,
-    totalCount: d.entries.reduce((sum, e) => sum + e.count, 0),
+    // Issue #117 (#128): orphan cardId (CARD_DEFS に居ないもの) は除外して合計枚数を計算
+    totalCount: d.entries
+      .filter((e) => VALID_CARD_IDS.has(e.cardId))
+      .reduce((sum, e) => sum + e.count, 0),
     createdAt: d.createdAt,
   }));
 }
@@ -116,13 +151,17 @@ export async function getDeckDetail(deckId: string): Promise<DeckDetail | null> 
     include: { entries: true },
   });
   if (!deck) return null;
+  // Issue #117 (#128): 現行 CARD_DEFS に居ない cardId (例: 過去の試験データ check_break) は
+  // client 側で `CARD_DEFS[cardId]` が undefined になり描画 crash するため、ここで弾く。
+  // totalCount も orphan を除いた純粋な編成枚数で再計算する。
+  const validEntries = deck.entries.filter((e) => VALID_CARD_IDS.has(e.cardId));
   return {
     id: deck.id,
     name: deck.name,
     isDefault: deck.isDefault,
     createdAt: deck.createdAt,
-    totalCount: deck.entries.reduce((sum, e) => sum + e.count, 0),
-    entries: deck.entries.map((e) => ({
+    totalCount: validEntries.reduce((sum, e) => sum + e.count, 0),
+    entries: validEntries.map((e) => ({
       cardId: e.cardId as CardId,
       count: e.count,
     })),
@@ -138,11 +177,15 @@ export async function listOwnedCardsForCurrentUser(): Promise<OwnedCardSummary[]
     where: { userId: user.id, count: { gt: 0 } },
     include: { card: true },
   });
-  return rows.map((r) => ({
-    cardId: r.cardId as CardId,
-    rarity: r.card.rarity as CardRarity,
-    owned: r.count,
-  }));
+  // Issue #117 (#128): ensureOwnedCardsForUser で orphan は削除済みのはずだが、
+  // 二重防御のためここでも CARD_DEFS に居ない cardId を除外する。
+  return rows
+    .filter((r) => VALID_CARD_IDS.has(r.cardId))
+    .map((r) => ({
+      cardId: r.cardId as CardId,
+      rarity: r.card.rarity as CardRarity,
+      owned: r.count,
+    }));
 }
 
 // 新規デッキ作成。他にデッキが無ければ isDefault=true。
