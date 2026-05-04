@@ -475,7 +475,11 @@ export function CardShogiGame({
               { card: ev.instance, source, key: nextFlightKey() },
             ]);
           } else {
-            scheduleTimer(() => playSfx("card_draw"), 100);
+            // 相手側 auto-draw は SE 無し (盤面集中を阻害しないため、ユーザー要望)。
+            // 相手側 manual-draw (= 現状 AI は呼ばないが防御的) のみ 100ms 遅延で再生。
+            if (source === "manual") {
+              scheduleTimer(() => playSfx("card_draw"), 100);
+            }
             // 相手側ドロー: 中央 DrawFlightCard を再生しないため、ここで
             // 明示的に finalizeDraw を予約しないと isDrawing が永続する。
             // 600ms = 視覚フィードバック (相手 deck 枚数表示の変化 / aria-live 通知)
