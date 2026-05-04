@@ -602,3 +602,96 @@ export function isSquareAttacked(
 ): boolean {
   return isSquareAttackedByFast(state.board, pos, attackingPlayer, variant.boardSize);
 }
+
+// ===== 二手指し (double_move) カード用ヘルパ (Issue #82) =====
+
+// プレイヤーの全 pseudo-legal moves (board move + drop move) のうち、
+// 「自玉が即座に取られない」手のみ返す。
+// = 王手放置は許す (RELAXED ルール用)
+// = ただし「玉自身を相手の利きへ突っ込む手」「玉以外を動かして玉が消える手」は除外
+//
+// 通常の getLegalMoves との違い: 「自玉が王手中であっても、その王手解消を強制しない」
+// 単純な pseudo-legal との違い: 「玉が直接取られる手は除外」
+export function getKingSafePseudoLegalMoves(
+  state: GameState,
+  player: Player,
+  variant: RuleVariant = STANDARD_VARIANT,
+): Move[] {
+  const pseudo = getPseudoMoves(state, player, variant);
+  return pseudo.filter((m) => {
+    const after = applyMove(state, m);
+    const king = findKing(after.board, player, variant.boardSize);
+    return king !== null;
+  });
+}
+
+// 自分の合法手の中に「1手で相手玉を詰ませられる手」が存在するか。
+// double_move カードの「2手目詰み禁止」ルール判定に使用。
+export function hasOneMoveMate(
+  state: GameState,
+  player: Player,
+  variant: RuleVariant = STANDARD_VARIANT,
+): boolean {
+  const opponent: Player = player === "sente" ? "gote" : "sente";
+  const moves = getLegalMoves(state, player, variant);
+  for (const m of moves) {
+    if (isCheckmate(applyMove(state, m), opponent, variant)) return true;
+  }
+  return false;
+}
+
+// 王手中に double_move を使うとき、2手以内に王手を回避できる手順が存在するか。
+// RELAXED ルール: 1手目で自玉が王手のままでも、2手目で解消できれば OK。
+// 王手中でない場合は呼び出し側で常に true として扱うこと (この関数の対象外)。
+export function canEscapeCheckWithDoubleMove(
+  state: GameState,
+  player: Player,
+  variant: RuleVariant = STANDARD_VARIANT,
+): boolean {
+  const pseudoFirst = getKingSafePseudoLegalMoves(state, player, variant);
+  for (const m1 of pseudoFirst) {
+    const after1 = applyMove(state, m1);
+    if (getLegalMoves(after1, player, variant).length > 0) return true;
+  }
+  return false;
+}
+
+// 二手指しの 2手目合法手。mateInOneAvailable=false なら 2手目詰み手を除外。
+export function getDoubleMoveSecondLegalMoves(
+  stateAfterFirst: GameState,
+  player: Player,
+  mateInOneAvailable: boolean,
+  variant: RuleVariant = STANDARD_VARIANT,
+): Move[] {
+  const legal = getLegalMoves(stateAfterFirst, player, variant);
+  if (mateInOneAvailable) return legal;
+  const opponent: Player = player === "sente" ? "gote" : "sente";
+  return legal.filter((m) => !isCheckmate(applyMove(stateAfterFirst, m), opponent, variant));
+}
+
+// 二手指しの 1手目合法手。
+// - 王手中: pseudo-legal moves (玉が取られないもの) から「∃ 2手目 → 王手解消 (詰み禁止フィルタ済)」のみ
+// - 王手中でない: 通常の合法手から「∃ 2手目 (詰み禁止フィルタ済)」のみ
+//
+// mateInOneAvailable=true なら 2手目詰みも許可なので、フィルタは「2手目候補 ≥ 1」のみで足りる。
+// mateInOneAvailable=false なら 2手目詰みを除外した上で「2手目候補 ≥ 1」必要。
+//
+// なお 1手目で相手玉を詰ませた場合は 2手目不要なので m1 自体は OK。
+export function getDoubleMoveFirstLegalMoves(
+  state: GameState,
+  player: Player,
+  mateInOneAvailable: boolean,
+  variant: RuleVariant = STANDARD_VARIANT,
+): Move[] {
+  const opponent: Player = player === "sente" ? "gote" : "sente";
+  const pseudoFirst = isInCheck(state, player, variant)
+    ? getKingSafePseudoLegalMoves(state, player, variant)
+    : getLegalMoves(state, player, variant);
+
+  return pseudoFirst.filter((m1) => {
+    const after1 = applyMove(state, m1);
+    if (isCheckmate(after1, opponent, variant)) return true;
+    const second = getDoubleMoveSecondLegalMoves(after1, player, mateInOneAvailable, variant);
+    return second.length > 0;
+  });
+}
