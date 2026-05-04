@@ -60,7 +60,6 @@ export async function createGame(
     difficulty,
     playerColor,
     characterId,
-    soundEnabled: true,
     commentaryEnabled: true,
   };
 
@@ -107,7 +106,6 @@ export async function getGame(gameId: string) {
     difficulty: Difficulty;
     playerColor: Player;
     characterId: string;
-    soundEnabled: boolean;
     commentaryEnabled: boolean;
   };
   const gameConfig: GameConfig = {
@@ -115,7 +113,6 @@ export async function getGame(gameId: string) {
     difficulty: stored.difficulty ?? (game.difficulty as Difficulty),
     playerColor: stored.playerColor ?? (game.playerColor as Player),
     characterId: stored.characterId ?? game.characterId,
-    soundEnabled: stored.soundEnabled ?? true,
     commentaryEnabled: stored.commentaryEnabled ?? true,
   };
 

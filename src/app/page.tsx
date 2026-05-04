@@ -22,7 +22,7 @@ export default function Home() {
   const router = useRouter();
   const reduce = useReducedMotion();
 
-  // ロビー段階で SFX のみ先読み (BGM はキャラ確定後の /play・/classic で行う)。
+  // ロビー段階で SFX を先読み。
   useAssetPreloader();
 
   const [pendingLabel, setPendingLabel] = useState<string | null>(null);

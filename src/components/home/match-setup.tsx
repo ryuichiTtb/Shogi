@@ -60,8 +60,8 @@ export function MatchSetup({ mode }: MatchSetupProps) {
 
   const selectedCharacter = CHARACTERS.find((c) => c.difficulty === selectedDifficulty)!;
 
-  // Step 4 (Issue #107): 選択中キャラの BGM と SFX を裏で先読み。
-  useAssetPreloader({ selectedCharacterId: selectedCharacter.id });
+  // Step 4 (Issue #107): SFX を裏で先読み。
+  useAssetPreloader();
 
   async function handleStart() {
     if (isPending) return;

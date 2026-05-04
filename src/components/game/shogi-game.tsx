@@ -34,7 +34,6 @@ interface SerializableGameConfig {
   difficulty: Difficulty;
   playerColor: Player;
   characterId: string;
-  soundEnabled: boolean;
   commentaryEnabled: boolean;
 }
 
@@ -67,9 +66,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
   };
 
   const character = getCharacterById(gameConfig.characterId);
-  const { playSfx, toggleMute, isMuted, isReady } = useSound(
-    gameConfig.soundEnabled ? character.bgmTrack : undefined
-  );
+  const { playSfx, toggleMute, isMuted, isReady } = useSound();
 
   const handlePlayAgain = useCallback(() => {
     startTransition(async () => {

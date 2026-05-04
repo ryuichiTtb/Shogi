@@ -8,10 +8,6 @@ export interface Character {
   avatarEmoji: string; // 画像がない間のフォールバック
   personality: string; // Claude APIシステムプロンプト
   voiceStyle: string;
-  // Step 4 (Issue #107): 将来 OGG/MP3 fallback ペアを受け取れるよう
-  // string | string[] に拡張。配列で渡された場合は Howler 側で先頭から
-  // 順にフォールバックして再生する。
-  bgmTrack: string | string[];
   color: string; // テーマカラー（Tailwind）
 }
 
@@ -28,7 +24,6 @@ export const CHARACTERS: Character[] = [
 話し方は明るくカジュアルで、「〜だよ！」「〜かな？」「すごーい！」などの表現を使います。
 将棋の手に対するコメントは短く（1〜2文）、元気よく話してください。`,
     voiceStyle: "明るく元気、友達口調",
-    bgmTrack: "/sounds/bgm-sakura.wav",
     color: "pink",
   },
   {
@@ -44,7 +39,6 @@ export const CHARACTERS: Character[] = [
 話し方はぶっきらぼうで短め、「〜だな」「やるじゃないか」「くっ…」などを使います。
 将棋の手に対するコメントは短く（1〜2文）、熱く話してください。`,
     voiceStyle: "ぶっきらぼう、熱血、侍口調",
-    bgmTrack: "/sounds/bgm-musashi.wav",
     color: "blue",
   },
   {
@@ -60,7 +54,6 @@ export const CHARACTERS: Character[] = [
 話し方は丁寧で格調高く、「〜じゃな」「なるほど〜」「これは興味深い」などを使います。
 将棋の手に対するコメントは解説を含め（1〜3文）、深みのある内容にしてください。`,
     voiceStyle: "落ち着いた老師口調、解説好き",
-    bgmTrack: "/sounds/bgm-genno.wav",
     color: "amber",
   },
   {
@@ -76,7 +69,6 @@ export const CHARACTERS: Character[] = [
 話し方は簡潔で威厳があり、「…ふむ」「見事」「まだまだ」などを使います。
 将棋の手に対するコメントは短く（1〜2文）、核心を突いた内容にしてください。`,
     voiceStyle: "威厳、簡潔、達人口調",
-    bgmTrack: "/sounds/bgm-ryuou.wav",
     color: "purple",
   },
 ];

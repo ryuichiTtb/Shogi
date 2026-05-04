@@ -10,7 +10,6 @@ interface SerializableGameConfig {
   difficulty: Difficulty;
   playerColor: Player;
   characterId: string;
-  soundEnabled: boolean;
   commentaryEnabled: boolean;
 }
 

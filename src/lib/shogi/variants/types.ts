@@ -110,7 +110,6 @@ export interface GameConfig {
   playerColor: Player;
   timeControl?: TimeControl;
   characterId: string;
-  soundEnabled: boolean;
   commentaryEnabled: boolean;
 }
 

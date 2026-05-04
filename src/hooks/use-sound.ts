@@ -38,16 +38,13 @@ export async function prepareAudio(): Promise<void> {
       await ctx.resume();
     }
   } catch {
-    // Howler 未対応環境 / 動的 import 失敗時は無視 (BGM/SE 自体が動かない)
+    // Howler 未対応環境 / 動的 import 失敗時は無視 (SE 自体が動かない)
   }
 }
 
-// bgmTrack の受け取り型を string | string[] に拡張 (将来 OGG/MP3 fallback ペアを
-// 受け取れるよう)。Howler の src は配列を受け取り順次フォールバックする。
-export function useSound(bgmTrack?: string | string[]) {
+export function useSound() {
   const [isMuted, setIsMuted] = useState(false);
   const [isReady, setIsReady] = useState(false);
-  const bgmRef = useRef<HowlInstance | null>(null);
   const sfxCacheRef = useRef<Map<string, HowlInstance>>(new Map());
   const HowlRef = useRef<HowlConstructor | null>(null);
 
@@ -64,38 +61,7 @@ export function useSound(bgmTrack?: string | string[]) {
 
       setIsReady(true);
     });
-
-    return () => {
-      bgmRef.current?.stop();
-    };
   }, []);
-
-  // BGMの切り替え
-  useEffect(() => {
-    if (!bgmTrack || !HowlRef.current || typeof window === "undefined") return;
-
-    bgmRef.current?.fade(1, 0, 500);
-    const prev = bgmRef.current;
-    setTimeout(() => prev?.stop(), 500);
-
-    const srcs = Array.isArray(bgmTrack) ? bgmTrack : [bgmTrack];
-    const newBgm = new HowlRef.current({
-      src: srcs,
-      volume: isMuted ? 0 : 0.3,
-      loop: true,
-      html5: true,
-    });
-
-    bgmRef.current = newBgm;
-    if (!isMuted) newBgm.play();
-
-    return () => {
-      newBgm.stop();
-    };
-    // bgmTrack が配列のときも primary URL の変化で再生し直したい。
-    // 単純化のため Array.isArray でも依存に渡す (= 配列参照変化で再発火)。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [Array.isArray(bgmTrack) ? bgmTrack[0] : bgmTrack]);
 
   const playSfx = useCallback(
     (sound: keyof typeof SFX_FILES) => {
@@ -116,13 +82,7 @@ export function useSound(bgmTrack?: string | string[]) {
   );
 
   const toggleMute = useCallback(() => {
-    setIsMuted((prev) => {
-      const next = !prev;
-      if (bgmRef.current) {
-        bgmRef.current.volume(next ? 0 : 0.3);
-      }
-      return next;
-    });
+    setIsMuted((prev) => !prev);
   }, []);
 
   return { playSfx, toggleMute, isMuted, isReady };

@@ -22,7 +22,6 @@ export default async function GamePage({ params }: GamePageProps) {
     difficulty: game.gameConfig.difficulty,
     playerColor: game.gameConfig.playerColor,
     characterId: game.gameConfig.characterId,
-    soundEnabled: game.gameConfig.soundEnabled,
     commentaryEnabled: game.gameConfig.commentaryEnabled,
   };
 
