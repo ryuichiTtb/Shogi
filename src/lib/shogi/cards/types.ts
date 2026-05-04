@@ -16,6 +16,7 @@ export type CardId =
   | "double_pawn"
   | "piece_return"
   | "check_break"
+  | "double_move"
   | "sample_normal_common"
   | "sample_normal_rare"
   | "sample_normal_super_rare"
