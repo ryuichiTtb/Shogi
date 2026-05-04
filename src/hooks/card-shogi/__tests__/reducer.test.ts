@@ -273,6 +273,100 @@ describe("reducer / UNDO", () => {
     const next = reducer(state, { type: "UNDO" });
     expect(next).toBe(state);
   });
+
+  // ===== Issue #130: 自動ドローと UNDO の干渉 =====
+
+  it("scope 内に auto drawEvent のみ含まれる場合は UNDO 可能 + 手札/山札/drawProgress を復元", () => {
+    const senteMove = {
+      type: "move" as const,
+      player: "sente" as const,
+      piece: "pawn",
+      from: { row: 6, col: 4 },
+      to: { row: 5, col: 4 },
+    };
+    const goteMove = {
+      type: "move" as const,
+      player: "gote" as const,
+      piece: "pawn",
+      from: { row: 2, col: 4 },
+      to: { row: 3, col: 4 },
+    };
+    const autoDrawnCard = card("auto-1", "mana_up");
+    // 設定: drawProgress[sente]=4 から sente が move → auto-draw 発火 (scope 内)
+    // → gote move → UNDO で sente の auto-draw が巻き戻される想定。
+    // hand[sente] には auto-draw されたカードが入っており、deck[sente] からは消えている前提。
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(
+        undefined,
+        makeInitialCardState({
+          hand: { sente: [autoDrawnCard], gote: [] },
+          deck: { sente: [], gote: [] },
+          // 自動ドロー後の状態: drawProgress[sente]=0 (リセット済), gote=1 (1 手指し済)
+          drawProgress: { sente: 0, gote: 1 },
+        }),
+      ),
+      gameState: {
+        ...makeInitialState().gameState,
+        moveHistory: [senteMove, goteMove],
+      },
+      eventLog: [
+        { kind: "moveEvent", move: senteMove, at: 0 },
+        // auto-draw が move 直後に発火 (scope 内)
+        { kind: "drawEvent", player: "sente", instance: autoDrawnCard, source: "auto", at: 0 },
+        { kind: "manaChargeEvent", player: "sente", amount: 1, reason: "turn", at: 0 },
+        { kind: "moveEvent", move: goteMove, at: 0 },
+        { kind: "manaChargeEvent", player: "gote", amount: 1, reason: "turn", at: 0 },
+      ],
+    };
+    const next = reducer(state, { type: "UNDO" });
+    // UNDO 成立 (state が変化している)
+    expect(next).not.toBe(state);
+    // hand[sente] から auto-draw された 1 枚が除去
+    expect(next.cardState.hand.sente).toEqual([]);
+    // deck[sente] 先頭に instance が戻る
+    expect(next.cardState.deck.sente).toEqual([autoDrawnCard]);
+    // drawProgress 再計算: log 切詰め後はイベントなし → 両者 0
+    expect(next.cardState.drawProgress.sente).toBe(0);
+    expect(next.cardState.drawProgress.gote).toBe(0);
+    // eventLog は scope 前まで切詰め
+    expect(next.eventLog.length).toBe(0);
+    // ドロー演出フラグもクリア
+    expect(next.isDrawing).toBe(false);
+    expect(next.pendingDrawSource).toBeNull();
+  });
+
+  it("scope 内に明示的 manual drawEvent が含まれる場合は引き続きブロック (回帰防止)", () => {
+    const c = card("m-1", "mana_up");
+    const senteMove = {
+      type: "move" as const,
+      player: "sente" as const,
+      piece: "pawn",
+      from: { row: 6, col: 4 },
+      to: { row: 5, col: 4 },
+    };
+    const goteMove = {
+      type: "move" as const,
+      player: "gote" as const,
+      piece: "pawn",
+      from: { row: 2, col: 4 },
+      to: { row: 3, col: 4 },
+    };
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(),
+      gameState: {
+        ...makeInitialState().gameState,
+        moveHistory: [senteMove, goteMove],
+      },
+      eventLog: [
+        { kind: "moveEvent", move: senteMove, at: 0 },
+        // 明示的 source: "manual" の drawEvent → UNDO ブロック
+        { kind: "drawEvent", player: "sente", instance: c, source: "manual", at: 0 },
+        { kind: "moveEvent", move: goteMove, at: 0 },
+      ],
+    };
+    const next = reducer(state, { type: "UNDO" });
+    expect(next).toBe(state);
+  });
 });
 
 describe("reducer / RESET_TURN_TIMER", () => {

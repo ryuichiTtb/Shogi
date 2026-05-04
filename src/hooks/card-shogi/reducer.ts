@@ -243,6 +243,39 @@ function isKingInCheckAfterMove(gameState: GameState, move: Move): boolean {
   return isInCheck(nextState, move.player, CARD_SHOGI_VARIANT);
 }
 
+// Issue #130: eventLog から各プレイヤーの drawProgress を再計算する。
+// UNDO 後に scope 切詰めた log から派生 state を復元する用途。
+//
+// 「自分の手番が終わった = drawProgress +1」のルールに従い、turn-end イベントを集計:
+// - moveEvent (mover)
+// - drawEvent { source ?? "manual" === "manual" } (drawer): 旧ログ互換のため未指定は manual 扱い
+// - cardPlayEvent (player)
+// - trapSetEvent (player)
+//
+// auto drawEvent / trapTriggerEvent / manaChargeEvent はカウント対象外 (副作用 or 非ターン操作)。
+// modulo INTERVAL で wrap (※ deck 枯渇による「滞留」は本Issueスコープ外、Plan 6 の注記参照)。
+function computeDrawProgressFromLog(log: GameEvent[]): Record<Player, number> {
+  let sente = 0;
+  let gote = 0;
+  const bump = (p: Player) => {
+    if (p === "sente") sente++;
+    else gote++;
+  };
+  for (const ev of log) {
+    if (ev.kind === "moveEvent") {
+      bump(ev.move.player);
+    } else if (ev.kind === "drawEvent") {
+      if ((ev.source ?? "manual") === "manual") bump(ev.player);
+    } else if (ev.kind === "cardPlayEvent" || ev.kind === "trapSetEvent") {
+      bump(ev.player);
+    }
+  }
+  return {
+    sente: sente % AUTO_DRAW_INTERVAL,
+    gote: gote % AUTO_DRAW_INTERVAL,
+  };
+}
+
 // Issue #130: 「player の手番が終わった」直後に呼び、自動ドロー進捗を加算する。
 // しきい値 (AUTO_DRAW_INTERVAL) 到達 + 山札にカードあり、の条件を満たすと自動ドローを
 // 発火する。発火時は drawProgress を 0 にリセットし、isDrawing/pendingDrawPlayer/
@@ -452,8 +485,11 @@ export function reducer(
 
     case "UNDO": {
       // 駒指しの最後の 2 手 (プレイヤー + AI) を巻き戻す。
-      // 仕様 (P28): 過去 2 手の間にカード操作 (drawCard/cardPlay/trapSet/trapTrigger) が含まれる場合は undo 不可。
-      // 含まれない場合は、移動巻き戻し + その 2 手分のターンチャージマナを巻き戻す。
+      // 仕様 (P28): 過去 2 手の間に手動カード操作 (manual drawCard/cardPlay/trapSet/trapTrigger)
+      // が含まれる場合は undo 不可。
+      // Issue #130: 自動ドロー (drawEvent { source: "auto" }) はユーザー操作ではないので
+      // ブロック対象から除外する。巻き戻し時は scope 内の auto-draw を逆順で hand→deck に
+      // 戻し、drawProgress は truncated log から再計算する。
       const history = state.gameState.moveHistory;
       if (history.length < 2) return state;
 
@@ -472,7 +508,7 @@ export function reducer(
           }
         } else if (
           ev.kind === "cardPlayEvent" ||
-          ev.kind === "drawEvent" ||
+          (ev.kind === "drawEvent" && (ev.source ?? "manual") === "manual") ||
           ev.kind === "trapSetEvent" ||
           ev.kind === "trapTriggerEvent"
         ) {
@@ -502,6 +538,30 @@ export function reducer(
         newGameState = applyMove(newGameState, m);
       }
 
+      // Issue #130: scope 内 auto-draw を逆順で巻き戻す (hand から該当インスタンスを除き、
+      // deck 先頭に push back)。複数 auto-draw でも逆順走査により deck 順序が正しく復元される。
+      // hand/deck の元参照を破壊しないよう、変更があった player 側のみ新オブジェクトに置換。
+      let revertedHand = state.cardState.hand;
+      let revertedDeck = state.cardState.deck;
+      for (let i = log.length - 1; i >= scopeStartIndex; i--) {
+        const ev = log[i];
+        if (ev.kind === "drawEvent" && (ev.source ?? "manual") === "auto") {
+          revertedHand = {
+            ...revertedHand,
+            [ev.player]: revertedHand[ev.player].filter(
+              (c) => c.instanceId !== ev.instance.instanceId,
+            ),
+          };
+          revertedDeck = {
+            ...revertedDeck,
+            [ev.player]: [ev.instance, ...revertedDeck[ev.player]],
+          };
+        }
+      }
+
+      const truncatedLog = log.slice(0, scopeStartIndex);
+      const newDrawProgress = computeDrawProgressFromLog(truncatedLog);
+
       return {
         ...state,
         gameState: newGameState,
@@ -509,19 +569,26 @@ export function reducer(
         selectedHandPiece: null,
         legalMoves: [],
         promotionPendingMove: null,
+        // ドロー演出フラグは UNDO 後にすべて解除 (Issue #130: pendingDrawSource も含む)
+        isDrawing: false,
+        pendingDrawPlayer: null,
+        pendingDrawSource: null,
         cardState: {
           ...state.cardState,
           mana: {
             sente: Math.max(0, state.cardState.mana.sente - revertSenteMana),
             gote: Math.max(0, state.cardState.mana.gote - revertGoteMana),
           },
+          hand: revertedHand,
+          deck: revertedDeck,
+          drawProgress: newDrawProgress,
           // 早指しタイマーは undo 後に自分の番が来た時点で再セットされるため null に
           lastTurnStartedAt: { sente: null, gote: null },
           // pendingCard は undo の前提で常にクリア
           pendingCard: null,
         },
         // eventLog も undo スコープ前まで戻す
-        eventLog: log.slice(0, scopeStartIndex),
+        eventLog: truncatedLog,
       };
     }
 
