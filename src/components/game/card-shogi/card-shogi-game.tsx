@@ -48,6 +48,7 @@ import { CardPlayDialog, CardTargetingNotice } from "./card-play-dialog";
 import { DrawFlightCard } from "./draw-flight-card";
 import { CardPlayFlight } from "./card-play-flight";
 import { PieceFlight, type PieceFlightSpec } from "./piece-flight";
+import { useFlightParams } from "@/lib/dev/flight-params";
 import { ManaFlightLayer } from "./mana-flight";
 import { FastMoveBadgeLayer } from "./fast-move-badge";
 import { useManaFlightLayer } from "./use-mana-flight-layer";
@@ -174,6 +175,9 @@ export function CardShogiGame({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const { squareSize, isMobile, viewportHeight } = useCardBoardSize();
+  // 開発者用 dev /piece-flight で保存されたフライト演出パラメータ。
+  // 未保存時は animation-constants の既定値が返る。
+  const flightParams = useFlightParams();
 
   const gameConfig: GameConfig = {
     ...serializableConfig,
@@ -1581,12 +1585,17 @@ export function CardShogiGame({
 
       {/* Issue #82: 駒移動カード(歩戻し / 駒戻し / 二歩指し)の駒回転フライト演出。
           pieceSize は盤上マスサイズ (squareSize) を渡し、フライト中の駒サイズを
-          実際の盤駒と揃える。 */}
+          実際の盤駒と揃える。speed/rotation/min/ease は dev /piece-flight の
+          保存値 (なければ animation-constants の既定値) を反映。 */}
       <PieceFlight
         spec={pieceFlight?.spec ?? null}
         flightKey={pieceFlight?.key ?? null}
         playerColor={playerColor}
         pieceSize={squareSize}
+        speedPxPerSec={flightParams.speedPxPerSec}
+        rotationSecPerTurn={flightParams.rotationSecPerTurn}
+        minDurationMs={flightParams.minDurationMs}
+        ease={flightParams.ease}
         onComplete={handlePieceFlightComplete}
       />
 
@@ -1598,6 +1607,10 @@ export function CardShogiGame({
           flightKey={checkBreakAnim.flightKeyBase + idx}
           playerColor={playerColor}
           pieceSize={squareSize}
+          speedPxPerSec={flightParams.speedPxPerSec}
+          rotationSecPerTurn={flightParams.rotationSecPerTurn}
+          minDurationMs={flightParams.minDurationMs}
+          ease={flightParams.ease}
           onComplete={handleCheckBreakFlightComplete}
         />
       ))}

@@ -3,11 +3,12 @@
 // PieceFlight アニメーション検証用モック画面 (Issue #82 関連)。
 // 移動速度・回転周期・最小再生時間・イージング・駒サイズ等を画面上で
 // リアルタイムに調整しながら、from→to のフライト演出をボタンで何度でも
-// 再生できる。本番経路 (歩戻し / 駒戻し / 二歩指し / 王手崩し) には影響しない。
+// 再生できる。「保存」ボタンを押した値は localStorage に保存され、ゲーム
+// 本体の PieceFlight 演出にも反映される。
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Save, RotateCcw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -16,14 +17,23 @@ import { ShogiPiece } from "@/components/game/shogi-piece";
 import { PieceFlight, type PieceFlightSpec } from "@/components/game/card-shogi/piece-flight";
 import {
   PIECE_SIZE as DEFAULT_PIECE_SIZE,
-  PIECE_SPEED_PX_PER_SEC as DEFAULT_SPEED,
-  PIECE_ROTATION_SEC_PER_TURN as DEFAULT_ROT_SEC,
-  PIECE_MIN_DURATION_MS as DEFAULT_MIN_MS,
 } from "@/components/game/card-shogi/animation-constants";
+import {
+  DEFAULT_FLIGHT_PARAMS,
+  isFlightParamsEqual,
+  resetFlightParams,
+  saveFlightParams,
+  useFlightParams,
+  type EaseOption,
+  type FlightParams,
+} from "@/lib/dev/flight-params";
 import type { Player } from "@/lib/shogi/types";
 import { cn } from "@/lib/utils";
 
-type EaseOption = "linear" | "easeIn" | "easeOut" | "easeInOut" | "circIn" | "circOut" | "anticipate";
+const DEFAULT_SPEED = DEFAULT_FLIGHT_PARAMS.speedPxPerSec;
+const DEFAULT_ROT_SEC = DEFAULT_FLIGHT_PARAMS.rotationSecPerTurn;
+const DEFAULT_MIN_MS = DEFAULT_FLIGHT_PARAMS.minDurationMs;
+const DEFAULT_EASE = DEFAULT_FLIGHT_PARAMS.ease;
 
 const PIECE_TYPES: Array<{ value: string; label: string }> = [
   { value: "pawn", label: "歩" },
@@ -62,16 +72,41 @@ const PRESET_DISTANCES: Array<{ label: string; from: { x: number; y: number }; t
 ];
 
 export default function PieceFlightDevPage() {
-  // 検証パラメータ
-  const [speedPxPerSec, setSpeedPxPerSec] = useState(DEFAULT_SPEED);
-  const [rotationSecPerTurn, setRotationSecPerTurn] = useState(DEFAULT_ROT_SEC);
-  const [minDurationMs, setMinDurationMs] = useState(DEFAULT_MIN_MS);
+  // 現在保存されている値 (ゲームに反映されている値)
+  const saved = useFlightParams();
+
+  // 編集中の値。saved が変わっても自動同期はしない (ユーザの編集を上書きしない
+  // ため)。明示的に「保存値に戻す」ボタンで saved を読み直す。
+  const [speedPxPerSec, setSpeedPxPerSec] = useState(saved.speedPxPerSec);
+  const [rotationSecPerTurn, setRotationSecPerTurn] = useState(saved.rotationSecPerTurn);
+  const [minDurationMs, setMinDurationMs] = useState(saved.minDurationMs);
+  const [ease, setEase] = useState<EaseOption>(saved.ease);
+  // pieceSize は本番では squareSize (動的) になるためゲームには保存しない。
+  // dev ページのプレビュー用としてのみ独立に持つ。
   const [pieceSize, setPieceSize] = useState(DEFAULT_PIECE_SIZE);
-  // 本番デフォルトは easeInOut (2026-05-04 に linear から変更)
-  const [ease, setEase] = useState<EaseOption>("easeInOut");
   const [pieceType, setPieceType] = useState("pawn");
   const [owner, setOwner] = useState<Player>("sente");
   const [playerColor, setPlayerColor] = useState<Player>("sente");
+
+  // 編集中の値を1つの FlightParams にまとめる (保存・比較用)
+  const editing: FlightParams = { speedPxPerSec, rotationSecPerTurn, minDurationMs, ease };
+  const hasUnsavedChanges = !isFlightParamsEqual(editing, saved);
+  const isDefault = isFlightParamsEqual(saved, DEFAULT_FLIGHT_PARAMS);
+
+  // ハイドレーション後の同期: SSR 時点では useFlightParams が DEFAULT を返すため
+  // useState の初期値もデフォルトに固定される。クライアントで localStorage から
+  // 読まれた saved に合わせて編集状態を一度だけ初期同期する。
+  // 既にユーザが編集していた場合 (= editing != saved の判定で hasUnsaved が立つ
+  // ような状態) は同期しない。 mount 直後の 1 回だけ実行する。
+  const hydratedRef = useRef(false);
+  useEffect(() => {
+    if (hydratedRef.current) return;
+    hydratedRef.current = true;
+    setSpeedPxPerSec(saved.speedPxPerSec);
+    setRotationSecPerTurn(saved.rotationSecPerTurn);
+    setMinDurationMs(saved.minDurationMs);
+    setEase(saved.ease);
+  }, [saved]);
 
   // モックステージ上の from / to 位置 (ステージ内座標)
   const [presetIdx, setPresetIdx] = useState(1); // デフォルト中距離
@@ -118,13 +153,29 @@ export default function PieceFlightDevPage() {
     setFlight(null);
   }, []);
 
-  const resetDefaults = () => {
-    setSpeedPxPerSec(DEFAULT_SPEED);
-    setRotationSecPerTurn(DEFAULT_ROT_SEC);
-    setMinDurationMs(DEFAULT_MIN_MS);
+  // 編集中の値を localStorage に保存し、ゲーム本体に反映する。
+  const handleSave = useCallback(() => {
+    saveFlightParams(editing);
+  }, [editing]);
+
+  // localStorage の保存をクリアし、編集中の値もデフォルトに戻す。
+  // ゲーム本体は animation-constants の既定値で動くようになる。
+  const handleResetToDefault = useCallback(() => {
+    resetFlightParams();
+    setSpeedPxPerSec(DEFAULT_FLIGHT_PARAMS.speedPxPerSec);
+    setRotationSecPerTurn(DEFAULT_FLIGHT_PARAMS.rotationSecPerTurn);
+    setMinDurationMs(DEFAULT_FLIGHT_PARAMS.minDurationMs);
+    setEase(DEFAULT_FLIGHT_PARAMS.ease);
     setPieceSize(DEFAULT_PIECE_SIZE);
-    setEase("linear");
-  };
+  }, []);
+
+  // 編集中の値を破棄して保存値に戻す (localStorage は変更しない)。
+  const handleRevertToSaved = useCallback(() => {
+    setSpeedPxPerSec(saved.speedPxPerSec);
+    setRotationSecPerTurn(saved.rotationSecPerTurn);
+    setMinDurationMs(saved.minDurationMs);
+    setEase(saved.ease);
+  }, [saved]);
 
   const preset = PRESET_DISTANCES[presetIdx];
   const presetDistance = Math.hypot(
@@ -273,8 +324,53 @@ export default function PieceFlightDevPage() {
               <Button onClick={triggerFlight} className="w-full">
                 ▶ フライト発火
               </Button>
-              <Button onClick={resetDefaults} variant="outline" size="sm" className="w-full">
-                数値をデフォルトへリセット
+            </div>
+
+            {/* 保存・リセット (ゲームへの反映) */}
+            <div className="flex flex-col gap-2 pt-2 border-t">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="font-medium">ゲームへの反映:</span>
+                {hasUnsavedChanges ? (
+                  <Badge variant="outline" className="text-[10px] border-amber-400 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30">
+                    未保存の変更あり
+                  </Badge>
+                ) : isDefault ? (
+                  <Badge variant="outline" className="text-[10px]">
+                    デフォルト値
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-[10px] border-emerald-500 text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/30">
+                    保存済み (反映中)
+                  </Badge>
+                )}
+              </div>
+              <Button
+                onClick={handleSave}
+                size="sm"
+                className="w-full"
+                disabled={!hasUnsavedChanges}
+              >
+                <Save className="w-3.5 h-3.5 mr-1" />
+                保存してゲームに反映
+              </Button>
+              {hasUnsavedChanges && (
+                <Button
+                  onClick={handleRevertToSaved}
+                  variant="ghost"
+                  size="sm"
+                  className="w-full text-xs"
+                >
+                  編集を破棄して保存値に戻す
+                </Button>
+              )}
+              <Button
+                onClick={handleResetToDefault}
+                variant="outline"
+                size="sm"
+                className="w-full"
+              >
+                <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                デフォルトに戻す (保存もクリア)
               </Button>
             </div>
 
@@ -363,8 +459,16 @@ export default function PieceFlightDevPage() {
               )}
             </div>
 
-            <div className="text-[11px] text-muted-foreground">
-              本番値: 移動 {DEFAULT_SPEED} px/sec / 回転 {DEFAULT_ROT_SEC} sec/turn / 最小 {DEFAULT_MIN_MS}ms / 駒 squareSize (本番) ・ {DEFAULT_PIECE_SIZE}px (フォールバック) / easing easeInOut
+            <div className="text-[11px] text-muted-foreground space-y-0.5">
+              <p>
+                デフォルト値: 移動 {DEFAULT_SPEED} px/sec / 回転 {DEFAULT_ROT_SEC} sec/turn / 最小 {DEFAULT_MIN_MS}ms / easing {DEFAULT_EASE}
+              </p>
+              <p>
+                駒サイズはゲーム本番では盤上のマスサイズ (squareSize) を使用 / dev 検証ページのフォールバック {DEFAULT_PIECE_SIZE}px
+              </p>
+              <p className="text-amber-600 dark:text-amber-400">
+                ※ 「保存してゲームに反映」を押した値は localStorage に保存され、ゲーム本体の演出にも適用されます
+              </p>
             </div>
           </Card>
         </div>

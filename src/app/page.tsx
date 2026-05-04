@@ -9,7 +9,7 @@ import { CHARACTERS } from "@/data/characters";
 import { createGame } from "@/app/actions/game";
 import type { Difficulty, Player } from "@/lib/shogi/types";
 import { cn } from "@/lib/utils";
-import { History, Swords, Layers, Library, Palette } from "lucide-react";
+import { History, Swords, Layers, Library, Palette, Wrench } from "lucide-react";
 import { ThemeSelector } from "@/components/game/theme-selector";
 import { ModeSelector, type GameMode } from "@/components/home/mode-selector";
 import { LoadingOverlay } from "@/components/loading-overlay";
@@ -318,7 +318,7 @@ export default function Home() {
         )}
 
         {/* 棋譜履歴へのリンク */}
-        <div className="text-center shrink-0">
+        <div className="text-center shrink-0 flex flex-col items-center gap-1.5">
           <button
             type="button"
             onClick={() => navigateTo("/history")}
@@ -330,6 +330,21 @@ export default function Home() {
           >
             <History className="w-4 h-4" />
             対局履歴を見る
+          </button>
+
+          {/* 開発者用リンク (Issue #82): フライト演出パラメータの調整・保存。
+              一旦は無条件で表示。後で本番非表示化したい場合は環境変数等でガード。 */}
+          <button
+            type="button"
+            onClick={() => navigateTo("/dev/piece-flight")}
+            disabled={isPending}
+            className={cn(
+              "inline-flex items-center gap-1.5 text-xs text-muted-foreground/70 hover:text-foreground transition-colors",
+              "disabled:opacity-60 disabled:cursor-not-allowed",
+            )}
+          >
+            <Wrench className="w-3.5 h-3.5" />
+            開発者: フライト演出 検証
           </button>
         </div>
 

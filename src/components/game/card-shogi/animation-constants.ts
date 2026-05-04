@@ -40,8 +40,8 @@ export const PLAY_GLOW_DURATION_S = 0.75;
 export const PIECE_SIZE = 84;
 // 移動速度 (px/sec)。dev /piece-flight で検証して 2000 を採用 (2026-05-04)。
 export const PIECE_SPEED_PX_PER_SEC = 2000;
-// 回転周期 (sec/回転)。dev 検証で 0.4 sec/turn = 2.5 回転/秒 を採用。
-export const PIECE_ROTATION_SEC_PER_TURN = 0.4;
+// 回転周期 (sec/回転)。dev 検証で 0.3 sec/turn ≈ 3.3 回転/秒 を採用 (2026-05-04)。
+export const PIECE_ROTATION_SEC_PER_TURN = 0.3;
 // 距離 0 付近でも瞬時にならないよう最小 duration を確保。
 // dev 検証で 600ms を採用 (短距離でも視認性 + 回転量 1.5 周分が確保される)。
 export const PIECE_MIN_DURATION_MS = 600;
