@@ -1,6 +1,6 @@
 // Issue #117: 新ホームに並べるカード将棋機能タイル。
-// 4 枚 (デッキ編成 / カードデザイン / カード一覧 / フライト検証用) + 将来枠 (ガチャ Coming Soon)。
-// 順序は #82 でユーザーが整えた配置に揃え、4 枚目に開発者向けのフライト検証導線を含める。
+// 4 枚 (デッキ編成 / カードデザイン / カード一覧 / 開発者ツール) + 将来枠 (ガチャ Coming Soon)。
+// 順序は #82 でユーザーが整えた配置に揃え、4 枚目に dev ツール一覧 (/dev) への導線を置く。
 // クリックで親ページの onNavigate(href, label) を呼び、LoadingOverlay と整合させる。
 "use client";
 
@@ -27,12 +27,12 @@ interface TileDef {
   Icon: typeof Layers;
 }
 
-// #82 で整理された並び順: デッキ編成 → カードデザイン → カード一覧 → フライト検証用
+// #82 で整理された並び順: デッキ編成 → カードデザイン → カード一覧 → 開発者ツール
 const TILES: TileDef[] = [
-  { href: "/decks",            label: "デッキ編成",     description: "デッキを編成する",      Icon: Library },
-  { href: "/card-design",      label: "カードデザイン", description: "裏面を選ぶ",            Icon: Palette },
-  { href: "/cards",            label: "カード一覧",     description: "全カードを見る",        Icon: Layers },
-  { href: "/dev/piece-flight", label: "フライト検証",   description: "演出パラメータ調整",    Icon: Wrench },
+  { href: "/decks",       label: "デッキ編成",     description: "デッキを編成する",  Icon: Library },
+  { href: "/card-design", label: "カードデザイン", description: "裏面を選ぶ",        Icon: Palette },
+  { href: "/cards",       label: "カード一覧",     description: "全カードを見る",    Icon: Layers },
+  { href: "/dev",         label: "開発者ツール",   description: "演出 / 音源 等",    Icon: Wrench },
 ];
 
 export function CardShogiTiles({ onNavigate, disabled = false }: CardShogiTilesProps) {
