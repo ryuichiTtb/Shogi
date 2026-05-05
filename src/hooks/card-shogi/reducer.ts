@@ -32,6 +32,7 @@ import {
   MANA_PER_TURN,
   MANA_FAST_BONUS,
   FAST_THRESHOLD_MS,
+  AUTO_DRAW_INTERVAL,
 } from "@/lib/shogi/cards/definitions";
 import {
   applyManaUp,
@@ -90,6 +91,10 @@ export interface CardShogiGameStateInternal {
   // true の間は currentPlayer 反転を保留し、AI 自動応手をブロックする。
   isDrawing: boolean;
   pendingDrawPlayer: Player | null;
+  // Issue #130: ドロー発火源。"manual" は DRAW_CARD コマンド由来 (currentPlayer 未反転、
+  // COMMIT_DRAW で反転 + applyTurnEndEffects 実行)。"auto" は applyTurnEndEffects のしきい値
+  // 到達由来 (currentPlayer は呼び元で既に反転済、COMMIT_DRAW ではフラグクリアのみ)。
+  pendingDrawSource: "manual" | "auto" | null;
   // カード使用演出中フラグ。CONFIRM_PLAY_CARD で true、演出完了時の COMMIT_PLAY_CARD で false。
   // true の間は currentPlayer 反転を保留し、AI 自動応手・ユーザー操作をブロックする。
   isPlayingCard: boolean;
@@ -316,6 +321,96 @@ function isKingInCheckAfterMove(gameState: GameState, move: Move): boolean {
   return isInCheck(nextState, move.player, CARD_SHOGI_VARIANT);
 }
 
+// Issue #130: eventLog から各プレイヤーの drawProgress を再計算する。
+// UNDO 後に scope 切詰めた log から派生 state を復元する用途。
+//
+// 「自分の手番が終わった = drawProgress +1」のルールに従い、turn-end イベントを集計:
+// - moveEvent (mover)
+// - drawEvent { source ?? "manual" === "manual" } (drawer): 旧ログ互換のため未指定は manual 扱い
+// - cardPlayEvent (player)
+// - trapSetEvent (player)
+//
+// auto drawEvent / trapTriggerEvent / manaChargeEvent はカウント対象外 (副作用 or 非ターン操作)。
+// modulo INTERVAL で wrap (※ deck 枯渇による「滞留」は本Issueスコープ外、Plan 6 の注記参照)。
+function computeDrawProgressFromLog(log: GameEvent[]): Record<Player, number> {
+  let sente = 0;
+  let gote = 0;
+  const bump = (p: Player) => {
+    if (p === "sente") sente++;
+    else gote++;
+  };
+  for (const ev of log) {
+    if (ev.kind === "moveEvent") {
+      bump(ev.move.player);
+    } else if (ev.kind === "drawEvent") {
+      if ((ev.source ?? "manual") === "manual") bump(ev.player);
+    } else if (ev.kind === "cardPlayEvent" || ev.kind === "trapSetEvent") {
+      bump(ev.player);
+    }
+  }
+  return {
+    sente: sente % AUTO_DRAW_INTERVAL,
+    gote: gote % AUTO_DRAW_INTERVAL,
+  };
+}
+
+// Issue #130: 「player の手番が終わった」直後に呼び、自動ドロー進捗を加算する。
+// しきい値 (AUTO_DRAW_INTERVAL) 到達 + 山札にカードあり、の条件を満たすと自動ドローを
+// 発火する。発火時は drawProgress を 0 にリセットし、isDrawing/pendingDrawPlayer/
+// pendingDrawSource をセットして UI 演出を起動する。
+//
+// 呼び出し規約:
+// - 呼び出し元 (MAKE_MOVE / CONFIRM_PROMOTION / COMMIT_DRAW(manual) / COMMIT_PLAY_CARD)
+//   で「currentPlayer の反転」は事前に済ませておくこと。本ヘルパーは反転を行わない。
+// - player は「手番が終わった = ドロー進捗を加算する側」のプレイヤーを渡す。
+//   currentPlayer (= 反転後の手番) ではなく、直前まで指していた側。
+//
+// 山札枯渇時は drawProgress を加算するだけで発火しない (進捗カップなし、加算は継続)。
+// UI 表示は Math.min(progress, AUTO_DRAW_INTERVAL) でクランプ。
+function applyTurnEndEffects(
+  state: CardShogiGameStateInternal,
+  player: Player,
+): CardShogiGameStateInternal {
+  const current = state.cardState.drawProgress[player];
+  const next = current + 1;
+  const deck = state.cardState.deck[player];
+
+  if (next < AUTO_DRAW_INTERVAL || deck.length === 0) {
+    // しきい値未到達、または deck 枯渇で発火不可: 進捗のみ加算
+    return {
+      ...state,
+      cardState: {
+        ...state.cardState,
+        drawProgress: { ...state.cardState.drawProgress, [player]: next },
+      },
+    };
+  }
+
+  // しきい値到達 + deck あり: 自動ドロー発火
+  const [top, ...rest] = deck;
+  return {
+    ...state,
+    // 自動ドロー発火時は駒選択状態をクリア (DRAW_CARD と同じ挙動)
+    selectedSquare: null,
+    selectedHandPiece: null,
+    legalMoves: [],
+    forbiddenMateMoves: [],
+    cardState: {
+      ...state.cardState,
+      drawProgress: { ...state.cardState.drawProgress, [player]: 0 },
+      deck: { ...state.cardState.deck, [player]: rest },
+      hand: { ...state.cardState.hand, [player]: [...state.cardState.hand[player], top] },
+    },
+    eventLog: [
+      ...state.eventLog,
+      { kind: "drawEvent", player, instance: top, source: "auto", at: Date.now() },
+    ],
+    isDrawing: true,
+    pendingDrawPlayer: player,
+    pendingDrawSource: "auto",
+  };
+}
+
 // 「相手玉を取る手」かどうか。Move.captured は移動先の駒種が入る。
 // 通常将棋では交互ターン不変条件で発生しないが、二手指しでは
 // 1手目で王手 → 2手目で玉取り のシーケンスが起きうるため明示的に除外する。
@@ -413,16 +508,6 @@ function partitionDoubleMoveSecondCandidates(
     }
   }
   return { legal, forbiddenMate };
-}
-
-// 後方互換: 既存呼び出し元 (filterDoubleMoveSecondCandidates) は legal だけ取り出す形で残す。
-function filterDoubleMoveSecondCandidates(
-  gameState: GameState,
-  player: Player,
-  candidates: Move[],
-  mateInOneAvailable: boolean,
-): Move[] {
-  return partitionDoubleMoveSecondCandidates(gameState, player, candidates, mateInOneAvailable).legal;
 }
 
 // 駒選択時の合法手 + 禁止された詰み手を生成。doubleMove モード切替を含む。
@@ -675,7 +760,7 @@ export function reducer(
 
       // 通常 MAKE_MOVE
       const result = makeMoveWithEffects(state.gameState, state.cardState, action.move);
-      return {
+      const stateAfter: CardShogiGameStateInternal = {
         ...state,
         gameState: result.gameState,
         cardState: result.cardState,
@@ -687,6 +772,8 @@ export function reducer(
         promotionPendingMove: null,
         isCheckBreakAnimating: result.triggeredCheckBreak || state.isCheckBreakAnimating,
       };
+      // Issue #130: 自分の手番が終わった瞬間 = 自動ドロー進捗 +1
+      return applyTurnEndEffects(stateAfter, action.move.player);
     }
 
     case "SET_AI_THINKING":
@@ -764,7 +851,7 @@ export function reducer(
 
       // 通常 CONFIRM_PROMOTION
       const result = makeMoveWithEffects(state.gameState, state.cardState, moveWithPromote);
-      return {
+      const stateAfter: CardShogiGameStateInternal = {
         ...state,
         gameState: result.gameState,
         cardState: result.cardState,
@@ -775,6 +862,8 @@ export function reducer(
         forbiddenMateMoves: [],
         isCheckBreakAnimating: result.triggeredCheckBreak || state.isCheckBreakAnimating,
       };
+      // Issue #130: 自分の手番が終わった瞬間 = 自動ドロー進捗 +1
+      return applyTurnEndEffects(stateAfter, moveWithPromote.player);
     }
 
     case "CANCEL_PROMOTION":
@@ -804,6 +893,9 @@ export function reducer(
       // 同色 moveEvent の連続 (= 二手指しの 1手目+2手目) は同じターン扱いで通り抜ける。
       // 含まれない場合は、移動巻き戻し + その 2 手分のターンチャージマナを巻き戻す。
       // 判定ロジックは undo-policy.ts に集約 (canUndo memo と共通化)。
+      // Issue #130: 自動ドロー (drawEvent { source: "auto" }) はユーザー操作ではないので
+      // undo-policy 側でブロック対象から除外する。巻き戻し時は scope 内の auto-draw を
+      // 逆順で hand→deck に戻し、drawProgress は truncated log から再計算する。
       const history = state.gameState.moveHistory;
       if (history.length < 2) return state;
 
@@ -830,6 +922,30 @@ export function reducer(
         newGameState = applyMove(newGameState, m);
       }
 
+      // Issue #130: scope 内 auto-draw を逆順で巻き戻す (hand から該当インスタンスを除き、
+      // deck 先頭に push back)。複数 auto-draw でも逆順走査により deck 順序が正しく復元される。
+      // hand/deck の元参照を破壊しないよう、変更があった player 側のみ新オブジェクトに置換。
+      let revertedHand = state.cardState.hand;
+      let revertedDeck = state.cardState.deck;
+      for (let i = log.length - 1; i >= scopeStartIndex; i--) {
+        const ev = log[i];
+        if (ev.kind === "drawEvent" && (ev.source ?? "manual") === "auto") {
+          revertedHand = {
+            ...revertedHand,
+            [ev.player]: revertedHand[ev.player].filter(
+              (c) => c.instanceId !== ev.instance.instanceId,
+            ),
+          };
+          revertedDeck = {
+            ...revertedDeck,
+            [ev.player]: [ev.instance, ...revertedDeck[ev.player]],
+          };
+        }
+      }
+
+      const truncatedLog = log.slice(0, scopeStartIndex);
+      const newDrawProgress = computeDrawProgressFromLog(truncatedLog);
+
       return {
         ...state,
         gameState: newGameState,
@@ -838,19 +954,26 @@ export function reducer(
         legalMoves: [],
         forbiddenMateMoves: [],
         promotionPendingMove: null,
+        // ドロー演出フラグは UNDO 後にすべて解除 (Issue #130: pendingDrawSource も含む)
+        isDrawing: false,
+        pendingDrawPlayer: null,
+        pendingDrawSource: null,
         cardState: {
           ...state.cardState,
           mana: {
             sente: Math.max(0, state.cardState.mana.sente - revertSenteMana),
             gote: Math.max(0, state.cardState.mana.gote - revertGoteMana),
           },
+          hand: revertedHand,
+          deck: revertedDeck,
+          drawProgress: newDrawProgress,
           // 早指しタイマーは undo 後に自分の番が来た時点で再セットされるため null に
           lastTurnStartedAt: { sente: null, gote: null },
           // pendingCard は undo の前提で常にクリア
           pendingCard: null,
         },
         // eventLog も undo スコープ前まで戻す
-        eventLog: log.slice(0, scopeStartIndex),
+        eventLog: truncatedLog,
       };
     }
 
@@ -907,20 +1030,26 @@ export function reducer(
         forbiddenMateMoves: [],
         eventLog: [
           ...state.eventLog,
-          { kind: "drawEvent", player: action.player, instance: top, at: Date.now() },
+          { kind: "drawEvent", player: action.player, instance: top, source: "manual", at: Date.now() },
         ],
         isDrawing: true,
         pendingDrawPlayer: action.player,
+        pendingDrawSource: "manual",
       };
     }
 
     case "COMMIT_DRAW": {
       if (!state.isDrawing || !state.pendingDrawPlayer) return state;
       const drawer = state.pendingDrawPlayer;
-      const opponent: Player = drawer === "sente" ? "gote" : "sente";
-      return {
+      // Issue #130: 発火源で挙動分岐。
+      // - manual: currentPlayer 未反転なので反転 + applyTurnEndEffects (drawProgress +1、
+      //   しきい値到達なら auto-draw 連鎖発火)
+      // - auto: currentPlayer は呼び元 (MAKE_MOVE / CONFIRM_PROMOTION / COMMIT_PLAY_CARD /
+      //   COMMIT_DRAW(manual)) で既に反転済 + drawProgress も同箇所で 0 リセット済。
+      //   ここではフラグクリア + lastTurnStartedAt クリアのみ行う。
+      const source = state.pendingDrawSource ?? "manual";
+      const cleared: CardShogiGameStateInternal = {
         ...state,
-        gameState: { ...state.gameState, currentPlayer: opponent },
         cardState: {
           ...state.cardState,
           lastTurnStartedAt: {
@@ -930,7 +1059,17 @@ export function reducer(
         },
         isDrawing: false,
         pendingDrawPlayer: null,
+        pendingDrawSource: null,
       };
+      if (source === "auto") {
+        return cleared;
+      }
+      const opponent: Player = drawer === "sente" ? "gote" : "sente";
+      const flipped: CardShogiGameStateInternal = {
+        ...cleared,
+        gameState: { ...cleared.gameState, currentPlayer: opponent },
+      };
+      return applyTurnEndEffects(flipped, drawer);
     }
 
     case "BEGIN_PLAY_CARD": {
@@ -951,8 +1090,8 @@ export function reducer(
         return state;
       }
       // カード固有の使用条件 (Issue #82)。CARD_USE_CONDITIONS 未登録のカードは常に使用可。
-      const useCond = CARD_USE_CONDITIONS[card.defId];
-      if (useCond && !useCond(state.gameState, action.player, state.cardState)) {
+      const cardUseCondition = CARD_USE_CONDITIONS[card.defId];
+      if (cardUseCondition && !cardUseCondition(state.gameState, action.player, state.cardState)) {
         return state;
       }
       // 王手中: カード使用は王手回避できる場合のみ可。
@@ -1160,14 +1299,18 @@ export function reducer(
       // Issue #82 (二手指し / 新仕様): finalizeDoubleMoveCardConsumption 経由で
       // isPlayingCard=true がセットされた場合、pendingPlayCardOpponent は null。
       // currentPlayer は既に 2手目 makeMoveWithEffects で flip 済なので、再 flip しない。
-      // isPlayingCard だけクリアして演出終了とする。
+      // Issue #130: cardPlayEvent の player を使い、カード使用分の自動ドロー進捗だけ加算する。
       if (!state.pendingPlayCardOpponent) {
-        return { ...state, isPlayingCard: false };
+        const lastCardPlay = [...state.eventLog]
+          .reverse()
+          .find((ev): ev is Extract<GameEvent, { kind: "cardPlayEvent" }> => ev.kind === "cardPlayEvent");
+        const cleared: CardShogiGameStateInternal = { ...state, isPlayingCard: false };
+        return lastCardPlay ? applyTurnEndEffects(cleared, lastCardPlay.player) : cleared;
       }
 
       const opponent = state.pendingPlayCardOpponent;
       const player: Player = opponent === "sente" ? "gote" : "sente";
-      return {
+      const stateAfter: CardShogiGameStateInternal = {
         ...state,
         gameState: { ...state.gameState, currentPlayer: opponent },
         cardState: {
@@ -1180,6 +1323,8 @@ export function reducer(
         isPlayingCard: false,
         pendingPlayCardOpponent: null,
       };
+      // Issue #130: カード使用も「自分の手番が終わった瞬間」に該当 → drawProgress +1
+      return applyTurnEndEffects(stateAfter, player);
     }
 
     case "CANCEL_PLAY_CARD": {

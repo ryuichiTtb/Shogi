@@ -36,11 +36,12 @@ function cardPlayEv(player: Player): GameEvent {
   };
 }
 
-function drawEv(player: Player): GameEvent {
+function drawEv(player: Player, source?: "manual" | "auto"): GameEvent {
   return {
     kind: "drawEvent",
     player,
     instance: { instanceId: "x", defId: "pawn_return" },
+    source,
     at: now(),
   };
 }
@@ -70,14 +71,16 @@ describe("isCardOpEvent", () => {
   it("cardPlayEvent / drawEvent / trapSetEvent / trapTriggerEvent はカード操作", () => {
     expect(isCardOpEvent(cardPlayEv("sente"))).toBe(true);
     expect(isCardOpEvent(drawEv("sente"))).toBe(true);
+    expect(isCardOpEvent(drawEv("sente", "manual"))).toBe(true);
     expect(isCardOpEvent(trapSetEv("sente"))).toBe(true);
     expect(isCardOpEvent(trapTriggerEv("sente", "no_promote"))).toBe(true);
     expect(isCardOpEvent(trapTriggerEv("sente", "check_break"))).toBe(true);
   });
 
-  it("moveEvent / manaChargeEvent はカード操作ではない", () => {
+  it("moveEvent / manaChargeEvent / auto drawEvent はカード操作ではない", () => {
     expect(isCardOpEvent(moveEv("sente"))).toBe(false);
     expect(isCardOpEvent(manaChargeEv("sente"))).toBe(false);
+    expect(isCardOpEvent(drawEv("sente", "auto"))).toBe(false);
   });
 });
 
@@ -182,6 +185,17 @@ describe("getUndoScope", () => {
       moveEv("gote"),
     ];
     expect(getUndoScope(log)).toBeNull();
+  });
+
+  it("[9b] auto drawEvent in scope → 巻き戻し可能 (block しない)", () => {
+    const log: GameEvent[] = [
+      /* 0 */ moveEv("sente"),
+      /* 1 */ drawEv("sente", "auto"),
+      /* 2 */ manaChargeEv("sente"),
+      /* 3 */ moveEv("gote"),
+      /* 4 */ manaChargeEv("gote"),
+    ];
+    expect(getUndoScope(log)).toBe(0);
   });
 
   it("[10] trapSetEvent in scope → null (block)", () => {

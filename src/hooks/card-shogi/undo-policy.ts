@@ -2,7 +2,7 @@
 //
 // 仕様:
 // - 「過去 2 ターン (= プレイヤー切替 2 回までの範囲)」内にカード操作
-//   (cardPlayEvent / drawEvent / trapSetEvent / trapTriggerEvent) があれば 待った 不可。
+//   (cardPlayEvent / manual drawEvent / trapSetEvent / trapTriggerEvent) があれば 待った 不可。
 // - 同色プレイヤーの連続 moveEvent (= 二手指し 1手目+2手目 のような multi-ply turn)
 //   は 1 ターン扱いで通り抜ける (= ply 数ではなく turn 数で判定)。
 // - 過去 2 つの moveEvent (= 直近 2 ply) を巻き戻すスコープ index も併せて返す。
@@ -21,11 +21,15 @@ import type { Player } from "@/lib/shogi/types";
 /**
  * イベントが「カード操作系」(待った可否判定でブロック対象) か。
  * 新たな card 系 event を追加するときはここを更新する。
+ *
+ * Issue #130: auto drawEvent は手番終了時の副作用であり、ユーザーが任意に実行した
+ * カード操作ではない。待った時に reducer 側で手札/山札へ巻き戻すため、ブロック対象外。
+ * source 未指定の旧ログは manual 扱いとして保守的にブロックする。
  */
 export function isCardOpEvent(ev: GameEvent): boolean {
   return (
     ev.kind === "cardPlayEvent" ||
-    ev.kind === "drawEvent" ||
+    (ev.kind === "drawEvent" && (ev.source ?? "manual") === "manual") ||
     ev.kind === "trapSetEvent" ||
     ev.kind === "trapTriggerEvent"
   );
