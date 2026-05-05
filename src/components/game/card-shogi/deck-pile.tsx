@@ -202,25 +202,19 @@ export const DeckPile = memo(function DeckPile({
   const stackOffsetTotalX = stackCount * offsetUnitX;
   const stackOffsetTotalY = stackCount * offsetUnitY;
 
-  // Issue #130: ボタン (= 視覚的なカード本体) は w-full h-full で
-  // 「コンテナの content area = カード寸法」を埋める。SVG リングは
-  // ボタンに inset-0 で乗せるので、結果としてリング = 視覚的カードと
-  // ピクセル単位で一致する。fullWidth 時は親幅に追従するためカード幅は
-  // 親幅分に伸びるが、card height は dims.h を使う (= 縦は固定)。
-  const sizeClass = cn(
-    "w-full h-full",
-    dims.text,
-  );
+  // 視覚的な上面カードの実寸。外側コンテナは stack offset を含むが、
+  // CardBack / SVG リング / テキストはこの寸法だけを基準に描画する。
+  const cardStyle: CSSProperties = {
+    width: fullWidth ? `calc(100% - ${stackOffsetTotalX}px)` : dims.w,
+    height: dims.h,
+  };
+  const sizeClass = dims.text;
+  const ringInset = size === "lg" ? 5 : 4;
 
-  // コンテナ寸法 = カード寸法 + stack offset (border-box default)。
+  // コンテナ寸法 = カード寸法 + stack offset。
   // - non-fullWidth: 横も縦も固定 (= dims.w + offsetX, dims.h + offsetY)
   // - fullWidth: 横は親幅に追従 (w-full)、縦のみ固定
-  // Issue #130: 「次まで N 手」マイクロテキストはカード内側に配置するため
-  // コンテナの縦幅に余白追加は不要 (旧実装で 12-14px の余白を加えていたが、
-  // 持ち駒エリアを圧迫するためカード内テキストに変更)。
   const containerStyle: CSSProperties = {
-    paddingRight: stackOffsetTotalX,
-    paddingBottom: stackOffsetTotalY,
     height: dims.h + stackOffsetTotalY,
     ...(fullWidth ? {} : { width: dims.w + stackOffsetTotalX }),
   };
@@ -231,9 +225,8 @@ export const DeckPile = memo(function DeckPile({
       style={containerStyle}
     >
       {/* 後ろのズレカード(N 枚)。i=0 が一番奥、i=stackCount-1 が手前。
-          Issue #130: 寸法を明示 (= dims.w × dims.h) し top-left + transform 方式に変更。
-          旧実装の bottom inset 計算は microtext 用余白を加えた新しい container 高さと
-          整合せず、stack tail が microtext 領域に被ってしまうため。 */}
+          上面カードと同じ cardStyle を使い、リングやテキストの基準寸法と
+          stack offset を混ぜない。 */}
       {Array.from({ length: stackCount }).map((_, i) => {
         // 手前ほど offset 小、奥ほど offset 大
         const offsetX = (stackCount - i) * offsetUnitX;
@@ -245,8 +238,7 @@ export const DeckPile = memo(function DeckPile({
             style={{
               top: 0,
               left: 0,
-              width: fullWidth ? `calc(100% - ${stackOffsetTotalX}px)` : dims.w,
-              height: dims.h,
+              ...cardStyle,
               transform: `translate(${offsetX}px, ${offsetY}px)`,
               zIndex: i,
             }}
@@ -265,7 +257,7 @@ export const DeckPile = memo(function DeckPile({
         disabled={!interactable}
         className={cn(
           "relative z-10 w-full h-full",
-          "flex flex-col items-center justify-center text-white px-1 transition-all",
+          "text-white transition-all",
           sizeClass,
           isEmpty &&
             "rounded-md border-2 bg-gradient-to-br from-slate-400 to-slate-600 border-slate-500 text-slate-100 cursor-not-allowed opacity-70",
@@ -279,6 +271,7 @@ export const DeckPile = memo(function DeckPile({
               ? `山札からドロー (残${count}枚、コスト${DRAW_COST})${autoDrawHint}`
               : `山札 (残${count}枚)${autoDrawHint}`
         }
+        style={cardStyle}
       >
         {/* 裏面 (CardBack) を背景として最下層に。空の時は非表示。 */}
         {!isEmpty && (
@@ -296,10 +289,9 @@ export const DeckPile = memo(function DeckPile({
         )}
 
         {/* Issue #130: 自動ドロー進捗リング。
-            CardBack (amber border-2) の内側に納まるよう viewBox 内で inset 5%
-            (= 実描画で約 2.5-4px のマージン) で配置。SVG の overflow を visible に
-            すると stroke がカード外にはみ出すため、明示的に overflow=hidden で
-            クリップ (デバイス間のレンダー差分を吸収)。
+            CardBack (amber border-2) の内側に固定 px inset で納める。
+            旧実装の viewBox % inset は横長カードで x/y の実 px が変わり、
+            モバイルで枠とズレて見えたため、カード本体に対する実 px 基準にする。
             preserveAspectRatio="none" + vector-effect="non-scaling-stroke" で
             縦横比に依存せず一定の線幅・等分セグメントを維持する。
             primed (= displayProgress === interval - 1) のときは emerald-300 +
@@ -308,7 +300,7 @@ export const DeckPile = memo(function DeckPile({
             (= firing の起点、useLayoutEffect で実装)。 */}
         {hasProgress && !isEmpty && (
           <svg
-            className="absolute inset-0 z-10 pointer-events-none"
+            className="absolute z-10 pointer-events-none"
             viewBox="0 0 100 100"
             preserveAspectRatio="none"
             role="progressbar"
@@ -316,15 +308,21 @@ export const DeckPile = memo(function DeckPile({
             aria-valuemax={interval}
             aria-valuenow={Math.min(displayProgress, interval)}
             aria-label={`自動ドロー進捗 ${Math.min(displayProgress, interval)}/${interval}`}
-            style={{ overflow: "hidden" }}
+            style={{
+              top: ringInset,
+              right: ringInset,
+              bottom: ringInset,
+              left: ringInset,
+              overflow: "visible",
+            }}
           >
-            {/* track: 5 セグメント等分の薄い縁取り。inset 5% で CardBack
-                (border-2 amber) の更に内側に収める。 */}
+            {/* track: 5 セグメント等分の薄い縁取り。SVG 自体を固定 px inset
+                しているので rect は viewBox 全体を使う。 */}
             <rect
-              x={5}
-              y={5}
-              width={90}
-              height={90}
+              x={0}
+              y={0}
+              width={100}
+              height={100}
               rx={3}
               ry={3}
               fill="none"
@@ -337,10 +335,10 @@ export const DeckPile = memo(function DeckPile({
             {/* primed 時の amber 二重ストローク (内側 1px) */}
             {isPrimed && (
               <rect
-                x={5}
-                y={5}
-                width={90}
-                height={90}
+                x={0}
+                y={0}
+                width={100}
+                height={100}
                 rx={3}
                 ry={3}
                 fill="none"
@@ -356,10 +354,10 @@ export const DeckPile = memo(function DeckPile({
             )}
             {/* progress: 通常 emerald-400/85, primed は emerald-300 (主層) */}
             <motion.rect
-              x={5}
-              y={5}
-              width={90}
-              height={90}
+              x={0}
+              y={0}
+              width={100}
+              height={100}
               rx={3}
               ry={3}
               fill="none"
@@ -386,6 +384,7 @@ export const DeckPile = memo(function DeckPile({
               }
               style={{
                 transformOrigin: "center center",
+                transformBox: "fill-box",
                 transition: `stroke-dashoffset ${AUTO_DRAW_RING_TRANSITION_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`,
                 filter: isPrimed ? "drop-shadow(0 0 6px rgb(52 211 153 / 0.55))" : undefined,
               }}
@@ -397,68 +396,63 @@ export const DeckPile = memo(function DeckPile({
         {showDrawCost && !isEmpty && (
           <span
             className={cn(
-              "absolute top-0.5 left-0.5 z-10 flex items-center gap-0.5 rounded-full px-1.5 leading-tight font-bold tabular-nums",
+              "absolute top-0.5 left-0.5 z-30 flex items-center gap-0.5 rounded-full px-1.5 leading-tight font-bold tabular-nums",
               "bg-cyan-100 text-cyan-900 dark:bg-cyan-900/60 dark:text-cyan-100",
               size === "sm" ? "text-[8px]" : "text-[10px]",
             )}
             title={`ドローコスト: マナ ${DRAW_COST}`}
           >
             <span aria-hidden>💎</span>
-            <span>× {DRAW_COST}</span>
+            <span>×{DRAW_COST}</span>
           </span>
         )}
 
-        {/* Issue #130: カード内テキスト群。
-            「次まで N 手」をカード内に同居させるため、各要素の mt を従来の半分以下に
-            圧縮して縦スペースを確保する。要素並び (上から):
-              1. 山札 (ラベル)
-              2. ×N (枚数)
-              3. 次まで N 手 (#130 自動ドロー進捗、emerald)
-              4. DRAW! (interactable のときだけ、amber アニメ)
-            空のときは「空」のみ表示 (4 行構造を維持しない)。 */}
+        {/* カード内テキスト群。山札であることは裏面カードと配置で分かるため、
+            視覚ラベルは置かず、枚数・DRAW・次まで表示に縦スペースを使う。 */}
         <div
           className={cn(
-            "relative z-10 opacity-90 leading-none font-medium drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]",
-            size === "sm" ? "text-[10px]" : "",
+            "absolute z-20 pointer-events-none select-none text-center",
+            "grid grid-rows-[minmax(0,1fr)_auto]",
+            size === "sm" ? "inset-[4px]" : "inset-[5px]",
           )}
         >
-          山札
-        </div>
-        <div
-          className={cn(
-            "relative z-10 font-bold tabular-nums leading-none mt-0.5 drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]",
-            size === "sm" ? "text-[11px]" : "text-base",
-          )}
-        >
-          × {count}
-        </div>
-        {/* Issue #130: 自動ドロー進捗マイクロテキスト。カード内配置で持ち駒エリア
-            への影響を排除。ボタン flex column の自然位置に並べ余白は控えめに。 */}
-        {hasProgress && !isEmpty && (
+          <div className="min-h-0 flex flex-col items-center justify-center">
+            {!isEmpty && (
+              <div
+                className={cn(
+                  "font-bold tabular-nums leading-none drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]",
+                  size === "sm" ? "text-[11px]" : "text-base",
+                )}
+              >
+                × {count}
+              </div>
+            )}
+            {isEmpty && (
+              <div className="leading-none text-slate-200 text-[10px] font-bold">空</div>
+            )}
+            {interactable && (
+              <div
+                className={cn(
+                  "leading-none text-amber-200 font-bold animate-bounce drop-shadow-[0_1px_2px_rgba(0,0,0,0.7)] mt-1",
+                  size === "sm" ? "text-[8px]" : "text-[10px]",
+                )}
+              >
+                DRAW!
+              </div>
+            )}
+          </div>
+
           <div
             className={cn(
-              "relative z-10 leading-none font-medium tabular-nums whitespace-nowrap mt-0.5",
+              "min-h-[10px] flex items-end justify-center leading-none font-medium tabular-nums whitespace-nowrap",
               "text-emerald-200/90 drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]",
               size === "sm" ? "text-[8px]" : "text-[10px]",
             )}
             aria-hidden
           >
-            次まで{remainingTurns}手
+            {hasProgress && !isEmpty ? `次まで${remainingTurns}手` : ""}
           </div>
-        )}
-        {isEmpty && (
-          <div className="mt-0.5 leading-none text-slate-200 text-[10px] font-bold">空</div>
-        )}
-        {interactable && (
-          <div
-            className={cn(
-              "relative z-10 leading-none text-amber-200 font-bold animate-bounce drop-shadow-[0_1px_2px_rgba(0,0,0,0.7)] mt-0.5",
-              size === "sm" ? "text-[8px]" : "text-[10px]",
-            )}
-          >
-            DRAW!
-          </div>
-        )}
+        </div>
       </button>
 
       {/* Issue #130: 自動ドロー進捗マイクロテキストはカード内 (ボタン flex 内)
