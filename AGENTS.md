@@ -103,6 +103,8 @@ Issue対応は必ず専用ブランチを作成してから実装を開始する
 - 操作内容と影響範囲を明示してから確認を求める
 - ユーザー指示で明示的に許可された範囲のみ実行する
 - Claude Code の自動承認/拒否ルールは `.claude/settings.json` に集約されている。変更する際は本ファイルのルール追加・更新フローに従い、Issueを立ててPRで反映する
+- **「破壊的操作」カテゴリ (`rm -rf`、`git branch -D`、`git reset --hard`、`git push --force` 等) は `.claude/settings.json` で auto-deny を外し allow に置いている。これは「ユーザー明示指示があれば実行可」を意図した設計であり、AI 側の本ルール 5 (= 必ずユーザーに確認してから実行) が唯一の安全網となる。明示指示なしの実行は本ルール違反として扱う**
+- 一方、「公開・共有状態への影響」カテゴリ (`git push origin main`、`gh issue close`、`gh pr close`) は引き続き auto-deny を維持する (ルール 1・2 と二重化された安全網)
 
 ### 6. Vercelデプロイ確認のため専用ブランチはpushまで行う
 
