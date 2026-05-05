@@ -50,6 +50,8 @@ export function useCardShogiGame({
     isPlayingCard: false,
     pendingPlayCardOpponent: null,
     isCheckBreakAnimating: false,
+    doubleMove: null,
+    forbiddenMateMoves: [],
   });
 
   const aiPlayer: Player = gameConfig.playerColor === "sente" ? "gote" : "sente";
@@ -105,12 +107,33 @@ export function useCardShogiGame({
       dispatch({ type: "SET_AI_THINKING", thinking: false });
       onComment?.("ai_move");
     });
+    // 依存配列の補足:
+    // - isPlayingCard: 旧仕様では「演出 → ターン交代」の順で、ターン交代時には isPlayingCard=false
+    //   になっていたため deps に入れる必要がなかった。
+    //   新仕様 (Issue #82 二手指し) では「2手目 (= ターン交代) → 演出」の順となり、ターン交代時に
+    //   isPlayingCard=true がセットされる。COMMIT_PLAY_CARD で false に戻った瞬間に AI 思考を
+    //   再開する必要があるため deps に必須。
+    // - isCheckBreakAnimating: 同種の理由 (演出後にフラグ降りた瞬間に AI 思考を再開できるよう)。
+    //   実プレイで顕在化しにくいシナリオだが念のため deps に含める。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.gameState.currentPlayer, state.gameState.status, state.cardState.pendingCard, state.isDrawing]);
+  }, [
+    state.gameState.currentPlayer,
+    state.gameState.status,
+    state.cardState.pendingCard,
+    state.isDrawing,
+    state.isPlayingCard,
+    state.isCheckBreakAnimating,
+  ]);
 
   // DB 保存(state 変更を監視して、最新の moveCount で保存)
   const lastSavedMoveCountRef = useRef(initialState.moveCount);
   useEffect(() => {
+    // Issue #82 (二手指し): 二手指し中 (1手目完了直後 等) は save しない。
+    // 2手目完了で doubleMove=null になった時に通常通り save 発火する。
+    // これにより 1手目分の GameMove レコードは作られず、リロード時の DB 状態は
+    // カード使用前にロールバックする (二手指しキャンセル相当)。
+    if (state.doubleMove !== null) return;
+
     const moveCount = state.gameState.moveCount;
     if (moveCount <= lastSavedMoveCountRef.current) return;
     const lastMove = state.gameState.moveHistory[state.gameState.moveHistory.length - 1];
@@ -133,7 +156,7 @@ export function useCardShogiGame({
     ).catch((e) => {
       console.error("saveCardShogiMove failed", e);
     });
-  }, [state.gameState, state.cardState, gameId]);
+  }, [state.gameState, state.cardState, state.doubleMove, gameId]);
 
   // ----- 公開API -----
 
@@ -307,11 +330,27 @@ export function useCardShogiGame({
     dispatch({ type: "COMMIT_CHECK_BREAK" });
   }, []);
 
+  // Issue #82 (二手指し): 1手目を取り消して preFirstMoveState から復元。
+  // movesLeft===1 の時のみ動作。カードはまだ使用したまま、もう一度 1手目を選び直せる。
+  const undoDoubleMoveFirst = useCallback(() => {
+    dispatch({ type: "UNDO_DOUBLE_MOVE_FIRST" });
+  }, []);
+
+  // Issue #82 (二手指し / 新仕様): カード使用自体をキャンセル。
+  // preCardState から完全復元、カードは手札に戻り、マナも消費されない。
+  // movesLeft=2 (1手目前) でも movesLeft=1 (1手目後) でも実行可能。
+  const cancelDoubleMove = useCallback(() => {
+    dispatch({ type: "CANCEL_DOUBLE_MOVE" });
+  }, []);
+
   return {
     gameState: state.gameState,
     selectedSquare: state.selectedSquare,
     selectedHandPiece: state.selectedHandPiece,
     legalMoves: state.legalMoves,
+    // Issue #82 (二手指し): 2手目で「禁止された詰み手」(mateInOneAvailable=false 時)。
+    // UI で赤×表示し、クリック時にダイアログで禁止理由を説明するため legalMoves と別管理。
+    forbiddenMateMoves: state.forbiddenMateMoves,
     isAiThinking: state.isAiThinking,
     promotionPendingMove: state.promotionPendingMove,
     cardState: state.cardState,
@@ -330,8 +369,11 @@ export function useCardShogiGame({
     finalizePlayCard,
     cancelPlayCard,
     finalizeCheckBreak,
+    undoDoubleMoveFirst,
+    cancelDoubleMove,
     isDrawing: state.isDrawing,
     isPlayingCard: state.isPlayingCard,
     isCheckBreakAnimating: state.isCheckBreakAnimating,
+    doubleMove: state.doubleMove,
   };
 }

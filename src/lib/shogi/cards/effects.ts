@@ -247,7 +247,7 @@ export function simulateCardEffect(
       if (!target || target.kind !== "square") return null;
       return applyDoublePawn(state, player, { row: target.row, col: target.col });
     default:
-      // mana_up / no_promote / sample_* 等は GameState を変えないので null
+      // mana_up / no_promote / check_break / double_move 等は GameState を変えないので null
       return null;
   }
 }
@@ -278,7 +278,7 @@ export function isValidCardTargetSquare(
       if (!isDoublePawnLegalSquare(state, player, target)) return false;
       break;
     default:
-      // mana_up / no_promote / sample_* など target なしカードは square 対象外
+      // mana_up / no_promote / check_break / double_move など target なしカードは square 対象外
       return false;
   }
   // 王手中: 適用結果が王手解除になることを要求

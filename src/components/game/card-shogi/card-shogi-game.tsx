@@ -9,6 +9,7 @@ import { ChevronUp, ChevronDown, Volume2, VolumeX } from "lucide-react";
 import { useCardShogiGame } from "@/hooks/use-card-shogi-game";
 import { useSound } from "@/hooks/use-sound";
 import { useCardBoardSize } from "@/hooks/use-card-board-size";
+import { getUndoScope } from "@/hooks/card-shogi/undo-policy";
 
 import { ShogiBoard, type ShogiBoardHandle } from "../shogi-board";
 import { CapturedPieces } from "../captured-pieces";
@@ -45,6 +46,8 @@ import { HandArea } from "./hand-area";
 import { TrapSlot } from "./trap-slot";
 import { DeckPile } from "./deck-pile";
 import { CardPlayDialog, CardTargetingNotice } from "./card-play-dialog";
+import { DoubleMoveNotice } from "./double-move-notice";
+import { ForbiddenMateDialog } from "./forbidden-mate-dialog";
 import { DrawFlightCard } from "./draw-flight-card";
 import { AutoDrawBurst } from "./auto-draw-burst";
 import { CardPlayFlight } from "./card-play-flight";
@@ -222,6 +225,8 @@ export function CardShogiGame({
     hideTargets: FlightHideTarget[];
     pendingFlightCount: number;
   } | null>(null);
+  // Issue #82 (二手指し): 2手目で禁止された詰み手をクリックされたときに表示する案内ダイアログ。
+  const [forbiddenMateDialogOpen, setForbiddenMateDialogOpen] = useState(false);
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const { squareSize, isMobile, viewportHeight } = useCardBoardSize();
@@ -261,6 +266,7 @@ export function CardShogiGame({
     selectedSquare,
     selectedHandPiece,
     legalMoves,
+    forbiddenMateMoves,
     isAiThinking,
     promotionPendingMove,
     cardState,
@@ -281,6 +287,9 @@ export function CardShogiGame({
     finalizeCheckBreak,
     isPlayingCard,
     isCheckBreakAnimating,
+    doubleMove,
+    undoDoubleMoveFirst,
+    cancelDoubleMove,
   } = useCardShogiGame({
     initialState: initialGameState,
     initialCardState,
@@ -677,6 +686,17 @@ export function CardShogiGame({
   const handleSquareClick = useCallback(
     (pos: Position) => {
       if (isDrawAnimating || isPlayingCard || isCheckBreakAnimating) return;
+
+      // Issue #82 (二手指し 2手目): 禁止された詰み手のマスをクリック → 説明ダイアログ表示
+      // (赤×表示で視覚的にも禁止が分かるが、なぜダメかを文章でも伝えて UX 向上)
+      const isForbiddenMateClick = forbiddenMateMoves.some(
+        (m) => m.to.row === pos.row && m.to.col === pos.col,
+      );
+      if (isForbiddenMateClick) {
+        setForbiddenMateDialogOpen(true);
+        return;
+      }
+
       // 歩戻し等のターゲット選択フェーズで盤面クリックが confirm に直結するため、ここでも矩形を捕捉
       if (cardState.pendingCard) cachePendingCardRect();
 
@@ -747,6 +767,8 @@ export function CardShogiGame({
     [
       isDrawAnimating,
       isPlayingCard,
+      isCheckBreakAnimating,
+      forbiddenMateMoves,
       selectSquare,
       cardState.pendingCard,
       cachePendingCardRect,
@@ -950,6 +972,7 @@ export function CardShogiGame({
   }, [finalizeCheckBreak]);
 
   // 山札からのドロー可否 (Issue #82: pendingCard 中もドロー禁止に統一)
+  // 二手指し中もドロー禁止 (Issue #82)
   const canDrawCard =
     cardState.mana[playerColor] >= DRAW_COST &&
     isPlayerTurn &&
@@ -958,7 +981,8 @@ export function CardShogiGame({
     !isDrawAnimating &&
     !isPlayingCard &&
     !isCheckBreakAnimating &&
-    cardState.pendingCard === null;
+    cardState.pendingCard === null &&
+    doubleMove === null;
 
   const opponentDeckPile = (
     <DeckPile
@@ -1007,31 +1031,21 @@ export function CardShogiGame({
   // - 王手中も「王手回避になるカードのみ使用可」とする方針に変更したため、inCheck で
   //   一律 disabled にはしない。個別カードの非活性化は unusableCardIds 側で制御する。
   // - ドロー演出中・カード使用演出中・別カード使用中・王手崩し演出中は引き続き全体ロック
-  const handDisabled = !isPlayerTurn || !isGameActive || cardState.pendingCard !== null || isDrawAnimating || isPlayingCard || isCheckBreakAnimating;
+  // Issue #82 (二手指し): 二手指し中は手札・ドローも無効化 (reducer 側でも弾くが UI でも明示)
+  const handDisabled = !isPlayerTurn || !isGameActive || cardState.pendingCard !== null || isDrawAnimating || isPlayingCard || isCheckBreakAnimating || doubleMove !== null;
 
-  // 待った可否 (P28): 駒指し2手以上 / 自分の手番 / AI 思考中でない / pendingCard 無し / 過去2手の間にカード操作なし
+  // 待った可否 (P28): 駒指し2手以上 / 自分の手番 / AI 思考中でない / pendingCard 無し /
+  // 過去2ターンにカード操作なし。
+  // Issue #82 (二手指し): 二手指し中は通常の「待った」を不可。
+  // スコープ判定は reducer の UNDO ケースと共通化 (undo-policy.ts)。
   const canUndo = useMemo(() => {
     if (gameState.moveHistory.length < 2) return false;
     if (!isPlayerTurn) return false;
     if (isAiThinking) return false;
     if (cardState.pendingCard) return false;
-    let movesSeen = 0;
-    for (let i = eventLog.length - 1; i >= 0; i--) {
-      const ev = eventLog[i];
-      if (ev.kind === "moveEvent") {
-        movesSeen++;
-        if (movesSeen === 2) break;
-      } else if (
-        ev.kind === "cardPlayEvent" ||
-        ev.kind === "drawEvent" ||
-        ev.kind === "trapSetEvent" ||
-        ev.kind === "trapTriggerEvent"
-      ) {
-        return false;
-      }
-    }
-    return movesSeen >= 2;
-  }, [gameState.moveHistory.length, isPlayerTurn, isAiThinking, cardState.pendingCard, eventLog]);
+    if (doubleMove) return false;
+    return getUndoScope(eventLog) !== null;
+  }, [gameState.moveHistory.length, isPlayerTurn, isAiThinking, cardState.pendingCard, doubleMove, eventLog]);
 
   // 歩戻し等のターゲット選択時にハイライトする盤面マス
   const cardTargetSquares: Position[] = useMemo(() => {
@@ -1101,8 +1115,8 @@ export function CardShogiGame({
         set.add(inst.defId);
         continue;
       }
-      const useCond = CARD_USE_CONDITIONS[inst.defId];
-      if (useCond && !useCond(gameState, playerColor, cardState)) {
+      const cardUseCondition = CARD_USE_CONDITIONS[inst.defId];
+      if (cardUseCondition && !cardUseCondition(gameState, playerColor, cardState)) {
         set.add(inst.defId);
         continue;
       }
@@ -1257,6 +1271,7 @@ export function CardShogiGame({
               cardTargetSquares={cardTargetSquares}
               noPromoteSquares={noPromoteSquares}
               hiddenSquares={hiddenBoardSquares}
+              forbiddenMateSquares={forbiddenMateMoves.map((m) => m.to)}
             />
             <BoardOverlay
               key={overlayEvent?.key}
@@ -1629,6 +1644,7 @@ export function CardShogiGame({
               cardTargetSquares={cardTargetSquares}
               noPromoteSquares={noPromoteSquares}
               hiddenSquares={hiddenBoardSquares}
+              forbiddenMateSquares={forbiddenMateMoves.map((m) => m.to)}
             />
             <BoardOverlay
               key={overlayEvent?.key}
@@ -1723,6 +1739,30 @@ export function CardShogiGame({
         pendingCard={cardState.pendingCard}
         onCancel={cancelPlayCard}
       />
+      {/* Issue #82 (二手指し): 2手目で禁止された詰み手をクリックした時のお知らせダイアログ */}
+      <ForbiddenMateDialog
+        open={forbiddenMateDialogOpen}
+        onClose={() => setForbiddenMateDialogOpen(false)}
+      />
+      {/* Issue #82: 二手指し (double_move) 中の上端バナー + 戻すボタン + キャンセルボタン */}
+      {doubleMove && !isPlayingCard && (
+        <DoubleMoveNotice
+          movesLeft={doubleMove.movesLeft}
+          canUndoFirst={
+            doubleMove.movesLeft === 1 &&
+            isGameActive &&
+            !isCheckBreakAnimating &&
+            !isPlayingCard
+          }
+          canCancel={
+            isGameActive &&
+            !isCheckBreakAnimating &&
+            !isPlayingCard
+          }
+          onUndoFirst={undoDoubleMoveFirst}
+          onCancel={cancelDoubleMove}
+        />
+      )}
 
       {/* Issue #78: ドロー中央演出 (山札→中央→手札の DOMRect 追従)。
           Issue #130: variant ごとに色味を切替 (manual=amber, auto=emerald + 自動ドローラベル)。
@@ -1855,4 +1895,3 @@ export function CardShogiGame({
     </div>
   );
 }
-

@@ -93,7 +93,7 @@ Issue対応は必ず専用ブランチを作成してから実装を開始する
 - コミットの amend・履歴改変
 
 **公開・共有状態への影響:**
-- `git push`(特にmain・共有ブランチへ)
+- `git push`(特にmain・共有ブランチへ。ただし「ルール6」で定めるIssue専用ブランチへの通常pushは、作業依頼に含まれる確認済み範囲として扱う)
 - PR・Issueのコメント、Slack・メール送信
 - 外部サービスへのデータ送信
 
@@ -104,11 +104,29 @@ Issue対応は必ず専用ブランチを作成してから実装を開始する
 - ユーザー指示で明示的に許可された範囲のみ実行する
 - Claude Code の自動承認/拒否ルールは `.claude/settings.json` に集約されている。変更する際は本ファイルのルール追加・更新フローに従い、Issueを立ててPRで反映する
 
-### 6. コミット・PR・Issue運用
+### 6. Vercelデプロイ確認のため専用ブランチはpushまで行う
+
+Issue対応やコード変更依頼で実装・検証・コミットが完了したら、ユーザーから明示的に「pushしない」「一旦止めて」等の指示がない限り、作業ブランチを origin に push して止まる。
+
+**Why:** 本プロジェクトでは、動作確認を Vercel のプラットフォーム上で生成されるデプロイメントで行う。ブランチが origin に push されていないと、ユーザーがVercel上で実機・実環境に近い確認を進められない。AIエージェントがローカル検証だけで止まると、ユーザー側の確認導線が途切れる。
+
+**How to apply:**
+- 実装後、可能な範囲で型チェック・テスト・表示確認を行う
+- 意味のある単位でコミットする
+- 現在の作業ブランチを `git push origin {branch}` で push する
+- push 後は、ブランチ名・コミット・実施した検証を伝えて止まる
+- PR作成・マージ・Issueクローズは「ルール1」に従い、明示的指示があるまで実行しない
+- main への直接pushは禁止。必ずIssue専用ブランチまたはユーザーが明示した作業ブランチへpushする
+- ユーザーが「push不要」「まだpushしないで」等を明示した場合は、その指示を優先する
+- push先が共有ブランチである、ブランチ用途が曖昧である、または未確認の変更が混在している場合は、push前にユーザーへ確認する
+
+### 7. コミット・PR・Issue運用
 
 **コミット:**
 - 意味のある単位で分割する(機能追加とリファクタを混ぜない)
-- メッセージは「何を」より「なぜ」を重視する
+- コミットメッセージは日本語で記載する
+- メッセージは「何を」より「なぜ」を重視し、対応背景・意図・変更内容・原因・対策が第三者にも分かる粒度で書く
+- 1行目だけで説明しきれない場合は、本文に背景・原因・対策・検証内容を簡潔に追記する
 - フックはスキップしない(`--no-verify` 禁止、明示指示時のみ例外)
 
 **PR:**
@@ -129,6 +147,49 @@ Issue対応は必ず専用ブランチを作成してから実装を開始する
 - Issueタイトルは「何の話か」が一目で分かる名詞句にする
 - 詳細・条件・経緯は本文に書く
 - 迷ったら、既存のIssueタイトル(例: #69「AIルール・ガバナンス」)を参考にする
+
+---
+
+## カード将棋: 新規カード追加時のチェックリスト
+
+カード将棋 (card-shogi variant) で新しいカードを `CARD_DEFS` に追加するとき、以下を確認すること。共通基盤の挙動 (待った・DB 保存・AI ガード等) は基本的に**ヘルパで自動的に正しく動く**ようになっているが、新しい横断的概念を導入するときは更新が必要。
+
+**Why:** 過去に「二手指し (#82) 追加時に `待った` 制約が破綻」「同種類の event 追加で複数箇所に判定ロジックが分散しデグレ」など、共通基盤のクロスカット制約を考慮し忘れたバグが繰り返し発生したため。
+
+**How to apply (実装者向け):**
+
+1. **カード定義** (`src/lib/shogi/cards/definitions.ts`)
+   - `CardDefinition` の必須フィールドをすべて埋める
+   - `status` は新規実装中なら `"preparing"`、検証用見本なら `"draft"`、本実装完了後は `"active"`
+   - `useConditionDescription` は `CARD_USE_CONDITIONS` に登録した条件と整合させる
+
+2. **効果適用関数** (`src/lib/shogi/cards/effects.ts`)
+   - target ありカードは `applyXxx` を実装し、`simulateCardEffect` の switch にも追加
+   - `isValidCardTargetSquare` で対象マスの妥当性判定を実装 (王手中の使用条件含む)
+   - target なしカード (盤面を変えないもの) はデフォルト動作で OK
+
+3. **reducer 効果分岐** (`src/hooks/card-shogi/reducer.ts` の `CONFIRM_PLAY_CARD`)
+   - `def.effectId === "..."` の分岐に新カード処理を追加
+   - 1 ターンに複数 ply 消費するカード (二手指し系) は `state.doubleMove` パターンを参考に
+
+4. **横断制約の確認** (このチェックリストの本丸)
+   - **新たな event kind を追加する場合**:
+     - `src/lib/shogi/cards/types.ts` の `GameEvent` ユニオンに追加
+     - **`src/hooks/card-shogi/undo-policy.ts` の `isCardOpEvent` を更新**
+       (待った可否判定で漏れなく block されるように)
+   - **複数 ply のカード (= 自分のターンで 2 つ以上 `moveEvent` を発行する) を追加する場合**:
+     - `getUndoScope` (undo-policy.ts) は同色連続を 1 ターン扱いで自動対応
+     - `state.doubleMove` のような明示的な「ターン継続中」フラグを reducer に持つこと
+     - DB 保存スキップ (`src/hooks/use-card-shogi-game.ts` の save useEffect) も該当フラグを考慮
+
+5. **テスト**
+   - `npm run test:ci -- src/hooks/card-shogi/__tests__/undo-policy.test.ts` が緑であることを確認
+   - 新カードの効果関数のユニットテストを `effects.test.ts` に追加
+   - 1 ターン複数 ply 系の場合は reducer 統合テストも追加
+
+6. **prisma seed**
+   - `ALL_CARD_DEFS` 経由で自動的に Card マスタ・DeckEntry・PlayerCardCollection に投入される
+   - 既存ローカル DB に反映するには `npm run db:seed` を実行
 
 ---
 
