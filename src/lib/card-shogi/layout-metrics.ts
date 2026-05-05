@@ -1,3 +1,9 @@
+import {
+  SHOGI_BOARD_CELLS,
+  getShogiBoardGridSize,
+  getShogiBoardLabelSize,
+} from "@/lib/shogi/board-layout";
+
 export type CardShogiLayoutMode = "mobile" | "tablet" | "largeDesktop";
 
 export interface CardShogiViewportSpec {
@@ -22,6 +28,8 @@ export interface ShogiBoardOuterSize {
   height: number;
   gridWidth: number;
   gridHeight: number;
+  cellWidth: number;
+  cellHeight: number;
   labelSize: number;
 }
 
@@ -57,9 +65,6 @@ export const CARD_SHOGI_VIEWPORT_MATRIX: CardShogiViewportSpec[] = [
   { name: "desktop-1920x1080", width: 1920, height: 1080, kind: "desktop", deviceScaleFactor: 1, isMobile: false },
 ];
 
-const BOARD_CELLS = 9;
-const BOARD_GAPS = 8;
-const BOARD_BORDER = 2;
 const BOARD_TOP_LABEL_GAP = 2;
 const RANK_LABEL_GAP = 2;
 const DESKTOP_LEFT_LABEL_EXTRA = 6;
@@ -80,20 +85,20 @@ export function getCardShogiLayoutMode(viewportWidth: number): CardShogiLayoutMo
 }
 
 export function getCardShogiBoardLabelSize(squareSize: number, mode: CardShogiLayoutMode): number {
-  if (mode === "mobile") return Math.max(12, squareSize * 0.3);
-  return Math.max(16, squareSize * 0.45);
+  return getShogiBoardLabelSize(squareSize, mode === "mobile");
 }
 
 export function getShogiBoardOuterSize(squareSize: number, mode: CardShogiLayoutMode): ShogiBoardOuterSize {
   const labelSize = getCardShogiBoardLabelSize(squareSize, mode);
-  const gridWidth = BOARD_CELLS * squareSize + BOARD_GAPS + BOARD_BORDER;
-  const gridHeight = gridWidth;
+  const grid = getShogiBoardGridSize(squareSize);
   const leftSpacer = mode === "mobile" ? 0 : labelSize + DESKTOP_LEFT_LABEL_EXTRA;
   return {
-    width: leftSpacer + gridWidth + RANK_LABEL_GAP + labelSize,
-    height: labelSize + BOARD_TOP_LABEL_GAP + gridHeight,
-    gridWidth,
-    gridHeight,
+    width: leftSpacer + grid.width + RANK_LABEL_GAP + labelSize,
+    height: labelSize + BOARD_TOP_LABEL_GAP + grid.height,
+    gridWidth: grid.width,
+    gridHeight: grid.height,
+    cellWidth: grid.cellWidth,
+    cellHeight: grid.cellHeight,
     labelSize,
   };
 }
@@ -120,7 +125,7 @@ function getFallbackHeight(viewportHeight: number, mode: CardShogiLayoutMode): n
 function getRequiredSize(squareSize: number, mode: CardShogiLayoutMode) {
   const board = getShogiBoardOuterSize(squareSize, mode);
   const capturedHeight = getCapturedHeight(mode);
-  const capturedWidth = BOARD_CELLS * squareSize + CAPTURED_WIDTH_EXTRA;
+  const capturedWidth = SHOGI_BOARD_CELLS * squareSize + CAPTURED_WIDTH_EXTRA;
   const stackGap = getStackGap(mode);
   const statusHeight = mode === "tablet" ? TABLET_STATUS_BAR_HEIGHT : 0;
   const requiredWidth = Math.ceil(Math.max(board.width, capturedWidth));

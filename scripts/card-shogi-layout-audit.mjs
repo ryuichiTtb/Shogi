@@ -214,6 +214,7 @@ function auditInPage({ scenario }) {
     ["root", "[data-card-shogi-root]"],
     ["play area", "[data-card-shogi-play-area]"],
     ["board", "[data-card-shogi-board]"],
+    ["board grid", "[data-shogi-board-grid]"],
     ["bottom controls", "[data-card-shogi-bottom-controls]"],
     ["opponent area", "[data-card-shogi-opponent-area]"],
     ["deck", "[data-card-shogi-deck]"],

@@ -90,6 +90,7 @@ CARD_SHOGI_LAYOUT_BASE_URL=http://localhost:3000 pnpm test:layout:card-shogi
 - 「サイズが小さいほど顕著」「特定 viewport でだけ目立つ」ズレは、% 比率差や座標系の目盛り差を疑う。
 - 微調整を繰り返しても直らない場合は、座標系・スケーリング・基準点を見直す。
 - モバイル下端 UI など、safe area の影響を受ける要素は固定 px 前提にせず、表示中 DOM の実測値を CSS variable に反映する。
+- 盤マスは横幅基準値から `height = round(width * 1.08)` で縦長にし、盤面描画・タップ判定・layout metrics は同じ `board-layout` helper を参照する。
 
 ## SVG / CSS 棚卸し結果
 

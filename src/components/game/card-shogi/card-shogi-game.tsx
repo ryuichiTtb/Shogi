@@ -26,6 +26,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { getShogiBoardCellSize } from "@/lib/shogi/board-layout";
 
 import { getCharacterById } from "@/data/characters";
 import { gameResultText } from "@/lib/shogi/notation";
@@ -247,6 +248,7 @@ export function CardShogiGame({
   // 開発者用 dev /piece-flight で保存されたフライト演出パラメータ。
   // 未保存時は animation-constants の既定値が返る。
   const flightParams = useFlightParams();
+  const boardCellSize = useMemo(() => getShogiBoardCellSize(squareSize), [squareSize]);
 
   const gameConfig: GameConfig = {
     ...serializableConfig,
@@ -1844,14 +1846,15 @@ export function CardShogiGame({
       />
 
       {/* Issue #82: 駒移動カード(歩戻し / 駒戻し / 二歩指し)の駒回転フライト演出。
-          pieceSize は盤上マスサイズ (squareSize) を渡し、フライト中の駒サイズを
+          pieceWidth / pieceHeight は盤上マス実寸を渡し、フライト中の駒サイズを
           実際の盤駒と揃える。speed/rotation/min/ease は dev /piece-flight の
           保存値 (なければ animation-constants の既定値) を反映。 */}
       <PieceFlight
         spec={pieceFlight?.spec ?? null}
         flightKey={pieceFlight?.key ?? null}
         playerColor={playerColor}
-        pieceSize={squareSize}
+        pieceWidth={boardCellSize.width}
+        pieceHeight={boardCellSize.height}
         speedPxPerSec={flightParams.speedPxPerSec}
         rotationSecPerTurn={flightParams.rotationSecPerTurn}
         minDurationMs={flightParams.minDurationMs}
@@ -1866,7 +1869,8 @@ export function CardShogiGame({
           spec={spec}
           flightKey={checkBreakAnim.flightKeyBase + idx}
           playerColor={playerColor}
-          pieceSize={squareSize}
+          pieceWidth={boardCellSize.width}
+          pieceHeight={boardCellSize.height}
           speedPxPerSec={flightParams.speedPxPerSec}
           rotationSecPerTurn={flightParams.rotationSecPerTurn}
           minDurationMs={flightParams.minDurationMs}

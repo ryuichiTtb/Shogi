@@ -24,6 +24,8 @@ describe("card-shogi layout metrics", () => {
     const desktop = getShogiBoardOuterSize(32, "largeDesktop");
 
     expect(mobile.gridWidth).toBe(32 * 9 + 8 + 2);
+    expect(mobile.gridHeight).toBe(mobile.cellHeight * 9 + 8 + 2);
+    expect(mobile.gridHeight).toBeGreaterThan(mobile.gridWidth);
     expect(mobile.width).toBeCloseTo(mobile.gridWidth + 2 + mobile.labelSize);
     expect(desktop.width).toBeCloseTo(desktop.gridWidth + desktop.labelSize * 2 + 8);
   });
