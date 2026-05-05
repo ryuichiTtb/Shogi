@@ -106,8 +106,23 @@ export function useCardShogiGame({
       dispatch({ type: "SET_AI_THINKING", thinking: false });
       onComment?.("ai_move");
     });
+    // 依存配列の補足:
+    // - isPlayingCard: 旧仕様では「演出 → ターン交代」の順で、ターン交代時には isPlayingCard=false
+    //   になっていたため deps に入れる必要がなかった。
+    //   新仕様 (Issue #82 二手指し) では「2手目 (= ターン交代) → 演出」の順となり、ターン交代時に
+    //   isPlayingCard=true がセットされる。COMMIT_PLAY_CARD で false に戻った瞬間に AI 思考を
+    //   再開する必要があるため deps に必須。
+    // - isCheckBreakAnimating: 同種の理由 (演出後にフラグ降りた瞬間に AI 思考を再開できるよう)。
+    //   実プレイで顕在化しにくいシナリオだが念のため deps に含める。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.gameState.currentPlayer, state.gameState.status, state.cardState.pendingCard, state.isDrawing]);
+  }, [
+    state.gameState.currentPlayer,
+    state.gameState.status,
+    state.cardState.pendingCard,
+    state.isDrawing,
+    state.isPlayingCard,
+    state.isCheckBreakAnimating,
+  ]);
 
   // DB 保存(state 変更を監視して、最新の moveCount で保存)
   const lastSavedMoveCountRef = useRef(initialState.moveCount);
