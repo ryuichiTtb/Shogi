@@ -451,7 +451,15 @@ function isKingCaptureMove(move: Move): boolean {
 
 // Issue #82 (二手指し): 1手目候補のフィルタ。
 // 「玉が即座に取られない」+「相手玉を取らない」+「∃ 2手目 (詰み禁止フィルタ済) または 1手目で詰み」を満たす手のみ返す。
-// 王手中の場合は王手放置を許す (RELAXED ルール)、王手中でない場合は通常の合法性 + 上記条件。
+//
+// 仕様 (RELAXED): 王手中・王手中でないにかかわらず、1手目で自玉が王手になる手も
+// 「2手目で必ず王手解消できる」場合は合法として扱う。2手目の合法性チェック (`legalSecondMoves`)
+// は内部で `isKingInCheckAfterMove(stateAfterFirst, m)` を適用するため、1手目で発生した
+// 王手は 2手目で必ず解消される手のみが通過する。よって 1手目側で self-check を弾く必要はない。
+//
+// 旧実装 (Issue #132 派生バグ): 王手中でない場合に限り `isKingInCheckAfterMove` で 1手目を
+// 弾いていたため、玉を相手駒の利き上に動かす 1手目 (例: 桂馬の効きに玉を進入させ、2手目で
+// 玉を逃がす手順) が選択不可になっていた。本来の仕様と矛盾していたためフィルタを撤廃。
 function filterDoubleMoveFirstCandidates(
   gameState: GameState,
   player: Player,
@@ -459,14 +467,10 @@ function filterDoubleMoveFirstCandidates(
   mateInOneAvailable: boolean,
 ): Move[] {
   const opponent: Player = player === "sente" ? "gote" : "sente";
-  const inCheck = isInCheck(gameState, player, CARD_SHOGI_VARIANT);
 
   return candidates.filter((m1) => {
     // 相手玉を取る手は不可 (実質的に発生しないが防御的)
     if (isKingCaptureMove(m1)) return false;
-
-    // 王手中でない場合: 通常の合法性 (自玉の王手放置不可)
-    if (!inCheck && isKingInCheckAfterMove(gameState, m1)) return false;
 
     const after1 = applyMove(gameState, m1);
 
@@ -477,7 +481,7 @@ function filterDoubleMoveFirstCandidates(
     // 1手目で相手玉に詰みなら 2手目不要 → OK
     if (isCheckmate(after1, opponent, CARD_SHOGI_VARIANT)) return true;
 
-    // 2手目候補 ≥ 1 必須 (詰み禁止フィルタ済 + 相手玉取り除外済)
+    // 2手目候補 ≥ 1 必須 (詰み禁止フィルタ済 + 相手玉取り除外済 + 自玉王手解消含意)
     const second = legalSecondMoves(after1, player, mateInOneAvailable);
     return second.length > 0;
   });

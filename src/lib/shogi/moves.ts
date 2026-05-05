@@ -679,8 +679,11 @@ export function getDoubleMoveSecondLegalMoves(
 }
 
 // 二手指しの 1手目合法手。
-// - 王手中: pseudo-legal moves (玉が取られないもの) から「∃ 2手目 → 王手解消 (詰み禁止フィルタ済)」のみ
-// - 王手中でない: 通常の合法手から「∃ 2手目 (詰み禁止フィルタ済)」のみ
+// 王手中・王手中でないにかかわらず、pseudo-legal (玉が直接取られない + 相手玉を取らない)
+// な手のうち、「∃ 2手目 → 王手解消 (詰み禁止フィルタ済)」または「1手目で相手玉に詰み」を満たす手を返す。
+// 2手目側 (`getDoubleMoveSecondLegalMoves`) は内部で getLegalMoves を使うため、自玉王手の状態
+// (= 1手目で発生したものを含む) は 2手目で必ず解消される手のみ通過する。
+// よって 1手目側で self-check を弾く必要はない (Issue #132 派生バグ修正)。
 //
 // mateInOneAvailable=true なら 2手目詰みも許可なので、フィルタは「2手目候補 ≥ 1」のみで足りる。
 // mateInOneAvailable=false なら 2手目詰みを除外した上で「2手目候補 ≥ 1」必要。
@@ -693,9 +696,11 @@ export function getDoubleMoveFirstLegalMoves(
   variant: RuleVariant = STANDARD_VARIANT,
 ): Move[] {
   const opponent: Player = player === "sente" ? "gote" : "sente";
-  const pseudoFirst = isInCheck(state, player, variant)
-    ? getKingSafePseudoLegalMoves(state, player, variant)
-    : getLegalMoves(state, player, variant).filter((m) => !isKingCapture(m));
+  // 王手中・王手中でない問わず getKingSafePseudoLegalMoves を使う (RELAXED 統一、reducer の
+  // filterDoubleMoveFirstCandidates と仕様一致)。
+  // 旧実装は王手中でない場合のみ getLegalMoves で self-check を弾いていたが、これにより
+  // 「1手目で自玉が王手になり 2手目で解消する手順」が候補から外れていた。
+  const pseudoFirst = getKingSafePseudoLegalMoves(state, player, variant);
 
   return pseudoFirst.filter((m1) => {
     const after1 = applyMove(state, m1);

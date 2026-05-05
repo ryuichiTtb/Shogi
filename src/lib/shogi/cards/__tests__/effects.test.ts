@@ -1041,6 +1041,30 @@ describe("getDoubleMoveFirstLegalMoves (moves.ts)", () => {
     // ただし「∃ 2手目で王手解消」が満たされる必要あり。玉移動で 2手目に逃げられれば OK
     expect(moves.length).toBeGreaterThan(0);
   });
+
+  // Issue #132 派生バグ: 王手中でない場合に 1手目で自玉が王手になる手も、2手目で解消可なら合法。
+  // 旧実装は inCheck=false 時に self-check を弾いていたため、玉を相手駒の利き上に進入させる
+  // 1手目 (e.g., 桂馬の利きに玉を進める手順) が候補から外れていた。
+  it("Issue #132 派生: 王手中でない + 1手目で自玉が王手 + 2手目で解消可 → 1手目候補に含まれる", () => {
+    const state = makeState();
+    placeKing(state, "sente", { row: 8, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 4 });
+    // gote 桂 at (5, 5): gote の前進方向 (row+1) に 2マス + 横 1 で、(7, 4) と (7, 6) を攻撃。
+    // → sente 玉が (7, 4) に進入すると self-check になる。
+    place(state, { row: 5, col: 5 }, { type: "knight", owner: "gote" });
+    // 初期状態: sente 玉は (8, 4) で 桂 の利きに無いため王手中ではない。
+    expect(isInCheck(state, "sente", CARD_SHOGI_VARIANT)).toBe(false);
+
+    const moves = getDoubleMoveFirstLegalMoves(state, "sente", true, CARD_SHOGI_VARIANT);
+    // 1手目: sente 玉 (8, 4) → (7, 4)。self-check になるが、2手目で玉を再移動して解消可能。
+    const selfCheckMove = moves.find(
+      (m) =>
+        m.type === "move" &&
+        m.from?.row === 8 && m.from?.col === 4 &&
+        m.to.row === 7 && m.to.col === 4,
+    );
+    expect(selfCheckMove).toBeDefined();
+  });
 });
 
 // ===== Issue #82: 玉取り (king capture) の合法手除外 (回帰テスト) =====
