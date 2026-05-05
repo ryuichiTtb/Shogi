@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 
 import { cn } from "@/lib/utils";
@@ -37,13 +37,16 @@ interface DeckPileProps {
   showProgress?: boolean;
 }
 
-const SIZE_CLASS = {
-  // sm は CardView の sm (w-12 h-16) と寸法を揃え、相手手札 stack と同じ
-  // カードサイズで並べられるようにする (Issue #105 モバイル相手バー)。
-  sm: "w-12 h-16 text-[10px]",
-  md: "w-16 h-20 text-[13px]",
-  lg: "w-20 h-24 text-sm",
-};
+// Issue #130: 数値版の寸法 + テキストサイズ。border-box の都合で「コンテナ
+// 全体寸法 = カード寸法 + stack offset」を inline style で正確に渡す必要があり、
+// 旧 SIZE_CLASS (w-12/h-16 等の Tailwind class) だけでは精度不足だったため
+// 数値定義に置換。sm = CardView sm (w-12 h-16) と同寸法、相手手札 stack と
+// 並べられるようにする (Issue #105 モバイル相手バー)。
+const CARD_DIMS = {
+  sm: { w: 48, h: 64, text: "text-[10px]" },
+  md: { w: 64, h: 80, text: "text-[13px]" },
+  lg: { w: 80, h: 96, text: "text-sm" },
+} as const;
 
 // R19: 山札の積み重ね表現。後ろに最大 STACK_MAX 枚のズレカードを描画。
 // count が 1 のとき: 上面のみ、ズレカード 0 枚
@@ -133,7 +136,7 @@ export const DeckPile = memo(function DeckPile({
   // (リング自体に role=progressbar を付けてもフォーカスは button が握るため別途必要)
   const autoDrawHint = hasProgress && !isEmpty ? ` (自動ドローまで${remainingTurns}手)` : "";
 
-  // 横長モード: 縦長の SIZE_CLASS は使わず、2 行 (+ 進捗 1 行) 構成で横幅を圧縮
+  // 横長モード: 縦長の CARD_DIMS は使わず、2 行 (+ 進捗 1 行) 構成で横幅を圧縮
   // 行1: 💎×N (showDrawCost 時) / 行2: 山札 ×N / 行3 (#130): 進捗ドット ●●●●○
   // h-full で親 (items-stretch) の高さに追従可能
   if (horizontal) {
@@ -191,28 +194,48 @@ export const DeckPile = memo(function DeckPile({
     );
   }
 
-  const sizeClass = fullWidth
-    ? cn(
-        "w-full",
-        size === "sm" ? "h-16 text-[10px]" : size === "md" ? "h-20 text-[13px]" : "h-24 text-sm",
-      )
-    : SIZE_CLASS[size];
-
   // 後ろに重ねる枚数: count - 1 を最大 STACK_MAX で頭打ち
   const stackCount = Math.min(Math.max(count - 1, 0), STACK_MAX);
   const offsetUnitX = STACK_OFFSET_X[size];
   const offsetUnitY = STACK_OFFSET_Y[size];
+  const dims = CARD_DIMS[size];
+  const stackOffsetTotalX = stackCount * offsetUnitX;
+  const stackOffsetTotalY = stackCount * offsetUnitY;
+  // Issue #130: マイクロテキスト用に確保する縦スペース (px)。size=sm は font 8px、
+  // それ以外は 10px。leading 込みで余裕を持たせて 12 / 14 px。
+  const microTextHeight = hasProgress && !isEmpty ? (size === "sm" ? 12 : 14) : 0;
+
+  // Issue #130: ボタン (= 視覚的なカード本体) は w-full h-full で
+  // 「コンテナの content area = カード寸法」を埋める。SVG リングは
+  // ボタンに inset-0 で乗せるので、結果としてリング = 視覚的カードと
+  // ピクセル単位で一致する。fullWidth 時は親幅に追従するためカード幅は
+  // 親幅分に伸びるが、card height は dims.h を使う (= 縦は固定)。
+  const sizeClass = cn(
+    "w-full h-full",
+    dims.text,
+  );
+
+  // コンテナ寸法 = カード寸法 + stack offset + microtext 用余白 (border-box default)。
+  // - non-fullWidth: 横も縦も固定 (= dims.w + offsetX, dims.h + offsetY + microtextH)
+  // - fullWidth: 横は親幅に追従 (w-full)、縦のみ固定
+  // - paddingBottom: stack offset + microtext 領域の合計 (button は h-full でこの分
+  //   引かれた高さに収まる)
+  const containerStyle: CSSProperties = {
+    paddingRight: stackOffsetTotalX,
+    paddingBottom: stackOffsetTotalY + microTextHeight,
+    height: dims.h + stackOffsetTotalY + microTextHeight,
+    ...(fullWidth ? {} : { width: dims.w + stackOffsetTotalX }),
+  };
 
   return (
     <div
-      className={cn("relative shrink-0", fullWidth ? "w-full" : SIZE_CLASS[size].split(" ")[0])}
-      // 後ろのズレカード分の余白を確保 (描画領域を超えてはみ出さないように)
-      style={{
-        paddingRight: stackCount * offsetUnitX,
-        paddingBottom: stackCount * offsetUnitY,
-      }}
+      className={cn("relative shrink-0", fullWidth && "w-full")}
+      style={containerStyle}
     >
-      {/* 後ろのズレカード(N 枚)。i=0 が一番奥、i=stackCount-1 が手前。 */}
+      {/* 後ろのズレカード(N 枚)。i=0 が一番奥、i=stackCount-1 が手前。
+          Issue #130: 寸法を明示 (= dims.w × dims.h) し top-left + transform 方式に変更。
+          旧実装の bottom inset 計算は microtext 用余白を加えた新しい container 高さと
+          整合せず、stack tail が microtext 領域に被ってしまうため。 */}
       {Array.from({ length: stackCount }).map((_, i) => {
         // 手前ほど offset 小、奥ほど offset 大
         const offsetX = (stackCount - i) * offsetUnitX;
@@ -224,8 +247,8 @@ export const DeckPile = memo(function DeckPile({
             style={{
               top: 0,
               left: 0,
-              right: stackCount * offsetUnitX - offsetX,
-              bottom: stackCount * offsetUnitY - offsetY,
+              width: fullWidth ? `calc(100% - ${stackOffsetTotalX}px)` : dims.w,
+              height: dims.h,
               transform: `translate(${offsetX}px, ${offsetY}px)`,
               zIndex: i,
             }}
@@ -416,21 +439,33 @@ export const DeckPile = memo(function DeckPile({
         )}
       </button>
 
-      {/* Issue #130: 自動ドロー進捗マイクロテキスト「次のドローまで N」。
-          山札 button の真下、stack 余白の中に配置。空時・進捗未指定時・
-          horizontal モードでは表示しない (horizontal は別途ドット表現)。
+      {/* Issue #130: 自動ドロー進捗マイクロテキスト「次まで N 手」。
+          山札 button の真下に配置。空時・進捗未指定時・horizontal モードでは
+          表示しない (horizontal は別途ドット表現)。
+          - 文字列はモバイル幅 (48px) に収まる短形式 ("次まで N 手" = 5 文字)
+          - whitespace-nowrap で 2 行への折返しを禁止 (折返しは見切れの原因)
+          - 位置はカード本体 (= ボタン content area) の真下を狙うため left/right を
+            stack offset 分だけ inset し button bounds と中央揃えを揃える。
           コントラスト比確保のため emerald-200 + drop-shadow を併用。 */}
       {hasProgress && !isEmpty && (
         <div
           className={cn(
-            "absolute left-0 right-0 text-center pointer-events-none select-none",
+            "absolute text-center pointer-events-none select-none whitespace-nowrap",
             "text-emerald-200/90 leading-none font-medium tabular-nums",
             "drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]",
-            size === "sm" ? "text-[8px] -bottom-3" : "text-[10px] -bottom-3.5",
+            size === "sm" ? "text-[8px]" : "text-[10px]",
           )}
+          style={{
+            // コンテナ最下部 (microtext 用に確保した paddingBottom 領域内) に配置。
+            // 1px の bottom inset で枠から少し浮かせる。
+            bottom: 1,
+            left: 0,
+            // ボタン content area = dims.w に揃える (右側 stack offset 分は除く)
+            width: dims.w,
+          }}
           aria-hidden
         >
-          次のドローまで {remainingTurns}
+          次まで {remainingTurns} 手
         </div>
       )}
     </div>
