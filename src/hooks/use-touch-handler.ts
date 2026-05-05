@@ -4,7 +4,8 @@ import { useRef, useCallback } from "react";
 import type { Move, Position } from "@/lib/shogi/types";
 
 interface UseTouchHandlerOptions {
-  squareSize: number;
+  cellWidth: number;
+  cellHeight: number;
   legalMoves: Move[];
   selectedSquare: Position | null;
   isGote: boolean;
@@ -15,7 +16,8 @@ interface UseTouchHandlerOptions {
 const SNAP_THRESHOLD_RATIO = 0.4;
 
 export function useTouchHandler({
-  squareSize,
+  cellWidth,
+  cellHeight,
   legalMoves,
   selectedSquare,
   isGote,
@@ -25,22 +27,43 @@ export function useTouchHandler({
   // pointerdown時の座標を記録（スクロールとタップを区別するため）
   const pointerDownPos = useRef<{ x: number; y: number } | null>(null);
 
+  const getGridMetrics = useCallback(() => {
+    const grid = gridRef.current;
+    if (!grid) return null;
+    const style = window.getComputedStyle(grid);
+    return {
+      rect: grid.getBoundingClientRect(),
+      borderLeft: Number.parseFloat(style.borderLeftWidth) || 0,
+      borderTop: Number.parseFloat(style.borderTopWidth) || 0,
+      borderRight: Number.parseFloat(style.borderRightWidth) || 0,
+      borderBottom: Number.parseFloat(style.borderBottomWidth) || 0,
+      columnGap: Number.parseFloat(style.columnGap) || 0,
+      rowGap: Number.parseFloat(style.rowGap) || 0,
+    };
+  }, []);
+
   const getGridPosition = useCallback(
     (clientX: number, clientY: number): Position | null => {
-      const grid = gridRef.current;
-      if (!grid) return null;
-
-      const rect = grid.getBoundingClientRect();
-      const relX = clientX - rect.left;
-      const relY = clientY - rect.top;
+      const metrics = getGridMetrics();
+      if (!metrics) return null;
+      const { rect, borderLeft, borderTop, borderRight, borderBottom, columnGap, rowGap } = metrics;
+      const relX = clientX - rect.left - borderLeft;
+      const relY = clientY - rect.top - borderTop;
+      const contentWidth = rect.width - borderLeft - borderRight;
+      const contentHeight = rect.height - borderTop - borderBottom;
 
       // グリッド外ならnull
-      if (relX < 0 || relY < 0 || relX >= rect.width || relY >= rect.height) {
+      if (relX < 0 || relY < 0 || relX >= contentWidth || relY >= contentHeight) {
         return null;
       }
 
-      const rawCol = Math.floor(relX / squareSize);
-      const rawRow = Math.floor(relY / squareSize);
+      const colPitch = cellWidth + columnGap;
+      const rowPitch = cellHeight + rowGap;
+      const rawCol = Math.floor(relX / colPitch);
+      const rawRow = Math.floor(relY / rowPitch);
+      const withinCellX = relX - rawCol * colPitch;
+      const withinCellY = relY - rawRow * rowPitch;
+      if (withinCellX >= cellWidth || withinCellY >= cellHeight) return null;
 
       // 後手時は行・列を反転（isGoteの場合rowIndices/colIndicesが逆順）
       const col = isGote ? 8 - rawCol : rawCol;
@@ -50,7 +73,7 @@ export function useTouchHandler({
 
       return { row, col };
     },
-    [squareSize, isGote]
+    [cellWidth, cellHeight, getGridMetrics, isGote]
   );
 
   const snapToLegalMove = useCallback(
@@ -67,14 +90,13 @@ export function useTouchHandler({
       );
       if (isAlreadyLegal) return rawPos;
 
-      const grid = gridRef.current;
-      if (!grid) return rawPos;
+      const metrics = getGridMetrics();
+      if (!metrics) return rawPos;
+      const { rect, borderLeft, borderTop, columnGap, rowGap } = metrics;
+      const relX = clientX - rect.left - borderLeft;
+      const relY = clientY - rect.top - borderTop;
 
-      const rect = grid.getBoundingClientRect();
-      const relX = clientX - rect.left;
-      const relY = clientY - rect.top;
-
-      const threshold = squareSize * SNAP_THRESHOLD_RATIO;
+      const threshold = Math.min(cellWidth, cellHeight) * SNAP_THRESHOLD_RATIO;
 
       let nearestTarget: Position | null = null;
       let minDistance = Infinity;
@@ -87,8 +109,8 @@ export function useTouchHandler({
         const displayCol = isGote ? 8 - targetCol : targetCol;
 
         // マスの中心座標（グリッド相対）
-        const centerX = (displayCol + 0.5) * squareSize;
-        const centerY = (displayRow + 0.5) * squareSize;
+        const centerX = displayCol * (cellWidth + columnGap) + cellWidth / 2;
+        const centerY = displayRow * (cellHeight + rowGap) + cellHeight / 2;
 
         const dist = Math.hypot(relX - centerX, relY - centerY);
         if (dist < minDistance) {
@@ -104,7 +126,7 @@ export function useTouchHandler({
 
       return rawPos;
     },
-    [selectedSquare, legalMoves, squareSize, isGote]
+    [selectedSquare, legalMoves, cellWidth, cellHeight, getGridMetrics, isGote]
   );
 
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {

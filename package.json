@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test": "vitest",
     "test:ci": "vitest run",
+    "test:layout:card-shogi": "node scripts/card-shogi-layout-audit.mjs",
     "db:seed": "npx tsx prisma/seed.ts",
     "db:push": "prisma db push",
     "db:generate": "prisma generate"

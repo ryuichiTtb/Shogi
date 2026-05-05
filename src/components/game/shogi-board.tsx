@@ -5,6 +5,11 @@ import { forwardRef, memo, useCallback, useImperativeHandle, useRef } from "reac
 import { cn } from "@/lib/utils";
 import { ShogiPiece } from "./shogi-piece";
 import { useTouchHandler } from "@/hooks/use-touch-handler";
+import {
+  SHOGI_BOARD_GAP,
+  getShogiBoardCellSize,
+  getShogiBoardLabelSize,
+} from "@/lib/shogi/board-layout";
 import type { Board, Move, Piece, Player, Position } from "@/lib/shogi/types";
 
 export interface ShogiBoardHandle {
@@ -61,7 +66,8 @@ interface BoardSquareProps {
   isKingInCheck: boolean;
   isStarPoint: boolean;
   canHover: boolean;
-  squareSize: number;
+  cellWidth: number;
+  cellHeight: number;
   dotSize: number;
   playerColor: Player;
   registerRef: RegisterSquareRef;
@@ -84,7 +90,8 @@ const BoardSquare = memo(function BoardSquare({
   isKingInCheck,
   isStarPoint,
   canHover,
-  squareSize,
+  cellWidth,
+  cellHeight,
   dotSize,
   playerColor,
   registerRef,
@@ -123,15 +130,15 @@ const BoardSquare = memo(function BoardSquare({
         // ホバー
         canHover && "hover:bg-amber-100 dark:hover:bg-amber-800/50"
       )}
-      style={{ width: squareSize, height: squareSize }}
+      style={{ width: cellWidth, height: cellHeight }}
     >
       {/* 星目（中央3×3四隅の交差点） */}
       {isStarPoint && (
         <div
           className="absolute z-10 rounded-full bg-amber-900 dark:bg-amber-400 pointer-events-none"
           style={{
-            width: Math.max(4, squareSize * 0.08),
-            height: Math.max(4, squareSize * 0.08),
+            width: Math.max(4, cellWidth * 0.08),
+            height: Math.max(4, cellWidth * 0.08),
             bottom: 0,
             right: 0,
             transform: "translate(50%, 50%)",
@@ -158,7 +165,7 @@ const BoardSquare = memo(function BoardSquare({
           <span
             className="text-red-700 dark:text-red-300 font-bold leading-none select-none"
             style={{
-              fontSize: Math.max(20, squareSize * 0.6),
+              fontSize: Math.max(20, cellWidth * 0.6),
               filter: "drop-shadow(0 0 3px rgba(255,255,255,0.8))",
             }}
           >
@@ -178,7 +185,7 @@ const BoardSquare = memo(function BoardSquare({
             isSelected={isSelected}
             isInCheck={isKingInCheck}
             playerColor={playerColor}
-            squareSize={squareSize}
+            squareSize={cellWidth}
           />
         </div>
       )}
@@ -194,7 +201,7 @@ const BoardSquare = memo(function BoardSquare({
             style={{
               right: 1,
               top: 1,
-              fontSize: Math.max(10, squareSize * 0.32),
+              fontSize: Math.max(10, cellWidth * 0.32),
               filter: "drop-shadow(0 0 2px rgba(168,85,247,0.9))",
             }}
           >
@@ -264,6 +271,7 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
   );
 
   const isGote = playerColor === "gote";
+  const cellSize = getShogiBoardCellSize(squareSize);
   // タップスナップ対象は legalMoves + forbiddenMateMoves。
   // 禁止マスもタップで反応する (UI 側で禁止理由ダイアログを表示する) ため、スナップ対象に含める。
   const tapSnapMoves = forbiddenMateSquares && forbiddenMateSquares.length > 0
@@ -278,7 +286,8 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
       ]
     : legalMoves;
   const { gridRef, pointerHandlers } = useTouchHandler({
-    squareSize,
+    cellWidth: cellSize.width,
+    cellHeight: cellSize.height,
     legalMoves: tapSnapMoves,
     selectedSquare,
     isGote,
@@ -301,8 +310,8 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
   const fileLabels = isGote ? FILE_LABELS_GOTE : FILE_LABELS_SENTE;
   const rankLabels = isGote ? RANK_LABELS_GOTE : RANK_LABELS_SENTE;
 
-  const labelSize = isMobile ? Math.max(12, squareSize * 0.3) : Math.max(16, squareSize * 0.45);
-  const dotSize = Math.max(8, squareSize * 0.22);
+  const labelSize = getShogiBoardLabelSize(squareSize, isMobile);
+  const dotSize = Math.max(8, cellSize.width * 0.22);
 
   return (
     <div className="flex flex-col items-center gap-0.5">
@@ -312,7 +321,7 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
           <div
             key={label}
             className="flex items-center justify-center text-muted-foreground"
-            style={{ width: squareSize, height: labelSize, fontSize: labelSize * 0.75 }}
+            style={{ width: cellSize.width, height: labelSize, fontSize: labelSize * 0.75 }}
           >
             {label}
           </div>
@@ -326,13 +335,14 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
         {/* 盤面グリッド */}
         <div
           ref={gridRef}
+          data-shogi-board-grid="1"
           role="grid"
           aria-label="将棋盤"
           className="grid border border-amber-800 dark:border-amber-400 bg-amber-800/60 dark:bg-amber-400/60 relative"
           style={{
-            gridTemplateColumns: `repeat(9, ${squareSize}px)`,
-            gridTemplateRows: `repeat(9, ${squareSize}px)`,
-            gap: "1px",
+            gridTemplateColumns: `repeat(9, ${cellSize.width}px)`,
+            gridTemplateRows: `repeat(9, ${cellSize.height}px)`,
+            gap: SHOGI_BOARD_GAP,
             touchAction: "none",
           }}
           onClick={(e) => e.stopPropagation()}
@@ -374,7 +384,8 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
                   isKingInCheck={isKingInCheck}
                   isStarPoint={isStarPoint}
                   canHover={canHover}
-                  squareSize={squareSize}
+                  cellWidth={cellSize.width}
+                  cellHeight={cellSize.height}
                   dotSize={dotSize}
                   playerColor={playerColor}
                   registerRef={registerSquareRef}
@@ -390,7 +401,7 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
             <div
               key={label}
               className="flex items-center justify-center text-muted-foreground"
-              style={{ height: squareSize, width: labelSize, fontSize: labelSize * 0.75 }}
+              style={{ height: cellSize.height, width: labelSize, fontSize: labelSize * 0.75 }}
             >
               {label}
             </div>

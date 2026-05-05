@@ -1,37 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState, type RefCallback } from "react";
 
-// カード将棋画面用の盤面サイズ計算フック。
-// 既存の useBoardSize はカード要素を考慮していないため、ハイブリッドUI のレイアウト
-// (モバイル / タブレット / PC大) ごとに reserved 値を切り替える。
-// 既存の useBoardSize は改変しない(影響を切る方針)。
-
-const MOBILE_BREAKPOINT = 768; // md
-const PC_LARGE_BREAKPOINT = 1280; // xl - 4列レイアウト発動
-const MIN_SQUARE_SIZE = 32;
-const MAX_SQUARE_SIZE = 64;
-const HORIZONTAL_PADDING = 40;
-const HORIZONTAL_PADDING_MOBILE = 24;
-const BOARD_CELLS = 9;
-
-// 既存 useBoardSize の VERTICAL_RESERVED と同等の基本予約値。
-// card-shogi のモバイル時は CapturedPieces compact (52*2=104) を使用するため、
-// 標準より少し小さい値で十分。
-const BASE_RESERVED = 180;
-
-// PC タブレット相当 (md..xl-1): 上下分割の上ゾーン+下ゾーン
-const PC_CARD_RESERVED = 240;
-
-// モバイル (<md): 上端細バー (≈ 50px) + 下端3カラムセクション (山札 md = 80px + padding) + safe-area
-const MOBILE_CARD_RESERVED = 150;
-
-// PC 大 (>=xl): 4列構成 = 上下ゾーンなし、ヘッダ・パディング分のみ
-const PC_LARGE_CARD_RESERVED = 40;
-
-// PC 大 (>=xl): 横方向に「自分カード + 相手カード + キャラ・棋譜」の3列が並ぶため、
-// 中央盤面に使える横幅は (vw - これら3列の合計幅 - gap)
-const PC_LARGE_HORIZONTAL_RESERVED = 680; // 220 + 240 + 220 = 680
+import { computeCardBoardSize, type CardBoardSizeResult } from "@/lib/card-shogi/layout-metrics";
 
 interface CardBoardSize {
   squareSize: number;
@@ -39,60 +10,155 @@ interface CardBoardSize {
   isLargeDesktop: boolean;
   viewportHeight: number;
   isReady: boolean;
+  playAreaRef: RefCallback<HTMLElement>;
+  bottomControlsRef: RefCallback<HTMLElement>;
+  bottomControlsHeight: number;
+  debug: CardBoardSizeResult | null;
+}
+
+const DEFAULT_BOTTOM_CONTROLS_HEIGHT = 100;
+
+function getViewportSize(): { width: number; height: number } {
+  if (typeof window === "undefined") return { width: 390, height: 844 };
+  const visualViewport = window.visualViewport;
+  return {
+    width: Math.floor(visualViewport?.width ?? window.innerWidth),
+    height: Math.floor(visualViewport?.height ?? window.innerHeight),
+  };
+}
+
+function isVisibleElement(node: HTMLElement): boolean {
+  if (!node.isConnected) return false;
+  const rect = node.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return false;
+  const style = window.getComputedStyle(node);
+  return style.display !== "none" && style.visibility !== "hidden";
+}
+
+function getContentRect(node: HTMLElement): { width: number; height: number } {
+  const rect = node.getBoundingClientRect();
+  const style = window.getComputedStyle(node);
+  const horizontalPadding = Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight);
+  const verticalPadding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
+  return {
+    width: Math.max(0, rect.width - horizontalPadding),
+    height: Math.max(0, rect.height - verticalPadding),
+  };
+}
+
+function getLargestVisibleNode(nodes: Set<HTMLElement>): HTMLElement | null {
+  let best: HTMLElement | null = null;
+  let bestArea = 0;
+  for (const node of nodes) {
+    if (!isVisibleElement(node)) continue;
+    const rect = node.getBoundingClientRect();
+    const area = rect.width * rect.height;
+    if (area > bestArea) {
+      best = node;
+      bestArea = area;
+    }
+  }
+  return best;
 }
 
 export function useCardBoardSize(): CardBoardSize {
-  const [squareSize, setSquareSize] = useState(40);
-  const [isMobile, setIsMobile] = useState(false);
-  const [isLargeDesktop, setIsLargeDesktop] = useState(false);
-  const [viewportHeight, setViewportHeight] = useState(800);
+  const playAreaNodesRef = useRef<Set<HTMLElement>>(new Set());
+  const bottomControlsNodesRef = useRef<Set<HTMLElement>>(new Set());
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+
+  const [result, setResult] = useState<CardBoardSizeResult | null>(null);
+  const [viewportHeight, setViewportHeight] = useState(844);
+  const [bottomControlsHeight, setBottomControlsHeight] = useState(DEFAULT_BOTTOM_CONTROLS_HEIGHT);
   const [isReady, setIsReady] = useState(false);
 
   const recalc = useCallback(() => {
     if (typeof window === "undefined") return;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const mobile = vw < MOBILE_BREAKPOINT;
-    const largeDesktop = vw >= PC_LARGE_BREAKPOINT;
+    const viewport = getViewportSize();
+    const activePlayArea = getLargestVisibleNode(playAreaNodesRef.current);
+    const playArea = activePlayArea ? getContentRect(activePlayArea) : null;
+    const nextResult = computeCardBoardSize({
+      viewportWidth: viewport.width,
+      viewportHeight: viewport.height,
+      availableWidth: playArea?.width,
+      availableHeight: playArea?.height,
+    });
 
-    const padding = mobile ? HORIZONTAL_PADDING_MOBILE : HORIZONTAL_PADDING;
-    const cardReserved = mobile
-      ? MOBILE_CARD_RESERVED
-      : largeDesktop
-        ? PC_LARGE_CARD_RESERVED
-        : PC_CARD_RESERVED;
-    const horizontalReserved = largeDesktop
-      ? PC_LARGE_HORIZONTAL_RESERVED + padding
-      : padding;
-    const availableWidth = vw - horizontalReserved;
-    const availableHeight = vh - BASE_RESERVED - cardReserved;
-    const fromWidth = Math.floor(availableWidth / BOARD_CELLS);
-    const fromHeight = Math.floor(availableHeight / BOARD_CELLS);
-    const size = Math.max(MIN_SQUARE_SIZE, Math.min(MAX_SQUARE_SIZE, fromWidth, fromHeight));
-    setSquareSize(size);
-    setIsMobile(mobile);
-    setIsLargeDesktop(largeDesktop);
-    setViewportHeight(vh);
+    const activeBottomControls = getLargestVisibleNode(bottomControlsNodesRef.current);
+    const nextBottomControlsHeight = activeBottomControls
+      ? Math.ceil(activeBottomControls.getBoundingClientRect().height)
+      : DEFAULT_BOTTOM_CONTROLS_HEIGHT;
+
+    setViewportHeight(viewport.height);
+    setResult((prev) =>
+      prev &&
+      prev.squareSize === nextResult.squareSize &&
+      prev.availableWidth === nextResult.availableWidth &&
+      prev.availableHeight === nextResult.availableHeight &&
+      prev.mode === nextResult.mode
+        ? prev
+        : nextResult,
+    );
+    setBottomControlsHeight((prev) =>
+      prev === nextBottomControlsHeight ? prev : nextBottomControlsHeight,
+    );
   }, []);
 
-  useEffect(() => {
-    // SSR-safe: window が必要なため effect 内で呼ぶ。
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+  const observeNode = useCallback((node: HTMLElement | null, bucket: Set<HTMLElement>) => {
+    if (!node) return;
+    bucket.add(node);
+    resizeObserverRef.current?.observe(node);
     recalc();
-    setIsReady(true);
-    let timeoutId: ReturnType<typeof setTimeout>;
-    const handleResize = () => {
-      clearTimeout(timeoutId);
-      timeoutId = setTimeout(recalc, 100);
-    };
+  }, [recalc]);
+
+  const playAreaRef = useCallback<RefCallback<HTMLElement>>(
+    (node) => observeNode(node, playAreaNodesRef.current),
+    [observeNode],
+  );
+  const bottomControlsRef = useCallback<RefCallback<HTMLElement>>(
+    (node) => observeNode(node, bottomControlsNodesRef.current),
+    [observeNode],
+  );
+
+  useEffect(() => {
+    const handleResize = () => window.requestAnimationFrame(recalc);
+    const ro = new ResizeObserver(handleResize);
+    resizeObserverRef.current = ro;
+    for (const node of playAreaNodesRef.current) ro.observe(node);
+    for (const node of bottomControlsNodesRef.current) ro.observe(node);
+
+    const initialFrame = window.requestAnimationFrame(() => {
+      recalc();
+      setIsReady(true);
+    });
+
     window.addEventListener("resize", handleResize);
     window.addEventListener("orientationchange", handleResize);
+    window.visualViewport?.addEventListener("resize", handleResize);
+    window.visualViewport?.addEventListener("scroll", handleResize);
+
     return () => {
-      clearTimeout(timeoutId);
+      ro.disconnect();
+      window.cancelAnimationFrame(initialFrame);
+      resizeObserverRef.current = null;
       window.removeEventListener("resize", handleResize);
       window.removeEventListener("orientationchange", handleResize);
+      window.visualViewport?.removeEventListener("resize", handleResize);
+      window.visualViewport?.removeEventListener("scroll", handleResize);
     };
   }, [recalc]);
 
-  return { squareSize, isMobile, isLargeDesktop, viewportHeight, isReady };
+  const fallbackMode = result?.mode ?? "mobile";
+  const squareSize = result?.squareSize ?? 40;
+
+  return {
+    squareSize,
+    isMobile: fallbackMode === "mobile",
+    isLargeDesktop: fallbackMode === "largeDesktop",
+    viewportHeight,
+    isReady,
+    playAreaRef,
+    bottomControlsRef,
+    bottomControlsHeight,
+    debug: result,
+  };
 }

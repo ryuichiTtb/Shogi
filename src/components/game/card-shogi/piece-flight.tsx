@@ -41,6 +41,8 @@ interface PieceFlightProps {
   rotationSecPerTurn?: number;
   minDurationMs?: number;
   pieceSize?: number;
+  pieceWidth?: number;
+  pieceHeight?: number;
   ease?: "linear" | "easeIn" | "easeOut" | "easeInOut" | "circIn" | "circOut" | "anticipate";
 }
 
@@ -57,6 +59,8 @@ export function PieceFlight({
   rotationSecPerTurn,
   minDurationMs,
   pieceSize,
+  pieceWidth,
+  pieceHeight,
   ease,
 }: PieceFlightProps) {
   const isClient = useSyncExternalStore(subscribe, getClientSnapshot, getServerSnapshot);
@@ -75,6 +79,8 @@ export function PieceFlight({
             rotationSecPerTurn={rotationSecPerTurn}
             minDurationMs={minDurationMs}
             pieceSize={pieceSize}
+            pieceWidth={pieceWidth}
+            pieceHeight={pieceHeight}
             ease={ease}
           />
         )}
@@ -92,6 +98,8 @@ function PieceFlightInner({
   rotationSecPerTurn,
   minDurationMs,
   pieceSize,
+  pieceWidth,
+  pieceHeight,
   ease,
 }: {
   spec: PieceFlightSpec;
@@ -101,12 +109,15 @@ function PieceFlightInner({
   rotationSecPerTurn?: number;
   minDurationMs?: number;
   pieceSize?: number;
+  pieceWidth?: number;
+  pieceHeight?: number;
   ease?: PieceFlightProps["ease"];
 }) {
   const speed = speedPxPerSec ?? SPEED_PX_PER_SEC;
   const rotPeriod = rotationSecPerTurn ?? ROTATION_SEC_PER_TURN;
   const minDur = minDurationMs ?? MIN_DURATION_MS;
-  const size = pieceSize ?? PIECE_SIZE;
+  const width = pieceWidth ?? pieceSize ?? PIECE_SIZE;
+  const height = pieceHeight ?? pieceSize ?? PIECE_SIZE;
   // 既定 easing は dev 検証で採用された easeInOut (2026-05-04)。
   // 旧実装は linear を採用していたが、最小再生時間を 600ms に伸ばしたため
   // 始終点で減速がかかる easeInOut の方が違和感が少なくなった。
@@ -143,13 +154,13 @@ function PieceFlightInner({
   return (
     <motion.div
       initial={{
-        x: spec.fromX - size / 2,
-        y: spec.fromY - size / 2,
+        x: spec.fromX - width / 2,
+        y: spec.fromY - height / 2,
         rotate: 0,
       }}
       animate={{
-        x: spec.toX - size / 2,
-        y: spec.toY - size / 2,
+        x: spec.toX - width / 2,
+        y: spec.toY - height / 2,
         rotate: rotateDeg,
       }}
       transition={{
@@ -161,8 +172,8 @@ function PieceFlightInner({
         position: "fixed",
         left: 0,
         top: 0,
-        width: size,
-        height: size,
+        width,
+        height,
         willChange: "transform",
         zIndex: 55,
       }}
@@ -170,7 +181,7 @@ function PieceFlightInner({
       <ShogiPiece
         piece={{ type: spec.pieceType, owner: spec.owner }}
         playerColor={playerColor}
-        squareSize={size}
+        squareSize={width}
       />
     </motion.div>
   );

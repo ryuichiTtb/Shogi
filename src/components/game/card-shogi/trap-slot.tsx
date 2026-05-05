@@ -41,7 +41,7 @@ export const TrapSlot = memo(function TrapSlot({
     const cardInstance: CardInstance = { instanceId: trap.instanceId, defId: trap.defId };
     if (!fullWidth && !horizontal) {
       return (
-        <div className={cn("shrink-0", SIZE_CLASS[size])}>
+        <div data-card-shogi-trap className={cn("shrink-0", SIZE_CLASS[size])}>
           <CardView
             card={cardInstance}
             size={size}
@@ -55,15 +55,17 @@ export const TrapSlot = memo(function TrapSlot({
       );
     }
     return (
-      <CardView
-        card={cardInstance}
-        size={size}
-        fullWidth={fullWidth || horizontal}
-        hideDescription
-        hideTrapBadge
-        compactIconLayout
-        inactive
-      />
+      <div data-card-shogi-trap className={cn((fullWidth || horizontal) && "w-full", horizontal && "h-full")}>
+        <CardView
+          card={cardInstance}
+          size={size}
+          fullWidth={fullWidth || horizontal}
+          hideDescription
+          hideTrapBadge
+          compactIconLayout
+          inactive
+        />
+      </div>
     );
   }
 
@@ -73,6 +75,7 @@ export const TrapSlot = memo(function TrapSlot({
     if (!trap) {
       return (
         <div
+          data-card-shogi-trap
           className={cn(wrapperBase, "border-dashed border-muted-foreground/40 bg-muted/30")}
           aria-label="トラップ未セット"
         >
@@ -83,6 +86,7 @@ export const TrapSlot = memo(function TrapSlot({
     }
     return (
       <div
+        data-card-shogi-trap
         className={cn(wrapperBase, "border-purple-700 bg-gradient-to-br from-purple-700 to-purple-900 text-white/80 font-bold")}
         aria-label="トラップセット済(裏向き)"
       >
@@ -102,6 +106,7 @@ export const TrapSlot = memo(function TrapSlot({
   if (!trap) {
     return (
       <div
+        data-card-shogi-trap
         className={cn(
           "rounded-md border-2 border-dashed border-muted-foreground/40 bg-muted/30",
           "flex flex-col items-center justify-center shrink-0",
@@ -118,6 +123,7 @@ export const TrapSlot = memo(function TrapSlot({
   // ここに来るのは faceDown=true のケース (相手側のセット済みトラップ表示)
   return (
     <div
+      data-card-shogi-trap
       className={cn(
         "rounded-md border-2 border-purple-700 bg-gradient-to-br from-purple-700 to-purple-900",
         "flex items-center justify-center text-white/80 font-bold shrink-0",
