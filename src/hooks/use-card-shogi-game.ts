@@ -26,6 +26,8 @@ interface UseCardShogiGameOptions {
   gameId: string;
   gameConfig: GameConfig;
   onComment?: (event: string) => void;
+  disableServerSync?: boolean;
+  disableAi?: boolean;
 }
 
 export function useCardShogiGame({
@@ -34,6 +36,8 @@ export function useCardShogiGame({
   gameId,
   gameConfig,
   onComment,
+  disableServerSync = false,
+  disableAi = false,
 }: UseCardShogiGameOptions) {
   const [state, dispatch] = useReducer(reducer, {
     gameState: initialState,
@@ -75,6 +79,7 @@ export function useCardShogiGame({
     if (
       gameState.status !== "active" ||
       gameState.currentPlayer !== aiPlayer ||
+      disableAi ||
       state.isAiThinking ||
       state.cardState.pendingCard !== null ||
       // Issue #78: ドロー演出中は AI 思考をブロック (COMMIT_DRAW 後に再評価される)
@@ -124,6 +129,7 @@ export function useCardShogiGame({
     state.isDrawing,
     state.isPlayingCard,
     state.isCheckBreakAnimating,
+    disableAi,
   ]);
 
   // DB 保存(state 変更を監視して、最新の moveCount で保存)
@@ -133,6 +139,7 @@ export function useCardShogiGame({
     // 2手目完了で doubleMove=null になった時に通常通り save 発火する。
     // これにより 1手目分の GameMove レコードは作られず、リロード時の DB 状態は
     // カード使用前にロールバックする (二手指しキャンセル相当)。
+    if (disableServerSync) return;
     if (state.doubleMove !== null) return;
 
     const moveCount = state.gameState.moveCount;
@@ -157,7 +164,7 @@ export function useCardShogiGame({
     ).catch((e) => {
       console.error("saveCardShogiMove failed", e);
     });
-  }, [state.gameState, state.cardState, state.doubleMove, gameId]);
+  }, [state.gameState, state.cardState, state.doubleMove, gameId, disableServerSync]);
 
   // Issue #132: カード使用 / ドロー / トラップ設置直後の cardState 即時保存。
   // 駒指し以外のカード操作は moveCount を増やさないため、上の save useEffect では発火しない。
@@ -175,6 +182,7 @@ export function useCardShogiGame({
   const lastPersistedCardStateRef = useRef(state.cardState);
   useEffect(() => {
     if (state.doubleMove !== null) return;
+    if (disableServerSync) return;
     if (state.isPlayingCard || state.isDrawing || state.isCheckBreakAnimating) return;
     if (state.cardState === lastPersistedCardStateRef.current) return;
     lastPersistedCardStateRef.current = state.cardState;
@@ -189,6 +197,7 @@ export function useCardShogiGame({
     state.isDrawing,
     state.isCheckBreakAnimating,
     gameId,
+    disableServerSync,
   ]);
 
   // ----- 公開API -----
@@ -315,9 +324,10 @@ export function useCardShogiGame({
 
   const resign = useCallback(() => {
     dispatch({ type: "RESIGN" });
+    if (disableServerSync) return;
     const winner: Player = state.gameState.currentPlayer === "sente" ? "gote" : "sente";
     updateGameStatus(gameId, "resign", winner);
-  }, [state.gameState.currentPlayer, gameId]);
+  }, [state.gameState.currentPlayer, gameId, disableServerSync]);
 
   // Issue #132: 待った時に DB 側も巻き戻す。reducer dispatch は同期に state を更新しないため、
   // ref フラグを立てて next render の useEffect (後述) で post-UNDO state を確定後にサーバーアクションを呼ぶ。
@@ -340,6 +350,7 @@ export function useCardShogiGame({
     if (!pendingUndoSyncRef.current) return;
     pendingUndoSyncRef.current = false;
     lastSavedMoveCountRef.current = state.gameState.moveCount;
+    if (disableServerSync) return;
     undoCardShogiGameState(
       gameId,
       state.gameState,
@@ -348,7 +359,7 @@ export function useCardShogiGame({
     ).catch((e) => {
       console.error("undoCardShogiGameState failed", e);
     });
-  }, [state.gameState, state.cardState, gameId]);
+  }, [state.gameState, state.cardState, gameId, disableServerSync]);
 
   const deselect = useCallback(() => {
     dispatch({ type: "DESELECT" });

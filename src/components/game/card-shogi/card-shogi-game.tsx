@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type CSSProperties } from "react";
 import { flushSync, createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -26,6 +26,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { getShogiBoardCellSize } from "@/lib/shogi/board-layout";
 
 import { getCharacterById } from "@/data/characters";
 import { gameResultText } from "@/lib/shogi/notation";
@@ -72,6 +73,11 @@ interface CardShogiGameProps {
   initialCardState: CardGameState;
   gameId: string;
   gameConfig: SerializableGameConfig;
+  debugInitialUi?: {
+    drawerOpen?: boolean;
+    endCardMinimized?: boolean;
+  };
+  debugDisableServerEffects?: boolean;
 }
 
 function shouldPlayJumpSfx(move: Move): boolean {
@@ -97,14 +103,16 @@ export function CardShogiGame({
   initialCardState,
   gameId,
   gameConfig: serializableConfig,
+  debugInitialUi,
+  debugDisableServerEffects = false,
 }: CardShogiGameProps) {
   const [commentEvent, setCommentEvent] = useState<CommentaryEvent | null>(null);
   const [overlayEvent, setOverlayEvent] = useState<{ event: OverlayEvent; key: number; trapName?: string } | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(() => Boolean(debugInitialUi?.drawerOpen));
   // Step S4 (Issue #107): モバイル/タブレットの終了カードを最小化できるように
   // する。閉じると盤面・持ち駒が見え、再度展開して「もう一局」「ホームへ」を
   // 押せる。
-  const [endCardMinimized, setEndCardMinimized] = useState(false);
+  const [endCardMinimized, setEndCardMinimized] = useState(() => Boolean(debugInitialUi?.endCardMinimized));
   // Issue #78 + #130: ドロー演出キュー (FIFO)。
   // 旧実装は単一スロット (drawFlight) で manual 直後に auto-draw が発火すると
   // setDrawFlight が上書きされ manual 演出が中断されるバグがあった (#130)。
@@ -228,10 +236,19 @@ export function CardShogiGame({
   const [forbiddenMateDialogOpen, setForbiddenMateDialogOpen] = useState(false);
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const { squareSize, isMobile, viewportHeight } = useCardBoardSize();
+  const {
+    squareSize,
+    isMobile,
+    viewportHeight,
+    playAreaRef,
+    bottomControlsRef,
+    bottomControlsHeight,
+    debug: layoutDebug,
+  } = useCardBoardSize();
   // 開発者用 dev /piece-flight で保存されたフライト演出パラメータ。
   // 未保存時は animation-constants の既定値が返る。
   const flightParams = useFlightParams();
+  const boardCellSize = useMemo(() => getShogiBoardCellSize(squareSize), [squareSize]);
 
   const gameConfig: GameConfig = {
     ...serializableConfig,
@@ -295,6 +312,8 @@ export function CardShogiGame({
     gameId,
     gameConfig,
     onComment: handleComment,
+    disableServerSync: debugDisableServerEffects,
+    disableAi: debugDisableServerEffects,
   });
 
   const playerColor = gameConfig.playerColor;
@@ -1178,15 +1197,23 @@ export function CardShogiGame({
 
   return (
     <div
+      data-card-shogi-root
+      data-card-shogi-layout-mode={layoutDebug?.mode}
+      data-card-shogi-square-size={squareSize}
       className="shogi-game-area w-full overflow-hidden flex flex-col"
-      style={{ height: viewportHeight }}
+      style={{
+        height: viewportHeight,
+        "--card-shogi-bottom-controls-height": `${bottomControlsHeight}px`,
+        "--card-shogi-square-size": `${squareSize}px`,
+      } as CSSProperties}
       onClick={handleDeselect}
     >
       {/* モバイル: ステータスバーを画面最上段に配置 (Issue #105) */}
-      <div className="md:hidden shrink-0 bg-card border-b">{statusBarContent}</div>
+      <div data-card-shogi-status className="md:hidden shrink-0 bg-card border-b">{statusBarContent}</div>
       {/* ===== 相手ゾーン ===== */}
       {/* PC タブレット相当 (md..xl-1): 詳細ゾーン */}
       <section
+        data-card-shogi-opponent-area
         className="hidden md:flex xl:hidden shrink-0 px-2 py-1.5 border-b bg-muted/40 items-center gap-2 overflow-x-auto"
         onClick={(e) => e.stopPropagation()}
       >
@@ -1200,6 +1227,7 @@ export function CardShogiGame({
         * 左: △ ラベル + マナゲージ (縦積み)
         * 右: 手札 stack (max 10) + 山札 + トラップ (sm カードデザインで横幅統一) */}
       <section
+        data-card-shogi-opponent-area
         className="md:hidden shrink-0 px-2 py-1 border-b bg-muted/40 flex items-end gap-2 text-xs"
         onClick={(e) => e.stopPropagation()}
       >
@@ -1218,7 +1246,7 @@ export function CardShogiGame({
               layout="stack"
               size="sm"
               emptyLabel=""
-              stackMaxVisible={10}
+              stackMaxVisible={5}
             />
           </div>
           <DeckPile
@@ -1233,12 +1261,16 @@ export function CardShogiGame({
 
       {/* ===== 中央: 盤面 + 持ち駒 + (PCサイドパネル) ===== xl 未満で表示 */}
       <div className="xl:hidden flex-1 min-h-0 flex flex-col lg:flex-row max-w-5xl mx-auto w-full overflow-hidden">
-        <div className="flex flex-col items-center flex-1 min-h-0 px-2 py-0.5 lg:py-2">
+        <div
+          ref={playAreaRef}
+          data-card-shogi-play-area
+          className="flex flex-col items-center flex-1 min-h-0 px-2 py-0.5 lg:py-2"
+        >
           {/* ステータスバー (タブレット用)。モバイルでは画面最上段に分離配置済 (Issue #105) */}
           <div className="hidden md:block w-full">{statusBarContent}</div>
 
           {/* 相手の持ち駒 (モバイルでは compact で縦幅を詰める) */}
-          <div className="w-full shrink-0" style={{ maxWidth: squareSize * 9 + 60 }}>
+          <div data-card-shogi-captured="opponent" className="w-full shrink-0" style={{ maxWidth: squareSize * 9 + 60 }}>
             <CapturedPieces
               hand={gameState.hand}
               player={aiColor}
@@ -1254,7 +1286,7 @@ export function CardShogiGame({
           </div>
 
           {/* 盤面 */}
-          <div className="relative shrink-0 my-0.5">
+          <div data-card-shogi-board className="relative shrink-0 my-0.5">
             <ShogiBoard
               ref={boardTabletRef}
               board={gameState.board}
@@ -1281,7 +1313,7 @@ export function CardShogiGame({
           </div>
 
           {/* 自分の持ち駒 (モバイルでは compact で縦幅を詰める) */}
-          <div className="w-full shrink-0" style={{ maxWidth: squareSize * 9 + 60 }}>
+          <div data-card-shogi-captured="self" className="w-full shrink-0" style={{ maxWidth: squareSize * 9 + 60 }}>
             <CapturedPieces
               hand={gameState.hand}
               player={playerColor}
@@ -1347,11 +1379,12 @@ export function CardShogiGame({
           上端 (≒100px + safe-area)、translate-y-full で完全に画面外へスライド。 */}
       {!isGameActive && (
         <div
+          data-card-shogi-end-card
           className={cn(
             "xl:hidden fixed left-0 right-0 z-30 transition-transform duration-300",
             endCardMinimized ? "translate-y-full" : "translate-y-0",
           )}
-          style={{ bottom: "calc(100px + env(safe-area-inset-bottom))" }}
+          style={{ bottom: "var(--card-shogi-bottom-controls-height)" }}
           aria-hidden={endCardMinimized}
           onClick={(e) => e.stopPropagation()}
         >
@@ -1388,6 +1421,8 @@ export function CardShogiGame({
       {/* ===== 自分ゾーン (xl 未満) ===== */}
       {/* PC タブレット相当 (md..xl-1): 詳細ゾーン (GameControls を統合) */}
       <section
+        ref={bottomControlsRef}
+        data-card-shogi-bottom-controls
         className="hidden md:flex xl:hidden shrink-0 px-2 py-1.5 border-t bg-muted/40 items-end gap-2 overflow-x-auto"
         style={{ paddingBottom: "max(0.375rem, env(safe-area-inset-bottom))" }}
         onClick={(e) => e.stopPropagation()}
@@ -1417,6 +1452,8 @@ export function CardShogiGame({
         * Issue #105: 段2幅を段1 (GameControls) と同じ自然幅に揃え、
         * 余った横幅は右のトラップ列が flex-1 で取り込む。 */}
       <section
+        ref={bottomControlsRef}
+        data-card-shogi-bottom-controls
         className="md:hidden xl:hidden shrink-0 border-t bg-card flex items-stretch gap-2 px-2 py-1.5 z-30"
         style={{ paddingBottom: "max(0.375rem, env(safe-area-inset-bottom))" }}
         onClick={(e) => e.stopPropagation()}
@@ -1486,12 +1523,13 @@ export function CardShogiGame({
       {/* モバイル: 手札ドロワー(下からスライドアップ) */}
       {/* bottom 値は下端 3カラムセクションの高さ (山札 md = 80px + padding) に合わせる */}
       <div
+        data-card-shogi-drawer
         className={cn(
           "md:hidden fixed left-0 right-0 z-20 bg-card border-t-2 border-primary shadow-2xl transition-transform duration-300",
           drawerOpen ? "translate-y-0" : "translate-y-full",
         )}
         style={{
-          bottom: "calc(100px + env(safe-area-inset-bottom))",
+          bottom: "var(--card-shogi-bottom-controls-height)",
           maxHeight: "55dvh",
         }}
         onClick={(e) => e.stopPropagation()}
@@ -1530,6 +1568,7 @@ export function CardShogiGame({
       {/* ===== xl 以上: 4列レイアウト ===== */}
       {/* 列幅: 自分カード 220px / 中央 1fr / キャラ・棋譜 240px / 相手カード 220px */}
       <div
+        data-card-shogi-xl-layout
         className="hidden xl:grid xl:grid-cols-[220px_1fr_240px_220px] xl:grid-rows-[auto_minmax(0,1fr)] xl:gap-2 xl:p-2 h-full"
         onClick={(e) => e.stopPropagation()}
       >
@@ -1617,8 +1656,12 @@ export function CardShogiGame({
         </aside>
 
         {/* Col 2: 中央(盤面 + 持ち駒) */}
-        <main className="flex flex-col items-center gap-1 min-h-0 overflow-hidden">
-          <div className="w-full shrink-0" style={{ maxWidth: squareSize * 9 + 60 }}>
+        <main
+          ref={playAreaRef}
+          data-card-shogi-play-area
+          className="flex flex-col items-center gap-1 min-h-0 overflow-hidden"
+        >
+          <div data-card-shogi-captured="opponent" className="w-full shrink-0" style={{ maxWidth: squareSize * 9 + 60 }}>
             <CapturedPieces
               hand={gameState.hand}
               player={aiColor}
@@ -1631,7 +1674,7 @@ export function CardShogiGame({
               hiddenPieceTypes={hiddenOpponentCapturedTypes}
             />
           </div>
-          <div className="relative shrink-0">
+          <div data-card-shogi-board className="relative shrink-0">
             <ShogiBoard
               ref={boardXlRef}
               board={gameState.board}
@@ -1656,7 +1699,7 @@ export function CardShogiGame({
               trapName={overlayEvent?.trapName}
             />
           </div>
-          <div className="w-full shrink-0" style={{ maxWidth: squareSize * 9 + 60 }}>
+          <div data-card-shogi-captured="self" className="w-full shrink-0" style={{ maxWidth: squareSize * 9 + 60 }}>
             <CapturedPieces
               hand={gameState.hand}
               player={playerColor}
@@ -1803,14 +1846,15 @@ export function CardShogiGame({
       />
 
       {/* Issue #82: 駒移動カード(歩戻し / 駒戻し / 二歩指し)の駒回転フライト演出。
-          pieceSize は盤上マスサイズ (squareSize) を渡し、フライト中の駒サイズを
+          pieceWidth / pieceHeight は盤上マス実寸を渡し、フライト中の駒サイズを
           実際の盤駒と揃える。speed/rotation/min/ease は dev /piece-flight の
           保存値 (なければ animation-constants の既定値) を反映。 */}
       <PieceFlight
         spec={pieceFlight?.spec ?? null}
         flightKey={pieceFlight?.key ?? null}
         playerColor={playerColor}
-        pieceSize={squareSize}
+        pieceWidth={boardCellSize.width}
+        pieceHeight={boardCellSize.height}
         speedPxPerSec={flightParams.speedPxPerSec}
         rotationSecPerTurn={flightParams.rotationSecPerTurn}
         minDurationMs={flightParams.minDurationMs}
@@ -1825,7 +1869,8 @@ export function CardShogiGame({
           spec={spec}
           flightKey={checkBreakAnim.flightKeyBase + idx}
           playerColor={playerColor}
-          pieceSize={squareSize}
+          pieceWidth={boardCellSize.width}
+          pieceHeight={boardCellSize.height}
           speedPxPerSec={flightParams.speedPxPerSec}
           rotationSecPerTurn={flightParams.rotationSecPerTurn}
           minDurationMs={flightParams.minDurationMs}
@@ -1867,20 +1912,19 @@ export function CardShogiGame({
                     親の hit アニメーション (シェイク・スケール) と同時並行。 */}
                 {checkBreakAnim.hitActive && (
                   <svg
-                    viewBox="0 0 100 100"
+                    viewBox={`0 0 ${g.rect.width} ${g.rect.height}`}
                     preserveAspectRatio="none"
                     className="absolute inset-0 w-full h-full pointer-events-none"
                     aria-hidden
                   >
                     <line
-                      x1="100"
+                      x1={g.rect.width}
                       y1="0"
                       x2="0"
-                      y2="100"
+                      y2={g.rect.height}
                       stroke="#ef4444"
-                      strokeWidth="5"
+                      strokeWidth={Math.max(3, Math.min(5, g.rect.width * 0.12))}
                       strokeLinecap="round"
-                      vectorEffect="non-scaling-stroke"
                       className="ghost-slash-line"
                     />
                   </svg>
