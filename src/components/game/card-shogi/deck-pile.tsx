@@ -106,6 +106,7 @@ export const DeckPile = memo(function DeckPile({
   // 表示は Math.min でクランプして 0..interval に収める。
   const hasProgress = showProgress && progress !== undefined && interval > 0;
   const clampedProgress = hasProgress ? Math.min(Math.max(progress!, 0), interval) : 0;
+  const dims = CARD_DIMS[size];
 
   // displayProgress: reducer は同期的に 4→0 へ瞬間遷移するため、UI 側で「リング満タン
   // (interval/interval)」状態を 1 frame だけ強制描画して firing 演出の起点を作る。
@@ -127,6 +128,37 @@ export const DeckPile = memo(function DeckPile({
     }
     setDisplayProgress(next);
   }, [clampedProgress, interval]);
+
+  // Issue #130: 上面カード button の実レンダリングサイズを CSS px で測定し、
+  // SVG viewBox に同値を入れる。これにより 1 viewBox 単位 = 1 CSS px となり、
+  // rect の x=1, w=W-2, strokeWidth=2 でストローク外縁が card 外枠と完全一致する。
+  // 旧実装 (viewBox 0..100 + non-scaling-stroke) は 1 viewBox 単位が dims.w/100 や
+  // dims.h/100 CSS px になり、ストローク中心が < 1px 内側の半端な位置に来ていたため、
+  // sm (48×64) で約 0.52px、md (64×80) で約 0.36px ストロークが card 外側にはみ出し、
+  // モバイルで「リングがカード枠とズレて見える」事象を発生させていた。
+  // フックは horizontal 早期 return より前で必ず呼ぶ (rules-of-hooks)。
+  const upperCardRef = useRef<HTMLButtonElement>(null);
+  const [boxSize, setBoxSize] = useState<{ w: number; h: number }>(() => ({
+    w: dims.w,
+    h: dims.h,
+  }));
+  useIsoLayoutEffect(() => {
+    if (horizontal) return; // 横長モードはリング描画しないので測定不要
+    const el = upperCardRef.current;
+    if (!el) return;
+    const update = () => {
+      const r = el.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) return;
+      setBoxSize((prev) =>
+        prev.w === r.width && prev.h === r.height ? prev : { w: r.width, h: r.height },
+      );
+    };
+    update();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [dims.w, dims.h, horizontal]);
 
   const remainingTurns = hasProgress
     ? Math.max(0, interval - Math.min(displayProgress, interval))
@@ -198,7 +230,6 @@ export const DeckPile = memo(function DeckPile({
   const stackCount = Math.min(Math.max(count - 1, 0), STACK_MAX);
   const offsetUnitX = STACK_OFFSET_X[size];
   const offsetUnitY = STACK_OFFSET_Y[size];
-  const dims = CARD_DIMS[size];
   const stackOffsetTotalX = stackCount * offsetUnitX;
   const stackOffsetTotalY = stackCount * offsetUnitY;
 
@@ -209,7 +240,12 @@ export const DeckPile = memo(function DeckPile({
     height: dims.h,
   };
   const sizeClass = dims.text;
-  const ringRadius = size === "sm" ? 5 : 6;
+  // Issue #130: SVG リングの寸法は CSS px ベース。CardBack 外枠は
+  // rounded-md (= --radius-md = 0.625rem * 0.8 = 8px) なので、ストロークの
+  // 「外縁」が card 外枠と一致するためには rect の rx = 8 - strokeWidth/2 = 7px。
+  const RING_OUTER_RADIUS_PX = 8;
+  const RING_STROKE_PX = 2;
+  const RING_RECT_RX = RING_OUTER_RADIUS_PX - RING_STROKE_PX / 2; // = 7
   const drawTextClass = size === "lg" ? "text-[12px]" : size === "md" ? "text-[10px]" : "text-[8px]";
   const progressTextClass = size === "lg" ? "text-[12px]" : size === "md" ? "text-[10px]" : "text-[8px]";
 
@@ -254,6 +290,7 @@ export const DeckPile = memo(function DeckPile({
           - 空: 従来の灰色プレースホルダ (裏面表示しない)
           - それ以外: ユーザー設定の CardBack を背景にして上にテキストを重ねる */}
       <button
+        ref={upperCardRef}
         type="button"
         onClick={onDraw}
         disabled={!interactable}
@@ -291,19 +328,23 @@ export const DeckPile = memo(function DeckPile({
         )}
 
         {/* Issue #130: 自動ドロー進捗リング。
-            上面カード button の inset-0 に固定し、rect の stroke 外縁がカード外枠と
-            一致するよう x/y=1, width/height=98 で描く。外側コンテナは stack offset を
-            含むため、ここでは絶対に参照しない。
-            preserveAspectRatio="none" + vector-effect="non-scaling-stroke" で、PC の横長表示
-            とモバイルの小型表示でも一定の線幅を維持する。
-            primed (= displayProgress === interval - 1) のときは emerald-300 +
-            amber-200 二重描画 + 1.4s の明滅 (最大 6 ループ)。拡大縮小はリング枠ズレに
-            見えるため使わない。displayProgress は 4→0 遷移時に 1 frame だけ強制 5 描画
-            (= firing の起点、useLayoutEffect で実装)。 */}
+            上面カード button の実 px サイズを ResizeObserver で測定し、SVG の
+            viewBox に同値を入れている (1 viewBox 単位 = 1 CSS px)。これにより
+            rect の x=1, w=boxSize.w-2 + strokeWidth=2 でストローク外縁が
+            card 外枠 (= rounded-md 8px) と完全一致する。rx=7 (= 8 - 1) で
+            ストローク外縁の角丸を card 外周角丸 8px に揃える。
+            旧実装 (viewBox 0..100 + preserveAspectRatio=none + non-scaling-stroke)
+            ではストローク中心が card 内側に < 1px しか入らず、2px ストロークの
+            外側半分 (1px) が card の外にはみ出してモバイルでズレて見えていた。
+            primed (= displayProgress === interval - 1) のときは amber-200
+            ハイライトを内側に重ね、1.4s 明滅 (最大 6 ループ) で「次手で発動」
+            予告を出す。拡大縮小は枠ズレに見えるため使わない。displayProgress は
+            4→0 遷移時に 1 frame だけ強制 interval 描画 (= firing の起点、
+            useLayoutEffect で実装)。 */}
         {hasProgress && !isEmpty && (
           <svg
             className="absolute inset-0 z-10 pointer-events-none"
-            viewBox="0 0 100 100"
+            viewBox={`0 0 ${boxSize.w} ${boxSize.h}`}
             preserveAspectRatio="none"
             role="progressbar"
             aria-valuemin={0}
@@ -312,54 +353,51 @@ export const DeckPile = memo(function DeckPile({
             aria-label={`自動ドロー進捗 ${Math.min(displayProgress, interval)}/${interval}`}
             style={{ overflow: "visible" }}
           >
-            {/* track: 5 セグメント等分の薄い縁取り。rect は stroke 外縁が
-                SVG 外周 (= カード外枠) に一致する座標に置く。 */}
+            {/* track: interval セグメント等分の薄い縁取り。 */}
             <rect
-              x={1}
-              y={1}
-              width={98}
-              height={98}
-              rx={ringRadius}
-              ry={ringRadius}
+              x={RING_STROKE_PX / 2}
+              y={RING_STROKE_PX / 2}
+              width={boxSize.w - RING_STROKE_PX}
+              height={boxSize.h - RING_STROKE_PX}
+              rx={RING_RECT_RX}
+              ry={RING_RECT_RX}
               fill="none"
               stroke="rgb(51 65 85 / 0.4)"
-              strokeWidth={2}
-              vectorEffect="non-scaling-stroke"
+              strokeWidth={RING_STROKE_PX}
               pathLength={interval}
               strokeDasharray={`${(interval - 0.5) / interval} ${0.5 / interval}`}
             />
-            {/* primed 時の amber 二重ストローク (内側 1px) */}
+            {/* primed 時の amber 内側ハイライト (主ストロークから 1px 内側、幅 1.5px) */}
             {isPrimed && (
               <rect
-                x={1.75}
-                y={1.75}
-                width={96.5}
-                height={96.5}
-                rx={ringRadius}
-                ry={ringRadius}
+                x={RING_STROKE_PX / 2 + 1}
+                y={RING_STROKE_PX / 2 + 1}
+                width={boxSize.w - RING_STROKE_PX - 2}
+                height={boxSize.h - RING_STROKE_PX - 2}
+                rx={Math.max(0, RING_RECT_RX - 1)}
+                ry={Math.max(0, RING_RECT_RX - 1)}
                 fill="none"
                 stroke="rgb(254 240 138 / 0.7)" /* amber-200 */
                 strokeWidth={1.5}
                 strokeLinecap="round"
-                vectorEffect="non-scaling-stroke"
                 pathLength={interval}
                 strokeDasharray={interval}
                 strokeDashoffset={interval - Math.min(displayProgress, interval)}
               />
             )}
-            {/* progress: 通常 emerald-400/85, primed は emerald-300 (主層) */}
+            {/* progress: 通常 emerald-400/85, primed は emerald-300 (主層)。
+                ストローク幅は primed でも 2px に固定 (枠ズレ回避)。 */}
             <motion.rect
-              x={1}
-              y={1}
-              width={98}
-              height={98}
-              rx={ringRadius}
-              ry={ringRadius}
+              x={RING_STROKE_PX / 2}
+              y={RING_STROKE_PX / 2}
+              width={boxSize.w - RING_STROKE_PX}
+              height={boxSize.h - RING_STROKE_PX}
+              rx={RING_RECT_RX}
+              ry={RING_RECT_RX}
               fill="none"
               stroke={isPrimed ? "rgb(110 231 183 / 0.95)" : "rgb(52 211 153 / 0.85)"}
-              strokeWidth={isPrimed ? 2.6 : 2}
+              strokeWidth={RING_STROKE_PX}
               strokeLinecap="round"
-              vectorEffect="non-scaling-stroke"
               pathLength={interval}
               strokeDasharray={interval}
               strokeDashoffset={interval - Math.min(displayProgress, interval)}
