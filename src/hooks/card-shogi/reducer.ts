@@ -1071,15 +1071,21 @@ export function reducer(
         // は 2手目完了時に MAKE_MOVE 内で finalize する。
         // 王手中の使用可否は既に BEGIN_PLAY_CARD の use condition で判定済。
         // pendingCard クリア + doubleMove セット のみで return する (下の共通処理は通らない)。
+        //
+        // 重要: snapshot 用 cardState は **必ず pendingCard を null にした状態** で記録する。
+        // そうしないと CANCEL_DOUBLE_MOVE / UNDO_DOUBLE_MOVE_FIRST で復元した際に
+        // pendingCard が再セットされ、CardPlayDialog が再表示されてしまう。
+        // 「BEGIN_PLAY_CARD 前の状態と等価」になるよう pendingCard を落として保存する。
+        const cardStateWithoutPending = { ...state.cardState, pendingCard: null };
         const preCardSnapshot = {
           gameState: state.gameState,
-          cardState: state.cardState,
+          cardState: cardStateWithoutPending,
           eventLog: state.eventLog,
         };
         return {
           ...state,
           // pendingCard だけクリア。マナ・手札・eventLog は変えない。
-          cardState: { ...state.cardState, pendingCard: null },
+          cardState: cardStateWithoutPending,
           selectedSquare: null,
           selectedHandPiece: null,
           legalMoves: [],
@@ -1213,10 +1219,11 @@ export function reducer(
       if (state.isPlayingCard) return state;
 
       // 1手目だけを取り消す → preFirstMoveState から復元、doubleMove は維持 (movesLeft=2 へ)
+      // pendingCard は防御的に null クリア (snapshot に残っていた場合の CardPlayDialog 再表示防止)
       return {
         ...state,
         gameState: dm.preFirstMoveState.gameState,
-        cardState: dm.preFirstMoveState.cardState,
+        cardState: { ...dm.preFirstMoveState.cardState, pendingCard: null },
         eventLog: dm.preFirstMoveState.eventLog,
         selectedSquare: null,
         selectedHandPiece: null,
@@ -1239,10 +1246,11 @@ export function reducer(
       if (state.isPlayingCard) return state;
 
       // カード使用自体を取り消す → preCardState から完全復元、doubleMove=null
+      // pendingCard は防御的に null クリア (snapshot に残っていた場合の CardPlayDialog 再表示防止)
       return {
         ...state,
         gameState: dm.preCardState.gameState,
-        cardState: dm.preCardState.cardState,
+        cardState: { ...dm.preCardState.cardState, pendingCard: null },
         eventLog: dm.preCardState.eventLog,
         selectedSquare: null,
         selectedHandPiece: null,

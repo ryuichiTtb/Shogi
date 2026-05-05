@@ -649,6 +649,91 @@ describe("reducer / 二手指し (double_move)", () => {
     expect(next).toBe(state);
   });
 
+  // 回帰テスト: バグ報告「キャンセル後にカード使用ポップアップが再表示される」
+  // 修正: snapshot 作成時に pendingCard を null クリア + 復元時にも防御的に null 強制
+  it("CANCEL_DOUBLE_MOVE: 復元後に pendingCard が null (CardPlayDialog 再表示防止)", () => {
+    const c = card("dm1", "double_move");
+    // snapshot 内の cardState に pendingCard が誤って残っていたケースを想定
+    const snapshotWithPending: CardGameState = {
+      ...makeInitialCardState({
+        mana: { sente: 10, gote: 0 },
+        hand: { sente: [c], gote: [] },
+      }),
+      pendingCard: { instance: c, player: "sente", phase: "confirm" },
+    };
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(makeBaseGameState()),
+      doubleMove: {
+        active: "sente",
+        movesLeft: 2,
+        mateInOneAvailable: false,
+        cardInstance: c,
+        cardCost: 6,
+        preFirstMoveState: { gameState: makeBaseGameState(), cardState: snapshotWithPending, eventLog: [] },
+        preCardState: { gameState: makeBaseGameState(), cardState: snapshotWithPending, eventLog: [] },
+      },
+    };
+
+    const next = reducer(state, { type: "CANCEL_DOUBLE_MOVE" });
+
+    // pendingCard が null に強制されること (= CardPlayDialog 表示条件不成立)
+    expect(next.cardState.pendingCard).toBeNull();
+    // doubleMove も null
+    expect(next.doubleMove).toBeNull();
+  });
+
+  it("UNDO_DOUBLE_MOVE_FIRST: 復元後に pendingCard が null (CardPlayDialog 再表示防止)", () => {
+    const c = card("dm1", "double_move");
+    // snapshot 内の cardState に pendingCard が誤って残っていたケースを想定
+    const snapshotWithPending: CardGameState = {
+      ...makeInitialCardState({
+        mana: { sente: 10, gote: 0 },
+        hand: { sente: [c], gote: [] },
+      }),
+      pendingCard: { instance: c, player: "sente", phase: "confirm" },
+    };
+    const afterFirst = createInitialGameState(CARD_SHOGI_VARIANT);
+    afterFirst.board[5][4] = { type: "pawn", owner: "sente" };
+    afterFirst.board[6][4] = null;
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(afterFirst),
+      doubleMove: {
+        active: "sente",
+        movesLeft: 1,
+        mateInOneAvailable: false,
+        cardInstance: c,
+        cardCost: 6,
+        preFirstMoveState: { gameState: makeBaseGameState(), cardState: snapshotWithPending, eventLog: [] },
+        preCardState: { gameState: makeBaseGameState(), cardState: snapshotWithPending, eventLog: [] },
+      },
+    };
+
+    const next = reducer(state, { type: "UNDO_DOUBLE_MOVE_FIRST" });
+
+    // pendingCard が null に強制されること
+    expect(next.cardState.pendingCard).toBeNull();
+    // doubleMove は維持 (movesLeft=2)
+    expect(next.doubleMove?.movesLeft).toBe(2);
+  });
+
+  // CONFIRM_PLAY_CARD で snapshot 作成時に pendingCard が null クリアされていること
+  it("CONFIRM_PLAY_CARD (double_move): snapshot 内 cardState の pendingCard が null", () => {
+    const c = card("dm1", "double_move");
+    const state = makeInitialState(
+      makeBaseGameState(),
+      makeInitialCardState({
+        mana: { sente: 10, gote: 0 },
+        hand: { sente: [c], gote: [] },
+        pendingCard: { instance: c, player: "sente", phase: "confirm" },
+      }),
+    );
+    const next = reducer(state, { type: "CONFIRM_PLAY_CARD" });
+
+    // doubleMove.preCardState / preFirstMoveState の cardState に pendingCard が残っていない
+    expect(next.doubleMove?.preCardState.cardState.pendingCard).toBeNull();
+    expect(next.doubleMove?.preFirstMoveState.cardState.pendingCard).toBeNull();
+  });
+
   it("BEGIN_PLAY_CARD: 二手指し中は他カード使用禁止 (state 不変)", () => {
     const c = card("dm1", "double_move");
     const otherC = card("ot1", "mana_up");
