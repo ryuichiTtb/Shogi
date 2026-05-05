@@ -47,6 +47,7 @@ function makeInitialState(
     isCheckBreakAnimating: false,
     doubleMove: null,
     forbiddenMateMoves: [],
+    undoSnapshots: [],
   };
 }
 
@@ -294,9 +295,25 @@ describe("reducer / UNDO", () => {
       to: { row: 3, col: 4 },
     };
     const autoDrawnCard = card("auto-1", "mana_up");
-    // 設定: drawProgress[sente]=4 から sente が move → auto-draw 発火 (scope 内)
-    // → gote move → UNDO で sente の auto-draw が巻き戻される想定。
-    // hand[sente] には auto-draw されたカードが入っており、deck[sente] からは消えている前提。
+    // 設定 (Issue #132 snapshot 方式): MAKE_MOVE 直前の state を 2 件分 snapshot に保持し、
+    // UNDO 時は snapshot[0] (= sente 指す前) を復元する。
+    // - snapshot[0] (= 全くの初期): hand=[], deck=[autoDrawnCard], drawProgress={0,0}, eventLog=[]
+    // - snapshot[1] (= sente 指した直後 + auto-draw 完了): hand=[autoDrawnCard], deck=[],
+    //   drawProgress={sente:0, gote:0} (auto-draw でリセット), eventLog=移動+auto-draw 関連
+    // 旧実装 (replay + log 集計) は本テストで `drawProgress 再計算結果が 0` を期待していたが、
+    // snapshot 方式は snapshot[0] に保持された値を直接復元するので、用意した snap0 値そのものを返す。
+    const snap0Card = makeInitialCardState({
+      hand: { sente: [], gote: [] },
+      deck: { sente: [autoDrawnCard], gote: [] },
+      drawProgress: { sente: 0, gote: 0 },
+    });
+    const snap0Game = makeInitialState().gameState;
+    const snap1Card = makeInitialCardState({
+      hand: { sente: [autoDrawnCard], gote: [] },
+      deck: { sente: [], gote: [] },
+      drawProgress: { sente: 0, gote: 0 },
+    });
+    const snap1Game = { ...makeInitialState().gameState, moveHistory: [senteMove] };
     const state: CardShogiGameStateInternal = {
       ...makeInitialState(
         undefined,
@@ -319,22 +336,36 @@ describe("reducer / UNDO", () => {
         { kind: "moveEvent", move: goteMove, at: 0 },
         { kind: "manaChargeEvent", player: "gote", amount: 1, reason: "turn", at: 0 },
       ],
+      undoSnapshots: [
+        { gameState: snap0Game, cardState: snap0Card, eventLog: [] },
+        {
+          gameState: snap1Game,
+          cardState: snap1Card,
+          eventLog: [
+            { kind: "moveEvent", move: senteMove, at: 0 },
+            { kind: "drawEvent", player: "sente", instance: autoDrawnCard, source: "auto", at: 0 },
+            { kind: "manaChargeEvent", player: "sente", amount: 1, reason: "turn", at: 0 },
+          ],
+        },
+      ],
     };
     const next = reducer(state, { type: "UNDO" });
     // UNDO 成立 (state が変化している)
     expect(next).not.toBe(state);
-    // hand[sente] から auto-draw された 1 枚が除去
+    // hand[sente] から auto-draw された 1 枚が除去 (snap0 の値)
     expect(next.cardState.hand.sente).toEqual([]);
-    // deck[sente] 先頭に instance が戻る
+    // deck[sente] 先頭に instance が戻る (snap0 の値)
     expect(next.cardState.deck.sente).toEqual([autoDrawnCard]);
-    // drawProgress 再計算: log 切詰め後はイベントなし → 両者 0
+    // drawProgress は snap0 の値を復元
     expect(next.cardState.drawProgress.sente).toBe(0);
     expect(next.cardState.drawProgress.gote).toBe(0);
-    // eventLog は scope 前まで切詰め
+    // eventLog は snap0 の eventLog (空)
     expect(next.eventLog.length).toBe(0);
     // ドロー演出フラグもクリア
     expect(next.isDrawing).toBe(false);
     expect(next.pendingDrawSource).toBeNull();
+    // undoSnapshots ring は復元時に 2 件 pop されて空になる
+    expect(next.undoSnapshots).toEqual([]);
   });
 
   it("scope 内に明示的 manual drawEvent が含まれる場合は引き続きブロック (回帰防止)", () => {
@@ -365,6 +396,245 @@ describe("reducer / UNDO", () => {
         { kind: "drawEvent", player: "sente", instance: c, source: "manual", at: 0 },
         { kind: "moveEvent", move: goteMove, at: 0 },
       ],
+    };
+    const next = reducer(state, { type: "UNDO" });
+    expect(next).toBe(state);
+  });
+
+  // ===== Issue #132: スコープ外カード操作と待ったの整合性 (snapshot 方式の中核検証) =====
+
+  it("Issue #132: cardPlayEvent が 2 ターン scope 外でも、UNDO で snapshot から復元され カード効果は保持される", () => {
+    // 再現シナリオ: 自分が 駒戻し → 相手 1手 → 自分 1手 → 相手 1手 → 自分が UNDO。
+    // - getUndoScope は 2 ターン scope 走査の途中で playerChanges=2 で break するため、
+    //   先頭の cardPlayEvent には到達せず scope=allow を返す (= 既存の guard が素通り)。
+    // - 旧 replay 方式は、cardPlayEvent で発生したカード効果 (盤上駒除去 + 手札+1) を
+    //   moveHistory から再現できず、待ったすると盤上に駒が復活していた (Issue #132 本丸)。
+    // - snapshot 方式は state 全量を保持するため、scope-bounds の漏れに依存せず正しく復元する。
+    const cardInstance = card("piece-return-1", "piece_return");
+    const senteMove = {
+      type: "move" as const,
+      player: "sente" as const,
+      piece: "pawn",
+      from: { row: 6, col: 4 },
+      to: { row: 5, col: 4 },
+    };
+    const goteMove1 = {
+      type: "move" as const,
+      player: "gote" as const,
+      piece: "pawn",
+      from: { row: 2, col: 4 },
+      to: { row: 3, col: 4 },
+    };
+    const goteMove2 = {
+      type: "move" as const,
+      player: "gote" as const,
+      piece: "pawn",
+      from: { row: 2, col: 5 },
+      to: { row: 3, col: 5 },
+    };
+
+    // 設定: 自分は既に「駒戻し」を使用済 (= cardPlayEvent が log 先頭に)、銀1枚を持ち駒に戻した状態。
+    // post-card 時点で hand[sente]={silver:1}、graveyard[sente]=[piece-return-1]、銀は盤上から消えている。
+    const initialGame = makeInitialState().gameState;
+    // post-card state スナップショット (= goteMove1 を指す直前)
+    const postCardCard = makeInitialCardState({
+      hand: { sente: [], gote: [] },
+      graveyard: { sente: [cardInstance], gote: [] },
+      // 仮想的に「銀1枚を持ち駒に戻した」想定で hand を直接設定
+    });
+    // 簡略化のため hand[sente].silver は postCardCard 直接編集はせず、
+    // gameState.hand を経由 (将棋ルール上は gameState.hand に持駒格納)
+    const postCardGame: GameState = {
+      ...initialGame,
+      hand: { ...initialGame.hand, sente: { ...initialGame.hand.sente, silver: 1 } },
+    };
+    // post-goteMove1 state スナップショット (= senteMove を指す直前)
+    const postGote1Game: GameState = {
+      ...postCardGame,
+      moveHistory: [goteMove1],
+      moveCount: 1,
+    };
+    // post-senteMove state スナップショット (= goteMove2 を指す直前)
+    const postSenteGame: GameState = {
+      ...postCardGame,
+      moveHistory: [goteMove1, senteMove],
+      moveCount: 2,
+    };
+
+    // 現在 state: 4 イベント (card + 3 move) 全て発生後
+    const currentGame: GameState = {
+      ...postCardGame,
+      moveHistory: [goteMove1, senteMove, goteMove2],
+      moveCount: 3,
+    };
+    const currentEventLog: GameEvent[] = [
+      { kind: "cardPlayEvent", player: "sente", instance: cardInstance, at: 0 },
+      { kind: "moveEvent", move: goteMove1, at: 1 },
+      { kind: "moveEvent", move: senteMove, at: 2 },
+      { kind: "moveEvent", move: goteMove2, at: 3 },
+    ];
+
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(currentGame, postCardCard),
+      eventLog: currentEventLog,
+      // ring: snap0=post-goteMove1 (= senteMove 直前), snap1=post-senteMove (= goteMove2 直前)
+      undoSnapshots: [
+        {
+          gameState: postGote1Game,
+          cardState: postCardCard,
+          eventLog: [
+            { kind: "cardPlayEvent", player: "sente", instance: cardInstance, at: 0 },
+            { kind: "moveEvent", move: goteMove1, at: 1 },
+          ],
+        },
+        {
+          gameState: postSenteGame,
+          cardState: postCardCard,
+          eventLog: [
+            { kind: "cardPlayEvent", player: "sente", instance: cardInstance, at: 0 },
+            { kind: "moveEvent", move: goteMove1, at: 1 },
+            { kind: "moveEvent", move: senteMove, at: 2 },
+          ],
+        },
+      ],
+    };
+
+    const next = reducer(state, { type: "UNDO" });
+
+    // 主目的: UNDO は実行された (state 変化、cardOp scope-bounds 漏れの guard 素通りを確認)
+    expect(next).not.toBe(state);
+    // moveHistory は snap0 の値 (= 1 件) に巻き戻る
+    expect(next.gameState.moveHistory).toHaveLength(1);
+    expect(next.gameState.moveHistory[0]).toEqual(goteMove1);
+    // ★ 本丸: カード効果 (= 銀1枚が持ち駒に) が保持される。snapshot は post-card state を保持しているため。
+    expect(next.gameState.hand.sente.silver).toBe(1);
+    // graveyard も保持 (カード使用記録)
+    expect(next.cardState.graveyard.sente).toEqual([cardInstance]);
+    // eventLog は snap0 の eventLog (cardPlayEvent + goteMove1 = 2 件)。
+    // cardPlayEvent は保持される (= カード使用は取り消されていない)。
+    expect(next.eventLog).toHaveLength(2);
+    expect(next.eventLog[0].kind).toBe("cardPlayEvent");
+    // ring は復元時に 2 件 pop されて空
+    expect(next.undoSnapshots).toEqual([]);
+  });
+
+  it("Issue #132: undoSnapshots が空 (リロード直後) の状態では UNDO 不可", () => {
+    // リロード後は in-memory snapshot が消失する。eventLog も空に初期化されるため
+    // 二重に保守的に block される (snap=0 件 + getUndoScope null) 想定。
+    // 本テストは snap 件数ガードを直接検証する: gameState/eventLog があっても snap が
+    // 不足していれば state 不変。
+    const senteMove = {
+      type: "move" as const,
+      player: "sente" as const,
+      piece: "pawn",
+      from: { row: 6, col: 4 },
+      to: { row: 5, col: 4 },
+    };
+    const goteMove = {
+      type: "move" as const,
+      player: "gote" as const,
+      piece: "pawn",
+      from: { row: 2, col: 4 },
+      to: { row: 3, col: 4 },
+    };
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(),
+      gameState: {
+        ...makeInitialState().gameState,
+        moveHistory: [senteMove, goteMove],
+      },
+      eventLog: [
+        { kind: "moveEvent", move: senteMove, at: 0 },
+        { kind: "moveEvent", move: goteMove, at: 1 },
+      ],
+      // snap が空 (リロード直後)
+      undoSnapshots: [],
+    };
+    const next = reducer(state, { type: "UNDO" });
+    expect(next).toBe(state);
+  });
+
+  it("Issue #132: undoSnapshots が 1 件のみ (1 ply しか経っていない) の状態でも UNDO 不可", () => {
+    // 直近 2 ply 巻き戻しが仕様。snap が 1 件 (= 1 ply のみ) では待った非活性。
+    const senteMove = {
+      type: "move" as const,
+      player: "sente" as const,
+      piece: "pawn",
+      from: { row: 6, col: 4 },
+      to: { row: 5, col: 4 },
+    };
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(),
+      gameState: {
+        ...makeInitialState().gameState,
+        moveHistory: [senteMove],
+      },
+      eventLog: [{ kind: "moveEvent", move: senteMove, at: 0 }],
+      undoSnapshots: [
+        {
+          gameState: makeInitialState().gameState,
+          cardState: makeInitialCardState(),
+          eventLog: [],
+        },
+      ],
+    };
+    const next = reducer(state, { type: "UNDO" });
+    expect(next).toBe(state);
+  });
+
+  it("Issue #132: doubleMove 中の UNDO は引き続きブロック (cardOp guard より先に dm guard)", () => {
+    // 二手指し中は通常の「待った」を不可とする既存仕様 (Issue #82)。
+    // snapshot 方式でも引き続き dm guard が先に効くことを回帰確認。
+    const senteMove = {
+      type: "move" as const,
+      player: "sente" as const,
+      piece: "pawn",
+      from: { row: 6, col: 4 },
+      to: { row: 5, col: 4 },
+    };
+    const goteMove = {
+      type: "move" as const,
+      player: "gote" as const,
+      piece: "pawn",
+      from: { row: 2, col: 4 },
+      to: { row: 3, col: 4 },
+    };
+    const cardInstance = card("dm-1", "double_move");
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(),
+      gameState: {
+        ...makeInitialState().gameState,
+        moveHistory: [senteMove, goteMove],
+      },
+      eventLog: [
+        { kind: "moveEvent", move: senteMove, at: 0 },
+        { kind: "moveEvent", move: goteMove, at: 1 },
+      ],
+      undoSnapshots: [
+        { gameState: makeInitialState().gameState, cardState: makeInitialCardState(), eventLog: [] },
+        {
+          gameState: { ...makeInitialState().gameState, moveHistory: [senteMove] },
+          cardState: makeInitialCardState(),
+          eventLog: [{ kind: "moveEvent", move: senteMove, at: 0 }],
+        },
+      ],
+      doubleMove: {
+        active: "sente",
+        movesLeft: 1,
+        mateInOneAvailable: false,
+        cardInstance,
+        cardCost: 6,
+        preFirstMoveState: {
+          gameState: makeInitialState().gameState,
+          cardState: makeInitialCardState(),
+          eventLog: [],
+        },
+        preCardState: {
+          gameState: makeInitialState().gameState,
+          cardState: makeInitialCardState(),
+          eventLog: [],
+        },
+      },
     };
     const next = reducer(state, { type: "UNDO" });
     expect(next).toBe(state);
@@ -1275,21 +1545,42 @@ describe("reducer / UNDO カード操作ガード (Issue #82)", () => {
     ];
 
     const cardState = makeInitialCardState({ mana: { sente: 5, gote: 5 } });
+    // Issue #132 snapshot 方式: 直近 2 ply 分の snapshot を保持して UNDO で snapshot[0] に復元する。
+    // - snap0 (= 3 手目を指す直前): moveHistory 2 件、mana={sente:4, gote:4}、eventLog 4 件
+    // - snap1 (= 4 手目を指す直前): moveHistory 3 件、mana={sente:5, gote:4}、eventLog 6 件
+    const snap0Game: GameState = {
+      ...gameState,
+      moveHistory: gameState.moveHistory.slice(0, 2),
+      moveCount: 2,
+    };
+    const snap0CardState = makeInitialCardState({ mana: { sente: 4, gote: 4 } });
+    const snap1Game: GameState = {
+      ...gameState,
+      moveHistory: gameState.moveHistory.slice(0, 3),
+      moveCount: 3,
+    };
+    const snap1CardState = makeInitialCardState({ mana: { sente: 5, gote: 4 } });
     const state: CardShogiGameStateInternal = {
       ...makeInitialState(gameState, cardState),
       eventLog,
+      undoSnapshots: [
+        { gameState: snap0Game, cardState: snap0CardState, eventLog: eventLog.slice(0, 4) },
+        { gameState: snap1Game, cardState: snap1CardState, eventLog: eventLog.slice(0, 6) },
+      ],
     };
 
     const next = reducer(state, { type: "UNDO" });
     // state が変わること (UNDO が実行された)
     expect(next).not.toBe(state);
-    // moveHistory が 2 件減ること
+    // moveHistory が 2 件減ること (snap0 の値)
     expect(next.gameState.moveHistory.length).toBe(2);
-    // マナが巻き戻ること (sente: 5-1=4, gote: 5-1=4)
+    // マナが巻き戻ること (snap0 の値: sente=4, gote=4)
     expect(next.cardState.mana.sente).toBe(4);
     expect(next.cardState.mana.gote).toBe(4);
-    // eventLog が scope 前まで truncate されること
-    expect(next.eventLog.length).toBe(4); // 元の 8 件のうち 後半 4 件が削除
+    // eventLog は snap0 の eventLog (4 件)
+    expect(next.eventLog.length).toBe(4);
+    // ring は復元時に 2 件 pop されて空になる
+    expect(next.undoSnapshots).toEqual([]);
   });
 });
 

@@ -37,7 +37,7 @@ import type { Difficulty, GameConfig, GameState, Move, Player, Position } from "
 import type { CommentaryEvent } from "@/app/actions/commentary";
 import type { CardGameState, CardInstance } from "@/lib/shogi/cards/types";
 import { CARD_DEFS, CARD_USE_CONDITIONS, DRAW_COST } from "@/lib/shogi/cards/definitions";
-import { isDoublePawnLegalSquare, isPieceReturnLegalSquare, isValidCardTargetSquare, simulateCardEffect, canEscapeCheckWithCard, hasSameKindTrapPlaced } from "@/lib/shogi/cards/effects";
+import { isValidCardTargetSquare, canEscapeCheckWithCard, hasSameKindTrapPlaced } from "@/lib/shogi/cards/effects";
 import type { CardId } from "@/lib/shogi/cards/types";
 import { createGame } from "@/app/actions/game";
 
@@ -86,7 +86,6 @@ function shouldPlayJumpSfx(move: Move): boolean {
 // インライン `() => {}` を毎レンダー新しい関数として渡すと React.memo の浅い比較が
 // 無効化されてしまうため、モジュールスコープで定義して安定化する (Step 2 / Issue #107)。
 const NOOP_PIECE_CLICK: (pieceType: string) => void = () => {};
-const NOOP_UNDO: () => void = () => {};
 
 // 空配列の共有参照。pieceFlight 等で「該当なし」のケースを useMemo に通しても
 // 毎レンダー [] を new するとメモ化が無効化されるため、フラグメンテーション回避。
@@ -1048,49 +1047,24 @@ export function CardShogiGame({
   }, [gameState.moveHistory.length, isPlayerTurn, isAiThinking, cardState.pendingCard, doubleMove, eventLog]);
 
   // 歩戻し等のターゲット選択時にハイライトする盤面マス
+  // (Issue #132): 以前は effectId 別に手書き判定 + 末尾で王手回避フィルタを掛けていたが、
+  // pawn_return だけ ピン判定を欠いていた (effects.ts isPawnReturnLegalSquare 旧実装)。
+  // クリック時 (handleSquareClick) と reducer (selectSquare) は既に isValidCardTargetSquare で
+  // 統一されており、ハイライト計算だけが手書きで非統一だった。本変更で 81 マス走査を 1 ループ
+  // + isValidCardTargetSquare 呼出に統一し、pin / 王手回避 / 自駒種別 すべて単一ヘルパで判定する。
   const cardTargetSquares: Position[] = useMemo(() => {
     if (!cardState.pendingCard || cardState.pendingCard.phase !== "selectTarget") return [];
     const def = CARD_DEFS[cardState.pendingCard.instance.defId];
-    let targets: Position[] = [];
-    if (def.effectId === "pawn_return") {
-      for (let r = 0; r < 9; r++) {
-        for (let c = 0; c < 9; c++) {
-          const piece = gameState.board[r]?.[c];
-          if (piece && piece.owner === playerColor && (piece.type === "pawn" || piece.type === "promoted_pawn")) {
-            targets.push({ row: r, col: c });
-          }
+    const targets: Position[] = [];
+    for (let r = 0; r < 9; r++) {
+      for (let c = 0; c < 9; c++) {
+        if (isValidCardTargetSquare(gameState, playerColor, def.id, { row: r, col: c })) {
+          targets.push({ row: r, col: c });
         }
       }
-    } else if (def.effectId === "piece_return") {
-      for (let r = 0; r < 9; r++) {
-        for (let c = 0; c < 9; c++) {
-          if (isPieceReturnLegalSquare(gameState, playerColor, { row: r, col: c })) {
-            targets.push({ row: r, col: c });
-          }
-        }
-      }
-    } else if (def.effectId === "double_pawn") {
-      for (let r = 0; r < 9; r++) {
-        for (let c = 0; c < 9; c++) {
-          if (isDoublePawnLegalSquare(gameState, playerColor, { row: r, col: c })) {
-            targets.push({ row: r, col: c });
-          }
-        }
-      }
-    }
-    // 王手中は、王手回避になる配置先のみハイライト (Issue #82)
-    if (inCheck) {
-      targets = targets.filter((pos) => {
-        const after = simulateCardEffect(gameState, playerColor, def.id, {
-          kind: "square",
-          row: pos.row,
-          col: pos.col,
-        });
-        return after && !isInCheck(after, playerColor, CARD_SHOGI_VARIANT);
-      });
     }
     return targets;
-  }, [cardState.pendingCard, gameState, playerColor, inCheck]);
+  }, [cardState.pendingCard, gameState, playerColor]);
 
   // no_promote の永続マーク (両プレイヤー分をまとめて盤面に渡す)
   const noPromoteSquares: Position[] = useMemo(
@@ -1398,12 +1372,15 @@ export function CardShogiGame({
         <div ref={ownDeckPileTabletRef} className="shrink-0">{ownDeckPile}</div>
         <div className="shrink-0">{ownManaGauge}</div>
         <div className="shrink-0 ml-2 border-l pl-2">
+          {/* Issue #132: タブレット (md..xl) でも待ったボタンを有効化。
+              旧実装では onUndo={NOOP_UNDO} / canUndo={false} で配線が空関数になっており、
+              タブレットだけ待った不可になっていた。xl/モバイルと同じ undo/canUndo に揃える。 */}
           <GameControls
             onResign={resign}
-            onUndo={NOOP_UNDO}
+            onUndo={undo}
             isMuted={isMuted}
             onToggleMute={toggleMute}
-            canUndo={false}
+            canUndo={canUndo}
             gameActive={isGameActive}
           />
         </div>

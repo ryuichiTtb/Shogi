@@ -167,6 +167,13 @@ export async function saveMove(
 }
 
 // 手を保存してゲーム状態を更新 (card-shogi variant、cardState も同時保存)
+//
+// Issue #132: 待った後に新しい手を指した時の (gameId, moveNum) ユニーク制約衝突を防ぐ。
+// `@@unique([gameId, moveNum])` 制約により、UNDO 後の moveNum で create するとそのまま
+// では衝突 (旧分岐の手が同 moveNum で残っていれば INSERT エラー)。
+// `undoCardShogiGameState` で先に削除すれば衝突しないが、UNDO 経由でない別フロー
+// (DB 直書き等) や race のため、`gameMove >= moveNum` を予防的に deleteMany してから
+// create する。同 transaction 内で実行することで原子性も担保。
 export async function saveCardShogiMove(
   gameId: string,
   move: Move,
@@ -177,6 +184,11 @@ export async function saveCardShogiMove(
   comment?: string
 ): Promise<void> {
   await prisma.$transaction([
+    // 防御: 新しい手と同 moveNum 以降の旧分岐 GameMove を先に削除。
+    // 通常は 0 件で空振り。UNDO 後の再分岐保存時のみ実行コストあり (該当行のみ)。
+    prisma.gameMove.deleteMany({
+      where: { gameId, moveNum: { gte: moveNum } },
+    }),
     prisma.gameMove.create({
       data: {
         gameId,
@@ -199,6 +211,65 @@ export async function saveCardShogiMove(
   ]);
 
   revalidatePath(`/game/${gameId}`);
+}
+
+// Issue #132: カード使用 / ドロー / トラップ設置直後の cardState 即時保存。
+// `saveCardShogiMove` は moveCount 増加を契機に発火するが、カード操作は
+// moveCount を増やさないため、カード使用直後にリロードするとカード効果が
+// 失われる (DB はカード使用前の cardState のまま)。
+// 本アクションは GameMove を insert せず、Game.boardState / cardState / status の
+// 現在値だけを永続化する。後続の `saveCardShogiMove` は通常通り発火するが、
+// それまでのリロード安全性が確保される。
+export async function persistCardShogiState(
+  gameId: string,
+  newBoardState: GameState,
+  newCardState: CardGameState,
+): Promise<void> {
+  await prisma.game.update({
+    where: { id: gameId },
+    data: {
+      boardState: serializeGameState(newBoardState),
+      cardState: serializeCardState(newCardState) as never,
+      status: newBoardState.status,
+      winner: newBoardState.winner,
+    },
+  });
+  revalidatePath(`/game/${gameId}`);
+}
+
+// Issue #132: 待った後の DB 局面巻き戻し。
+// クライアント側 reducer の UNDO 完了後に呼び、DB 上の Game.boardState / Game.cardState を
+// 巻き戻った state に上書きする。同時に、巻き戻し位置より後の GameMove 行を削除して
+// 棋譜分岐の不整合を防ぐ (= UNDO 後に新しい手を指した時、(gameId, moveNum) ユニーク制約に
+// 衝突しないよう古い行を掃除しておく)。
+//
+// 旧実装ではこの処理が存在せず、画面と DB の状態が乖離 → リロード後に巻き戻し前の局面が
+// 復元される / 新しい手の保存が無音失敗する事象が発生していた。
+//
+// transaction で原子化しているため部分書き込みは発生しない。失敗時は呼び元で catch する想定。
+export async function undoCardShogiGameState(
+  gameId: string,
+  newBoardState: GameState,
+  newCardState: CardGameState,
+  newMoveCount: number,
+): Promise<void> {
+  await prisma.$transaction([
+    prisma.gameMove.deleteMany({
+      where: { gameId, moveNum: { gt: newMoveCount } },
+    }),
+    prisma.game.update({
+      where: { id: gameId },
+      data: {
+        boardState: serializeGameState(newBoardState),
+        cardState: serializeCardState(newCardState) as never,
+        status: newBoardState.status,
+        winner: newBoardState.winner,
+      },
+    }),
+  ]);
+
+  revalidatePath(`/game/${gameId}`);
+  revalidatePath("/history");
 }
 
 // ゲーム状態を更新（投了など）

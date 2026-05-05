@@ -10,7 +10,7 @@ import type {
 } from "@/lib/shogi/types";
 import { moveToNotation } from "@/lib/shogi/notation";
 import { getAiMove } from "@/app/actions/ai";
-import { updateGameStatus, saveCardShogiMove } from "@/app/actions/game";
+import { updateGameStatus, saveCardShogiMove, undoCardShogiGameState, persistCardShogiState } from "@/app/actions/game";
 
 import type { CardGameState } from "@/lib/shogi/cards/types";
 import { isValidCardTargetSquare } from "@/lib/shogi/cards/effects";
@@ -52,6 +52,7 @@ export function useCardShogiGame({
     isCheckBreakAnimating: false,
     doubleMove: null,
     forbiddenMateMoves: [],
+    undoSnapshots: [],
   });
 
   const aiPlayer: Player = gameConfig.playerColor === "sente" ? "gote" : "sente";
@@ -157,6 +158,38 @@ export function useCardShogiGame({
       console.error("saveCardShogiMove failed", e);
     });
   }, [state.gameState, state.cardState, state.doubleMove, gameId]);
+
+  // Issue #132: カード使用 / ドロー / トラップ設置直後の cardState 即時保存。
+  // 駒指し以外のカード操作は moveCount を増やさないため、上の save useEffect では発火しない。
+  // 結果としてカード使用直後のリロードでカード効果が失われていた (= DB はカード使用前の cardState のまま)。
+  // ここでは cardState の参照変化を契機に persistCardShogiState を呼び、GameMove は insert せず
+  // Game.boardState / cardState / status のみ更新する。
+  // 駒指しと同タイミングの場合は save useEffect が moveCount を進めて GameMove も insert するため、
+  // 本 useEffect の更新は重複するが (Game の同値更新)、データ不整合は起きない。
+  //
+  // 発火ガード:
+  // - 二手指し中 (doubleMove !== null): saveCardShogiMove と同じく save スキップ
+  // - 演出中 (isPlayingCard / isDrawing / isCheckBreakAnimating): 演出完了 (COMMIT_*) で
+  //   cardState は最終形になっているため、演出中の中間 state を保存しないようガード
+  // - cardState 参照不変: 変更がなければ何もしない
+  const lastPersistedCardStateRef = useRef(state.cardState);
+  useEffect(() => {
+    if (state.doubleMove !== null) return;
+    if (state.isPlayingCard || state.isDrawing || state.isCheckBreakAnimating) return;
+    if (state.cardState === lastPersistedCardStateRef.current) return;
+    lastPersistedCardStateRef.current = state.cardState;
+    persistCardShogiState(gameId, state.gameState, state.cardState).catch((e) => {
+      console.error("persistCardShogiState failed", e);
+    });
+  }, [
+    state.cardState,
+    state.gameState,
+    state.doubleMove,
+    state.isPlayingCard,
+    state.isDrawing,
+    state.isCheckBreakAnimating,
+    gameId,
+  ]);
 
   // ----- 公開API -----
 
@@ -286,11 +319,36 @@ export function useCardShogiGame({
     updateGameStatus(gameId, "resign", winner);
   }, [state.gameState.currentPlayer, gameId]);
 
+  // Issue #132: 待った時に DB 側も巻き戻す。reducer dispatch は同期に state を更新しないため、
+  // ref フラグを立てて next render の useEffect (後述) で post-UNDO state を確定後にサーバーアクションを呼ぶ。
+  const pendingUndoSyncRef = useRef(false);
   const undo = useCallback(() => {
     if (state.gameState.moveHistory.length < 2) return;
     if (state.cardState.pendingCard) return;
+    pendingUndoSyncRef.current = true;
     dispatch({ type: "UNDO" });
   }, [state.gameState.moveHistory.length, state.cardState.pendingCard]);
+
+  // Issue #132: UNDO 完了後の DB 巻き戻し + 保存カウンタリセット。
+  // pendingUndoSyncRef フラグが立っている時のみ実行し、巻き戻し後の state を DB に反映する。
+  // 保存カウンタ (lastSavedMoveCountRef) はリセットしないと、次の指し手で moveCount <= ref により
+  // save useEffect が空振りし、新しい手が DB に保存されない (旧バグ)。
+  // サーバーアクションは fire-and-forget で、失敗時はログのみ (致命ではないため UI は止めない)。
+  // 既知の race: 巻き戻し中にユーザーが新しい手を指すと、後で undo サーバーアクションの
+  // deleteMany が新規保存を消す可能性がある。実用上は transaction が短く稀。回避は将来課題。
+  useEffect(() => {
+    if (!pendingUndoSyncRef.current) return;
+    pendingUndoSyncRef.current = false;
+    lastSavedMoveCountRef.current = state.gameState.moveCount;
+    undoCardShogiGameState(
+      gameId,
+      state.gameState,
+      state.cardState,
+      state.gameState.moveCount,
+    ).catch((e) => {
+      console.error("undoCardShogiGameState failed", e);
+    });
+  }, [state.gameState, state.cardState, gameId]);
 
   const deselect = useCallback(() => {
     dispatch({ type: "DESELECT" });

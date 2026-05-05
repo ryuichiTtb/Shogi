@@ -349,6 +349,67 @@ describe("isPawnReturnLegalSquare", () => {
     const state = makeState();
     expect(isPawnReturnLegalSquare(state, "sente", { row: 4, col: 4 })).toBe(false);
   });
+
+  // Issue #132: ピン駒判定 (引き戻すと自玉が王手になる歩・と金は選択不可)
+  // 旧実装では isPieceReturnLegalSquare のみピン判定を持ち、isPawnReturnLegalSquare に
+  // 同等の probe-board isInCheck チェックが欠けていた。
+  describe("ピン駒判定 (Issue #132)", () => {
+    it("飛車の縦利き上の自歩はピン (引き戻すと縦に王手) → 不可", () => {
+      const state = makeState();
+      placeKing(state, "sente", { row: 8, col: 4 });
+      placeKing(state, "gote", { row: 0, col: 4 });
+      // 玉と飛車の間に自歩。歩を引き戻すと飛車の王手が通る。
+      place(state, { row: 7, col: 4 }, { type: "pawn", owner: "sente" });
+      place(state, { row: 5, col: 4 }, { type: "rook", owner: "gote" });
+      expect(isPawnReturnLegalSquare(state, "sente", { row: 7, col: 4 })).toBe(false);
+    });
+
+    it("香の縦利き上の自歩はピン → 不可", () => {
+      const state = makeState();
+      placeKing(state, "sente", { row: 8, col: 4 });
+      placeKing(state, "gote", { row: 0, col: 4 });
+      place(state, { row: 7, col: 4 }, { type: "pawn", owner: "sente" });
+      // 香は相手の駒として配置 (gote は下方向に進めない/利かないため、ここでは sente 香を
+      // 縦利きの相手として模擬するのは不適切。代わりに駒は変えず、はっきり利く飛車テスト済の
+      // ため香テストは "盤面構造" の確認として、相手香を上向きに置いた局面で検証する)。
+      // CARD_SHOGI_VARIANT における香の利きは前方一直線。 gote 視点で前方は row が大きい方向 (sente 玉側)。
+      place(state, { row: 5, col: 4 }, { type: "lance", owner: "gote" });
+      expect(isPawnReturnLegalSquare(state, "sente", { row: 7, col: 4 })).toBe(false);
+    });
+
+    it("角の斜め利き上の自と金はピン → 不可", () => {
+      const state = makeState();
+      placeKing(state, "sente", { row: 8, col: 4 });
+      placeKing(state, "gote", { row: 0, col: 4 });
+      // 玉 (8,4) と角 (5,7) の間 (7,5) に自と金。引き戻すと斜めに王手。
+      place(state, { row: 7, col: 5 }, { type: "promoted_pawn", owner: "sente" });
+      place(state, { row: 5, col: 7 }, { type: "bishop", owner: "gote" });
+      expect(isPawnReturnLegalSquare(state, "sente", { row: 7, col: 5 })).toBe(false);
+    });
+
+    it("ピン外 (利き筋から外れた自歩) は legal", () => {
+      const state = makeState();
+      placeKing(state, "sente", { row: 8, col: 4 });
+      placeKing(state, "gote", { row: 0, col: 4 });
+      // 飛車の利き筋 (col=4) ではなく col=2 に自歩。盤面に攻め駒は置かないため
+      // 取り除いても引き続き王手にならない (= legal)。
+      place(state, { row: 6, col: 2 }, { type: "pawn", owner: "sente" });
+      expect(isPawnReturnLegalSquare(state, "sente", { row: 6, col: 2 })).toBe(true);
+    });
+
+    it("既に王手中の場合は、無関係の歩でも合法ではない (= isPieceReturnLegalSquare と同契約)", () => {
+      // 仕様: 本関数の probe は「歩を取り除いた後の盤面で王手か」を返す。
+      // 既に王手中であれば、無関係な歩を取り除いても probe は引き続き王手扱い。
+      // → false を返す。これは isPieceReturnLegalSquare と同じ契約。
+      // 王手中の合法判定は isValidCardTargetSquare 経由でさらに simulate して行う。
+      const state = makeState();
+      placeKing(state, "sente", { row: 8, col: 4 });
+      placeKing(state, "gote", { row: 0, col: 4 });
+      place(state, { row: 5, col: 4 }, { type: "rook", owner: "gote" }); // 既に王手
+      place(state, { row: 7, col: 0 }, { type: "pawn", owner: "sente" });
+      expect(isPawnReturnLegalSquare(state, "sente", { row: 7, col: 0 })).toBe(false);
+    });
+  });
 });
 
 describe("applyPawnReturn", () => {
@@ -383,6 +444,16 @@ describe("applyPawnReturn", () => {
   it("空マスは戻せない", () => {
     const state = makeState();
     expect(applyPawnReturn(state, "sente", { row: 4, col: 4 })).toBeNull();
+  });
+
+  // Issue #132: ピン駒には適用できない (= null を返す)
+  it("ピン駒 (引き戻すと自玉が王手) には適用できない", () => {
+    const state = makeState();
+    placeKing(state, "sente", { row: 8, col: 4 });
+    placeKing(state, "gote", { row: 0, col: 4 });
+    place(state, { row: 7, col: 4 }, { type: "pawn", owner: "sente" });
+    place(state, { row: 5, col: 4 }, { type: "rook", owner: "gote" });
+    expect(applyPawnReturn(state, "sente", { row: 7, col: 4 })).toBeNull();
   });
 });
 
