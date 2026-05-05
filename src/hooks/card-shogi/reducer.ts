@@ -11,7 +11,7 @@
 // 移管時にロジックは 1 行も変えず、ファイル境界のみ引いた (move-only)。
 
 import type { GameState, Move, Player, Position } from "@/lib/shogi/types";
-import { applyMove, createInitialGameState } from "@/lib/shogi/board";
+import { applyMove, cloneGameState } from "@/lib/shogi/board";
 import {
   findKing,
   getDropMoves,
@@ -139,6 +139,29 @@ export interface CardShogiGameStateInternal {
       eventLog: GameEvent[];
     };
   } | null;
+  // Issue #132: 待った (UNDO) スナップショットのリングバッファ。
+  // MAKE_MOVE / CONFIRM_PROMOTION の先頭で「移動を適用する直前の state」を 1 件 push する。
+  // size は最大 2 で固定 (待ったは直近 2 ply まで遡る仕様)。
+  // UNDO 時は snapshots[0] (= 2 ply 前の状態) に復元し、ring を 0 件に戻す。
+  //
+  // 旧実装 (createInitialGameState + moveHistory replay) ではカード効果 (歩戻し / 駒戻し /
+  // 二歩指し / 王手崩し / no_promote マーク / トラップ / マナ / 手札 / 山札 / 墓地) が
+  // moveHistory に乗らないため UNDO で消失していた。
+  // 過去 2 ターンスコープ外にカード操作が落ちたとき、cardOp guard を素通りして UNDO が
+  // 許可される結果、戻したはずの駒が盤上に復活する事象も発生していた (Issue #132 再現)。
+  // スナップショット方式は state 全量を保持するため、scope-bounds の漏れに依存せず常に正しく復元する。
+  //
+  // リロード後は in-memory の本フィールドが空 [] となり、UNDO は不可になる
+  // (eventLog も空でリロード後 → getUndoScope null → canUndo false が先に効くが、二重に保守的)。
+  undoSnapshots: UndoSnapshot[];
+}
+
+// Issue #132: 待ったスナップショット。reducer 内部で「移動直前の状態」を保持する。
+// gameState / cardState / eventLog のみ復元対象 (UI 一時 state や演出フラグは復元時にクリア)。
+export interface UndoSnapshot {
+  gameState: GameState;
+  cardState: CardGameState;
+  eventLog: GameEvent[];
 }
 
 // 移動処理のモード切替 (Issue #82 二手指し)。
@@ -148,6 +171,46 @@ export interface CardShogiGameStateInternal {
 // 二手指しはカード使用扱いのため、1手目・2手目とも通常のマナチャージ (+1〜+2) は発生しない
 // (カードコスト -6 のみ消費、これは CONFIRM_PLAY_CARD 側で処理済み)。
 export type MakeMoveMode = "normal" | "double_move_first" | "double_move_second";
+
+// Issue #132: 待ったスナップショットのリング最大サイズ (= 直近何 ply 分を保持するか)。
+// 待った仕様は「直近 2 ply 巻き戻し」なので 2 で十分。これ以上は保持しない (メモリ節約)。
+const UNDO_SNAPSHOT_RING_MAX = 2;
+
+// Issue #132: cardState を「待った復元用」に複製する。
+// hand / deck / graveyard / noPromoteMarks の配列だけ新参照を作って snapshot との
+// 相互独立性を保証する。CardInstance / Position / TrapInstance / pendingCard は
+// reducer 内で mutate されない契約のため ref 共有で OK。
+function cloneCardStateForSnapshot(s: CardGameState): CardGameState {
+  return {
+    mana: { ...s.mana },
+    manaCap: s.manaCap,
+    hand: { sente: [...s.hand.sente], gote: [...s.hand.gote] },
+    deck: { sente: [...s.deck.sente], gote: [...s.deck.gote] },
+    graveyard: { sente: [...s.graveyard.sente], gote: [...s.graveyard.gote] },
+    trap: { sente: s.trap.sente, gote: s.trap.gote },
+    pendingCard: s.pendingCard,
+    lastTurnStartedAt: { ...s.lastTurnStartedAt },
+    noPromoteMarks: {
+      sente: [...s.noPromoteMarks.sente],
+      gote: [...s.noPromoteMarks.gote],
+    },
+    drawProgress: { ...s.drawProgress },
+  };
+}
+
+// Issue #132: 移動を適用する直前の state を snapshot に push し、リングを更新して返す。
+// MAKE_MOVE / CONFIRM_PROMOTION の冒頭で呼び、戻り値を返却 state の undoSnapshots に入れる。
+// gameState は applyMove → cloneGameState で新参照になるため、ここでも cloneGameState で
+// 完全に分離 (board は 2D 配列で参照共有すると以降のターンで mutate される懸念あり)。
+function pushUndoSnapshot(state: CardShogiGameStateInternal): UndoSnapshot[] {
+  const snap: UndoSnapshot = {
+    gameState: cloneGameState(state.gameState),
+    cardState: cloneCardStateForSnapshot(state.cardState),
+    eventLog: state.eventLog.slice(),
+  };
+  // ring size を UNDO_SNAPSHOT_RING_MAX で頭打ち。古い snapshot は evict。
+  return [...state.undoSnapshots.slice(-(UNDO_SNAPSHOT_RING_MAX - 1)), snap];
+}
 
 // 移動 + マナチャージ + トラップフィルタ を一括適用。
 // CONFIRM_PROMOTION と MAKE_MOVE の両方から呼ばれる。
@@ -321,38 +384,6 @@ function isKingInCheckAfterMove(gameState: GameState, move: Move): boolean {
   return isInCheck(nextState, move.player, CARD_SHOGI_VARIANT);
 }
 
-// Issue #130: eventLog から各プレイヤーの drawProgress を再計算する。
-// UNDO 後に scope 切詰めた log から派生 state を復元する用途。
-//
-// 「自分の手番が終わった = drawProgress +1」のルールに従い、turn-end イベントを集計:
-// - moveEvent (mover)
-// - drawEvent { source ?? "manual" === "manual" } (drawer): 旧ログ互換のため未指定は manual 扱い
-// - cardPlayEvent (player)
-// - trapSetEvent (player)
-//
-// auto drawEvent / trapTriggerEvent / manaChargeEvent はカウント対象外 (副作用 or 非ターン操作)。
-// modulo INTERVAL で wrap (※ deck 枯渇による「滞留」は本Issueスコープ外、Plan 6 の注記参照)。
-function computeDrawProgressFromLog(log: GameEvent[]): Record<Player, number> {
-  let sente = 0;
-  let gote = 0;
-  const bump = (p: Player) => {
-    if (p === "sente") sente++;
-    else gote++;
-  };
-  for (const ev of log) {
-    if (ev.kind === "moveEvent") {
-      bump(ev.move.player);
-    } else if (ev.kind === "drawEvent") {
-      if ((ev.source ?? "manual") === "manual") bump(ev.player);
-    } else if (ev.kind === "cardPlayEvent" || ev.kind === "trapSetEvent") {
-      bump(ev.player);
-    }
-  }
-  return {
-    sente: sente % AUTO_DRAW_INTERVAL,
-    gote: gote % AUTO_DRAW_INTERVAL,
-  };
-}
 
 // Issue #130: 「player の手番が終わった」直後に呼び、自動ドロー進捗を加算する。
 // しきい値 (AUTO_DRAW_INTERVAL) 到達 + 山札にカードあり、の条件を満たすと自動ドローを
@@ -420,7 +451,15 @@ function isKingCaptureMove(move: Move): boolean {
 
 // Issue #82 (二手指し): 1手目候補のフィルタ。
 // 「玉が即座に取られない」+「相手玉を取らない」+「∃ 2手目 (詰み禁止フィルタ済) または 1手目で詰み」を満たす手のみ返す。
-// 王手中の場合は王手放置を許す (RELAXED ルール)、王手中でない場合は通常の合法性 + 上記条件。
+//
+// 仕様 (RELAXED): 王手中・王手中でないにかかわらず、1手目で自玉が王手になる手も
+// 「2手目で必ず王手解消できる」場合は合法として扱う。2手目の合法性チェック (`legalSecondMoves`)
+// は内部で `isKingInCheckAfterMove(stateAfterFirst, m)` を適用するため、1手目で発生した
+// 王手は 2手目で必ず解消される手のみが通過する。よって 1手目側で self-check を弾く必要はない。
+//
+// 旧実装 (Issue #132 派生バグ): 王手中でない場合に限り `isKingInCheckAfterMove` で 1手目を
+// 弾いていたため、玉を相手駒の利き上に動かす 1手目 (例: 桂馬の効きに玉を進入させ、2手目で
+// 玉を逃がす手順) が選択不可になっていた。本来の仕様と矛盾していたためフィルタを撤廃。
 function filterDoubleMoveFirstCandidates(
   gameState: GameState,
   player: Player,
@@ -428,14 +467,10 @@ function filterDoubleMoveFirstCandidates(
   mateInOneAvailable: boolean,
 ): Move[] {
   const opponent: Player = player === "sente" ? "gote" : "sente";
-  const inCheck = isInCheck(gameState, player, CARD_SHOGI_VARIANT);
 
   return candidates.filter((m1) => {
     // 相手玉を取る手は不可 (実質的に発生しないが防御的)
     if (isKingCaptureMove(m1)) return false;
-
-    // 王手中でない場合: 通常の合法性 (自玉の王手放置不可)
-    if (!inCheck && isKingInCheckAfterMove(gameState, m1)) return false;
 
     const after1 = applyMove(gameState, m1);
 
@@ -446,7 +481,7 @@ function filterDoubleMoveFirstCandidates(
     // 1手目で相手玉に詰みなら 2手目不要 → OK
     if (isCheckmate(after1, opponent, CARD_SHOGI_VARIANT)) return true;
 
-    // 2手目候補 ≥ 1 必須 (詰み禁止フィルタ済 + 相手玉取り除外済)
+    // 2手目候補 ≥ 1 必須 (詰み禁止フィルタ済 + 相手玉取り除外済 + 自玉王手解消含意)
     const second = legalSecondMoves(after1, player, mateInOneAvailable);
     return second.length > 0;
   });
@@ -698,6 +733,11 @@ export function reducer(
       // ゲーム終了後の指し手は無視 (防御的)
       if (state.gameState.status !== "active") return state;
 
+      // Issue #132: 待った用 snapshot を push (移動を適用する直前の state を保存)。
+      // dm 中も push する。dm 完了後は cardPlayEvent guard で UNDO がブロックされるため、
+      // dm-mid snapshot は使われない (= 害なし)。後続の通常 move で evict される。
+      const newSnapshots = pushUndoSnapshot(state);
+
       const dm = state.doubleMove;
 
       // 二手指し中の 1手目 (movesLeft === 2)
@@ -720,6 +760,7 @@ export function reducer(
             promotionPendingMove: null,
             doubleMove: null,
             isCheckBreakAnimating: result.triggeredCheckBreak || state.isCheckBreakAnimating,
+            undoSnapshots: newSnapshots,
           }, dm);
         }
         // 詰みでないなら currentPlayer を dm.active (自分) に戻して 2手目へ。カードはまだ消費しない。
@@ -735,6 +776,7 @@ export function reducer(
           promotionPendingMove: null,
           doubleMove: { ...dm, movesLeft: 1 },
           isCheckBreakAnimating: result.triggeredCheckBreak || state.isCheckBreakAnimating,
+          undoSnapshots: newSnapshots,
         };
       }
 
@@ -755,6 +797,7 @@ export function reducer(
           promotionPendingMove: null,
           doubleMove: null, // 二手指し終了
           isCheckBreakAnimating: result.triggeredCheckBreak || state.isCheckBreakAnimating,
+          undoSnapshots: newSnapshots,
         }, dm);
       }
 
@@ -771,6 +814,7 @@ export function reducer(
         forbiddenMateMoves: [],
         promotionPendingMove: null,
         isCheckBreakAnimating: result.triggeredCheckBreak || state.isCheckBreakAnimating,
+        undoSnapshots: newSnapshots,
       };
       // Issue #130: 自分の手番が終わった瞬間 = 自動ドロー進捗 +1
       return applyTurnEndEffects(stateAfter, action.move.player);
@@ -790,6 +834,9 @@ export function reducer(
       const moveWithPromote: Move = action.promote
         ? { ...pendingMove, promote: true }
         : pendingMove;
+
+      // Issue #132: 待った用 snapshot を push (移動を適用する直前の state を保存)。
+      const newSnapshots = pushUndoSnapshot(state);
 
       const dm = state.doubleMove;
 
@@ -812,6 +859,7 @@ export function reducer(
             forbiddenMateMoves: [],
             doubleMove: null,
             isCheckBreakAnimating: result.triggeredCheckBreak || state.isCheckBreakAnimating,
+            undoSnapshots: newSnapshots,
           }, dm);
         }
         return {
@@ -826,6 +874,7 @@ export function reducer(
           forbiddenMateMoves: [],
           doubleMove: { ...dm, movesLeft: 1 },
           isCheckBreakAnimating: result.triggeredCheckBreak || state.isCheckBreakAnimating,
+          undoSnapshots: newSnapshots,
         };
       }
 
@@ -846,6 +895,7 @@ export function reducer(
           forbiddenMateMoves: [],
           doubleMove: null,
           isCheckBreakAnimating: result.triggeredCheckBreak || state.isCheckBreakAnimating,
+          undoSnapshots: newSnapshots,
         }, dm);
       }
 
@@ -861,6 +911,7 @@ export function reducer(
         legalMoves: [],
         forbiddenMateMoves: [],
         isCheckBreakAnimating: result.triggeredCheckBreak || state.isCheckBreakAnimating,
+        undoSnapshots: newSnapshots,
       };
       // Issue #130: 自分の手番が終わった瞬間 = 自動ドロー進捗 +1
       return applyTurnEndEffects(stateAfter, moveWithPromote.player);
@@ -887,93 +938,61 @@ export function reducer(
       // Issue #82 (二手指し): 二手指し中は通常の「待った」を不可。
       // 1手目戻しは UNDO_DOUBLE_MOVE_FIRST 専用アクションを使う。
       if (state.doubleMove) return state;
-      // 駒指しの最後の 2 手 (プレイヤー + AI) を巻き戻す。
-      // 仕様 (P28): 過去 2 ターン (= プレイヤー切替 2 回までのスコープ) にカード操作
-      // (drawCard/cardPlay/trapSet/trapTrigger) が含まれる場合は undo 不可。
-      // 同色 moveEvent の連続 (= 二手指しの 1手目+2手目) は同じターン扱いで通り抜ける。
-      // 含まれない場合は、移動巻き戻し + その 2 手分のターンチャージマナを巻き戻す。
-      // 判定ロジックは undo-policy.ts に集約 (canUndo memo と共通化)。
-      // Issue #130: 自動ドロー (drawEvent { source: "auto" }) はユーザー操作ではないので
-      // undo-policy 側でブロック対象から除外する。巻き戻し時は scope 内の auto-draw を
-      // 逆順で hand→deck に戻し、drawProgress は truncated log から再計算する。
+
+      // Issue #132: 待った = スナップショット復元方式 (旧: createInitialGameState + replay)。
+      // 旧実装はカード効果 (歩戻し / 駒戻し / 二歩指し / 王手崩し / no_promote / トラップ /
+      // 手札・山札・墓地) を moveHistory から再現できないため、UNDO 時に消失していた。
+      // また getUndoScope の 2 ターンスコープ走査が cardOp に到達する前に break するケースで、
+      // cardOp guard を素通りして UNDO が許可される結果、戻したはずの駒が盤上に復活する事象も発生。
+      // スナップショット方式は state 全量を保持するため、scope-bounds の漏れに依存せず常に正しく復元する。
+      //
+      // 復元手順:
+      // 1. ring に 2 件以上の snapshot がある (= 直近 2 ply 分) こと
+      // 2. cardOp guard (getUndoScope) は引き続き保持。これは「カード操作直後はその効果を
+      //    取り消せない (= カード使用は確定アクション)」という仕様 UX を維持するため。
+      //    snapshot 自体はカード効果も保持しているので、guard を外すと「カード後の自分の手だけ
+      //    取り消し」が可能になり、cardOp 直後は「カードを残しつつ移動だけ取り消し」できてしまう。
+      //    UI の canUndo memo と整合させるため guard は維持する。
+      // 3. snapshots[0] (= 2 ply 前の状態) を gameState/cardState/eventLog に丸ごと適用
+      // 4. ring を空に戻し、UI 一時 state・演出フラグをすべてクリア
+      //
+      // リロード後 (undoSnapshots: []) は条件 1 で弾かれて「待った 不可」となる。
+      // これは Issue #132 の仕様 (リロード直後はスナップショットがないため待った不可) 通り。
       const history = state.gameState.moveHistory;
       if (history.length < 2) return state;
-
-      const log = state.eventLog;
-      const scopeStartIndex = getUndoScope(log);
+      if (state.undoSnapshots.length < 2) return state;
+      const scopeStartIndex = getUndoScope(state.eventLog);
       if (scopeStartIndex === null) return state;
 
-      // 巻き戻すターンチャージマナを集計
-      let revertSenteMana = 0;
-      let revertGoteMana = 0;
-      for (let i = scopeStartIndex; i < log.length; i++) {
-        const ev = log[i];
-        if (ev.kind === "manaChargeEvent" && ev.reason === "turn") {
-          if (ev.player === "sente") revertSenteMana += ev.amount;
-          else revertGoteMana += ev.amount;
-        }
-      }
-
-      // 駒指しを 2 手前まで再適用
-      const initialState = createInitialGameState(CARD_SHOGI_VARIANT);
-      const movesToApply = history.slice(0, -2);
-      let newGameState = initialState;
-      for (const m of movesToApply) {
-        newGameState = applyMove(newGameState, m);
-      }
-
-      // Issue #130: scope 内 auto-draw を逆順で巻き戻す (hand から該当インスタンスを除き、
-      // deck 先頭に push back)。複数 auto-draw でも逆順走査により deck 順序が正しく復元される。
-      // hand/deck の元参照を破壊しないよう、変更があった player 側のみ新オブジェクトに置換。
-      let revertedHand = state.cardState.hand;
-      let revertedDeck = state.cardState.deck;
-      for (let i = log.length - 1; i >= scopeStartIndex; i--) {
-        const ev = log[i];
-        if (ev.kind === "drawEvent" && (ev.source ?? "manual") === "auto") {
-          revertedHand = {
-            ...revertedHand,
-            [ev.player]: revertedHand[ev.player].filter(
-              (c) => c.instanceId !== ev.instance.instanceId,
-            ),
-          };
-          revertedDeck = {
-            ...revertedDeck,
-            [ev.player]: [ev.instance, ...revertedDeck[ev.player]],
-          };
-        }
-      }
-
-      const truncatedLog = log.slice(0, scopeStartIndex);
-      const newDrawProgress = computeDrawProgressFromLog(truncatedLog);
-
+      const target = state.undoSnapshots[state.undoSnapshots.length - 2];
       return {
         ...state,
-        gameState: newGameState,
+        gameState: target.gameState,
+        cardState: {
+          ...target.cardState,
+          // 早指しタイマーは undo 後に自分の番が来た時点で再セットされるため null に統一
+          lastTurnStartedAt: { sente: null, gote: null },
+          // pendingCard は undo の前提で常にクリア (snapshot にも基本 null だが防御)
+          pendingCard: null,
+        },
+        eventLog: target.eventLog,
+        // UI 一時 state はすべてクリア
         selectedSquare: null,
         selectedHandPiece: null,
         legalMoves: [],
         forbiddenMateMoves: [],
         promotionPendingMove: null,
-        // ドロー演出フラグは UNDO 後にすべて解除 (Issue #130: pendingDrawSource も含む)
+        // 演出フラグもすべて解除 (Issue #130 / #132: 古い演出が再発火しないよう)
         isDrawing: false,
         pendingDrawPlayer: null,
         pendingDrawSource: null,
-        cardState: {
-          ...state.cardState,
-          mana: {
-            sente: Math.max(0, state.cardState.mana.sente - revertSenteMana),
-            gote: Math.max(0, state.cardState.mana.gote - revertGoteMana),
-          },
-          hand: revertedHand,
-          deck: revertedDeck,
-          drawProgress: newDrawProgress,
-          // 早指しタイマーは undo 後に自分の番が来た時点で再セットされるため null に
-          lastTurnStartedAt: { sente: null, gote: null },
-          // pendingCard は undo の前提で常にクリア
-          pendingCard: null,
-        },
-        // eventLog も undo スコープ前まで戻す
-        eventLog: truncatedLog,
+        isPlayingCard: false,
+        pendingPlayCardOpponent: null,
+        isCheckBreakAnimating: false,
+        // 二手指しは UNDO で復元しない (= 二手指し中の UNDO は冒頭でブロック済)
+        doubleMove: null,
+        // 復元した分の snapshot を ring から除去
+        undoSnapshots: state.undoSnapshots.slice(0, -2),
       };
     }
 
