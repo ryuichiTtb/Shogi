@@ -305,6 +305,18 @@ export function CardShogiGame({
     (isGameActive || gameState.status === "checkmate") &&
     isInCheck(gameState, gameState.currentPlayer, CARD_SHOGI_VARIANT);
 
+  // Issue #132 派生: 二手指し 1 手目で自玉が王手になる過渡状態 (movesLeft===1 + inCheck)
+  // を判定するフラグ。仕様上、1 手目自玉王手は 2 手目で必ず解消されるため「王手」を
+  // 演出・SFX・ステータスバッジ等で示す UI は抑制する。一方で論理的な「王手中」(card 使用
+  // 可否 / drawCard 可否) は inCheck そのものを使い、玉の赤色スタイルも ShogiBoard が
+  // inCheck prop 経由で描画するため、それらは抑制対象外。
+  // 通常の王手 (相手玉への王手 / AI からの王手) は doubleMove === null のため対象外。
+  const isDoubleMoveSelfCheckTransient =
+    inCheck && doubleMove !== null && doubleMove.movesLeft === 1;
+  // 「王手中」を UI 演出 (Badge / 中央オーバーレイ / SFX) に伝えるための派生値。
+  // 上記 transient のときだけ false に倒し、抑制する。
+  const displayInCheck = inCheck && !isDoubleMoveSelfCheckTransient;
+
   // ----- サウンド -----
   useEffect(() => {
     const lastMove = gameState.moveHistory[gameState.moveHistory.length - 1];
@@ -321,17 +333,9 @@ export function CardShogiGame({
     } else {
       playSfx("piece_move");
     }
-    if (inCheck) {
-      // Issue #132 派生: 二手指し 1 手目で自玉が王手になる過渡状態 (movesLeft===1) は、
-      // 1 手目自玉王手 → 2 手目で必ず解消される設計仕様上、王手 SFX と中央演出を抑制する。
-      // 玉の赤色スタイルは ShogiBoard が `inCheck` prop 経由で描画するためそのまま維持。
-      // 通常の王手 (相手玉への王手 / AI からの王手) は doubleMove === null のため対象外。
-      const isDoubleMoveSelfCheckTransient =
-        doubleMove !== null && doubleMove.movesLeft === 1;
-      if (!isDoubleMoveSelfCheckTransient) {
-        playSfx("check");
-        setOverlayEvent({ event: "check", key: Date.now() });
-      }
+    if (displayInCheck) {
+      playSfx("check");
+      setOverlayEvent({ event: "check", key: Date.now() });
     }
     if (gameState.status === "checkmate") {
       setTimeout(() => playSfx("game_over"), 1000);
@@ -1145,7 +1149,9 @@ export function CardShogiGame({
         >
           {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
         </Button>
-        {inCheck && (
+        {/* Issue #132 派生: ステータスバッジは displayInCheck (= 二手指し 1 手目自玉王手の
+            過渡状態を除いた inCheck) を見る。玉赤スタイルは ShogiBoard 側で inCheck 直参照のため維持。 */}
+        {displayInCheck && (
           <Badge variant="destructive" className="animate-pulse text-xs">
             王手！
           </Badge>
@@ -1531,7 +1537,8 @@ export function CardShogiGame({
             >
               {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
             </Button>
-            {inCheck && (
+            {/* Issue #132 派生: 二手指し 1 手目自玉王手の過渡状態は Badge を抑制 (玉赤は維持) */}
+            {displayInCheck && (
               <Badge variant="destructive" className="animate-pulse text-xs">
                 王手！
               </Badge>
