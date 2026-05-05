@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { CardView } from "@/components/game/card-shogi/card-view";
 import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
 import {
+  CHECK_USAGE_INFO,
   KIND_INFO,
   RARITY_INFO,
   STATUS_INFO,
@@ -114,6 +115,23 @@ export default async function CardDetailPage({ params }: CardDetailPageProps) {
               </p>
             </section>
           )}
+
+          {/* 王手中の使用可否 (Issue #82): 効果詳細・使用条件と同列のメタ情報として
+              専用セクションで表示する。詳細記述内に文として埋もれさせない。 */}
+          <section>
+            <h2 className="text-sm font-bold mb-1.5">王手中の使用</h2>
+            <div className="flex flex-col gap-1.5">
+              <Badge
+                variant="outline"
+                className={cn("text-xs w-fit", CHECK_USAGE_INFO[def.checkUsage].className)}
+              >
+                {CHECK_USAGE_INFO[def.checkUsage].label}
+              </Badge>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                {CHECK_USAGE_INFO[def.checkUsage].description}
+              </p>
+            </div>
+          </section>
 
           <section>
             <h2 className="text-sm font-bold mb-2">メタ情報</h2>
