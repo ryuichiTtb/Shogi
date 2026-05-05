@@ -30,6 +30,20 @@ export type CardStatus = "draft" | "preparing" | "active" | "deprecated";
 // 採用フェーズ(設計ドキュメント 2.5)
 export type CardPhase = "0" | "A" | "B" | "C";
 
+// 王手中の使用可否区分 (Issue #82)。
+// 大前提: 自分に手番が回ってきた時点で「王手中なら必ず1手で王手回避できる手が存在する」
+// (詰みなら手番自体が回らない)。この前提のもとで:
+// - "forbidden": そのカードの効果が「王手回避になり得ない」ため、王手中は無条件で使用不可。
+//   例: 自分の駒を盤上から退かす歩戻し / 駒戻し、盤面駒に作用しないトラップ系。
+//   メリット: 動的判定 (canEscapeCheckWithCard 等) を完全にスキップ → 計算リソース節約。
+// - "conditional": 通常の1手の「一部のパターンでのみ」回避になる場合。配置先・対象次第なので
+//   動的シミュレーションで実際に検証する。例: 二歩指し (合駒として打てるマスがあるか)。
+// - "unconditional": そのカードが「通常の1手分以上の選択肢」を提供する場合。大前提から
+//   1手回避手は必ず存在するので、そのカード機能で必ず1手回避手を取れる = 無条件で使用可。
+//   例: 二手指し (1手で回避できる前提から2手以内で回避は自明)。動的判定をスキップ。
+// 詳細指針: Issue #82 のコメント「王手時カード使用可否の検討観点」参照。
+export type CardCheckUsage = "forbidden" | "conditional" | "unconditional";
+
 // 使用条件判定(マナ以外の独自条件)。true=使用可 / false=非活性。
 // CARD_USE_CONDITIONS で defId 別に登録 (Server→Client 境界で serialize できないため
 // CardDefinition には含めない)。未登録 defId は常に使用可と見なす。
@@ -54,6 +68,9 @@ export interface CardDefinition {
   icon: string;
   // 運用ステータス(マスターカタログでのフィルタ・公開判定に使用)
   status: CardStatus;
+  // 王手中の使用可否区分 (Issue #82)。trap カードは原則 "forbidden" (固定)。
+  // normal カードは設計判断で個別に決定する。詳細は CardCheckUsage の JSDoc 参照。
+  checkUsage: CardCheckUsage;
   // 採用フェーズ
   phase?: CardPhase;
   // 詳細仕様(マスターカタログ詳細ページ表示用、改行・箇条書き可)

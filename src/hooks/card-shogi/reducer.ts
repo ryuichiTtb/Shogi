@@ -1094,15 +1094,19 @@ export function reducer(
       if (cardUseCondition && !cardUseCondition(state.gameState, action.player, state.cardState)) {
         return state;
       }
-      // 王手中: カード使用は王手回避できる場合のみ可。
-      // (Issue #82: 「王手中一律不可」から「王手回避になるカードのみ可」に変更)
-      // 配置先のチェックは SELECT_CARD_TARGET / CONFIRM_PLAY_CARD でも行う。
-      // double_move (二手指し) は即時の盤面効果がなく getCheckEscapingSquares が
-      // 常に空を返すため、この secondary ガードは skip する。
-      // (王手中の使用可否は CARD_USE_CONDITIONS.double_move = canEscapeCheckWithDoubleMove で判定済)
-      if (isInCheck(state.gameState, action.player, CARD_SHOGI_VARIANT) && card.defId !== "double_move") {
-        const escapingSquares = getCheckEscapingSquares(state.gameState, action.player, card.defId);
-        if (escapingSquares.length === 0) return state;
+      // 王手中: カード使用可否は checkUsage フラグで二段ゲート (Issue #82)。
+      // - "forbidden":     盤上駒退避系・盤面に作用しないカード等。動的判定スキップ
+      // - "conditional":   target ありなら getCheckEscapingSquares で配置先存在を要求。
+      //                    target なし conditional は CARD_USE_CONDITIONS で個別判定済
+      //                    (現状未使用)
+      // - "unconditional": double_move 等。動的判定スキップ (前提保証で常に使用可)
+      // 配置先の妥当性 (王手回避になるか) は SELECT_CARD_TARGET / CONFIRM_PLAY_CARD でも検証。
+      if (isInCheck(state.gameState, action.player, CARD_SHOGI_VARIANT)) {
+        if (def.checkUsage === "forbidden") return state;
+        if (def.checkUsage === "conditional" && def.targeting !== "none") {
+          const escapingSquares = getCheckEscapingSquares(state.gameState, action.player, card.defId);
+          if (escapingSquares.length === 0) return state;
+        }
       }
       // Issue #106: 全カードでまず確認ポップアップ (phase="confirm") を出し、
       // 「使用する」確定後に必要なら selectTarget へ遷移する流れに統一する。

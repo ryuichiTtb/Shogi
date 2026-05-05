@@ -184,6 +184,13 @@ Issue対応やコード変更依頼で実装・検証・コミットが完了し
    - `CardDefinition` の必須フィールドをすべて埋める
    - `status` は新規実装中なら `"preparing"`、検証用見本なら `"draft"`、本実装完了後は `"active"`
    - `useConditionDescription` は `CARD_USE_CONDITIONS` に登録した条件と整合させる
+   - **`checkUsage` (王手中の使用可否) を必ず明示** (Issue #82)。判断指針:
+     - **大前提**: 自分の手番開始時、王手中なら必ず1手で回避できる手が存在する (詰みなら手番が回らない)
+     - `"forbidden"`: そのカード効果が王手回避になり得ない (盤上駒退避系・盤面に作用しないカード・トラップ)
+     - `"conditional"`: 通常の1手の一部パターンでのみ王手回避になる (合駒系)。target ありなら動的判定が動く
+     - `"unconditional"`: 通常の1手分以上の選択肢を提供する (= 必ず1手回避手を取れる。例: 二手指し)
+     - トラップカードは原則 `"forbidden"`
+     - 詳細: Issue #82 のコメント「王手時カード使用可否の検討観点」を参照
 
 2. **効果適用関数** (`src/lib/shogi/cards/effects.ts`)
    - target ありカードは `applyXxx` を実装し、`simulateCardEffect` の switch にも追加
