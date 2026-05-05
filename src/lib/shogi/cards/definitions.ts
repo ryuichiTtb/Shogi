@@ -1,4 +1,6 @@
 import type { GameState, Player } from "@/lib/shogi/types";
+import { canEscapeCheckWithDoubleMove, isInCheck } from "@/lib/shogi/moves";
+import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
 import type { CardDefinition, CardId, CardUseCondition } from "./types";
 
 // ----- 共通 useCondition ヘルパ -----
@@ -143,6 +145,26 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
     relatedIssues: [82, 105],
   },
 
+  double_move: {
+    id: "double_move",
+    kind: "normal",
+    name: "二手指し",
+    description: "1ターンに続けて駒を2回動かす",
+    cost: 6,
+    rarity: "super_rare",
+    effectId: "double_move",
+    targeting: "none",
+    icon: "⚡",
+    status: "active",
+    phase: "A",
+    detailDescription:
+      "カード使用後、続けて駒を2回動かす。\n\n【効果】\n- カード確定後、自分の番のまま 2手指せる\n- カード使用扱いのため、マナチャージは発生しない (カードコスト 6 のみ消費)\n- 1手目を指した後、「戻す」ボタンで 1手目を取り消して別の手を選び直すことが可能 (1手目で詰みが確定した場合を除く)\n- 1手目・2手目で同じ駒を動かしても可\n- 1手目で相手の駒を取った場合、2手目でその駒を打つことも可能\n\n【詰み禁止ルール】\n- カード使用時点で 1手詰めが存在する場合: 1手目・2手目どちらで詰ませても OK (1手目で詰めば即終了)\n- カード使用時点で 1手詰めが存在しない場合: 2手目で詰みになる手は禁止 (1手目+2手目で詰みに繋がる手順は禁止)\n\n【王手中の使用】\n- 王手中でも使用可 (2手以内に王手を回避できる場合のみ)\n- 1手目では自玉が王手のままでも構わないが、2手目終了時点で必ず王手を解消していること",
+    useConditionDescription:
+      "- 王手中の場合、2手以内に王手を回避できる手順が存在する\n  (王手中でなければ常に使用可能)",
+    addedAt: "2026-05-04",
+    relatedIssues: [82],
+  },
+
   no_promote: {
     id: "no_promote",
     kind: "trap",
@@ -161,130 +183,6 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
       "- 自分の盤面に「成り無効化」トラップが既にセットされていない",
     addedAt: "2026-04-30",
     relatedIssues: [68, 80, 82, 105],
-  },
-
-  // --- サンプルカード (Issue #104 レア度ビジュアル検証用、status: "draft") ---
-  // 通常×4 + トラップ×4 = 8 種。effectId/cost は仮で、プールには入らない。
-
-  sample_normal_common: {
-    id: "sample_normal_common",
-    kind: "normal",
-    name: "サンプル通常 ノーマル",
-    description: "ノーマルレア度の通常カード見本",
-    cost: 1,
-    rarity: "common",
-    effectId: "noop",
-    targeting: "none",
-    icon: "🟢",
-    status: "draft",
-    detailDescription: "レア度ビジュアル検証用のサンプル。実プールには出ません。",
-    addedAt: "2026-05-01",
-    relatedIssues: [104],
-  },
-  sample_normal_rare: {
-    id: "sample_normal_rare",
-    kind: "normal",
-    name: "サンプル通常 レア",
-    description: "レアレア度の通常カード見本",
-    cost: 3,
-    rarity: "rare",
-    effectId: "noop",
-    targeting: "none",
-    icon: "🔷",
-    status: "draft",
-    detailDescription: "レア度ビジュアル検証用のサンプル。実プールには出ません。",
-    addedAt: "2026-05-01",
-    relatedIssues: [104],
-  },
-  sample_normal_super_rare: {
-    id: "sample_normal_super_rare",
-    kind: "normal",
-    name: "サンプル通常 激レア",
-    description: "激レアレア度の通常カード見本",
-    cost: 5,
-    rarity: "super_rare",
-    effectId: "noop",
-    targeting: "none",
-    icon: "💎",
-    status: "draft",
-    detailDescription: "レア度ビジュアル検証用のサンプル。実プールには出ません。",
-    addedAt: "2026-05-01",
-    relatedIssues: [104],
-  },
-  sample_normal_epic: {
-    id: "sample_normal_epic",
-    kind: "normal",
-    name: "サンプル通常 究極",
-    description: "究極レア度の通常カード見本",
-    cost: 7,
-    rarity: "epic",
-    effectId: "noop",
-    targeting: "none",
-    icon: "👑",
-    status: "draft",
-    detailDescription: "レア度ビジュアル検証用のサンプル。実プールには出ません。",
-    addedAt: "2026-05-01",
-    relatedIssues: [104],
-  },
-  sample_trap_common: {
-    id: "sample_trap_common",
-    kind: "trap",
-    name: "サンプルトラップ ノーマル",
-    description: "ノーマルレア度のトラップカード見本",
-    cost: 2,
-    rarity: "common",
-    effectId: "noop",
-    targeting: "none",
-    icon: "🪤",
-    status: "draft",
-    detailDescription: "レア度ビジュアル検証用のサンプル。実プールには出ません。",
-    addedAt: "2026-05-01",
-    relatedIssues: [104],
-  },
-  sample_trap_rare: {
-    id: "sample_trap_rare",
-    kind: "trap",
-    name: "サンプルトラップ レア",
-    description: "レアレア度のトラップカード見本",
-    cost: 4,
-    rarity: "rare",
-    effectId: "noop",
-    targeting: "none",
-    icon: "🕸️",
-    status: "draft",
-    detailDescription: "レア度ビジュアル検証用のサンプル。実プールには出ません。",
-    addedAt: "2026-05-01",
-    relatedIssues: [104],
-  },
-  sample_trap_super_rare: {
-    id: "sample_trap_super_rare",
-    kind: "trap",
-    name: "サンプルトラップ 激レア",
-    description: "激レアレア度のトラップカード見本",
-    cost: 6,
-    rarity: "super_rare",
-    effectId: "noop",
-    targeting: "none",
-    icon: "☠️",
-    status: "draft",
-    detailDescription: "レア度ビジュアル検証用のサンプル。実プールには出ません。",
-    addedAt: "2026-05-01",
-    relatedIssues: [104],
-  },
-  sample_trap_epic: {
-    id: "sample_trap_epic",
-    kind: "trap",
-    name: "サンプルトラップ 究極",
-    description: "究極レア度のトラップカード見本",
-    cost: 8,
-    rarity: "epic",
-    effectId: "noop",
-    targeting: "none",
-    icon: "🌟",
-    status: "draft",
-    detailDescription: "レア度ビジュアル検証用のサンプル。実プールには出ません。",
-    addedAt: "2026-05-01",
-    relatedIssues: [104],
   },
 };
 
@@ -305,6 +203,12 @@ export const CARD_USE_CONDITIONS: Partial<Record<CardId, CardUseCondition>> = {
   // 自分の盤上に玉以外の駒が1枚以上あれば使用可。
   // ※ ピン駒しか残っていない極限状況では選択肢ゼロになるが、その判定は SELECT_SQUARE 側で行う。
   piece_return: (gameState, player) => hasOwnNonKingPieceOnBoard(gameState, player),
+  // 王手中でない → 常に使用可。
+  // 王手中 → 2手以内に王手を回避できる手順が存在する場合のみ使用可。
+  double_move: (gameState, player) => {
+    if (!isInCheck(gameState, player, CARD_SHOGI_VARIANT)) return true;
+    return canEscapeCheckWithDoubleMove(gameState, player, CARD_SHOGI_VARIANT);
+  },
 };
 
 // マナ・ドローコストの確定値(Issue #81 / 2026-05-01 確定)
