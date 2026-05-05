@@ -62,19 +62,12 @@ export function DeckCardTile({
   title,
   ghosted = false,
 }: DeckCardTileProps) {
+  // Issue #132: react-hooks/rules-of-hooks 修正。
+  // 旧実装は `useRef(ref)` の後に `if (!def) return null;` で早期 return し、
+  // その下に `useRef × 3` / `useCallback × 2` を呼んでいた。条件付き return 後の hook 呼出
+  // は順序保証を破壊するため lint エラー (orphan cardId 時に hook が呼ばれず React 内部
+  // 状態がズレる)。全 hook を関数先頭で呼び切ってから def チェックに進むように並べ替えた。
   const ref = useRef<HTMLDivElement>(null);
-  const def = CARD_DEFS[cardId];
-  // Issue #117 (#128): server 側で orphan を弾いているので通常は発生しないが、
-  // データドリフト時に画面全体クラッシュさせない最終防御として早期 return。
-  // (CARD_DEFS に居ない cardId が来た場合 = `def === undefined` で `def.rarity` NPE になる)
-  if (!def) {
-    if (process.env.NODE_ENV !== "production") {
-      console.warn(`[DeckCardTile] Unknown cardId "${cardId}" — skipping render`);
-    }
-    return null;
-  }
-
-  // ---- 長押し検出 (compact / mobile 用) ----
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
   const longPressStartPosRef = useRef<{ x: number; y: number } | null>(null);
@@ -125,6 +118,18 @@ export function DeckCardTile({
     },
     [cancelLongPress],
   );
+
+  // ---- 長押し検出 (compact / mobile 用) hook 呼出はここまで。以降は def チェック後の通常 render ----
+  const def = CARD_DEFS[cardId];
+  // Issue #117 (#128): server 側で orphan を弾いているので通常は発生しないが、
+  // データドリフト時に画面全体クラッシュさせない最終防御として早期 return。
+  // (CARD_DEFS に居ない cardId が来た場合 = `def === undefined` で `def.rarity` NPE になる)
+  if (!def) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn(`[DeckCardTile] Unknown cardId "${cardId}" — skipping render`);
+    }
+    return null;
+  }
 
   function handleClick() {
     if (disabled) return;

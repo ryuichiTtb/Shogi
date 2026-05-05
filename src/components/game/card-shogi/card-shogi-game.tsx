@@ -9,6 +9,7 @@ import { ChevronUp, ChevronDown, Volume2, VolumeX } from "lucide-react";
 import { useCardShogiGame } from "@/hooks/use-card-shogi-game";
 import { useSound } from "@/hooks/use-sound";
 import { useCardBoardSize } from "@/hooks/use-card-board-size";
+import { getUndoScope } from "@/hooks/card-shogi/undo-policy";
 
 import { ShogiBoard, type ShogiBoardHandle } from "../shogi-board";
 import { CapturedPieces } from "../captured-pieces";
@@ -36,7 +37,7 @@ import type { Difficulty, GameConfig, GameState, Move, Player, Position } from "
 import type { CommentaryEvent } from "@/app/actions/commentary";
 import type { CardGameState, CardInstance } from "@/lib/shogi/cards/types";
 import { CARD_DEFS, CARD_USE_CONDITIONS, DRAW_COST } from "@/lib/shogi/cards/definitions";
-import { isDoublePawnLegalSquare, isPieceReturnLegalSquare, isValidCardTargetSquare, simulateCardEffect, canEscapeCheckWithCard, hasSameKindTrapPlaced } from "@/lib/shogi/cards/effects";
+import { isValidCardTargetSquare, canEscapeCheckWithCard, hasSameKindTrapPlaced } from "@/lib/shogi/cards/effects";
 import type { CardId } from "@/lib/shogi/cards/types";
 import { createGame } from "@/app/actions/game";
 
@@ -45,7 +46,10 @@ import { HandArea } from "./hand-area";
 import { TrapSlot } from "./trap-slot";
 import { DeckPile } from "./deck-pile";
 import { CardPlayDialog, CardTargetingNotice } from "./card-play-dialog";
+import { DoubleMoveNotice } from "./double-move-notice";
+import { ForbiddenMateDialog } from "./forbidden-mate-dialog";
 import { DrawFlightCard } from "./draw-flight-card";
+import { AutoDrawBurst } from "./auto-draw-burst";
 import { CardPlayFlight } from "./card-play-flight";
 import { PieceFlight, type PieceFlightSpec } from "./piece-flight";
 import { useFlightParams } from "@/lib/dev/flight-params";
@@ -81,7 +85,6 @@ function shouldPlayJumpSfx(move: Move): boolean {
 // インライン `() => {}` を毎レンダー新しい関数として渡すと React.memo の浅い比較が
 // 無効化されてしまうため、モジュールスコープで定義して安定化する (Step 2 / Issue #107)。
 const NOOP_PIECE_CLICK: (pieceType: string) => void = () => {};
-const NOOP_UNDO: () => void = () => {};
 
 // 空配列の共有参照。pieceFlight 等で「該当なし」のケースを useMemo に通しても
 // 毎レンダー [] を new するとメモ化が無効化されるため、フラグメンテーション回避。
@@ -101,9 +104,58 @@ export function CardShogiGame({
   // する。閉じると盤面・持ち駒が見え、再度展開して「もう一局」「ホームへ」を
   // 押せる。
   const [endCardMinimized, setEndCardMinimized] = useState(false);
-  // Issue #78: ドロー演出 (山札→中央→手札)。演出完了まで自分の手番継続・操作ロック。
-  const [drawFlight, setDrawFlight] = useState<{ card: CardInstance; key: number } | null>(null);
-  const isDrawAnimating = drawFlight !== null;
+  // Issue #78 + #130: ドロー演出キュー (FIFO)。
+  // 旧実装は単一スロット (drawFlight) で manual 直後に auto-draw が発火すると
+  // setDrawFlight が上書きされ manual 演出が中断されるバグがあった (#130)。
+  // FIFO 化により manual → auto の連鎖でも順次 2 枚を再生する。
+  // 連鎖時 (同一 ms 内 push) でも key 衝突しないよう ref counter で連番発番。
+  type DrawFlightItem = {
+    card: CardInstance;
+    source: "manual" | "auto";
+    key: number;
+  };
+  const [drawFlightQueue, setDrawFlightQueue] = useState<DrawFlightItem[]>([]);
+  const currentDrawFlight = drawFlightQueue[0] ?? null;
+  const isDrawAnimating = drawFlightQueue.length > 0;
+  const flightKeyCounterRef = useRef(0);
+  const nextFlightKey = useCallback(() => {
+    flightKeyCounterRef.current += 1;
+    return flightKeyCounterRef.current;
+  }, []);
+  // Issue #130: AutoDrawBurst は currentDrawFlight が auto に切り替わった瞬間に起動。
+  // 単一スロット (origin + key) で、burstKey の更新で AnimatePresence が新規 mount する。
+  const [autoBurst, setAutoBurst] = useState<{
+    origin: { x: number; y: number };
+    scale: "self" | "opponent";
+    key: number;
+  } | null>(null);
+  // Issue #130: aria-live 用の発動通知メッセージ。1500ms debounce。
+  const [autoDrawLiveMessage, setAutoDrawLiveMessage] = useState("");
+  // Issue #130: 手札着地時の emerald flash (auto-draw 用)。
+  // 既存 freshlyDrawnId (amber) と区別するため別 state で持つ。
+  const [autoFreshlyDrawnId, setAutoFreshlyDrawnId] = useState<string | null>(null);
+  // Issue #130 G-2: 複数 setTimeout を unmount 時に一括 cleanup する共通パターン。
+  // ① opponent SFX 100ms 遅延、② aria-live 1500ms debounce、③ emerald flash 700ms
+  // クリアの 3 種で使用。timersRef で id を集中管理し、cleanup で全解除。
+  const timersRef = useRef<Set<number>>(new Set());
+  const scheduleTimer = useCallback((callback: () => void, delay: number): number => {
+    const id = window.setTimeout(() => {
+      timersRef.current.delete(id);
+      callback();
+    }, delay);
+    timersRef.current.add(id);
+    return id;
+  }, []);
+  useEffect(() => {
+    // ref は安定参照だが lint 警告回避のためローカルにコピーしてから cleanup
+    const timers = timersRef.current;
+    return () => {
+      timers.forEach((id) => window.clearTimeout(id));
+      timers.clear();
+    };
+  }, []);
+  // aria-live のタイマー id (連続発火時に古いタイマーをキャンセルして 1500ms 維持)
+  const liveMessageTimerRef = useRef<number | null>(null);
   // Issue #106: カード使用/トラップセット時の中央演出 (中央にパッと出現+キラッと光る)。
   // ドロー演出と異なり手番をロックせず短時間 (~1.2s) で抜ける。
   const [playFlight, setPlayFlight] = useState<{
@@ -171,6 +223,8 @@ export function CardShogiGame({
     hideTargets: FlightHideTarget[];
     pendingFlightCount: number;
   } | null>(null);
+  // Issue #82 (二手指し): 2手目で禁止された詰み手をクリックされたときに表示する案内ダイアログ。
+  const [forbiddenMateDialogOpen, setForbiddenMateDialogOpen] = useState(false);
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const { squareSize, isMobile, viewportHeight } = useCardBoardSize();
@@ -208,6 +262,7 @@ export function CardShogiGame({
     selectedSquare,
     selectedHandPiece,
     legalMoves,
+    forbiddenMateMoves,
     isAiThinking,
     promotionPendingMove,
     cardState,
@@ -228,6 +283,9 @@ export function CardShogiGame({
     finalizeCheckBreak,
     isPlayingCard,
     isCheckBreakAnimating,
+    doubleMove,
+    undoDoubleMoveFirst,
+    cancelDoubleMove,
   } = useCardShogiGame({
     initialState: initialGameState,
     initialCardState,
@@ -243,6 +301,18 @@ export function CardShogiGame({
   const inCheck =
     (isGameActive || gameState.status === "checkmate") &&
     isInCheck(gameState, gameState.currentPlayer, CARD_SHOGI_VARIANT);
+
+  // Issue #132 派生: 二手指し 1 手目で自玉が王手になる過渡状態 (movesLeft===1 + inCheck)
+  // を判定するフラグ。仕様上、1 手目自玉王手は 2 手目で必ず解消されるため「王手」を
+  // 演出・SFX・ステータスバッジ等で示す UI は抑制する。一方で論理的な「王手中」(card 使用
+  // 可否 / drawCard 可否) は inCheck そのものを使い、玉の赤色スタイルも ShogiBoard が
+  // inCheck prop 経由で描画するため、それらは抑制対象外。
+  // 通常の王手 (相手玉への王手 / AI からの王手) は doubleMove === null のため対象外。
+  const isDoubleMoveSelfCheckTransient =
+    inCheck && doubleMove !== null && doubleMove.movesLeft === 1;
+  // 「王手中」を UI 演出 (Badge / 中央オーバーレイ / SFX) に伝えるための派生値。
+  // 上記 transient のときだけ false に倒し、抑制する。
+  const displayInCheck = inCheck && !isDoubleMoveSelfCheckTransient;
 
   // ----- サウンド -----
   useEffect(() => {
@@ -260,7 +330,7 @@ export function CardShogiGame({
     } else {
       playSfx("piece_move");
     }
-    if (inCheck) {
+    if (displayInCheck) {
       playSfx("check");
       setOverlayEvent({ event: "check", key: Date.now() });
     }
@@ -397,15 +467,61 @@ export function CardShogiGame({
       const ev = newEvents[i];
       const absoluteIdx = startIdx + i;
       switch (ev.kind) {
-        case "drawEvent":
-          playSfx("card_draw");
-          // Issue #78: 自分のドローのみ中央演出 (AI ドローは Phase 0 では発生しない想定だが防御的に絞る)
-          if (ev.player === playerColor) {
-            setDrawFlight({ card: ev.instance, key: Date.now() });
+        case "drawEvent": {
+          // Issue #130: source 別の挙動分岐。
+          // - SFX: 自分は即時、相手は 100ms 遅延 (連鎖時に重なり防止)
+          // - 演出キュー: 自分のドローのみ push (相手ドローは中央演出を出さない)
+          // - manaFlight: 手動ドロー (= マナ消費あり) のときのみ
+          // - aria-live: auto のとき (sente/gote 両方)「自動ドローしました」を 1500ms debounce で通知
+          //
+          // 【重要なロックバグ修正】
+          // 相手 (AI) 側の auto-draw でも reducer は isDrawing=true を立てる
+          // (applyTurnEndEffects の発火対象は player に依存しない)。
+          // 自分側 (isSelf=true) と異なり drawFlightQueue に push しないため、
+          // DrawFlightCard の onComplete → finalizeDraw が呼ばれず、isDrawing が
+          // 永続する。次に自分の手番が回ってきても selectSquare / drawCard /
+          // beginPlayCard の全ガードが効いて操作完全ロックという重大バグが
+          // 発生する。相手側ドローでも一定の視覚的待ち時間 (~600ms) を確保した上で
+          // 必ず finalizeDraw を呼んで isDrawing をクリアする。
+          const source = ev.source ?? "manual";
+          const isSelf = ev.player === playerColor;
+          if (isSelf) {
+            playSfx("card_draw");
+            setDrawFlightQueue((q) => [
+              ...q,
+              { card: ev.instance, source, key: nextFlightKey() },
+            ]);
+          } else {
+            // 相手側 auto-draw は SE 無し (盤面集中を阻害しないため、ユーザー要望)。
+            // 相手側 manual-draw (= 現状 AI は呼ばないが防御的) のみ 100ms 遅延で再生。
+            if (source === "manual") {
+              scheduleTimer(() => playSfx("card_draw"), 100);
+            }
+            // 相手側ドロー: 中央 DrawFlightCard を再生しないため、ここで
+            // 明示的に finalizeDraw を予約しないと isDrawing が永続する。
+            // 600ms = 視覚フィードバック (相手 deck 枚数表示の変化 / aria-live 通知)
+            // を読み取れる最低時間。短すぎると flicker、長すぎると AI 思考が
+            // テンポを乱す。
+            scheduleTimer(() => finalizeDraw(), 600);
           }
-          // Issue #77: 山札の位置で -5 マナ表示
-          triggerManaFlight(-DRAW_COST, getDeckRect());
+          if (source === "manual" && isSelf) {
+            triggerManaFlight(-DRAW_COST, getDeckRect());
+          }
+          if (source === "auto") {
+            // 連続発火時 (sente auto → gote auto) は古いタイマーを cancel して
+            // 新しい 1500ms 計測を開始 (重複読み上げ防止)
+            if (liveMessageTimerRef.current !== null) {
+              window.clearTimeout(liveMessageTimerRef.current);
+              timersRef.current.delete(liveMessageTimerRef.current);
+            }
+            setAutoDrawLiveMessage("自動ドローしました");
+            liveMessageTimerRef.current = scheduleTimer(() => {
+              setAutoDrawLiveMessage("");
+              liveMessageTimerRef.current = null;
+            }, 1500);
+          }
           break;
+        }
         case "cardPlayEvent": {
           playSfx("card_play");
           const def = CARD_DEFS[ev.instance.defId];
@@ -572,12 +688,23 @@ export function CardShogiGame({
       }
     }
     lastEventIndexRef.current = eventLog.length;
-  }, [eventLog, isReady, playSfx, playerColor, triggerManaFlight, triggerFastMoveBadge, getDeckRect, getOriginRect, getBoardSquareRect, findVisibleCapturedPieceRect]);
+  }, [eventLog, isReady, playSfx, playerColor, triggerManaFlight, triggerFastMoveBadge, getDeckRect, getOriginRect, getBoardSquareRect, findVisibleCapturedPieceRect, scheduleTimer, nextFlightKey, finalizeDraw]);
 
   // Issue #78 / #82: 演出中(ドロー / カード使用 / 王手崩しトラップ)は盤面・手札・カード操作・背景クリックをロックする
   const handleSquareClick = useCallback(
     (pos: Position) => {
       if (isDrawAnimating || isPlayingCard || isCheckBreakAnimating) return;
+
+      // Issue #82 (二手指し 2手目): 禁止された詰み手のマスをクリック → 説明ダイアログ表示
+      // (赤×表示で視覚的にも禁止が分かるが、なぜダメかを文章でも伝えて UX 向上)
+      const isForbiddenMateClick = forbiddenMateMoves.some(
+        (m) => m.to.row === pos.row && m.to.col === pos.col,
+      );
+      if (isForbiddenMateClick) {
+        setForbiddenMateDialogOpen(true);
+        return;
+      }
+
       // 歩戻し等のターゲット選択フェーズで盤面クリックが confirm に直結するため、ここでも矩形を捕捉
       if (cardState.pendingCard) cachePendingCardRect();
 
@@ -648,6 +775,8 @@ export function CardShogiGame({
     [
       isDrawAnimating,
       isPlayingCard,
+      isCheckBreakAnimating,
+      forbiddenMateMoves,
       selectSquare,
       cardState.pendingCard,
       cachePendingCardRect,
@@ -676,11 +805,37 @@ export function CardShogiGame({
     deselect();
   }, [isDrawAnimating, isPlayingCard, isCheckBreakAnimating, deselect]);
 
-  // 演出中は最新ドローカードを手札表示から除外し、演出完了後に手札に現れたように見せる
+  // 演出中は最新ドローカードを手札表示から除外し、演出完了後に手札に現れたように見せる。
+  // FIFO 化により queue 内の全カード ID を hidden 対象にする (#130)。
   const displayedOwnHand = useMemo(() => {
-    if (!drawFlight) return cardState.hand[playerColor];
-    return cardState.hand[playerColor].filter((c) => c.instanceId !== drawFlight.card.instanceId);
-  }, [cardState.hand, playerColor, drawFlight]);
+    if (drawFlightQueue.length === 0) return cardState.hand[playerColor];
+    const hiddenIds = new Set(drawFlightQueue.map((q) => q.card.instanceId));
+    return cardState.hand[playerColor].filter((c) => !hiddenIds.has(c.instanceId));
+  }, [cardState.hand, playerColor, drawFlightQueue]);
+
+  // Issue #130: queue 先頭が auto に切り替わった瞬間に AutoDrawBurst を起動。
+  // burstKey の更新で AnimatePresence が新規 mount し、Burst が再生される。
+  // 連続 auto-draw (sente auto → gote auto) でも個別に再生される。
+  // 自分側 = 山札 rect 中心、相手側 = AI deck の中心 (= getDeckRect() を流用、
+  // self/opponent を distinguish するため別 ref が必要だが、現状は自分側 deck rect
+  // のみ参照可能なため相手側演出は scale=opponent + 同 rect 起点で簡略化)。
+  const lastBurstFlightKeyRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!currentDrawFlight) return;
+    if (currentDrawFlight.source !== "auto") return;
+    if (lastBurstFlightKeyRef.current === currentDrawFlight.key) return;
+    lastBurstFlightKeyRef.current = currentDrawFlight.key;
+    const rect = getDeckRect();
+    if (!rect) return;
+    setAutoBurst({
+      origin: { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 },
+      // 現状は自分側 deck rect のみ取得可能。AI 側 deck rect は未取得のため、
+      // 相手 auto-draw でも同 rect を起点にしつつ scale=opponent で控えめ表現する。
+      // 将来 AI 側 deck rect を取得できるようになったら scale 切替条件を更新する。
+      scale: "self",
+      key: currentDrawFlight.key,
+    });
+  }, [currentDrawFlight, getDeckRect]);
 
   // Issue #82 (修正): フローを「カード使用 → 駒フライト → 中央カード演出 → finalize」へ。
   // - cardPlayEvent エフェクト側で「駒フライト or 中央カード演出」のどちらを先に発火するか判断
@@ -708,16 +863,27 @@ export function CardShogiGame({
     finalizePlayCard();
   }, [finalizePlayCard]);
 
-  // ドロー演出完了: currentPlayer を相手に渡し、手札の対象カードを一瞬フラッシュさせる
+  // ドロー演出完了: queue から先頭を pop し、currentPlayer を相手に渡し、
+  // 手札の対象カードを一瞬フラッシュさせる。
+  // - manual: amber flash (既存 freshlyDrawnId / 0.9s)
+  // - auto:   emerald flash (新規 autoFreshlyDrawnId / 0.7s)
   const handleDrawFlightComplete = useCallback(() => {
-    const id = drawFlight?.card.instanceId ?? null;
-    setDrawFlight(null);
+    const item = currentDrawFlight;
+    setDrawFlightQueue((q) => q.slice(1));
     finalizeDraw();
-    if (id) {
-      setFreshlyDrawnId(id);
-      window.setTimeout(() => {
-        setFreshlyDrawnId((prev) => (prev === id ? null : prev));
-      }, 900);
+    if (item) {
+      const id = item.card.instanceId;
+      if (item.source === "auto") {
+        setAutoFreshlyDrawnId(id);
+        scheduleTimer(() => {
+          setAutoFreshlyDrawnId((prev) => (prev === id ? null : prev));
+        }, 700);
+      } else {
+        setFreshlyDrawnId(id);
+        scheduleTimer(() => {
+          setFreshlyDrawnId((prev) => (prev === id ? null : prev));
+        }, 900);
+      }
     }
     // Issue #82: 手札スクロールを最後尾へ。PC は縦スクロール、モバイルは横スクロール。
     // どちらの場合でも scrollTop / scrollLeft を最大に設定すれば、該当しない軸は無視される。
@@ -740,7 +906,7 @@ export function CardShogiGame({
         });
       });
     }
-  }, [drawFlight, finalizeDraw]);
+  }, [currentDrawFlight, finalizeDraw, scheduleTimer]);
 
   // ----- レイアウト用ヘルパ -----
 
@@ -814,6 +980,7 @@ export function CardShogiGame({
   }, [finalizeCheckBreak]);
 
   // 山札からのドロー可否 (Issue #82: pendingCard 中もドロー禁止に統一)
+  // 二手指し中もドロー禁止 (Issue #82)
   const canDrawCard =
     cardState.mana[playerColor] >= DRAW_COST &&
     isPlayerTurn &&
@@ -822,9 +989,17 @@ export function CardShogiGame({
     !isDrawAnimating &&
     !isPlayingCard &&
     !isCheckBreakAnimating &&
-    cardState.pendingCard === null;
+    cardState.pendingCard === null &&
+    doubleMove === null;
 
-  const opponentDeckPile = <DeckPile count={cardState.deck[aiColor].length} size="md" showDrawCost />;
+  const opponentDeckPile = (
+    <DeckPile
+      count={cardState.deck[aiColor].length}
+      size="md"
+      showDrawCost
+      progress={cardState.drawProgress[aiColor]}
+    />
+  );
   const ownDeckPile = (
     <DeckPile
       count={cardState.deck[playerColor].length}
@@ -833,6 +1008,7 @@ export function CardShogiGame({
       size="md"
       showDrawCost
       dimmed={!isPlayerTurn || !isGameActive}
+      progress={cardState.drawProgress[playerColor]}
     />
   );
   // モバイル細バー(上端)の相手山札はテキストバッジ形式に変更したため別途インラインで表示 (P22)。
@@ -845,6 +1021,7 @@ export function CardShogiGame({
       size="md"
       showDrawCost
       dimmed={!isPlayerTurn || !isGameActive}
+      progress={cardState.drawProgress[playerColor]}
     />
   );
 
@@ -862,76 +1039,41 @@ export function CardShogiGame({
   // - 王手中も「王手回避になるカードのみ使用可」とする方針に変更したため、inCheck で
   //   一律 disabled にはしない。個別カードの非活性化は unusableCardIds 側で制御する。
   // - ドロー演出中・カード使用演出中・別カード使用中・王手崩し演出中は引き続き全体ロック
-  const handDisabled = !isPlayerTurn || !isGameActive || cardState.pendingCard !== null || isDrawAnimating || isPlayingCard || isCheckBreakAnimating;
+  // Issue #82 (二手指し): 二手指し中は手札・ドローも無効化 (reducer 側でも弾くが UI でも明示)
+  const handDisabled = !isPlayerTurn || !isGameActive || cardState.pendingCard !== null || isDrawAnimating || isPlayingCard || isCheckBreakAnimating || doubleMove !== null;
 
-  // 待った可否 (P28): 駒指し2手以上 / 自分の手番 / AI 思考中でない / pendingCard 無し / 過去2手の間にカード操作なし
+  // 待った可否 (P28): 駒指し2手以上 / 自分の手番 / AI 思考中でない / pendingCard 無し /
+  // 過去2ターンにカード操作なし。
+  // Issue #82 (二手指し): 二手指し中は通常の「待った」を不可。
+  // スコープ判定は reducer の UNDO ケースと共通化 (undo-policy.ts)。
   const canUndo = useMemo(() => {
     if (gameState.moveHistory.length < 2) return false;
     if (!isPlayerTurn) return false;
     if (isAiThinking) return false;
     if (cardState.pendingCard) return false;
-    let movesSeen = 0;
-    for (let i = eventLog.length - 1; i >= 0; i--) {
-      const ev = eventLog[i];
-      if (ev.kind === "moveEvent") {
-        movesSeen++;
-        if (movesSeen === 2) break;
-      } else if (
-        ev.kind === "cardPlayEvent" ||
-        ev.kind === "drawEvent" ||
-        ev.kind === "trapSetEvent" ||
-        ev.kind === "trapTriggerEvent"
-      ) {
-        return false;
-      }
-    }
-    return movesSeen >= 2;
-  }, [gameState.moveHistory.length, isPlayerTurn, isAiThinking, cardState.pendingCard, eventLog]);
+    if (doubleMove) return false;
+    return getUndoScope(eventLog) !== null;
+  }, [gameState.moveHistory.length, isPlayerTurn, isAiThinking, cardState.pendingCard, doubleMove, eventLog]);
 
   // 歩戻し等のターゲット選択時にハイライトする盤面マス
+  // (Issue #132): 以前は effectId 別に手書き判定 + 末尾で王手回避フィルタを掛けていたが、
+  // pawn_return だけ ピン判定を欠いていた (effects.ts isPawnReturnLegalSquare 旧実装)。
+  // クリック時 (handleSquareClick) と reducer (selectSquare) は既に isValidCardTargetSquare で
+  // 統一されており、ハイライト計算だけが手書きで非統一だった。本変更で 81 マス走査を 1 ループ
+  // + isValidCardTargetSquare 呼出に統一し、pin / 王手回避 / 自駒種別 すべて単一ヘルパで判定する。
   const cardTargetSquares: Position[] = useMemo(() => {
     if (!cardState.pendingCard || cardState.pendingCard.phase !== "selectTarget") return [];
     const def = CARD_DEFS[cardState.pendingCard.instance.defId];
-    let targets: Position[] = [];
-    if (def.effectId === "pawn_return") {
-      for (let r = 0; r < 9; r++) {
-        for (let c = 0; c < 9; c++) {
-          const piece = gameState.board[r]?.[c];
-          if (piece && piece.owner === playerColor && (piece.type === "pawn" || piece.type === "promoted_pawn")) {
-            targets.push({ row: r, col: c });
-          }
+    const targets: Position[] = [];
+    for (let r = 0; r < 9; r++) {
+      for (let c = 0; c < 9; c++) {
+        if (isValidCardTargetSquare(gameState, playerColor, def.id, { row: r, col: c })) {
+          targets.push({ row: r, col: c });
         }
       }
-    } else if (def.effectId === "piece_return") {
-      for (let r = 0; r < 9; r++) {
-        for (let c = 0; c < 9; c++) {
-          if (isPieceReturnLegalSquare(gameState, playerColor, { row: r, col: c })) {
-            targets.push({ row: r, col: c });
-          }
-        }
-      }
-    } else if (def.effectId === "double_pawn") {
-      for (let r = 0; r < 9; r++) {
-        for (let c = 0; c < 9; c++) {
-          if (isDoublePawnLegalSquare(gameState, playerColor, { row: r, col: c })) {
-            targets.push({ row: r, col: c });
-          }
-        }
-      }
-    }
-    // 王手中は、王手回避になる配置先のみハイライト (Issue #82)
-    if (inCheck) {
-      targets = targets.filter((pos) => {
-        const after = simulateCardEffect(gameState, playerColor, def.id, {
-          kind: "square",
-          row: pos.row,
-          col: pos.col,
-        });
-        return after && !isInCheck(after, playerColor, CARD_SHOGI_VARIANT);
-      });
     }
     return targets;
-  }, [cardState.pendingCard, gameState, playerColor, inCheck]);
+  }, [cardState.pendingCard, gameState, playerColor]);
 
   // no_promote の永続マーク (両プレイヤー分をまとめて盤面に渡す)
   const noPromoteSquares: Position[] = useMemo(
@@ -941,7 +1083,11 @@ export function CardShogiGame({
 
   // マナ以外の使用条件を満たさないカードIDを集計し、HandArea で非活性化する (Issue #82)。
   // - 通常時: CARD_USE_CONDITIONS の defId 別関数で判定
-  // - 王手中: そのカードで王手回避できなければ非活性 (王手回避手段がない=不可)
+  // - 王手中: checkUsage フラグで判定 (Issue #82 / 二段ゲート)
+  //   - "forbidden":     無条件で非活性 (動的判定スキップ → 計算節約)
+  //   - "conditional":   target あり → 王手回避できる配置先が1つでも存在するか動的判定
+  //                      target なし → CARD_USE_CONDITIONS 側で個別判定 (現状未使用)
+  //   - "unconditional": そのまま使用可 (動的判定スキップ → 計算節約)
   // - トラップ: 同種トラップが既に盤面にあれば非活性 (Issue #105)
   // 手札に存在する defId のみ評価する。
   const unusableCardIds = useMemo(() => {
@@ -956,18 +1102,26 @@ export function CardShogiGame({
         set.add(inst.defId);
         continue;
       }
-      const useCond = CARD_USE_CONDITIONS[inst.defId];
-      if (useCond && !useCond(gameState, playerColor, cardState)) {
+      const cardUseCondition = CARD_USE_CONDITIONS[inst.defId];
+      if (cardUseCondition && !cardUseCondition(gameState, playerColor, cardState)) {
         set.add(inst.defId);
         continue;
       }
-      // 王手中: 王手回避できないカードは非活性。Step 3 (Issue #107):
-      // 1 マスでも回避可能なら true を返す早期 return 版で、王手中の
-      // 計算量を 30-50% 削減する。
+      // Issue #82: 王手中の使用可否は checkUsage フラグで二段ゲート
       if (inCheck) {
-        if (!canEscapeCheckWithCard(gameState, playerColor, inst.defId as CardId)) {
+        if (def.checkUsage === "forbidden") {
           set.add(inst.defId);
+          continue;
         }
+        if (def.checkUsage === "conditional" && def.targeting !== "none") {
+          // target あり: 1 マスでも王手回避になる配置先があるか早期 return 版で検証
+          // (Issue #107 Step 3 で計算量を 30-50% 削減した実装をそのまま流用)
+          if (!canEscapeCheckWithCard(gameState, playerColor, inst.defId as CardId)) {
+            set.add(inst.defId);
+            continue;
+          }
+        }
+        // unconditional / target なし conditional は通す
       }
     }
     return set;
@@ -981,6 +1135,7 @@ export function CardShogiGame({
       size="md"
       disabled={handDisabled}
       flashCardId={freshlyDrawnId}
+      autoFlashCardId={autoFreshlyDrawnId}
       unusableCardIds={unusableCardIds}
     />
   );
@@ -1003,7 +1158,9 @@ export function CardShogiGame({
         >
           {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
         </Button>
-        {inCheck && (
+        {/* Issue #132 派生: ステータスバッジは displayInCheck (= 二手指し 1 手目自玉王手の
+            過渡状態を除いた inCheck) を見る。玉赤スタイルは ShogiBoard 側で inCheck 直参照のため維持。 */}
+        {displayInCheck && (
           <Badge variant="destructive" className="animate-pulse text-xs">
             王手！
           </Badge>
@@ -1061,7 +1218,12 @@ export function CardShogiGame({
               stackMaxVisible={10}
             />
           </div>
-          <DeckPile count={cardState.deck[aiColor].length} size="sm" showDrawCost />
+          <DeckPile
+            count={cardState.deck[aiColor].length}
+            size="sm"
+            showDrawCost
+            progress={cardState.drawProgress[aiColor]}
+          />
           <TrapSlot trap={cardState.trap[aiColor]} faceDown size="sm" />
         </div>
       </section>
@@ -1106,6 +1268,7 @@ export function CardShogiGame({
               cardTargetSquares={cardTargetSquares}
               noPromoteSquares={noPromoteSquares}
               hiddenSquares={hiddenBoardSquares}
+              forbiddenMateSquares={forbiddenMateMoves.map((m) => m.to)}
             />
             <BoardOverlay
               key={overlayEvent?.key}
@@ -1232,12 +1395,15 @@ export function CardShogiGame({
         <div ref={ownDeckPileTabletRef} className="shrink-0">{ownDeckPile}</div>
         <div className="shrink-0">{ownManaGauge}</div>
         <div className="shrink-0 ml-2 border-l pl-2">
+          {/* Issue #132: タブレット (md..xl) でも待ったボタンを有効化。
+              旧実装では onUndo={NOOP_UNDO} / canUndo={false} で配線が空関数になっており、
+              タブレットだけ待った不可になっていた。xl/モバイルと同じ undo/canUndo に揃える。 */}
           <GameControls
             onResign={resign}
-            onUndo={NOOP_UNDO}
+            onUndo={undo}
             isMuted={isMuted}
             onToggleMute={toggleMute}
-            canUndo={false}
+            canUndo={canUndo}
             gameActive={isGameActive}
           />
         </div>
@@ -1341,6 +1507,7 @@ export function CardShogiGame({
             size="md"
             disabled={handDisabled}
             flashCardId={freshlyDrawnId}
+            autoFlashCardId={autoFreshlyDrawnId}
             hideCardDescription
             onCardClick={handleBeginPlayCard}
             unusableCardIds={unusableCardIds}
@@ -1379,7 +1546,8 @@ export function CardShogiGame({
             >
               {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
             </Button>
-            {inCheck && (
+            {/* Issue #132 派生: 二手指し 1 手目自玉王手の過渡状態は Badge を抑制 (玉赤は維持) */}
+            {displayInCheck && (
               <Badge variant="destructive" className="animate-pulse text-xs">
                 王手！
               </Badge>
@@ -1405,6 +1573,7 @@ export function CardShogiGame({
                 showDrawCost
                 fullWidth
                 dimmed={!isPlayerTurn || !isGameActive}
+                progress={cardState.drawProgress[playerColor]}
               />
             </div>
             <div className="flex-1 min-w-0">
@@ -1425,6 +1594,7 @@ export function CardShogiGame({
               disabled={handDisabled}
               fullWidth
               flashCardId={freshlyDrawnId}
+              autoFlashCardId={autoFreshlyDrawnId}
               onCardClick={handleBeginPlayCard}
               unusableCardIds={unusableCardIds}
             />
@@ -1475,6 +1645,7 @@ export function CardShogiGame({
               cardTargetSquares={cardTargetSquares}
               noPromoteSquares={noPromoteSquares}
               hiddenSquares={hiddenBoardSquares}
+              forbiddenMateSquares={forbiddenMateMoves.map((m) => m.to)}
             />
             <BoardOverlay
               key={overlayEvent?.key}
@@ -1526,7 +1697,13 @@ export function CardShogiGame({
           <div className="shrink-0 w-full">{opponentManaGauge}</div>
           <div className="flex gap-2 shrink-0 w-full">
             <div className="flex-1 min-w-0">
-              <DeckPile count={cardState.deck[aiColor].length} size="lg" fullWidth showDrawCost />
+              <DeckPile
+                count={cardState.deck[aiColor].length}
+                size="lg"
+                fullWidth
+                showDrawCost
+                progress={cardState.drawProgress[aiColor]}
+              />
             </div>
             <div className="flex-1 min-w-0">
               <TrapSlot trap={cardState.trap[aiColor]} faceDown size="lg" fullWidth />
@@ -1563,15 +1740,56 @@ export function CardShogiGame({
         pendingCard={cardState.pendingCard}
         onCancel={cancelPlayCard}
       />
+      {/* Issue #82 (二手指し): 2手目で禁止された詰み手をクリックした時のお知らせダイアログ */}
+      <ForbiddenMateDialog
+        open={forbiddenMateDialogOpen}
+        onClose={() => setForbiddenMateDialogOpen(false)}
+      />
+      {/* Issue #82: 二手指し (double_move) 中の上端バナー + 戻すボタン + キャンセルボタン */}
+      {doubleMove && !isPlayingCard && (
+        <DoubleMoveNotice
+          movesLeft={doubleMove.movesLeft}
+          canUndoFirst={
+            doubleMove.movesLeft === 1 &&
+            isGameActive &&
+            !isCheckBreakAnimating &&
+            !isPlayingCard
+          }
+          canCancel={
+            isGameActive &&
+            !isCheckBreakAnimating &&
+            !isPlayingCard
+          }
+          onUndoFirst={undoDoubleMoveFirst}
+          onCancel={cancelDoubleMove}
+        />
+      )}
 
-      {/* Issue #78: ドロー中央演出 (山札→中央→手札の DOMRect 追従) */}
+      {/* Issue #78: ドロー中央演出 (山札→中央→手札の DOMRect 追従)。
+          Issue #130: variant ごとに色味を切替 (manual=amber, auto=emerald + 自動ドローラベル)。
+          FIFO 化により queue 先頭のみを描画、onComplete で pop して次の演出に移る。 */}
       <DrawFlightCard
-        cardInstance={drawFlight?.card ?? null}
-        flightKey={drawFlight?.key ?? null}
+        cardInstance={currentDrawFlight?.card ?? null}
+        flightKey={currentDrawFlight?.key ?? null}
+        variant={currentDrawFlight?.source ?? "manual"}
         deckRectGetter={getDeckRect}
         handRectGetter={getHandRect}
         onComplete={handleDrawFlightComplete}
       />
+
+      {/* Issue #130: 自動ドロー専用 Burst 演出 (ring collapse + particles + trail)。
+          DrawFlightCard より z-index 1 階層上 (z-[70])、currentDrawFlight が
+          source="auto" に切り替わった瞬間に useEffect から起動される。 */}
+      <AutoDrawBurst
+        origin={autoBurst?.origin ?? null}
+        scale={autoBurst?.scale ?? "self"}
+        burstKey={autoBurst?.key}
+      />
+
+      {/* Issue #130: 自動ドロー発動の SR 通知。1500ms debounce で連続発火時は最後の通知のみ。 */}
+      <span className="sr-only" aria-live="polite" aria-atomic="true">
+        {autoDrawLiveMessage}
+      </span>
 
       {/* Issue #106: カード使用/トラップセット時の中央演出 (中央にパッと出現+キラッと光る) */}
       <CardPlayFlight
@@ -1678,4 +1896,3 @@ export function CardShogiGame({
     </div>
   );
 }
-

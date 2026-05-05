@@ -7,6 +7,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import type { CardInstance } from "@/lib/shogi/cards/types";
 import { CardView } from "./card-view";
 import {
+  AUTO_DRAW_PHASE_OFFSETS,
   DRAW_CARD_W as CARD_W,
   DRAW_CARD_H as CARD_H,
   DRAW_FADE_IN_MS as FADE_IN_MS,
@@ -18,12 +19,23 @@ import {
   DRAW_GLOW_DURATION_S as GLOW_DURATION_S,
 } from "./animation-constants";
 
+// Issue #130: auto variant 時の前段 (Burst+Trail) 分の遅延 (ms)。
+// Phase 4 (cardFlight) 開始 - Phase 1 (ringCollapse) 開始 = 350ms。
+// この遅延を transition.delay に乗せることで Burst 完了直後に card flight が始まる。
+const AUTO_VARIANT_START_DELAY_MS =
+  AUTO_DRAW_PHASE_OFFSETS.cardFlight - AUTO_DRAW_PHASE_OFFSETS.ringCollapse;
+
+// Issue #130: 演出バリアント。manual = 既存 (amber 系)、auto = 自動ドロー (emerald 系)。
+// 既定 "manual" で旧呼び出し互換 (variant 未指定 = 手動)。
+export type DrawFlightVariant = "manual" | "auto";
+
 interface DrawFlightCardProps {
   cardInstance: CardInstance | null;
   flightKey: number | null;
   deckRectGetter: () => DOMRect | null;
   handRectGetter: () => DOMRect | null;
   onComplete: () => void;
+  variant?: DrawFlightVariant;
 }
 
 const subscribe = () => () => {};
@@ -36,6 +48,7 @@ export function DrawFlightCard({
   deckRectGetter,
   handRectGetter,
   onComplete,
+  variant = "manual",
 }: DrawFlightCardProps) {
   const isClient = useSyncExternalStore(subscribe, getClientSnapshot, getServerSnapshot);
 
@@ -54,6 +67,7 @@ export function DrawFlightCard({
             deckRectGetter={deckRectGetter}
             handRectGetter={handRectGetter}
             onComplete={onComplete}
+            variant={variant}
           />
         )}
       </AnimatePresence>
@@ -67,12 +81,25 @@ function DrawFlightInner({
   deckRectGetter,
   handRectGetter,
   onComplete,
+  variant,
 }: {
   cardInstance: CardInstance;
   deckRectGetter: () => DOMRect | null;
   handRectGetter: () => DOMRect | null;
   onComplete: () => void;
+  variant: DrawFlightVariant;
 }) {
+  // Issue #130: variant ごとの色トークン (グロー / シマー / 中央保持ラベル)。
+  // 内部 const にまとめ、props で個別色を渡さない (将来の variant 追加に備える)。
+  const isAuto = variant === "auto";
+  const glowBoxShadow = isAuto
+    // emerald 主層 + amber ウォームスパーク 2 層 (色温度を保ちつつ「自動」を強調)
+    ? "0 0 90px 14px rgba(52, 211, 153, 0.55), 0 0 60px 8px rgba(254, 243, 199, 0.25)"
+    : "0 0 90px 14px rgba(251, 191, 36, 0.9)";
+  const shimmerBackground = isAuto
+    // emerald シマーをメインに amber を 0.4 倍重ね (色味の温感を残す)
+    ? "linear-gradient(115deg, transparent 35%, hsla(160, 70%, 65%, 0.85) 50%, transparent 65%), linear-gradient(115deg, transparent 35%, hsla(50, 100%, 75%, 0.4) 50%, transparent 65%)"
+    : "linear-gradient(115deg, transparent 35%, rgba(255,255,255,0.9) 50%, transparent 65%)";
   // タブ非アクティブ時に Framer Motion の onAnimationComplete が throttling で
   // 遅延すると finalizeDraw が呼ばれず AI が永久に動かないリスクがある。
   // 想定時間 + 500ms 経過しても発火しない場合は強制的に完了通知する保険。
@@ -84,10 +111,15 @@ function DrawFlightInner({
     onComplete();
   }, [onComplete]);
 
+  // Issue #130: auto variant は Burst 完了を待ってから card flight を開始するため
+  // 全体の所要時間に startDelay を加算する (= 安全タイマも合わせて伸ばす)。
+  const startDelayMs = isAuto ? AUTO_VARIANT_START_DELAY_MS : 0;
+  const startDelayS = startDelayMs / 1000;
+
   useEffect(() => {
-    const id = window.setTimeout(handleComplete, TOTAL_MS + 500);
+    const id = window.setTimeout(handleComplete, startDelayMs + TOTAL_MS + 500);
     return () => window.clearTimeout(id);
-  }, [handleComplete]);
+  }, [handleComplete, startDelayMs]);
 
   const [coords] = useState(() => {
     if (typeof window === "undefined") return null;
@@ -162,10 +194,12 @@ function DrawFlightInner({
       }}
       transition={{
         duration: TOTAL_MS / 1000,
+        delay: startDelayS,
         times: [0, t1, t2, 1],
         ease: ["easeOut", "linear", "linear"],
         opacity: {
           duration: TOTAL_MS / 1000,
+          delay: startDelayS,
           times: [0, t1, t2, tFadeStart, 1],
           ease: ["easeOut", "linear", "linear", "linear"],
         },
@@ -189,6 +223,7 @@ function DrawFlightInner({
         }}
         transition={{
           duration: TOTAL_MS / 1000,
+          delay: startDelayS,
           // rotateZ 用の既定 times/ease (4 キーフレームに対応)
           times: [0, t1, t2, 1],
           ease: ["easeOut", "linear", "linear"],
@@ -196,6 +231,7 @@ function DrawFlightInner({
           // 0→tSpinStart は 0° で静止、tSpinStart→t1 で 0→360° (easeIn でスナップ感)
           rotateY: {
             duration: TOTAL_MS / 1000,
+            delay: startDelayS,
             times: [0, tSpinStart, t1, t2, 1],
             ease: ["linear", "easeIn", "linear", "linear"],
           },
@@ -226,13 +262,14 @@ function DrawFlightInner({
             transform: "rotateY(180deg)",
           }}
         >
-          {/* 黄金グロウ: 中央到着の瞬間カード周辺がふわっと光る (はみ出し可) */}
+          {/* グロウ: 中央到着の瞬間カード周辺がふわっと光る (はみ出し可)。
+              variant ごとに色味を切替 (manual=amber, auto=emerald + amber 2 層) */}
           <motion.div
             initial={{ opacity: 0, scale: 0.92 }}
             animate={{ opacity: [0, 0.95, 0], scale: [0.92, 1.08, 1] }}
             transition={{
               duration: GLOW_DURATION_S,
-              delay: FLASH_DELAY_S,
+              delay: startDelayS + FLASH_DELAY_S,
               times: [0, 0.45, 1],
               ease: "easeOut",
             }}
@@ -240,7 +277,7 @@ function DrawFlightInner({
               position: "absolute",
               inset: -12,
               borderRadius: "0.6rem",
-              boxShadow: "0 0 90px 14px rgba(251, 191, 36, 0.9)",
+              boxShadow: glowBoxShadow,
               pointerEvents: "none",
             }}
           />
@@ -255,19 +292,49 @@ function DrawFlightInner({
               }}
               transition={{
                 duration: SHIMMER_DURATION_S,
-                delay: FLASH_DELAY_S,
+                delay: startDelayS + FLASH_DELAY_S,
                 times: [0, 0.05, 1],
                 ease: "easeOut",
               }}
               style={{
                 position: "absolute",
                 inset: 0,
-                background:
-                  "linear-gradient(115deg, transparent 35%, rgba(255,255,255,0.9) 50%, transparent 65%)",
+                background: shimmerBackground,
                 pointerEvents: "none",
                 mixBlendMode: "overlay",
               }}
             />
+            {/* Issue #130: 自動ドロー時のみ「自動ドロー」ラベルを中央保持中に表示。
+                Phase 5 (cardHold) の前半 1000ms に薄く出現させる。fade-in 後に
+                hold が始まるので CSS animation の delay はカード fade-in と
+                合わせる (= FLASH_DELAY_S と同タイミング)。 */}
+            {isAuto && (
+              <motion.div
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: [0, 0.85, 0.85, 0], y: [6, 0, 0, 0] }}
+                transition={{
+                  duration: 1.0,
+                  delay: startDelayS + FLASH_DELAY_S,
+                  times: [0, 0.2, 0.8, 1],
+                  ease: "easeOut",
+                }}
+                style={{
+                  position: "absolute",
+                  bottom: 16,
+                  left: 0,
+                  right: 0,
+                  textAlign: "center",
+                  fontSize: 14,
+                  letterSpacing: "0.18em",
+                  color: "rgb(236 253 245)", // emerald-50
+                  textShadow: "0 1px 4px rgba(0, 0, 0, 0.7)",
+                  pointerEvents: "none",
+                  fontWeight: 600,
+                }}
+              >
+                自動ドロー
+              </motion.div>
+            )}
           </div>
         </div>
       </motion.div>

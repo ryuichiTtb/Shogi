@@ -8,7 +8,6 @@ import type { GameState, Player, Move } from "@/lib/shogi/types";
 export type CardKind = "normal" | "trap";
 
 // Phase 0 の暫定カードID。Phase A 以降でユニオンを拡張する。
-// `sample_*` はレア度ビジュアル検証用 (#104)、status: "draft"。
 export type CardId =
   | "mana_up"
   | "pawn_return"
@@ -16,14 +15,7 @@ export type CardId =
   | "double_pawn"
   | "piece_return"
   | "check_break"
-  | "sample_normal_common"
-  | "sample_normal_rare"
-  | "sample_normal_super_rare"
-  | "sample_normal_epic"
-  | "sample_trap_common"
-  | "sample_trap_rare"
-  | "sample_trap_super_rare"
-  | "sample_trap_epic";
+  | "double_move";
 
 export type CardTargeting = "none" | "ownPiece" | "enemyPiece" | "square";
 
@@ -37,6 +29,20 @@ export type CardStatus = "draft" | "preparing" | "active" | "deprecated";
 
 // 採用フェーズ(設計ドキュメント 2.5)
 export type CardPhase = "0" | "A" | "B" | "C";
+
+// 王手中の使用可否区分 (Issue #82)。
+// 大前提: 自分に手番が回ってきた時点で「王手中なら必ず1手で王手回避できる手が存在する」
+// (詰みなら手番自体が回らない)。この前提のもとで:
+// - "forbidden": そのカードの効果が「王手回避になり得ない」ため、王手中は無条件で使用不可。
+//   例: 自分の駒を盤上から退かす歩戻し / 駒戻し、盤面駒に作用しないトラップ系。
+//   メリット: 動的判定 (canEscapeCheckWithCard 等) を完全にスキップ → 計算リソース節約。
+// - "conditional": 通常の1手の「一部のパターンでのみ」回避になる場合。配置先・対象次第なので
+//   動的シミュレーションで実際に検証する。例: 二歩指し (合駒として打てるマスがあるか)。
+// - "unconditional": そのカードが「通常の1手分以上の選択肢」を提供する場合。大前提から
+//   1手回避手は必ず存在するので、そのカード機能で必ず1手回避手を取れる = 無条件で使用可。
+//   例: 二手指し (1手で回避できる前提から2手以内で回避は自明)。動的判定をスキップ。
+// 詳細指針: Issue #82 のコメント「王手時カード使用可否の検討観点」参照。
+export type CardCheckUsage = "forbidden" | "conditional" | "unconditional";
 
 // 使用条件判定(マナ以外の独自条件)。true=使用可 / false=非活性。
 // CARD_USE_CONDITIONS で defId 別に登録 (Server→Client 境界で serialize できないため
@@ -62,6 +68,9 @@ export interface CardDefinition {
   icon: string;
   // 運用ステータス(マスターカタログでのフィルタ・公開判定に使用)
   status: CardStatus;
+  // 王手中の使用可否区分 (Issue #82)。trap カードは原則 "forbidden" (固定)。
+  // normal カードは設計判断で個別に決定する。詳細は CardCheckUsage の JSDoc 参照。
+  checkUsage: CardCheckUsage;
   // 採用フェーズ
   phase?: CardPhase;
   // 詳細仕様(マスターカタログ詳細ページ表示用、改行・箇条書き可)
@@ -117,6 +126,11 @@ export interface CardGameState {
   lastTurnStartedAt: Record<Player, number | null>;
   // no_promote の永続マーク。各プレイヤーの「成り不可」駒の現在位置リスト。
   noPromoteMarks: Record<Player, PieceMark[]>;
+  // Issue #130: 自動ドロー進捗。各プレイヤーごとに「自分の手番が終わるたびに +1」で
+  // カウントし、AUTO_DRAW_INTERVAL に到達するとマナ消費なしで自動ドローが発火する。
+  // 値域は 0..AUTO_DRAW_INTERVAL を想定。山札枯渇時は加算が AUTO_DRAW_INTERVAL を
+  // 超えうるが、UI では Math.min(progress, interval) でクランプして表示する。
+  drawProgress: Record<Player, number>;
 }
 
 // Step 5 (Issue #107): 旧 CHARGE_MANA / SET_TRAP / TRIGGER_TRAP は dead code
@@ -154,10 +168,16 @@ export interface TrapCapturedPiece {
   originalOwner: Player;
 }
 
+// Issue #130: ドロー発火源。手動 (DRAW_CARD コマンド) か、自動 (AUTO_DRAW_INTERVAL 到達)
+// かを区別する。UNDO のブロック判定 (auto はブロックしない) と UI 演出 (色味・規模) で参照。
+// optional とすることで、過去の DB 保存ログ (source 未記録時代) との互換を保つ。
+// 未指定は manual 扱い (`(ev.source ?? "manual")` のフォールバックを各参照箇所で使う)。
+export type DrawSource = "manual" | "auto";
+
 export type GameEvent =
   | { kind: "moveEvent"; move: Move; at: number }
   | { kind: "manaChargeEvent"; player: Player; amount: number; reason: "turn" | "card"; fastMove?: boolean; at: number }
-  | { kind: "drawEvent"; player: Player; instance: CardInstance; at: number }
+  | { kind: "drawEvent"; player: Player; instance: CardInstance; source?: DrawSource; at: number }
   | { kind: "cardPlayEvent"; player: Player; instance: CardInstance; target?: CardTarget; at: number }
   | { kind: "trapSetEvent"; player: Player; instance: TrapInstance; at: number }
   | { kind: "trapTriggerEvent"; player: Player; instance: TrapInstance; reason: TrapTrigger; capturedPieces?: TrapCapturedPiece[]; at: number };

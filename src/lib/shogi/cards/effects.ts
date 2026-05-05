@@ -212,6 +212,10 @@ export function applyPawnReturn(
 
 // 歩戻しの選択可能マスを判定する純粋関数。UI ハイライトと効果適用の両方から使う。
 // - 対象が自分の歩 (pawn) または と金 (promoted_pawn) であること
+// - その駒を引っ込めても自玉が王手にならないこと (ピン駒は不可、Issue #132)
+//   `isPieceReturnLegalSquare` と同じ probe-board 方式で判定する。
+//   旧実装はピン判定を欠いていたため、飛車/香/角の利き筋上の自歩・と金を選択でき、
+//   適用すると自玉が直ちに王手になる事象が発生していた。
 export function isPawnReturnLegalSquare(
   state: GameState,
   player: Player,
@@ -221,6 +225,12 @@ export function isPawnReturnLegalSquare(
   if (!piece) return false;
   if (piece.owner !== player) return false;
   if (piece.type !== "pawn" && piece.type !== "promoted_pawn") return false;
+
+  // 仮想的に駒を消した盤面で自玉が王手にならないか確認 (ピン駒チェック)
+  const probe = cloneGameState(state);
+  probe.board[target.row][target.col] = null;
+  if (isInCheck(probe, player, CARD_SHOGI_VARIANT)) return false;
+
   return true;
 }
 
@@ -247,7 +257,7 @@ export function simulateCardEffect(
       if (!target || target.kind !== "square") return null;
       return applyDoublePawn(state, player, { row: target.row, col: target.col });
     default:
-      // mana_up / no_promote / sample_* 等は GameState を変えないので null
+      // mana_up / no_promote / check_break / double_move 等は GameState を変えないので null
       return null;
   }
 }
@@ -278,7 +288,7 @@ export function isValidCardTargetSquare(
       if (!isDoublePawnLegalSquare(state, player, target)) return false;
       break;
     default:
-      // mana_up / no_promote / sample_* など target なしカードは square 対象外
+      // mana_up / no_promote / check_break / double_move など target なしカードは square 対象外
       return false;
   }
   // 王手中: 適用結果が王手解除になることを要求

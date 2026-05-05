@@ -21,6 +21,8 @@ interface HandAreaProps {
   fullWidth?: boolean;
   // Issue #78: 直前にドローしたカードを一瞬光らせる (instanceId 一致のカードに animate-hand-card-flash を付与)
   flashCardId?: string | null;
+  // Issue #130: 自動ドロー直後のカードを emerald 系で光らせる (manual と区別、0.7s)。
+  autoFlashCardId?: string | null;
   // Issue #106: モバイル手札等の幅が狭いコンテキストで効果説明を非表示にする
   hideCardDescription?: boolean;
   // 二歩指し等、マナ以外の使用条件を満たさないカードIDを非活性化する。
@@ -39,6 +41,8 @@ interface HandCardProps {
   fullWidth: boolean;
   hideCardDescription: boolean;
   isFresh: boolean;
+  // Issue #130: 自動ドロー由来のカードを emerald で光らせる (isFresh=manual amber と排他)
+  isAutoFresh: boolean;
   onCardClick?: (instanceId: string) => void;
 }
 
@@ -52,6 +56,7 @@ const HandCard = memo(function HandCard({
   fullWidth,
   hideCardDescription,
   isFresh,
+  isAutoFresh,
   onCardClick,
 }: HandCardProps) {
   const handleClick = useCallback(() => {
@@ -59,7 +64,13 @@ const HandCard = memo(function HandCard({
   }, [card.instanceId, onCardClick]);
 
   return (
-    <div className={cn("rounded-md", isFresh && "animate-hand-card-flash")}>
+    <div
+      className={cn(
+        "rounded-md",
+        isFresh && "animate-hand-card-flash",
+        isAutoFresh && "animate-hand-card-flash-emerald",
+      )}
+    >
       <CardView
         card={card}
         size={size}
@@ -84,6 +95,7 @@ export const HandArea = memo(function HandArea({
   disabled = false,
   fullWidth = false,
   flashCardId = null,
+  autoFlashCardId = null,
   hideCardDescription = false,
   unusableCardIds,
   stackMaxVisible = 5,
@@ -147,6 +159,7 @@ export const HandArea = memo(function HandArea({
         const cardDisabled = unaffordable || conditionUnmet;
         const cardInactive = !cardDisabled && disabled;
         const isFresh = c.instanceId === flashCardId;
+        const isAutoFresh = c.instanceId === autoFlashCardId;
         return (
           <HandCard
             key={c.instanceId}
@@ -157,6 +170,7 @@ export const HandArea = memo(function HandArea({
             fullWidth={fullWidth}
             hideCardDescription={hideCardDescription}
             isFresh={isFresh}
+            isAutoFresh={isAutoFresh}
             onCardClick={onCardClick}
           />
         );

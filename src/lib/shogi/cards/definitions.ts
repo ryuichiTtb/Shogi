@@ -58,6 +58,7 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
     targeting: "none",
     icon: "💎",
     status: "deprecated",
+    checkUsage: "forbidden",
     phase: "0",
     detailDescription:
       "使用すると即時にマナを +3 する。\n\n- ターゲット選択なし\n- マナ上限(現状20)を超えてチャージしない\n- 1ターン中の使用上限なし(マナ消費分は支払う必要あり)\n\n【廃止】Issue #82 のカード初版検討で廃止判断。マナ消費でマナを増やす設計の意義が薄いため。",
@@ -75,6 +76,8 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
     targeting: "ownPiece",
     icon: "↩️",
     status: "active",
+    // 自分の駒を盤上から退かす行為のため王手回避にはなり得ない (Issue #82)
+    checkUsage: "forbidden",
     phase: "0",
     detailDescription:
       "自分の盤上の歩 / と金 1枚を選び、持ち駒に戻す。\n\n- ターゲット: 自盤上の歩(と金含む)\n- と金は成り解除されて「歩」として持ち駒になる(将棋ルール準拠)\n- 持ち駒に戻った歩は次ターン以降に通常通り打てる",
@@ -88,12 +91,14 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
     kind: "normal",
     name: "二歩指し",
     description: "持ち駒の歩 1枚を、自分の歩がいる列の空マスに打つ",
-    cost: 2,
+    cost: 1,
     rarity: "common",
     effectId: "double_pawn",
     targeting: "square",
     icon: "🎴",
     status: "active",
+    // 通常の合駒と同等。配置先次第で王手回避になるかが変わるため動的判定 (Issue #82)
+    checkUsage: "conditional",
     phase: "A",
     detailDescription:
       "持ち駒の歩 1枚を、自分の未成り歩がいる列の空マスに打つことで、二歩禁則を一時的に解除して同列に2枚目の歩を打てるカード。\n\n【配置可能マス】\n- 自分の未成り歩がある列の空マス\n- 行きどころのない歩(後手側1段目 / 先手側9段目)は不可\n- 打ち歩詰めとなるマスは不可(将棋の根本ルールとして禁則維持)\n\n【その他】\n- 同列に既に複数の歩がある状態でも使用可能(2枚目以降も同列に打てる)\n- 配置先のマスに駒がある場合は不可(空マスのみ)",
@@ -109,14 +114,16 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
     name: "駒戻し",
     description: "自分の盤上の駒(玉以外)1枚を持ち駒に戻す",
     cost: 3,
-    rarity: "rare",
+    rarity: "common",
     effectId: "piece_return",
     targeting: "ownPiece",
     icon: "↩️",
     status: "active",
+    // 自分の駒を盤上から退かす行為のため王手回避にはなり得ない (Issue #82)
+    checkUsage: "forbidden",
     phase: "A",
     detailDescription:
-      "自分の盤上の駒1枚を選び、持ち駒に戻す。歩戻しの上位互換。\n\n【対象】\n- 自分の盤上の駒(玉は対象外)\n- 成駒は成り解除されて元の駒種で持ち駒になる(と金→歩 / 成銀→銀 / 馬→角 / 龍→飛 等)\n\n【仕様】\n- 持ち駒に戻った駒は、次ターン以降に通常通り打てる\n- 「成り不可」状態(no_promote)が付与された駒を戻した場合、状態は失われる\n- 自玉が王手のまま放置になる手は実行不可(通常の指し手と同様、ピン駒の引き戻しは不可)\n- 王手中はカード使用不可(全カード共通の制約)",
+      "自分の盤上の駒1枚を選び、持ち駒に戻す。歩戻しの上位互換。\n\n【対象】\n- 自分の盤上の駒(玉は対象外)\n- 成駒は成り解除されて元の駒種で持ち駒になる(と金→歩 / 成銀→銀 / 馬→角 / 龍→飛 等)\n\n【仕様】\n- 持ち駒に戻った駒は、次ターン以降に通常通り打てる\n- 「成り不可」状態(no_promote)が付与された駒を戻した場合、状態は失われる\n- 自玉が王手のまま放置になる手は実行不可(通常の指し手と同様、ピン駒の引き戻しは不可)",
     useConditionDescription:
       "- 自分の盤上に玉以外の駒が1枚以上ある\n- 戻したい駒を盤上から退かしたときに、自玉が王手になる場合は対象外\n  (例: 自玉と相手の飛車の間にいる金を戻すと、飛車の利きが通って王手になるためその金は戻せない)",
     addedAt: "2026-05-02",
@@ -128,12 +135,14 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
     kind: "trap",
     name: "王手崩し",
     description: "相手が王手してきたとき、王手駒をすべて持ち駒にする",
-    cost: 5,
+    cost: 4,
     rarity: "rare",
     effectId: "check_break",
     targeting: "none",
     icon: "⚔️",
     status: "active",
+    // トラップは原則 forbidden (Issue #82)
+    checkUsage: "forbidden",
     phase: "A",
     detailDescription:
       "自分の盤面に1枚だけセットできるトラップカード。\n相手の手で自玉が王手になったとき、王手をかけている相手の駒をすべて自分の持ち駒に加えて発動する。\n\n【発動】\n- 自玉が王手された瞬間に自動発動\n- 1枚だけセット可\n- 自分の盤面に同種のトラップが既にセットされている間は使用不可 (Issue #105)\n\n【効果】\n- 王手をかけている相手の駒をすべて取り、自分の持ち駒に加える\n- 両王手・複数王手の場合は、王手している駒すべてが同時に対象\n  (例: 飛車と角の両王手なら、飛車も角も同時に持ち駒化)\n- 成駒は成り解除されて元の駒種で持ち駒になる(龍王→飛 / 龍馬→角 / と金→歩 など、通常の取り駒と同じ)\n- 「成り不可」状態 (no_promote) が付与された駒を取った場合、状態は失われる\n- 王手駒がすべて除去されるため、効果適用後は必ず王手解除されている\n- トラップ自体は発動と同時に破棄される",
@@ -143,17 +152,40 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
     relatedIssues: [82, 105],
   },
 
+  double_move: {
+    id: "double_move",
+    kind: "normal",
+    name: "二手指し",
+    description: "1ターンに続けて駒を2回動かす",
+    cost: 5,
+    rarity: "super_rare",
+    effectId: "double_move",
+    targeting: "none",
+    icon: "⚡",
+    status: "active",
+    // 大前提「自分の手番開始時、王手中なら必ず1手で回避できる手が存在する」から、
+    // 2手以内に回避は自明 → 無条件使用可 (Issue #82)
+    checkUsage: "unconditional",
+    phase: "A",
+    detailDescription:
+      "カード使用後、続けて駒を2回動かす。\n\n【効果】\n- カード確定後、自分の番のまま 2手指せる\n- カード使用扱いのため、マナチャージは発生しない (カードコスト 5 のみ消費)\n- 1手目を指した後、「戻す」ボタンで 1手目を取り消して別の手を選び直すことが可能 (1手目で詰みが確定した場合を除く)\n- 1手目・2手目で同じ駒を動かしても可\n- 1手目で相手の駒を取った場合、2手目でその駒を打つことも可能\n\n【詰み禁止ルール】\n- カード使用時点で 1手詰めが存在する場合: 1手目・2手目どちらで詰ませても OK (1手目で詰めば即終了)\n- カード使用時点で 1手詰めが存在しない場合: 2手目で詰みになる手は禁止 (1手目+2手目で詰みに繋がる手順は禁止)\n\n【王手中の挙動】\n- 1手目では自玉が王手のままでも構わないが、2手目終了時点で必ず王手を解消していること",
+    addedAt: "2026-05-04",
+    relatedIssues: [82],
+  },
+
   no_promote: {
     id: "no_promote",
     kind: "trap",
     name: "成り無効化",
     description: "相手の成り宣言を無効化し、その駒に「成り不可」状態を永続付与する",
-    cost: 4,
-    rarity: "rare",
+    cost: 3,
+    rarity: "common",
     effectId: "no_promote",
     targeting: "none",
     icon: "🛡️",
     status: "active",
+    // トラップは原則 forbidden (Issue #82)
+    checkUsage: "forbidden",
     phase: "0",
     detailDescription:
       "自分の盤面に1枚だけセットできるトラップカード。\n次に相手が成りを宣言したとき、その成りを無効化し、対象の駒に「成り不可」状態を永続付与する。トラップ自体は発動と同時に破棄される。\n\n【発動】\n- 相手が成りを宣言したタイミングで自動発動\n- 1枚だけセット可\n- 自分の盤面に同種のトラップが既にセットされている間は使用不可 (Issue #105)\n\n【「成り不可」状態】\n- 状態を付与された駒は、その後一切成ることができない(成らない通常移動は可)\n- 駒を取られた場合、状態は失われる(持ち駒に戻る時点でリセット)\n- 「歩戻し」等で持ち駒に戻った場合も同様に状態は失われる\n- 別途用意される「状態異常解除」系カードで解除可能(将来カード)\n\n【複数発動】\n- 複数の no_promote トラップを順に発動した場合、複数の相手駒に同時に「成り不可」状態が付与される",
@@ -161,130 +193,6 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
       "- 自分の盤面に「成り無効化」トラップが既にセットされていない",
     addedAt: "2026-04-30",
     relatedIssues: [68, 80, 82, 105],
-  },
-
-  // --- サンプルカード (Issue #104 レア度ビジュアル検証用、status: "draft") ---
-  // 通常×4 + トラップ×4 = 8 種。effectId/cost は仮で、プールには入らない。
-
-  sample_normal_common: {
-    id: "sample_normal_common",
-    kind: "normal",
-    name: "サンプル通常 ノーマル",
-    description: "ノーマルレア度の通常カード見本",
-    cost: 1,
-    rarity: "common",
-    effectId: "noop",
-    targeting: "none",
-    icon: "🟢",
-    status: "draft",
-    detailDescription: "レア度ビジュアル検証用のサンプル。実プールには出ません。",
-    addedAt: "2026-05-01",
-    relatedIssues: [104],
-  },
-  sample_normal_rare: {
-    id: "sample_normal_rare",
-    kind: "normal",
-    name: "サンプル通常 レア",
-    description: "レアレア度の通常カード見本",
-    cost: 3,
-    rarity: "rare",
-    effectId: "noop",
-    targeting: "none",
-    icon: "🔷",
-    status: "draft",
-    detailDescription: "レア度ビジュアル検証用のサンプル。実プールには出ません。",
-    addedAt: "2026-05-01",
-    relatedIssues: [104],
-  },
-  sample_normal_super_rare: {
-    id: "sample_normal_super_rare",
-    kind: "normal",
-    name: "サンプル通常 激レア",
-    description: "激レアレア度の通常カード見本",
-    cost: 5,
-    rarity: "super_rare",
-    effectId: "noop",
-    targeting: "none",
-    icon: "💎",
-    status: "draft",
-    detailDescription: "レア度ビジュアル検証用のサンプル。実プールには出ません。",
-    addedAt: "2026-05-01",
-    relatedIssues: [104],
-  },
-  sample_normal_epic: {
-    id: "sample_normal_epic",
-    kind: "normal",
-    name: "サンプル通常 究極",
-    description: "究極レア度の通常カード見本",
-    cost: 7,
-    rarity: "epic",
-    effectId: "noop",
-    targeting: "none",
-    icon: "👑",
-    status: "draft",
-    detailDescription: "レア度ビジュアル検証用のサンプル。実プールには出ません。",
-    addedAt: "2026-05-01",
-    relatedIssues: [104],
-  },
-  sample_trap_common: {
-    id: "sample_trap_common",
-    kind: "trap",
-    name: "サンプルトラップ ノーマル",
-    description: "ノーマルレア度のトラップカード見本",
-    cost: 2,
-    rarity: "common",
-    effectId: "noop",
-    targeting: "none",
-    icon: "🪤",
-    status: "draft",
-    detailDescription: "レア度ビジュアル検証用のサンプル。実プールには出ません。",
-    addedAt: "2026-05-01",
-    relatedIssues: [104],
-  },
-  sample_trap_rare: {
-    id: "sample_trap_rare",
-    kind: "trap",
-    name: "サンプルトラップ レア",
-    description: "レアレア度のトラップカード見本",
-    cost: 4,
-    rarity: "rare",
-    effectId: "noop",
-    targeting: "none",
-    icon: "🕸️",
-    status: "draft",
-    detailDescription: "レア度ビジュアル検証用のサンプル。実プールには出ません。",
-    addedAt: "2026-05-01",
-    relatedIssues: [104],
-  },
-  sample_trap_super_rare: {
-    id: "sample_trap_super_rare",
-    kind: "trap",
-    name: "サンプルトラップ 激レア",
-    description: "激レアレア度のトラップカード見本",
-    cost: 6,
-    rarity: "super_rare",
-    effectId: "noop",
-    targeting: "none",
-    icon: "☠️",
-    status: "draft",
-    detailDescription: "レア度ビジュアル検証用のサンプル。実プールには出ません。",
-    addedAt: "2026-05-01",
-    relatedIssues: [104],
-  },
-  sample_trap_epic: {
-    id: "sample_trap_epic",
-    kind: "trap",
-    name: "サンプルトラップ 究極",
-    description: "究極レア度のトラップカード見本",
-    cost: 8,
-    rarity: "epic",
-    effectId: "noop",
-    targeting: "none",
-    icon: "🌟",
-    status: "draft",
-    detailDescription: "レア度ビジュアル検証用のサンプル。実プールには出ません。",
-    addedAt: "2026-05-01",
-    relatedIssues: [104],
   },
 };
 
@@ -305,6 +213,9 @@ export const CARD_USE_CONDITIONS: Partial<Record<CardId, CardUseCondition>> = {
   // 自分の盤上に玉以外の駒が1枚以上あれば使用可。
   // ※ ピン駒しか残っていない極限状況では選択肢ゼロになるが、その判定は SELECT_SQUARE 側で行う。
   piece_return: (gameState, player) => hasOwnNonKingPieceOnBoard(gameState, player),
+  // double_move: 固有の使用条件なし。王手中の使用可否は checkUsage="unconditional" で
+  // 一括ガード (Issue #82)。「自分の手番開始時、王手中なら必ず1手で回避できる」前提から、
+  // 2手以内回避は自明なので動的判定 (canEscapeCheckWithDoubleMove) は不要。
 };
 
 // マナ・ドローコストの確定値(Issue #81 / 2026-05-01 確定)
@@ -317,7 +228,14 @@ export const INITIAL_MANA: Record<"sente" | "gote", number> = {
 export const MANA_CAP = 20;
 
 // マナを消費して山札からドロー
-export const DRAW_COST = 3;
+// Issue #130 で 3 → 2 に引き下げ。自動ドロー (AUTO_DRAW_INTERVAL) と併存させるため、
+// 手動ドローは「自動を待たずに今すぐ引きたい」加速行動と位置づけ直してコストを下げた。
+export const DRAW_COST = 2;
+
+// 経過手数による自動ドローの間隔 (Issue #130)。
+// 「自分の手番が終わるたびに +1」のカウントが本値に到達すると、マナ消費なしで山札から 1 枚引く。
+// 駒移動・手動ドロー・カード使用・トラップ設置のすべてが「手番終了」としてカウント対象。
+export const AUTO_DRAW_INTERVAL = 5;
 
 // 1ターン消費すると +1、早指し(FAST_THRESHOLD_MS 以内)で +2
 export const MANA_PER_TURN = 1;
