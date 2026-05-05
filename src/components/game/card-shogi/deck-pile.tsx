@@ -174,6 +174,7 @@ export const DeckPile = memo(function DeckPile({
   if (horizontal) {
     return (
       <button
+        data-card-shogi-deck
         type="button"
         onClick={onDraw}
         disabled={!interactable}
@@ -259,6 +260,7 @@ export const DeckPile = memo(function DeckPile({
 
   return (
     <div
+      data-card-shogi-deck
       className={cn("relative shrink-0", fullWidth && "w-full")}
       style={containerStyle}
     >
