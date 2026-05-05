@@ -772,7 +772,7 @@ describe("reducer / 二手指し (double_move)", () => {
       movesLeft: opts.movesLeft,
       mateInOneAvailable: opts.mateInOneAvailable ?? false,
       cardInstance: opts.cardInstance ?? card("dm-fixture", "double_move"),
-      cardCost: 6,
+      cardCost: 5,
       preFirstMoveState: snapshot,
       preCardState: snapshot,
     };
@@ -802,7 +802,7 @@ describe("reducer / 二手指し (double_move)", () => {
     expect(next.doubleMove?.active).toBe("sente");
     expect(next.doubleMove?.movesLeft).toBe(2);
     expect(next.doubleMove?.cardInstance).toEqual(c);
-    expect(next.doubleMove?.cardCost).toBe(6);
+    expect(next.doubleMove?.cardCost).toBe(5);
     // 演出はまだ起動しない (2手目完了で起動)
     expect(next.isPlayingCard).toBe(false);
   });
@@ -877,7 +877,7 @@ describe("reducer / 二手指し (double_move)", () => {
     // 新仕様: 2手目完了で finalize → カード消費 + マナ -6 + cardPlayEvent push + 演出開始
     expect(next.cardState.hand.sente).toEqual([]);
     expect(next.cardState.graveyard.sente.length).toBe(1);
-    expect(next.cardState.mana.sente).toBe(4); // 10 - 6
+    expect(next.cardState.mana.sente).toBe(5); // 10 - 5
     expect(next.isPlayingCard).toBe(true); // 中央演出開始
     expect(next.pendingPlayCardOpponent).toBeNull(); // currentPlayer は既に flip 済なので null
     // cardPlayEvent が eventLog に追加される
@@ -1014,7 +1014,7 @@ describe("reducer / 二手指し (double_move)", () => {
         movesLeft: 2,
         mateInOneAvailable: false,
         cardInstance: c,
-        cardCost: 6,
+        cardCost: 5,
         preFirstMoveState: { gameState: makeBaseGameState(), cardState: snapshotWithPending, eventLog: [] },
         preCardState: { gameState: makeBaseGameState(), cardState: snapshotWithPending, eventLog: [] },
       },
@@ -1048,7 +1048,7 @@ describe("reducer / 二手指し (double_move)", () => {
         movesLeft: 1,
         mateInOneAvailable: false,
         cardInstance: c,
-        cardCost: 6,
+        cardCost: 5,
         preFirstMoveState: { gameState: makeBaseGameState(), cardState: snapshotWithPending, eventLog: [] },
         preCardState: { gameState: makeBaseGameState(), cardState: snapshotWithPending, eventLog: [] },
       },
@@ -1334,7 +1334,7 @@ describe("reducer / 二手指し 2手目 forbiddenMateMoves (Issue #82)", () => 
         movesLeft: 1, // 2手目
         mateInOneAvailable: false, // 1手詰めは元々できない設定
         cardInstance: card("dm-fixture", "double_move"),
-        cardCost: 6,
+        cardCost: 5,
         preFirstMoveState: { gameState, cardState: makeInitialCardState(), eventLog: [] },
         preCardState: { gameState, cardState: makeInitialCardState(), eventLog: [] },
       },
@@ -1375,7 +1375,7 @@ describe("reducer / 二手指し 2手目 forbiddenMateMoves (Issue #82)", () => 
         movesLeft: 1,
         mateInOneAvailable: true, // 1手詰めができる設定
         cardInstance: card("dm-fixture", "double_move"),
-        cardCost: 6,
+        cardCost: 5,
         preFirstMoveState: { gameState, cardState: makeInitialCardState(), eventLog: [] },
         preCardState: { gameState, cardState: makeInitialCardState(), eventLog: [] },
       },
