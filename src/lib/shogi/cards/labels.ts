@@ -3,6 +3,7 @@
 // Badge 表示用カラークラスを集約する。
 
 import type {
+  CardCheckUsage,
   CardKind,
   CardRarity,
   CardStatus,
@@ -79,6 +80,37 @@ export const PHASE_LABEL: Record<CardPhase, string> = {
   A: "Phase A",
   B: "Phase B",
   C: "Phase C",
+};
+
+// 王手中の使用可否 (Issue #82)。詳細ページ/ダイアログで専用セクションとして表示する。
+interface CheckUsageInfo {
+  label: string;
+  description: string;
+  className: string;
+}
+
+export const CHECK_USAGE_INFO: Record<CardCheckUsage, CheckUsageInfo> = {
+  forbidden: {
+    label: "使用不可",
+    description:
+      "カードの効果が王手回避につながらないため、王手中は使用できません。",
+    className:
+      "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/40 dark:text-red-200 dark:border-red-800",
+  },
+  conditional: {
+    label: "条件付きで使用可",
+    description:
+      "カードの効果適用先が王手回避になる場合のみ使用できます (合駒・利き切りなど)。",
+    className:
+      "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/40 dark:text-amber-200 dark:border-amber-800",
+  },
+  unconditional: {
+    label: "常に使用可",
+    description:
+      "王手中でも常に使用可能です (カードの効果が必ず王手回避手段を提供するため)。",
+    className:
+      "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-200 dark:border-emerald-800",
+  },
 };
 
 export const TARGETING_LABEL: Record<CardTargeting, string> = {

@@ -1086,7 +1086,11 @@ export function CardShogiGame({
 
   // マナ以外の使用条件を満たさないカードIDを集計し、HandArea で非活性化する (Issue #82)。
   // - 通常時: CARD_USE_CONDITIONS の defId 別関数で判定
-  // - 王手中: そのカードで王手回避できなければ非活性 (王手回避手段がない=不可)
+  // - 王手中: checkUsage フラグで判定 (Issue #82 / 二段ゲート)
+  //   - "forbidden":     無条件で非活性 (動的判定スキップ → 計算節約)
+  //   - "conditional":   target あり → 王手回避できる配置先が1つでも存在するか動的判定
+  //                      target なし → CARD_USE_CONDITIONS 側で個別判定 (現状未使用)
+  //   - "unconditional": そのまま使用可 (動的判定スキップ → 計算節約)
   // - トラップ: 同種トラップが既に盤面にあれば非活性 (Issue #105)
   // 手札に存在する defId のみ評価する。
   const unusableCardIds = useMemo(() => {
@@ -1106,13 +1110,21 @@ export function CardShogiGame({
         set.add(inst.defId);
         continue;
       }
-      // 王手中: 王手回避できないカードは非活性。Step 3 (Issue #107):
-      // 1 マスでも回避可能なら true を返す早期 return 版で、王手中の
-      // 計算量を 30-50% 削減する。
+      // Issue #82: 王手中の使用可否は checkUsage フラグで二段ゲート
       if (inCheck) {
-        if (!canEscapeCheckWithCard(gameState, playerColor, inst.defId as CardId)) {
+        if (def.checkUsage === "forbidden") {
           set.add(inst.defId);
+          continue;
         }
+        if (def.checkUsage === "conditional" && def.targeting !== "none") {
+          // target あり: 1 マスでも王手回避になる配置先があるか早期 return 版で検証
+          // (Issue #107 Step 3 で計算量を 30-50% 削減した実装をそのまま流用)
+          if (!canEscapeCheckWithCard(gameState, playerColor, inst.defId as CardId)) {
+            set.add(inst.defId);
+            continue;
+          }
+        }
+        // unconditional / target なし conditional は通す
       }
     }
     return set;

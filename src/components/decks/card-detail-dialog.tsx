@@ -9,7 +9,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { CardView } from "@/components/game/card-shogi/card-view";
 import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
-import { KIND_INFO, RARITY_INFO } from "@/lib/shogi/cards/labels";
+import { CHECK_USAGE_INFO, KIND_INFO, RARITY_INFO } from "@/lib/shogi/cards/labels";
 import { cn } from "@/lib/utils";
 import type { CardId } from "@/lib/shogi/cards/types";
 
@@ -171,6 +171,19 @@ export function CardDetailDialog({ cardId, onClose }: CardDetailDialogProps) {
                   <p className="whitespace-pre-line">{def.useConditionDescription}</p>
                 </div>
               )}
+              {/* 王手中の使用可否 (Issue #82) を専用枠で表示。詳細記述内に埋もれさせない。 */}
+              <div>
+                <div className="font-semibold text-muted-foreground mb-0.5">王手中の使用</div>
+                <div className="flex flex-col gap-1">
+                  <Badge
+                    variant="outline"
+                    className={cn("text-[10px] px-1.5 py-0 w-fit", CHECK_USAGE_INFO[def.checkUsage].className)}
+                  >
+                    {CHECK_USAGE_INFO[def.checkUsage].label}
+                  </Badge>
+                  <p>{CHECK_USAGE_INFO[def.checkUsage].description}</p>
+                </div>
+              </div>
             </div>
           </>
         )}

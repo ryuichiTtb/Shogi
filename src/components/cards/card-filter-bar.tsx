@@ -150,8 +150,13 @@ function FilterRow<T extends string>({
               type="button"
               onClick={() => onToggle(opt.id)}
               className={cn(
-                "cursor-pointer transition-all rounded-md",
+                // 「すべて」ボタンと同じ Step S3 (Issue #107) パターン:
+                // transition-opacity に絞る + active リングでタッチデバイスの視覚フィードバック。
+                // option ボタンは Step S3 の適用が漏れていて、モバイルで OFF 切替時に
+                // opacity-40 が視覚反映されない不具合になっていた。
+                "cursor-pointer transition-opacity duration-150 rounded-md",
                 "hover:ring-2 hover:ring-amber-400/70 hover:ring-offset-1 hover:ring-offset-background",
+                "active:ring-2 active:ring-amber-400/70 active:ring-offset-1 active:ring-offset-background",
                 active ? "" : "opacity-40",
               )}
               aria-pressed={active}

@@ -1042,7 +1042,7 @@ describe("reducer / 二手指し (double_move)", () => {
       movesLeft: opts.movesLeft,
       mateInOneAvailable: opts.mateInOneAvailable ?? false,
       cardInstance: opts.cardInstance ?? card("dm-fixture", "double_move"),
-      cardCost: 6,
+      cardCost: 5,
       preFirstMoveState: snapshot,
       preCardState: snapshot,
     };
@@ -1072,7 +1072,7 @@ describe("reducer / 二手指し (double_move)", () => {
     expect(next.doubleMove?.active).toBe("sente");
     expect(next.doubleMove?.movesLeft).toBe(2);
     expect(next.doubleMove?.cardInstance).toEqual(c);
-    expect(next.doubleMove?.cardCost).toBe(6);
+    expect(next.doubleMove?.cardCost).toBe(5);
     // 演出はまだ起動しない (2手目完了で起動)
     expect(next.isPlayingCard).toBe(false);
   });
@@ -1147,7 +1147,7 @@ describe("reducer / 二手指し (double_move)", () => {
     // 新仕様: 2手目完了で finalize → カード消費 + マナ -6 + cardPlayEvent push + 演出開始
     expect(next.cardState.hand.sente).toEqual([]);
     expect(next.cardState.graveyard.sente.length).toBe(1);
-    expect(next.cardState.mana.sente).toBe(4); // 10 - 6
+    expect(next.cardState.mana.sente).toBe(5); // 10 - 5
     expect(next.isPlayingCard).toBe(true); // 中央演出開始
     expect(next.pendingPlayCardOpponent).toBeNull(); // currentPlayer は既に flip 済なので null
     // cardPlayEvent が eventLog に追加される
@@ -1284,7 +1284,7 @@ describe("reducer / 二手指し (double_move)", () => {
         movesLeft: 2,
         mateInOneAvailable: false,
         cardInstance: c,
-        cardCost: 6,
+        cardCost: 5,
         preFirstMoveState: { gameState: makeBaseGameState(), cardState: snapshotWithPending, eventLog: [] },
         preCardState: { gameState: makeBaseGameState(), cardState: snapshotWithPending, eventLog: [] },
       },
@@ -1318,7 +1318,7 @@ describe("reducer / 二手指し (double_move)", () => {
         movesLeft: 1,
         mateInOneAvailable: false,
         cardInstance: c,
-        cardCost: 6,
+        cardCost: 5,
         preFirstMoveState: { gameState: makeBaseGameState(), cardState: snapshotWithPending, eventLog: [] },
         preCardState: { gameState: makeBaseGameState(), cardState: snapshotWithPending, eventLog: [] },
       },
@@ -1625,7 +1625,7 @@ describe("reducer / 二手指し 2手目 forbiddenMateMoves (Issue #82)", () => 
         movesLeft: 1, // 2手目
         mateInOneAvailable: false, // 1手詰めは元々できない設定
         cardInstance: card("dm-fixture", "double_move"),
-        cardCost: 6,
+        cardCost: 5,
         preFirstMoveState: { gameState, cardState: makeInitialCardState(), eventLog: [] },
         preCardState: { gameState, cardState: makeInitialCardState(), eventLog: [] },
       },
@@ -1666,7 +1666,7 @@ describe("reducer / 二手指し 2手目 forbiddenMateMoves (Issue #82)", () => 
         movesLeft: 1,
         mateInOneAvailable: true, // 1手詰めができる設定
         cardInstance: card("dm-fixture", "double_move"),
-        cardCost: 6,
+        cardCost: 5,
         preFirstMoveState: { gameState, cardState: makeInitialCardState(), eventLog: [] },
         preCardState: { gameState, cardState: makeInitialCardState(), eventLog: [] },
       },
@@ -1699,5 +1699,173 @@ describe("reducer / 二手指し 2手目 forbiddenMateMoves (Issue #82)", () => 
     const state = makeInitialState();
     const next = reducer(state, { type: "SELECT_SQUARE", pos: { row: 6, col: 4 } });
     expect(next.forbiddenMateMoves.length).toBe(0);
+  });
+});
+
+// ===== Issue #82: 王手中のカード使用可否 (checkUsage フラグ) =====
+
+describe("reducer / BEGIN_PLAY_CARD 王手中ガード (Issue #82 / checkUsage)", () => {
+  // 9x9 空盤に玉と必要駒だけを置いた検証用 state を作る。
+  // 後手の飛車で先手玉に王手をかけた状態を構築。
+  // 1手で回避可能 (玉が逃げられる空きあり) なので、unconditional 前提も成立する。
+  function makeCheckedState(extraSentePieces: { row: number; col: number; type: string }[] = []) {
+    const board = Array.from({ length: 9 }, () =>
+      Array<GameState["board"][number][number]>(9).fill(null),
+    );
+    board[8][4] = { type: "king", owner: "sente" };
+    board[0][4] = { type: "king", owner: "gote" };
+    // 後手飛車を先手玉と同列で離れた位置に配置 → 縦の王手
+    board[5][4] = { type: "rook", owner: "gote" };
+    for (const p of extraSentePieces) {
+      board[p.row][p.col] = { type: p.type, owner: "sente" } as GameState["board"][number][number];
+    }
+    const gameState: GameState = {
+      board,
+      hand: { sente: {}, gote: {} },
+      currentPlayer: "sente",
+      moveHistory: [],
+      positionHistory: [],
+      status: "active",
+      moveCount: 0,
+    };
+    return gameState;
+  }
+
+  it("forbidden (pawn_return): 王手中は state 不変 (動的判定スキップで非活性)", () => {
+    // 自分の盤上に歩を置き CARD_USE_CONDITIONS は通る状態にしてから王手中ガードに到達
+    const gs = makeCheckedState([{ row: 7, col: 0, type: "pawn" }]);
+    const c = card("c1", "pawn_return");
+    const state = makeInitialState(
+      gs,
+      makeInitialCardState({
+        mana: { sente: 10, gote: 0 },
+        hand: { sente: [c], gote: [] },
+      }),
+    );
+    const next = reducer(state, {
+      type: "BEGIN_PLAY_CARD",
+      player: "sente",
+      instanceId: c.instanceId,
+    });
+    expect(next).toBe(state);
+  });
+
+  it("forbidden (piece_return): 王手中は state 不変", () => {
+    const gs = makeCheckedState([{ row: 7, col: 0, type: "gold" }]);
+    const c = card("c1", "piece_return");
+    const state = makeInitialState(
+      gs,
+      makeInitialCardState({
+        mana: { sente: 10, gote: 0 },
+        hand: { sente: [c], gote: [] },
+      }),
+    );
+    const next = reducer(state, {
+      type: "BEGIN_PLAY_CARD",
+      player: "sente",
+      instanceId: c.instanceId,
+    });
+    expect(next).toBe(state);
+  });
+
+  it("unconditional (double_move): 王手中でも使用可 (UI バグ regression test)", () => {
+    // 王手中だが詰みではない (玉が 8,3 や 8,5 へ逃げられる) → 1手回避可能 → 2手以内回避は自明
+    // checkUsage="unconditional" により動的判定をスキップし pendingCard が立つこと
+    const gs = makeCheckedState();
+    const c = card("dm1", "double_move");
+    const state = makeInitialState(
+      gs,
+      makeInitialCardState({
+        mana: { sente: 10, gote: 0 },
+        hand: { sente: [c], gote: [] },
+      }),
+    );
+    const next = reducer(state, {
+      type: "BEGIN_PLAY_CARD",
+      player: "sente",
+      instanceId: c.instanceId,
+    });
+    expect(next.cardState.pendingCard?.instance.instanceId).toBe(c.instanceId);
+    expect(next.cardState.pendingCard?.phase).toBe("confirm");
+  });
+
+  it("conditional (double_pawn): 王手中で合駒可能なら使用可 → pendingCard 設定", () => {
+    // double_pawn は「自分の未成り歩がいる列」にしか歩を打てない。
+    // 王手は後手飛車 (5,4) → 先手玉 (8,4) の縦の王手。合駒できる空マスは (6,4) (7,4)。
+    // 列4に自歩がないと double_pawn の対象列にならないので、列4の安全な位置 (3,4) に
+    // 自歩を置く (rook の下側ではないので check の経路に影響しない)。
+    const gs = makeCheckedState([{ row: 3, col: 4, type: "pawn" }]);
+    gs.hand.sente.pawn = 1;
+    const c = card("dp1", "double_pawn");
+    const state = makeInitialState(
+      gs,
+      makeInitialCardState({
+        mana: { sente: 10, gote: 0 },
+        hand: { sente: [c], gote: [] },
+      }),
+    );
+    const next = reducer(state, {
+      type: "BEGIN_PLAY_CARD",
+      player: "sente",
+      instanceId: c.instanceId,
+    });
+    expect(next.cardState.pendingCard?.instance.instanceId).toBe(c.instanceId);
+  });
+
+  it("forbidden (no_promote / trap): 王手中は state 不変", () => {
+    const gs = makeCheckedState();
+    const c = card("c1", "no_promote");
+    const state = makeInitialState(
+      gs,
+      makeInitialCardState({
+        mana: { sente: 10, gote: 0 },
+        hand: { sente: [c], gote: [] },
+      }),
+    );
+    const next = reducer(state, {
+      type: "BEGIN_PLAY_CARD",
+      player: "sente",
+      instanceId: c.instanceId,
+    });
+    expect(next).toBe(state);
+  });
+
+  it("非王手時は checkUsage に関わらず使用可 (forbidden カードでも王手でなければ可)", () => {
+    // 王手なしの初期局面で pawn_return を使う。盤上に自歩はある (createInitialGameState)
+    const c = card("c1", "pawn_return");
+    const state = makeInitialState(
+      undefined,
+      makeInitialCardState({
+        mana: { sente: 10, gote: 0 },
+        hand: { sente: [c], gote: [] },
+      }),
+    );
+    const next = reducer(state, {
+      type: "BEGIN_PLAY_CARD",
+      player: "sente",
+      instanceId: c.instanceId,
+    });
+    // pendingCard が立てばガード通過
+    expect(next.cardState.pendingCard?.instance.instanceId).toBe(c.instanceId);
+  });
+});
+
+// 全7カードに checkUsage が定義されていることを担保する型ガードテスト。
+describe("CARD_DEFS / checkUsage 必須化 (Issue #82)", () => {
+  it("全カード定義に有効な checkUsage 値が設定されている", async () => {
+    const { ALL_CARD_DEFS } = await import("@/lib/shogi/cards/definitions");
+    const valid = new Set(["forbidden", "conditional", "unconditional"]);
+    for (const def of ALL_CARD_DEFS) {
+      expect(valid.has(def.checkUsage)).toBe(true);
+    }
+  });
+
+  it("trap カードはすべて checkUsage=forbidden で固定 (運用ルール)", async () => {
+    const { ALL_CARD_DEFS } = await import("@/lib/shogi/cards/definitions");
+    for (const def of ALL_CARD_DEFS) {
+      if (def.kind === "trap") {
+        expect(def.checkUsage).toBe("forbidden");
+      }
+    }
   });
 });
