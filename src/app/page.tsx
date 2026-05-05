@@ -6,7 +6,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, useReducedMotion } from "framer-motion";
-import { History, Swords, Castle } from "lucide-react";
+import { History, Swords, Castle, Wrench } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ThemeSelector } from "@/components/game/theme-selector";
@@ -117,12 +117,12 @@ export default function Home() {
             </Button>
           </motion.div>
 
-          {/* 履歴リンク */}
+          {/* 履歴 / 開発者ツール リンク */}
           <motion.div
             initial={!reduce ? { opacity: 0 } : false}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.3, delay: 0.45 }}
-            className="text-center pt-1"
+            className="text-center pt-1 flex items-center justify-center gap-4 flex-wrap"
           >
             <button
               type="button"
@@ -135,6 +135,18 @@ export default function Home() {
             >
               <History className="w-4 h-4" />
               対局履歴を見る
+            </button>
+            <button
+              type="button"
+              onClick={() => navigateTo("/dev", "開発者ツールを開いています...")}
+              disabled={isPending}
+              className={cn(
+                "inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors",
+                "disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer",
+              )}
+            >
+              <Wrench className="w-4 h-4" />
+              開発者ツール
             </button>
           </motion.div>
         </div>
