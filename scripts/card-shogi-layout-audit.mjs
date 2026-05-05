@@ -52,6 +52,7 @@ class CdpPage {
     this.nextId = 1;
     this.pending = new Map();
     this.events = new Map();
+    this.diagnostics = [];
     this.ready = new Promise((resolve, reject) => {
       this.ws.addEventListener("open", resolve, { once: true });
       this.ws.addEventListener("error", reject, { once: true });
@@ -64,6 +65,17 @@ class CdpPage {
         if (message.error) reject(new Error(message.error.message));
         else resolve(message.result);
         return;
+      }
+      if (message.method === "Runtime.exceptionThrown") {
+        const details = message.params?.exceptionDetails;
+        this.diagnostics.push(`browser exception: ${details?.exception?.description ?? details?.text ?? "unknown"}`);
+      }
+      if (message.method === "Runtime.consoleAPICalled" && message.params?.type === "error") {
+        const text = (message.params.args ?? [])
+          .map((arg) => arg.value ?? arg.description ?? arg.unserializableValue ?? "")
+          .filter(Boolean)
+          .join(" ");
+        this.diagnostics.push(`browser console error: ${text || "unknown"}`);
       }
       if (message.method && this.events.has(message.method)) {
         for (const resolve of this.events.get(message.method)) resolve(message.params);
@@ -97,6 +109,14 @@ class CdpPage {
   close() {
     this.ws.close();
   }
+
+  clearDiagnostics() {
+    this.diagnostics = [];
+  }
+
+  getDiagnostics() {
+    return [...this.diagnostics];
+  }
 }
 
 async function createPage(port) {
@@ -108,6 +128,7 @@ async function createPage(port) {
 }
 
 async function runAudit(page, viewport, scenario) {
+  page.clearDiagnostics();
   await page.send("Emulation.setDeviceMetricsOverride", {
     width: viewport.width,
     height: viewport.height,
@@ -123,7 +144,13 @@ async function runAudit(page, viewport, scenario) {
     returnByValue: true,
     expression: `(${auditInPage.toString()})(${JSON.stringify({ scenario })})`,
   });
-  return result.value;
+  const value = result.value;
+  const diagnostics = page.getDiagnostics();
+  if (diagnostics.length > 0) {
+    value.ok = false;
+    value.failures.push(...diagnostics);
+  }
+  return value;
 }
 
 async function waitForLayoutReady(page, timeoutMs = 8_000) {

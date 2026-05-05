@@ -81,6 +81,7 @@ CARD_SHOGI_LAYOUT_BASE_URL=http://localhost:3000 pnpm test:layout:card-shogi
 - 主要 UI (`data-card-shogi-*`) が viewport 外へ出ていない
 - 盤面が上端カードエリア / 下端操作エリアと重ならない
 - `progress4` の進捗リングが山札 button の外縁と 1px 以内で一致する
+- browser exception / console error が発生していない
 
 ## 精密配置原則
 

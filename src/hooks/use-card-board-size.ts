@@ -2,11 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type RefCallback } from "react";
 
-import {
-  computeCardBoardSize,
-  getCardShogiLayoutMode,
-  type CardBoardSizeResult,
-} from "@/lib/card-shogi/layout-metrics";
+import { computeCardBoardSize, type CardBoardSizeResult } from "@/lib/card-shogi/layout-metrics";
 
 interface CardBoardSize {
   squareSize: number;
@@ -151,8 +147,7 @@ export function useCardBoardSize(): CardBoardSize {
     };
   }, [recalc]);
 
-  const viewport = typeof window === "undefined" ? { width: 390 } : { width: getViewportSize().width };
-  const fallbackMode = result?.mode ?? getCardShogiLayoutMode(viewport.width);
+  const fallbackMode = result?.mode ?? "mobile";
   const squareSize = result?.squareSize ?? 40;
 
   return {
