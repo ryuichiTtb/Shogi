@@ -209,7 +209,9 @@ export const DeckPile = memo(function DeckPile({
     height: dims.h,
   };
   const sizeClass = dims.text;
-  const ringInset = size === "lg" ? 5 : 4;
+  const ringRadius = size === "sm" ? 5 : 6;
+  const drawTextClass = size === "lg" ? "text-[12px]" : size === "md" ? "text-[10px]" : "text-[8px]";
+  const progressTextClass = size === "lg" ? "text-[12px]" : size === "md" ? "text-[10px]" : "text-[8px]";
 
   // コンテナ寸法 = カード寸法 + stack offset。
   // - non-fullWidth: 横も縦も固定 (= dims.w + offsetX, dims.h + offsetY)
@@ -289,18 +291,18 @@ export const DeckPile = memo(function DeckPile({
         )}
 
         {/* Issue #130: 自動ドロー進捗リング。
-            CardBack (amber border-2) の内側に固定 px inset で納める。
-            旧実装の viewBox % inset は横長カードで x/y の実 px が変わり、
-            モバイルで枠とズレて見えたため、カード本体に対する実 px 基準にする。
-            preserveAspectRatio="none" + vector-effect="non-scaling-stroke" で
-            縦横比に依存せず一定の線幅・等分セグメントを維持する。
+            上面カード button の inset-0 に固定し、rect の stroke 外縁がカード外枠と
+            一致するよう x/y=1, width/height=98 で描く。外側コンテナは stack offset を
+            含むため、ここでは絶対に参照しない。
+            preserveAspectRatio="none" + vector-effect="non-scaling-stroke" で、PC の横長表示
+            とモバイルの小型表示でも一定の線幅を維持する。
             primed (= displayProgress === interval - 1) のときは emerald-300 +
-            amber-200 二重描画 + 1.4s パルス (最大 6 ループ)。reduced-motion 時は
-            パルス停止。displayProgress は 4→0 遷移時に 1 frame だけ強制 5 描画
+            amber-200 二重描画 + 1.4s の明滅 (最大 6 ループ)。拡大縮小はリング枠ズレに
+            見えるため使わない。displayProgress は 4→0 遷移時に 1 frame だけ強制 5 描画
             (= firing の起点、useLayoutEffect で実装)。 */}
         {hasProgress && !isEmpty && (
           <svg
-            className="absolute z-10 pointer-events-none"
+            className="absolute inset-0 z-10 pointer-events-none"
             viewBox="0 0 100 100"
             preserveAspectRatio="none"
             role="progressbar"
@@ -308,23 +310,17 @@ export const DeckPile = memo(function DeckPile({
             aria-valuemax={interval}
             aria-valuenow={Math.min(displayProgress, interval)}
             aria-label={`自動ドロー進捗 ${Math.min(displayProgress, interval)}/${interval}`}
-            style={{
-              top: ringInset,
-              right: ringInset,
-              bottom: ringInset,
-              left: ringInset,
-              overflow: "visible",
-            }}
+            style={{ overflow: "visible" }}
           >
-            {/* track: 5 セグメント等分の薄い縁取り。SVG 自体を固定 px inset
-                しているので rect は viewBox 全体を使う。 */}
+            {/* track: 5 セグメント等分の薄い縁取り。rect は stroke 外縁が
+                SVG 外周 (= カード外枠) に一致する座標に置く。 */}
             <rect
-              x={0}
-              y={0}
-              width={100}
-              height={100}
-              rx={3}
-              ry={3}
+              x={1}
+              y={1}
+              width={98}
+              height={98}
+              rx={ringRadius}
+              ry={ringRadius}
               fill="none"
               stroke="rgb(51 65 85 / 0.4)"
               strokeWidth={2}
@@ -335,31 +331,30 @@ export const DeckPile = memo(function DeckPile({
             {/* primed 時の amber 二重ストローク (内側 1px) */}
             {isPrimed && (
               <rect
-                x={0}
-                y={0}
-                width={100}
-                height={100}
-                rx={3}
-                ry={3}
+                x={1.75}
+                y={1.75}
+                width={96.5}
+                height={96.5}
+                rx={ringRadius}
+                ry={ringRadius}
                 fill="none"
                 stroke="rgb(254 240 138 / 0.7)" /* amber-200 */
-                strokeWidth={1}
+                strokeWidth={1.5}
                 strokeLinecap="round"
                 vectorEffect="non-scaling-stroke"
                 pathLength={interval}
                 strokeDasharray={interval}
                 strokeDashoffset={interval - Math.min(displayProgress, interval)}
-                style={{ transform: "translate(0.5px, 0.5px)" }}
               />
             )}
             {/* progress: 通常 emerald-400/85, primed は emerald-300 (主層) */}
             <motion.rect
-              x={0}
-              y={0}
-              width={100}
-              height={100}
-              rx={3}
-              ry={3}
+              x={1}
+              y={1}
+              width={98}
+              height={98}
+              rx={ringRadius}
+              ry={ringRadius}
               fill="none"
               stroke={isPrimed ? "rgb(110 231 183 / 0.95)" : "rgb(52 211 153 / 0.85)"}
               strokeWidth={isPrimed ? 2.6 : 2}
@@ -371,7 +366,7 @@ export const DeckPile = memo(function DeckPile({
               animate={
                 reducedMotion || !isPrimed
                   ? undefined
-                  : { opacity: [0.85, 1, 0.85], scale: [1, 1.015, 1] }
+                  : { opacity: [0.85, 1, 0.85] }
               }
               transition={
                 reducedMotion || !isPrimed
@@ -412,7 +407,7 @@ export const DeckPile = memo(function DeckPile({
         <div
           className={cn(
             "absolute z-20 pointer-events-none select-none text-center",
-            "grid grid-rows-[minmax(0,1fr)_auto]",
+            "grid grid-rows-[minmax(0,1fr)_auto_auto]",
             size === "sm" ? "inset-[4px]" : "inset-[5px]",
           )}
         >
@@ -430,23 +425,24 @@ export const DeckPile = memo(function DeckPile({
             {isEmpty && (
               <div className="leading-none text-slate-200 text-[10px] font-bold">空</div>
             )}
-            {interactable && (
-              <div
-                className={cn(
-                  "leading-none text-amber-200 font-bold animate-bounce drop-shadow-[0_1px_2px_rgba(0,0,0,0.7)] mt-1",
-                  size === "sm" ? "text-[8px]" : "text-[10px]",
-                )}
-              >
-                DRAW!
-              </div>
-            )}
           </div>
 
           <div
             className={cn(
-              "min-h-[10px] flex items-end justify-center leading-none font-medium tabular-nums whitespace-nowrap",
+              "min-h-[12px] flex items-end justify-center leading-none font-bold",
+              "text-amber-200 drop-shadow-[0_1px_2px_rgba(0,0,0,0.7)]",
+              interactable && "animate-bounce",
+              drawTextClass,
+            )}
+            aria-hidden
+          >
+            {interactable ? "DRAW!" : ""}
+          </div>
+          <div
+            className={cn(
+              "min-h-[12px] flex items-end justify-center leading-none font-bold tabular-nums whitespace-nowrap",
               "text-emerald-200/90 drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]",
-              size === "sm" ? "text-[8px]" : "text-[10px]",
+              progressTextClass,
             )}
             aria-hidden
           >
