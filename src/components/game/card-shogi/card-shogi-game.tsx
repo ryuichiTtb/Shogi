@@ -322,8 +322,16 @@ export function CardShogiGame({
       playSfx("piece_move");
     }
     if (inCheck) {
-      playSfx("check");
-      setOverlayEvent({ event: "check", key: Date.now() });
+      // Issue #132 派生: 二手指し 1 手目で自玉が王手になる過渡状態 (movesLeft===1) は、
+      // 1 手目自玉王手 → 2 手目で必ず解消される設計仕様上、王手 SFX と中央演出を抑制する。
+      // 玉の赤色スタイルは ShogiBoard が `inCheck` prop 経由で描画するためそのまま維持。
+      // 通常の王手 (相手玉への王手 / AI からの王手) は doubleMove === null のため対象外。
+      const isDoubleMoveSelfCheckTransient =
+        doubleMove !== null && doubleMove.movesLeft === 1;
+      if (!isDoubleMoveSelfCheckTransient) {
+        playSfx("check");
+        setOverlayEvent({ event: "check", key: Date.now() });
+      }
     }
     if (gameState.status === "checkmate") {
       setTimeout(() => playSfx("game_over"), 1000);
