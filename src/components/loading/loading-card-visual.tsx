@@ -13,7 +13,7 @@
 //   - サイズはレスポンシブに clamp(140px, 40vw, 240px)、アスペクト比 8:5。
 "use client";
 
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { useReducedMotion } from "framer-motion";
 
 import { CardBack } from "@/components/card-back/card-back";
@@ -53,6 +53,25 @@ function pickRandomPieceType(): LoadingFacePieceType {
   const idx = Math.floor(Math.random() * LOADING_FACE_PIECE_TYPES.length);
   return LOADING_FACE_PIECE_TYPES[idx];
 }
+
+// 直前と異なる駒を選ぶ (同じ駒が 2 回続くと「切替わった感」が出ないため)。
+// プールが 1 種以下なら同じものを返す (理論上ありえないが防御)。
+function pickNextRandomPieceType(
+  current: LoadingFacePieceType,
+): LoadingFacePieceType {
+  if (LOADING_FACE_PIECE_TYPES.length <= 1) return current;
+  let next: LoadingFacePieceType;
+  do {
+    next = pickRandomPieceType();
+  } while (next === current);
+  return next;
+}
+
+// 1 周回 (rotateY 0° → 360°) の周期。globals.css の loading-card-flip と同期。
+// 周期完了タイミング (= 表が背面に隠れる 0°/360°) で駒を差し替えれば、表が
+// 見える 90°〜270° の半周中は安定して同じ駒が表示され、表が背面にあるあいだ
+// に次の駒へ静かに切替わる演出になる。
+const FLIP_PERIOD_MS = 4000;
 
 const SIZE_STYLE = {
   width: "clamp(140px, 40vw, 240px)",
@@ -130,10 +149,26 @@ export const LoadingCardVisual = memo(function LoadingCardVisual({
   forcePieceType,
 }: LoadingCardVisualProps = {}) {
   const reduce = useReducedMotion() ?? false;
-  // 表示中の駒種をマウント時に 1 度だけランダム決定 (memo で再レンダー抑止)。
-  // forcePieceType 指定時はそれを優先 (preview 用)。
-  const [randomPieceType] = useState(pickRandomPieceType);
-  const pieceType = forcePieceType ?? randomPieceType;
+  // 表示中の駒種をマウント時にランダム決定 + 回転周期ごとに切替える。
+  // forcePieceType 指定時はそれを優先し自動切替を停止 (preview 用)。
+  const [pieceType, setPieceType] = useState<LoadingFacePieceType>(
+    pickRandomPieceType,
+  );
+  const displayPieceType = forcePieceType ?? pieceType;
+
+  // FLIP_PERIOD_MS ごとに次のランダム駒へ更新する。CSS の rotateY 0→360 が
+  // 完了するタイミングは表が完全に背面にあるため、ユーザの目に映る切替えは
+  // 「次の周回で表に出てきたとき初めて別の駒になっている」自然な見え方になる。
+  // pieceType の変化は LoadingCardFace のみを再レンダーし、親の
+  // animate-loading-card-flip / -bob は触らないので CSS animation は中断しない。
+  useEffect(() => {
+    if (reduce) return; // reduce 時は静止表示なので切替え不要
+    if (forcePieceType) return; // 強制指定時 (preview) は固定
+    const interval = setInterval(() => {
+      setPieceType((cur) => pickNextRandomPieceType(cur));
+    }, FLIP_PERIOD_MS);
+    return () => clearInterval(interval);
+  }, [reduce, forcePieceType]);
 
   // reduce 時は静止 (CardBack のみ)。preserve-3d 不要。
   if (reduce) {
@@ -171,7 +206,7 @@ export const LoadingCardVisual = memo(function LoadingCardVisual({
           className="absolute inset-0 [backface-visibility:hidden]"
           style={{ transform: "rotateY(180deg)" }}
         >
-          <LoadingCardFace pieceType={pieceType} />
+          <LoadingCardFace pieceType={displayPieceType} />
         </div>
       </div>
     </div>
