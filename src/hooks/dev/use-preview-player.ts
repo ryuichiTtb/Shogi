@@ -44,7 +44,16 @@ export interface PreviewPlayer {
   ready: boolean;
 }
 
-export function usePreviewPlayer(): PreviewPlayer {
+export interface UsePreviewPlayerOptions {
+  /**
+   * 再生が自然終了 (Howler の onend) したときに呼ばれる。
+   * 手動 stop / load error / play error では呼ばれないため、
+   * 「最後まで聴き終えた」検知に使える。
+   */
+  onNaturalEnd?: (path: string) => void;
+}
+
+export function usePreviewPlayer(options?: UsePreviewPlayerOptions): PreviewPlayer {
   const HowlRef = useRef<HowlConstructor | null>(null);
   const cacheRef = useRef<Map<string, HowlInstance>>(new Map());
   const currentRef = useRef<HowlInstance | null>(null);
@@ -52,6 +61,10 @@ export function usePreviewPlayer(): PreviewPlayer {
   const [ready, setReady] = useState(false);
   const [activePath, setActivePath] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
+
+  // ref で常に最新コールバックを参照 (Howl 再構築不要)
+  const onNaturalEndRef = useRef(options?.onNaturalEnd);
+  onNaturalEndRef.current = options?.onNaturalEnd;
 
   useEffect(() => {
     let cancelled = false;
@@ -128,7 +141,11 @@ export function usePreviewPlayer(): PreviewPlayer {
           src: [path],
           volume: 0.7,
           preload: true,
-          onend: onClear,
+          onend: () => {
+            onClear();
+            // 自然終了のみ通知 (手動 stop / load error では発火しない)
+            onNaturalEndRef.current?.(path);
+          },
           onloaderror: onClear,
           onplayerror: onClear,
         });

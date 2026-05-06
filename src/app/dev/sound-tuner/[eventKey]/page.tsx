@@ -108,7 +108,30 @@ export default function SoundTunerDetailPage() {
     ? SFX_EVENT_LABELS[eventKey as SfxEventKey]
     : BGM_EVENT_LABELS[eventKey as BgmEventKey];
 
-  const { playFrom, stop, activePath, progress, ready } = usePreviewPlayer();
+  // 摸擬 UI: 該当 event の Mock コンポーネント (未登録なら null)
+  const Mock = MOCK_REGISTRY[eventKey];
+  // 摸擬 UI のリセット用 key (++ で子の state を強制リセット)
+  const [mockResetKey, setMockResetKey] = useState(0);
+  // 自動リセット: 摸擬 UI 起点の再生が自然終了したら盤面リセット (デフォルト ON)
+  const [autoResetEnabled, setAutoResetEnabled] = useState(true);
+  // mock 起点の再生かを追跡 (path 値で保持。null = 直近は mock 起点ではない)
+  const mockTriggeredPathRef = useRef<string | null>(null);
+
+  const { playFrom, stop, activePath, progress, ready } = usePreviewPlayer({
+    onNaturalEnd: useCallback(
+      (endedPath: string) => {
+        if (
+          autoResetEnabled &&
+          mockTriggeredPathRef.current === endedPath
+        ) {
+          setMockResetKey((k) => k + 1);
+        }
+        // 自然終了したらフラグもクリア
+        mockTriggeredPathRef.current = null;
+      },
+      [autoResetEnabled],
+    ),
+  });
   const unlockedRef = useRef(false);
 
   const handlePlay = useCallback(
@@ -118,6 +141,8 @@ export default function SoundTunerDetailPage() {
         unlockedRef.current = true;
         void prepareAudio();
       }
+      // 通常のプレビュー再生は mock 起点ではないのでフラグクリア
+      mockTriggeredPathRef.current = null;
       playFrom(path, fromRatio);
     },
     [playFrom],
@@ -191,17 +216,21 @@ export default function SoundTunerDetailPage() {
     setExpandedDirs(new Set());
   }, []);
 
-  // 摸擬 UI: 該当 event の Mock コンポーネント (未登録なら null)
-  const Mock = MOCK_REGISTRY[eventKey];
-  // 摸擬 UI のリセット用 key (++ で子の state を強制リセット)
-  const [mockResetKey, setMockResetKey] = useState(0);
   const handleMockReset = useCallback(() => {
     setMockResetKey((k) => k + 1);
   }, []);
-  // 摸擬 UI 操作で SFX を再生
+  // 摸擬 UI 操作で SFX を再生。
+  // 自動リセット判定のため、handlePlay (フラグクリア) ではなく playFrom 直接呼出
+  // + ref に effectivePath を記録する。
   const handleMockTrigger = useCallback(() => {
-    if (effectivePath) handlePlay(effectivePath, 0);
-  }, [effectivePath, handlePlay]);
+    if (!effectivePath) return;
+    if (!unlockedRef.current) {
+      unlockedRef.current = true;
+      void prepareAudio();
+    }
+    mockTriggeredPathRef.current = effectivePath;
+    playFrom(effectivePath, 0);
+  }, [effectivePath, playFrom]);
 
   return (
     <main className="h-dvh flex flex-col bg-background">
@@ -298,13 +327,13 @@ export default function SoundTunerDetailPage() {
       {/* ===== 2 カラムレイアウト (lg+ 横並び、それ以下は縦) ===== */}
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-6xl mx-auto px-4 py-3 grid gap-4 lg:grid-cols-[1fr_320px]">
-          {/* 左カラム: 音源プール */}
+          {/* 左カラム: 音源プール (サブヘッダはスクロール時 sticky 固定) */}
           <section className="flex flex-col gap-2 min-w-0 order-2 lg:order-1">
-            <div className="flex items-center justify-between px-1">
-              <h2 className="text-sm font-bold text-muted-foreground">
+            <div className="sticky top-0 z-[5] bg-background/95 backdrop-blur-sm flex items-center justify-between gap-2 py-2 px-1 border-b border-border/40">
+              <h2 className="text-sm font-bold text-muted-foreground truncate">
                 音源を選ぶ ({AUDIO_MANIFEST.poolUrls.length} 件 / {groups.length} フォルダ)
               </h2>
-              <div className="flex gap-1">
+              <div className="flex gap-1 shrink-0">
                 <Button variant="outline" size="sm" onClick={expandAll} className="h-7 text-[11px] px-2">
                   全展開
                 </Button>
@@ -418,19 +447,30 @@ export default function SoundTunerDetailPage() {
           <aside className="flex flex-col gap-2 min-w-0 order-1 lg:order-2">
             <div className="lg:sticky lg:top-2">
               <Card className="p-4 flex flex-col items-center gap-3">
-                <div className="flex items-center justify-between w-full">
-                  <h2 className="text-sm font-bold text-muted-foreground">摸擬操作</h2>
+                <div className="flex items-center justify-between w-full gap-2">
+                  <h2 className="text-sm font-bold text-muted-foreground shrink-0">摸擬操作</h2>
                   {Mock && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleMockReset}
-                      className="h-7 text-[11px] px-2"
-                      title="盤面をリセット"
-                    >
-                      <RotateCcw className="w-3 h-3 mr-1" />
-                      リセット
-                    </Button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={autoResetEnabled}
+                          onChange={(e) => setAutoResetEnabled(e.target.checked)}
+                          className="w-3.5 h-3.5 rounded accent-primary cursor-pointer"
+                        />
+                        自動リセット
+                      </label>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleMockReset}
+                        className="h-7 text-[11px] px-2"
+                        title="盤面をリセット"
+                      >
+                        <RotateCcw className="w-3 h-3 mr-1" />
+                        リセット
+                      </Button>
+                    </div>
                   )}
                 </div>
                 {Mock ? (

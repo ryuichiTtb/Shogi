@@ -61,7 +61,9 @@ interface RowProps {
   Icon?: React.ComponentType<{ className?: string }>;
 }
 
-// 1 行表示の event 行。コンパクト ( ~64px height) + インラインプレビュー。
+// 1 行表示の event 行。
+// すべての要素 (イベント名+key / 割当て音源名 / ▶+波形+時間 / 変更ボタン) を
+// 単一の横方向 row に並べる。Card 既定が flex-col のため flex-row を明示。
 function EventRow({
   eventKey,
   label,
@@ -84,12 +86,12 @@ function EventRow({
   );
 
   return (
-    <Card className="px-2.5 py-1.5 flex items-center gap-2.5 min-h-[56px]">
-      {/* 左: イベント名 + key */}
-      <div className="shrink-0 min-w-0 w-[40%] sm:w-[28%] flex items-center gap-1.5">
+    <Card className="flex-row items-center gap-2 px-2.5 py-1.5 min-h-[44px]">
+      {/* 左: イベント名 + key (2 段、コンパクト) */}
+      <div className="shrink-0 min-w-0 w-[42%] sm:w-[26%] flex items-center gap-1">
         {Icon && <Icon className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
         <div className="min-w-0">
-          <div className="font-bold text-xs sm:text-sm truncate flex items-center gap-1">
+          <div className="font-bold text-xs sm:text-sm leading-tight truncate flex items-center gap-1">
             <span className="truncate">{label}</span>
             {isOverridden && (
               <Badge variant="default" className="text-[9px] px-1 h-3.5 leading-none shrink-0">
@@ -102,52 +104,54 @@ function EventRow({
               </Badge>
             )}
           </div>
-          <code className="text-[9px] text-muted-foreground font-mono truncate block">
+          <code className="text-[9px] text-muted-foreground font-mono truncate block leading-tight">
             {eventKey}
           </code>
         </div>
       </div>
 
-      {/* 中央: 音源名 + (▶ + 波形 + 時間) */}
-      <div className="flex-1 min-w-0 flex flex-col gap-0.5">
-        <div
-          className="font-mono text-[10px] sm:text-[11px] text-muted-foreground truncate"
+      {/* 中央 1: 割当て音源名 (mobile では非表示で行幅確保) */}
+      <div className="hidden sm:block shrink min-w-0 w-[20%]">
+        <span
+          className="font-mono text-[11px] text-muted-foreground truncate block"
           title={effectivePath || "(未割当)"}
         >
           {isUnassigned ? "(未割当)" : fname}
-        </div>
-        <div className="flex items-center gap-1.5">
-          {!isUnassigned ? (
-            <>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => onToggle(effectivePath)}
-                disabled={!ready}
-                className="h-6 w-6 min-h-0 min-w-0 p-0 shrink-0"
-                aria-label={isPlaying ? "停止" : "再生"}
-              >
-                {isPlaying ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
-              </Button>
-              <SoundWaveform
-                peaks={WAVEFORM_PEAKS[effectivePath] ?? []}
-                isActive={isPlaying}
-                progress={isPlaying ? progress : 0}
-                onSeek={seekHandler}
-                height={18}
-                touchMinHeight={0}
-                ariaLabel={`${fname} の波形 (クリックでシーク)`}
-              />
-              <SoundTime
-                duration={WAVEFORM_DURATIONS[effectivePath] ?? 0}
-                progress={isPlaying ? progress : 0}
-                className="text-[10px]"
-              />
-            </>
-          ) : (
-            <span className="text-[10px] text-muted-foreground italic">音源なし</span>
-          )}
-        </div>
+        </span>
+      </div>
+
+      {/* 中央 2: ▶ + 波形 + 時間 (1 行) */}
+      <div className="flex-1 min-w-0 flex items-center gap-1.5">
+        {!isUnassigned ? (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onToggle(effectivePath)}
+              disabled={!ready}
+              className="h-6 w-6 min-h-0 min-w-0 p-0 shrink-0"
+              aria-label={isPlaying ? "停止" : "再生"}
+            >
+              {isPlaying ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+            </Button>
+            <SoundWaveform
+              peaks={WAVEFORM_PEAKS[effectivePath] ?? []}
+              isActive={isPlaying}
+              progress={isPlaying ? progress : 0}
+              onSeek={seekHandler}
+              height={18}
+              touchMinHeight={0}
+              ariaLabel={`${fname} の波形 (クリックでシーク)`}
+            />
+            <SoundTime
+              duration={WAVEFORM_DURATIONS[effectivePath] ?? 0}
+              progress={isPlaying ? progress : 0}
+              className="text-[10px]"
+            />
+          </>
+        ) : (
+          <span className="text-[10px] text-muted-foreground italic">音源なし</span>
+        )}
       </div>
 
       {/* 右: 変更リンク */}
