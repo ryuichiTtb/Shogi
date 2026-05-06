@@ -1,5 +1,5 @@
 export type ThemePreference = "light" | "dark" | "system";
-export type CardBackStyle = "emblem" | "seigaiha" | "minimal";
+export type CardBackStyle = "seigaiha" | "koke" | "emblem" | "minimal" | "kurenai";
 
 export const DEFAULT_THEME: ThemePreference = "system";
 export const DEFAULT_CARD_BACK_STYLE: CardBackStyle = "seigaiha";
@@ -9,5 +9,11 @@ export function isValidThemePreference(value: unknown): value is ThemePreference
 }
 
 export function isValidCardBackStyle(value: unknown): value is CardBackStyle {
-  return value === "emblem" || value === "seigaiha" || value === "minimal";
+  return (
+    value === "seigaiha" ||
+    value === "koke" ||
+    value === "emblem" ||
+    value === "minimal" ||
+    value === "kurenai"
+  );
 }
