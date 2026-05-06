@@ -42,12 +42,6 @@ interface ShogiPieceProps {
 // 五角形の頂点座標（viewBox 0 0 100 100 基準）
 const POLYGON_POINTS = "50,0 96,22 100,100 0,100 4,22";
 
-// 字が太い駒（飛・角・王 およびその成り駒）
-const BOLD_FONT_PIECES = new Set([
-  "rook", "bishop", "king",
-  "promoted_rook", "promoted_bishop",
-]);
-
 // 盤上サイズ: 元の駒種で判定（成り駒は成る前の駒サイズを引き継ぐ）
 const SMALL_PIECES = new Set(["pawn", "lance", "knight", "promoted_pawn", "promoted_lance", "promoted_knight"]);
 const MEDIUM_PIECES = new Set(["silver", "gold", "promoted_silver"]);
@@ -109,7 +103,6 @@ export const ShogiPiece = memo(function ShogiPiece({
   const promoted = isPromoted(piece.type);
   // playerColor が渡された場合は「相手の駒を回転」、未指定時は後手駒を回転（後方互換）
   const isGote = playerColor ? piece.owner !== playerColor : piece.owner === "gote";
-  const isBoldFont = BOLD_FONT_PIECES.has(piece.type);
 
   // 通常時の駒塗り: colorOverride 不指定なら「檜木調グラデ」を使う (LoadingCardFace と同じ)。
   // 王手・選択は gradient を OFF にせず、赤・青系 stops に差替えて gradient を保つ。
@@ -200,8 +193,7 @@ export const ShogiPiece = memo(function ShogiPiece({
         <div className="absolute inset-0 flex items-center justify-center">
           <span
             className={cn(
-              "leading-none font-[family-name:var(--font-yuji-boku)]",
-              isBoldFont ? "font-bold" : "font-normal",
+              "leading-none font-normal font-[family-name:var(--font-yuji-boku)]",
               promoted ? "text-red-700" : isInCheck ? "text-red-700" : "text-gray-900",
               isMultiChar && "[writing-mode:vertical-rl]",
             )}
