@@ -94,6 +94,21 @@ function pickOrbColors(style: string | null) {
         a: "radial-gradient(circle, rgba(251, 191, 36, 0.55), transparent 70%)",
         b: "radial-gradient(circle, rgba(120, 53, 15, 0.45), transparent 70%)",
       };
+    case "matsuba":
+      return {
+        a: "radial-gradient(circle, rgba(252, 211, 77, 0.50), transparent 70%)",
+        b: "radial-gradient(circle, rgba(6, 78, 59, 0.55), transparent 70%)",
+      };
+    case "mori":
+      return {
+        a: "radial-gradient(circle, rgba(52, 211, 153, 0.45), transparent 70%)",
+        b: "radial-gradient(circle, rgba(6, 78, 59, 0.55), transparent 70%)",
+      };
+    case "sasa":
+      return {
+        a: "radial-gradient(circle, rgba(134, 239, 172, 0.50), transparent 70%)",
+        b: "radial-gradient(circle, rgba(4, 120, 87, 0.50), transparent 70%)",
+      };
     case "seigaiha":
     default:
       // mounted 前 (style=null) もこの中立配色で描画される (実際は showDecorative=false で非表示)
