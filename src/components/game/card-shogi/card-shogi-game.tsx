@@ -20,6 +20,7 @@ import { BoardOverlay, type OverlayEvent } from "../board-overlay";
 import { CharacterPanel } from "@/components/character/character-panel";
 import { MobileDrawer } from "../mobile-drawer";
 import { ThemeSelector } from "../theme-selector";
+import { AuthControls } from "@/components/auth/auth-controls";
 
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -1191,6 +1192,7 @@ export function CardShogiGame({
       </div>
       <div className="flex items-center gap-2">
         <span className="text-xs text-muted-foreground">{gameState.moveCount}手目</span>
+        <AuthControls variant="indicator" />
         <ThemeSelector />
       </div>
     </div>
@@ -1598,6 +1600,7 @@ export function CardShogiGame({
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">{gameState.moveCount}手目</span>
+            <AuthControls variant="indicator" />
             <ThemeSelector />
           </div>
         </div>

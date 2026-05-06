@@ -26,7 +26,7 @@ export default async function HistoryPage() {
         </Link>
         <h1 className="text-2xl font-bold">対局履歴</h1>
         <div className="ml-auto">
-          <AuthControls />
+          <AuthControls variant="indicator" />
         </div>
       </div>
 

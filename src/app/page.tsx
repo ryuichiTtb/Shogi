@@ -40,10 +40,17 @@ export default function Home() {
       <main className="flex flex-col min-h-dvh safe-area-inset overflow-x-hidden">
         <AppBackground variant="hero" />
 
-        {/* ヘッダー (ThemeSelector を右上に配置、見出し付き) */}
+        {/* ヘッダー (ThemeSelector を右上に配置、見出し付き)
+            Issue #150: モバイルでログインボタンとタイトルが被るのを避けるため、
+            未ログイン時のログインボタンは左上、ログイン済み時のアイコンは右上 (ThemeSelector の左) に配置する。
+            AuthControls の slot 指定でそれぞれが片方の状態でしか描画されないようにし、
+            重複表示や場所被りが起きないようにしている。 */}
         <div className="relative text-center pt-3 sm:pt-6 px-4 shrink-0">
+          <div className="absolute top-2 left-4 sm:top-3">
+            <AuthControls slot="signInOnly" variant="home" />
+          </div>
           <div className="absolute top-2 right-4 sm:top-3 flex items-center gap-2">
-            <AuthControls />
+            <AuthControls slot="signedInOnly" variant="home" />
             <ThemeSelector />
           </div>
           <motion.h1

@@ -112,7 +112,7 @@ export default function CardDesignPage() {
               山札と相手手札の裏面スタイルを選びます。選択はユーザーごとに保存されます。
             </p>
           </div>
-          <AuthControls />
+          <AuthControls variant="indicator" />
         </div>
       </header>
 

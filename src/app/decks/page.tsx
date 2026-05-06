@@ -45,7 +45,7 @@ export default async function DecksRoute() {
               カード将棋のデッキを作成・編集する
             </p>
           </div>
-          <AuthControls />
+          <AuthControls variant="indicator" />
         </div>
       </header>
 

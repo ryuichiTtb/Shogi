@@ -1,6 +1,6 @@
 "use client";
 
-import { SignInButton, UserButton, useAuth } from "@clerk/nextjs";
+import { SignInButton, UserButton, useAuth, useUser } from "@clerk/nextjs";
 import { LogIn } from "lucide-react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useMemo } from "react";
@@ -20,14 +20,42 @@ function buildAuthCompleteUrl(pathname: string, search: string): string {
   return `/auth/complete?next=${encodeURIComponent(next)}`;
 }
 
-export function AuthControls() {
+// variant の意味:
+// - "home"      : ホーム画面用。ログイン済み時は操作可能な UserButton (メニューから
+//                 サインアウトできる)。サインインは left スロット側に出すため、本 variant
+//                 では SignInButton 側のレンダリング箇所が分かれる。
+// - "indicator" : 他画面用。ログイン済み時はアバター画像のみ (操作不可)、未ログイン時は
+//                 何も表示しない。サインアウト導線はホーム画面に統一する。
+type AuthControlsVariant = "home" | "indicator";
+
+// slot の意味:
+// - "default"      : 従来通りログイン状態に応じた UI を 1 箇所に出す (indicator 専用)。
+// - "signInOnly"   : 未ログイン時のみログインボタンを描画 (ホーム左上専用)。
+// - "signedInOnly" : ログイン済み時のみアバター/UserButton を描画 (ホーム右上専用)。
+type AuthControlsSlot = "default" | "signInOnly" | "signedInOnly";
+
+interface AuthControlsProps {
+  variant?: AuthControlsVariant;
+  slot?: AuthControlsSlot;
+}
+
+export function AuthControls({
+  variant = "home",
+  slot = "default",
+}: AuthControlsProps) {
   if (!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) {
     return null;
   }
-  return <ClerkAuthControls />;
+  return <ClerkAuthControls variant={variant} slot={slot} />;
 }
 
-function ClerkAuthControls() {
+function ClerkAuthControls({
+  variant,
+  slot,
+}: {
+  variant: AuthControlsVariant;
+  slot: AuthControlsSlot;
+}) {
   const { isLoaded, isSignedIn } = useAuth();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -37,33 +65,98 @@ function ClerkAuthControls() {
   );
 
   if (!isLoaded) {
+    // ロード中: スロット位置を確保するため最小のプレースホルダ。
+    if (slot === "signInOnly" && variant === "home") {
+      return <div className="h-8 w-20" aria-hidden />;
+    }
     return <div className="h-7 w-7" aria-hidden />;
   }
 
+  // signInOnly: 未ログイン時のみ「ログイン」ボタン。それ以外は何も出さない。
+  if (slot === "signInOnly") {
+    if (isSignedIn) return null;
+    return renderSignInButton(completeUrl);
+  }
+
+  // signedInOnly: ログイン済み時のみアイコン。未ログインは何も出さない。
+  if (slot === "signedInOnly") {
+    if (!isSignedIn) return null;
+    return (
+      <div className="inline-flex items-center">
+        {variant === "home" ? <UserButton /> : <SignedInIndicator />}
+      </div>
+    );
+  }
+
+  // default (slot 未指定): indicator variant 用の単一スロット。
+  if (variant === "indicator") {
+    if (!isSignedIn) return null;
+    return (
+      <div className="inline-flex items-center">
+        <SignedInIndicator />
+      </div>
+    );
+  }
+
+  // default + home: 旧挙動 (1 箇所にログイン状態に応じた UI)。テスト互換のため残す。
   return (
     <div className="inline-flex items-center">
-      {isSignedIn ? (
-        <UserButton />
+      {isSignedIn ? <UserButton /> : renderSignInButton(completeUrl)}
+    </div>
+  );
+}
+
+function renderSignInButton(completeUrl: string) {
+  return (
+    <SignInButton
+      mode="redirect"
+      oauthFlow="redirect"
+      forceRedirectUrl={completeUrl}
+      fallbackRedirectUrl={completeUrl}
+      signUpForceRedirectUrl={completeUrl}
+      signUpFallbackRedirectUrl={completeUrl}
+    >
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="bg-card/70 backdrop-blur-sm"
+        aria-label="Googleでログイン"
+      >
+        <LogIn className="w-3.5 h-3.5" />
+        ログイン
+      </Button>
+    </SignInButton>
+  );
+}
+
+// Issue #150: ログイン状態を示すだけの非操作インジケーター。
+// Clerk の <UserButton> はクリックでメニューを開くため、他画面では使わない。
+// 画像取得失敗時はイニシャル付きのフォールバック円を表示する。
+function SignedInIndicator() {
+  const { isLoaded, user } = useUser();
+  if (!isLoaded || !user) {
+    return <div className="h-7 w-7" aria-hidden />;
+  }
+
+  const initial = (user.firstName?.[0] ?? user.username?.[0] ?? "U").toUpperCase();
+
+  return (
+    <div
+      className="h-7 w-7 rounded-full overflow-hidden bg-muted ring-1 ring-border/60 flex items-center justify-center text-[10px] font-semibold select-none"
+      aria-label="ログイン中"
+      title="ログイン中 (サインアウトはホーム画面から)"
+    >
+      {user.imageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={user.imageUrl}
+          alt=""
+          className="h-full w-full object-cover"
+          draggable={false}
+        />
       ) : (
-        <SignInButton
-          mode="redirect"
-          oauthFlow="redirect"
-          forceRedirectUrl={completeUrl}
-          fallbackRedirectUrl={completeUrl}
-          signUpForceRedirectUrl={completeUrl}
-          signUpFallbackRedirectUrl={completeUrl}
-        >
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="bg-card/70 backdrop-blur-sm"
-            aria-label="Googleでログイン"
-          >
-            <LogIn className="w-3.5 h-3.5" />
-            ログイン
-          </Button>
-        </SignInButton>
+        <span>{initial}</span>
       )}
     </div>
   );

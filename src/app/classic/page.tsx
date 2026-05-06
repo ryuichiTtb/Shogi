@@ -30,7 +30,7 @@ export default function ClassicPage() {
             </Link>
           </div>
           <div className="absolute top-2 right-4 sm:top-3 flex items-center gap-2">
-            <AuthControls />
+            <AuthControls variant="indicator" />
             <ThemeSelector />
           </div>
           <h1 className="text-xl sm:text-3xl font-bold tracking-tight">通常将棋</h1>
