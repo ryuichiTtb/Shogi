@@ -348,7 +348,8 @@ export default function SoundTunerDetailPage() {
               const isExpanded = expandedDirs.has(group.dir);
               const groupContainsAssigned = group.paths.includes(effectivePath);
               return (
-                <Card key={group.dir} className="overflow-hidden">
+                // flex 子要素の自動 shrink で Card の中身が潰れるため shrink-0 必須
+                <Card key={group.dir} className="shrink-0 overflow-hidden">
                   <button
                     type="button"
                     onClick={() => toggleDir(group.dir)}
