@@ -69,10 +69,10 @@ function isPromoted(type: string): boolean {
 //   - 王手 (isInCheck) / 選択 (isSelected) は gradient OFF にせず、赤系・青系の stops に
 //     差替えて gradient を保つ。これにより質感 (左上ハイライト → 右下シャドウ) が保たれる。
 export const DEFAULT_PIECE_GRADIENT: readonly ShogiPieceFillStop[] = [
-  { offset: "0%",   color: "#fde8b8" }, // 左上: 明るめ金茶ハイライト
-  { offset: "30%",  color: "#d8a868" }, // 中明: 金茶 (やや明るめ)
-  { offset: "60%",  color: "#b07a40" }, // 中暗: 中濃檜茶
-  { offset: "100%", color: "#5c3a1e" }, // 右下: 焦げ茶 (黒寄りを抜き、木の温かみを残す)
+  { offset: "0%",   color: "#fef0c8" }, // 左上: 淡黄ハイライト
+  { offset: "30%",  color: "#e8c084" }, // 中明: 明るい金茶
+  { offset: "60%",  color: "#c89460" }, // 中暗: 中明の檜茶
+  { offset: "100%", color: "#7a4a25" }, // 右下: 焦げ茶 (温かみのある木の色)
 ];
 export const DEFAULT_PIECE_BORDER = "#4a2e15";
 
