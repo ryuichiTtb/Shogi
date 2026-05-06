@@ -12,6 +12,7 @@ import type { Difficulty, Player, GameMode } from "@/lib/shogi/types";
 import { cn } from "@/lib/utils";
 import { Swords } from "lucide-react";
 import { LoadingOverlay } from "@/components/loading-overlay";
+import { LOADING_STAGES } from "@/lib/loading-stages";
 import { useAssetPreloader } from "@/hooks/use-asset-preloader";
 import { prepareAudio } from "@/hooks/use-sound";
 
@@ -303,7 +304,14 @@ export function MatchSetup({ mode }: MatchSetupProps) {
         </Button>
       </motion.div>
 
-      <LoadingOverlay show={isPending} fullScreen message={pendingLabel ?? "読み込み中..."} />
+      <LoadingOverlay
+        show={isPending}
+        fullScreen
+        card={{ variant: "generic" }}
+        stages={LOADING_STAGES.matchSetup}
+        progress={{ kind: "indeterminate" }}
+        message={pendingLabel ?? "読み込み中..."}
+      />
     </div>
   );
 }

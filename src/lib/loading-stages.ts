@@ -21,6 +21,14 @@ export const LOADING_STAGES = {
   classicNavigate: ["通常将棋を開いています…", "盤面を準備中…"],
   // ホーム → 履歴一覧の遷移
   historyNavigate: ["履歴を読み込んでいます…"],
+  // ホーム → デッキ編成画面の遷移
+  decksNavigate: ["デッキ編成を開いています…"],
+  // ホーム → カード一覧の遷移
+  cardsNavigate: ["カード一覧を開いています…"],
+  // ホーム → カードデザイン画面の遷移
+  cardDesignNavigate: ["カードデザインを開いています…"],
+  // 汎用フォールバック (resolveStages で個別のキーが見つからない場合)
+  defaultNavigate: ["読み込み中…"],
   // 履歴 → /game/[id] の SSR 復元中 (棋譜デシリアライズ・盤面再構築・演出準備)
   gameRestore: ["棋譜を読み込み中…", "盤面を再構築中…", "演出を準備中…"],
 } as const;

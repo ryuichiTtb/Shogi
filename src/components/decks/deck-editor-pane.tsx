@@ -25,6 +25,7 @@ import { DeckCardTile, type DeckArea } from "./deck-card-tile";
 import { DeckFlightLayer, type DeckFlightItem } from "./deck-flight-layer";
 import { CardDetailDialog } from "./card-detail-dialog";
 import { LoadingOverlay } from "@/components/loading-overlay";
+import { LOADING_STAGES } from "@/lib/loading-stages";
 
 interface DeckFlight extends DeckFlightItem {
   // 行先タイル (deck 側のとき) の identity。フライト中に重ねる元タイルを
@@ -402,8 +403,21 @@ export function DeckEditorPane({
 
       {/* 保存中ローディングマスク。
           親 (DecksPage の編集枠 div) に position:relative が付与されているため
-          absolute で枠内のみを覆う。fullScreen=false で枠サイズに収まる。 */}
-      <LoadingOverlay show={isPending} message="保存中..." />
+          absolute で枠内のみを覆う。fullScreen=false で枠サイズに収まる。
+          コンテキストカードは「直前にプレビューしたカード > 編成1番目 > 汎用」の
+          優先順位で選び、保存対象のカードイメージを中央で回転させる。 */}
+      <LoadingOverlay
+        show={isPending}
+        card={
+          detailCardId
+            ? { cardId: detailCardId }
+            : entries[0]?.cardId
+              ? { cardId: entries[0].cardId }
+              : { variant: "generic" }
+        }
+        stages={LOADING_STAGES.deckSaving}
+        progress={{ kind: "indeterminate" }}
+      />
     </>
   );
 }
