@@ -142,8 +142,11 @@ function SignedInIndicator() {
   const initial = (user.firstName?.[0] ?? user.username?.[0] ?? "U").toUpperCase();
 
   return (
+    // Issue #150: 「アクティブ (ログイン中)」を視覚的に示すため、Teams のオンライン
+    // インジケータと同系の緑色 ring を装飾する。色そのものに UI 上の操作性は
+    // 持たせず、サインアウトはホーム画面の UserButton に集約。
     <div
-      className="h-7 w-7 rounded-full overflow-hidden bg-muted ring-1 ring-border/60 flex items-center justify-center text-[10px] font-semibold select-none"
+      className="h-7 w-7 rounded-full overflow-hidden bg-muted ring-2 ring-emerald-500 ring-offset-1 ring-offset-background flex items-center justify-center text-[10px] font-semibold select-none"
       aria-label="ログイン中"
       title="ログイン中 (サインアウトはホーム画面から)"
     >

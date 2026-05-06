@@ -41,15 +41,20 @@ export default function Home() {
         <AppBackground variant="hero" />
 
         {/* ヘッダー (ThemeSelector を右上に配置、見出し付き)
-            Issue #150: モバイルでログインボタンとタイトルが被るのを避けるため、
-            未ログイン時のログインボタンは左上、ログイン済み時のアイコンは右上 (ThemeSelector の左) に配置する。
-            AuthControls の slot 指定でそれぞれが片方の状態でしか描画されないようにし、
-            重複表示や場所被りが起きないようにしている。 */}
+            Issue #150: モバイル (sm 未満) では未ログイン時のログインボタンが
+            タイトルと被るため左上に逃がす。PC (sm 以上) は元レイアウト通り右上で
+            ThemeSelector の隣に並べる。ログイン済み時のアイコンは画面サイズに
+            関わらず右上 (ThemeSelector の左) に常駐させる。 */}
         <div className="relative text-center pt-3 sm:pt-6 px-4 shrink-0">
-          <div className="absolute top-2 left-4 sm:top-3">
+          {/* モバイル専用: 左上にログインボタン (PC では sm:hidden で非表示) */}
+          <div className="absolute top-2 left-4 sm:hidden">
             <AuthControls slot="signInOnly" variant="home" />
           </div>
+          {/* 右上エリア: PC 時は signInOnly も含む / モバイル時は signedInOnly のみ */}
           <div className="absolute top-2 right-4 sm:top-3 flex items-center gap-2">
+            <span className="hidden sm:inline-flex">
+              <AuthControls slot="signInOnly" variant="home" />
+            </span>
             <AuthControls slot="signedInOnly" variant="home" />
             <ThemeSelector />
           </div>
