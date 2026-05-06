@@ -134,26 +134,26 @@ export async function getOrCreateAccountUser(clerkUserId: string): Promise<AppUs
   const profile = await readClerkProfile(clerkUserId);
 
   try {
-    const user = await prisma.$transaction(async (tx) => {
-      const created = await tx.user.upsert({
-        where: { clerkUserId },
-        create: {
-          kind: "account",
-          clerkUserId,
-          email: profile.email,
-          name: profile.name,
-        },
-        update: {
-          kind: "account",
-          email: profile.email,
-          name: profile.name,
-        },
-      });
-      await ensureInitialUserData(tx, created.id);
-      return created;
+    // Issue #150: ensureInitialUserData は Card マスタ全件 upsert を含むため、
+    // Vercel + Neon HTTP の interactive transaction (5s timeout) に収まらない。
+    // user 作成自体は単一 upsert で atomic なので transaction 不要。
+    // ensureInitialUserData は upsert ベースで冪等のため、user 作成後に外で実行する。
+    const created = await prisma.user.upsert({
+      where: { clerkUserId },
+      create: {
+        kind: "account",
+        clerkUserId,
+        email: profile.email,
+        name: profile.name,
+      },
+      update: {
+        kind: "account",
+        email: profile.email,
+        name: profile.name,
+      },
     });
-
-    return toAppUser(user);
+    await ensureInitialUserData(prisma, created.id);
+    return toAppUser(created);
   } catch (error) {
     if (!isUniqueConstraintError(error)) throw error;
     const raced = await prisma.user.findUniqueOrThrow({ where: { clerkUserId } });
@@ -195,6 +195,10 @@ export async function getOrCreateGuestUserForToken(token: string): Promise<AppUs
   if (existing) return existing;
 
   try {
+    // Issue #150: User と GuestSession の同時作成のみ atomic にする。
+    // ensureInitialUserData は Card マスタ全件 upsert を含み、
+    // Vercel + Neon HTTP の interactive transaction (5s timeout) に収まらないため、
+    // transaction 外で実行する。upsert ベースで冪等なので途中失敗時の再試行も安全。
     const user = await prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
         data: {
@@ -202,7 +206,6 @@ export async function getOrCreateGuestUserForToken(token: string): Promise<AppUs
           name: "Guest",
         },
       });
-      await ensureInitialUserData(tx, created.id);
       await tx.guestSession.create({
         data: {
           tokenHash,
@@ -212,7 +215,7 @@ export async function getOrCreateGuestUserForToken(token: string): Promise<AppUs
       });
       return created;
     });
-
+    await ensureInitialUserData(prisma, user.id);
     return toAppUser(user);
   } catch (error) {
     if (!isUniqueConstraintError(error)) throw error;

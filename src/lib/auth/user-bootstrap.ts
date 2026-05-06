@@ -20,6 +20,15 @@ type BootstrapClient = Pick<
 const playableCardDefs = ALL_CARD_DEFS.filter((def) => def.status !== "deprecated");
 
 export async function ensureCardMaster(db: BootstrapClient = prisma): Promise<void> {
+  // Issue #150: 既に Card マスタが揃っている (= seed 済み) 場合はスキップする。
+  // ensureInitialUserData / ensureOwnedCardsForUser から毎ログイン呼ばれるため、
+  // 全件 upsert を毎回走らせると Vercel + Neon HTTP のラウンドトリップが累積し
+  // interactive transaction の 5s 制限を超える原因になる。
+  // Card 内容の更新は seed (npm run db:seed) で行う運用とし、ここでは
+  // 「seed 未実行 / 新カード追加で行数が足りない」場合のみ upsert で補完する。
+  const existing = await db.card.count();
+  if (existing >= ALL_CARD_DEFS.length) return;
+
   await Promise.all(
     ALL_CARD_DEFS.map((def) =>
       db.card.upsert({
