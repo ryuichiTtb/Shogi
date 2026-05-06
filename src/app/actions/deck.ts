@@ -2,7 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { ensureDefaultUser } from "@/lib/auth/default-user";
+import { getCurrentAppUser } from "@/lib/auth/current-user";
+import {
+  ensureCardMaster,
+  INITIAL_OWNED_CARD_COUNT,
+} from "@/lib/auth/user-bootstrap";
 import {
   validateDeckEntries,
   type CardOwnershipInfo,
@@ -11,51 +15,21 @@ import {
 import { ALL_CARD_DEFS } from "@/lib/shogi/cards/definitions";
 import type { CardId, CardRarity } from "@/lib/shogi/cards/types";
 
-// シードを Vercel ビルドで走らせていないため、編成画面を開いたタイミングで
-// 「全 playable カードを各 OWNED_COUNT_PER_CARD 枚」に同期する。
-// 認証・ガチャ機能が入るまでの暫定処置。
-const OWNED_COUNT_PER_CARD = 10;
-
 // Issue #117 (#128): 現行 CARD_DEFS に存在する cardId 集合 (orphan 検出用)。
 // DB に居残っている未知 cardId (過去の試験データ等) を一括クリーンアップする際に使う。
 const VALID_CARD_IDS: Set<string> = new Set(ALL_CARD_DEFS.map((d) => d.id));
 
 async function ensureOwnedCardsForUser(userId: string): Promise<void> {
   // Card マスタの存在を保証 (seed 未実行環境向け)。upsert なので副作用は冪等。
-  await Promise.all(
-    ALL_CARD_DEFS.map((def) =>
-      prisma.card.upsert({
-        where: { id: def.id },
-        create: {
-          id: def.id,
-          kind: def.kind,
-          name: def.name,
-          description: def.description,
-          cost: def.cost,
-          rarity: def.rarity,
-          effectId: def.effectId,
-          targeting: def.targeting,
-        },
-        update: {
-          kind: def.kind,
-          name: def.name,
-          description: def.description,
-          cost: def.cost,
-          rarity: def.rarity,
-          effectId: def.effectId,
-          targeting: def.targeting,
-        },
-      }),
-    ),
-  );
+  await ensureCardMaster();
 
   const playable = ALL_CARD_DEFS.filter((d) => d.status !== "deprecated");
   await Promise.all(
     playable.map((def) =>
       prisma.playerCardCollection.upsert({
         where: { userId_cardId: { userId, cardId: def.id } },
-        create: { userId, cardId: def.id, count: OWNED_COUNT_PER_CARD },
-        update: { count: OWNED_COUNT_PER_CARD },
+        create: { userId, cardId: def.id, count: INITIAL_OWNED_CARD_COUNT },
+        update: {},
       }),
     ),
   );
@@ -125,7 +99,7 @@ export interface OwnedCardSummary {
 // 並び順は createdAt 昇順のみ。isDefault による先頭固定はしない (使用中切替で
 // 並び順が変わると UX が悪いため)。
 export async function listDecksForCurrentUser(): Promise<DeckSummary[]> {
-  const user = await ensureDefaultUser();
+  const user = await getCurrentAppUser();
   const decks = await prisma.deck.findMany({
     where: { userId: user.id },
     include: { entries: true },
@@ -145,7 +119,7 @@ export async function listDecksForCurrentUser(): Promise<DeckSummary[]> {
 
 // デッキ単体の詳細 (entries 込み)
 export async function getDeckDetail(deckId: string): Promise<DeckDetail | null> {
-  const user = await ensureDefaultUser();
+  const user = await getCurrentAppUser();
   const deck = await prisma.deck.findFirst({
     where: { id: deckId, userId: user.id },
     include: { entries: true },
@@ -169,9 +143,9 @@ export async function getDeckDetail(deckId: string): Promise<DeckDetail | null> 
 }
 
 // 所持カード一覧 (Card join、count > 0 のみ)。
-// 呼出し時に最新の playable カード定義を 10 枚ずつ所持済みに揃える (暫定)。
+// 新規追加された playable カードが未所持なら初期枚数だけ補い、既存枚数は上書きしない。
 export async function listOwnedCardsForCurrentUser(): Promise<OwnedCardSummary[]> {
-  const user = await ensureDefaultUser();
+  const user = await getCurrentAppUser();
   await ensureOwnedCardsForUser(user.id);
   const rows = await prisma.playerCardCollection.findMany({
     where: { userId: user.id, count: { gt: 0 } },
@@ -190,7 +164,7 @@ export async function listOwnedCardsForCurrentUser(): Promise<OwnedCardSummary[]
 
 // 新規デッキ作成。他にデッキが無ければ isDefault=true。
 export async function createDeck(name: string): Promise<string> {
-  const user = await ensureDefaultUser();
+  const user = await getCurrentAppUser();
   const trimmed = name.trim();
   if (trimmed.length === 0) {
     throw new Error("デッキ名を入力してください");
@@ -211,7 +185,7 @@ export async function createDeck(name: string): Promise<string> {
 }
 
 export async function renameDeck(deckId: string, name: string): Promise<void> {
-  const user = await ensureDefaultUser();
+  const user = await getCurrentAppUser();
   const trimmed = name.trim();
   if (trimmed.length === 0) {
     throw new Error("デッキ名を入力してください");
@@ -234,7 +208,7 @@ export async function saveDeckEntries(
   deckId: string,
   entries: DeckEntryInput[],
 ): Promise<void> {
-  const user = await ensureDefaultUser();
+  const user = await getCurrentAppUser();
   const deck = await prisma.deck.findFirst({
     where: { id: deckId, userId: user.id },
     select: { id: true },
@@ -282,7 +256,7 @@ export async function saveDeckEntries(
 
 // 指定デッキを isDefault=true、他デッキを false にする
 export async function setDefaultDeck(deckId: string): Promise<void> {
-  const user = await ensureDefaultUser();
+  const user = await getCurrentAppUser();
   const target = await prisma.deck.findFirst({
     where: { id: deckId, userId: user.id },
     select: { id: true, entries: { select: { count: true } } },
@@ -299,8 +273,8 @@ export async function setDefaultDeck(deckId: string): Promise<void> {
       where: { userId: user.id, NOT: { id: deckId } },
       data: { isDefault: false },
     }),
-    prisma.deck.update({
-      where: { id: deckId },
+    prisma.deck.updateMany({
+      where: { id: deckId, userId: user.id },
       data: { isDefault: true },
     }),
   ]);
@@ -309,7 +283,7 @@ export async function setDefaultDeck(deckId: string): Promise<void> {
 
 // デッキ削除。最後の 1 個 (= 唯一の isDefault) は削除不可。
 export async function deleteDeck(deckId: string): Promise<void> {
-  const user = await ensureDefaultUser();
+  const user = await getCurrentAppUser();
   const decks = await prisma.deck.findMany({
     where: { userId: user.id },
     select: { id: true, isDefault: true },
@@ -324,6 +298,6 @@ export async function deleteDeck(deckId: string): Promise<void> {
   if (target.isDefault) {
     throw new Error("使用中のデッキは削除できません。先に別のデッキを使用中にしてください。");
   }
-  await prisma.deck.delete({ where: { id: deckId } });
+  await prisma.deck.deleteMany({ where: { id: deckId, userId: user.id } });
   revalidatePath("/decks");
 }

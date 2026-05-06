@@ -1,9 +1,11 @@
 import type { Metadata, Viewport } from "next";
+import { ClerkProvider } from "@clerk/nextjs";
 import { Geist, Geist_Mono, Noto_Sans_JP } from "next/font/google";
 import localFont from "next/font/local";
 import { ThemeProvider } from "@/components/theme-provider";
 import { CardBackProvider } from "@/components/card-back/card-back-provider";
 import { ServiceWorkerRegister } from "@/components/sw-register";
+import { getCurrentUserPreferences } from "@/app/actions/preferences";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -58,11 +60,24 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+function MaybeClerkProvider({ children }: { children: React.ReactNode }) {
+  if (!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) {
+    return <>{children}</>;
+  }
+  return (
+    <ClerkProvider afterSignOutUrl="/">
+      {children}
+    </ClerkProvider>
+  );
+}
+
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const preferences = await getCurrentUserPreferences();
+
   return (
     <html
       lang="ja"
@@ -70,12 +85,21 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} ${notoSansJP.variable} ${yujiBoku.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
-        <ThemeProvider>
-          <CardBackProvider>
-            {children}
-            <ServiceWorkerRegister />
-          </CardBackProvider>
-        </ThemeProvider>
+        <MaybeClerkProvider>
+          <ThemeProvider
+            key={preferences.userId}
+            userId={preferences.userId}
+            initialTheme={preferences.theme}
+          >
+            <CardBackProvider
+              userId={preferences.userId}
+              initialStyle={preferences.cardBackStyle}
+            >
+              {children}
+              <ServiceWorkerRegister />
+            </CardBackProvider>
+          </ThemeProvider>
+        </MaybeClerkProvider>
       </body>
     </html>
   );

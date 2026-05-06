@@ -10,6 +10,7 @@ import { History, Swords, Castle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ThemeSelector } from "@/components/game/theme-selector";
+import { AuthControls } from "@/components/auth/auth-controls";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import { useAssetPreloader } from "@/hooks/use-asset-preloader";
 import { AppBackground } from "@/components/layout/app-background";
@@ -41,7 +42,8 @@ export default function Home() {
 
         {/* ヘッダー (ThemeSelector を右上に配置、見出し付き) */}
         <div className="relative text-center pt-3 sm:pt-6 px-4 shrink-0">
-          <div className="absolute top-2 right-4 sm:top-3">
+          <div className="absolute top-2 right-4 sm:top-3 flex items-center gap-2">
+            <AuthControls />
             <ThemeSelector />
           </div>
           <motion.h1

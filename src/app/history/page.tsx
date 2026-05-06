@@ -9,6 +9,7 @@ import { getCharacterById } from "@/data/characters";
 import Link from "next/link";
 import { ArrowLeft, Inbox } from "lucide-react";
 import { AppBackground } from "@/components/layout/app-background";
+import { AuthControls } from "@/components/auth/auth-controls";
 
 export default async function HistoryPage() {
   const games = await getGameHistory();
@@ -24,6 +25,9 @@ export default async function HistoryPage() {
           </Button>
         </Link>
         <h1 className="text-2xl font-bold">対局履歴</h1>
+        <div className="ml-auto">
+          <AuthControls />
+        </div>
       </div>
 
       {games.length === 0 ? (

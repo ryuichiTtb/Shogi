@@ -12,6 +12,7 @@ import {
 } from "@/app/actions/deck";
 import { DecksPage } from "@/components/decks/decks-page";
 import { AppBackground } from "@/components/layout/app-background";
+import { AuthControls } from "@/components/auth/auth-controls";
 
 export const metadata = {
   title: "デッキ編成 | カード将棋",
@@ -44,6 +45,7 @@ export default async function DecksRoute() {
               カード将棋のデッキを作成・編集する
             </p>
           </div>
+          <AuthControls />
         </div>
       </header>
 

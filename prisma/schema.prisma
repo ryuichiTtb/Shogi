@@ -8,13 +8,41 @@ datasource db {
 }
 
 model User {
-  id          String                 @id @default(cuid())
-  name        String                 @default("Player")
-  createdAt   DateTime               @default(now())
-  games       Game[]
-  stats       PlayerStats?
-  collections PlayerCardCollection[]
-  decks       Deck[]
+  id            String                 @id @default(cuid())
+  kind          String                 @default("guest") // "guest" | "account"
+  clerkUserId   String?                @unique
+  email         String?
+  name          String                 @default("Player")
+  createdAt     DateTime               @default(now())
+  games         Game[]
+  stats         PlayerStats?
+  collections   PlayerCardCollection[]
+  decks         Deck[]
+  guestSessions GuestSession[]
+  preference    UserPreference?
+}
+
+model GuestSession {
+  id         String   @id @default(cuid())
+  tokenHash  String   @unique
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model UserPreference {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cardBackStyle String   @default("seigaiha")
+  theme         String   @default("system")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 model Game {
