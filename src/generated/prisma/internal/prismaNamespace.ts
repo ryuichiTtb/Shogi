@@ -385,6 +385,8 @@ type FieldRefInputType<Model, FieldType> = Model extends never ? never : FieldRe
 
 export const ModelName = {
   User: 'User',
+  GuestSession: 'GuestSession',
+  UserPreference: 'UserPreference',
   Game: 'Game',
   GameMove: 'GameMove',
   PlayerStats: 'PlayerStats',
@@ -407,7 +409,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "game" | "gameMove" | "playerStats" | "card" | "playerCardCollection" | "deck" | "deckEntry"
+    modelProps: "user" | "guestSession" | "userPreference" | "game" | "gameMove" | "playerStats" | "card" | "playerCardCollection" | "deck" | "deckEntry"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -482,6 +484,154 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         count: {
           args: Prisma.UserCountArgs<ExtArgs>
           result: runtime.Types.Utils.Optional<Prisma.UserCountAggregateOutputType> | number
+        }
+      }
+    }
+    GuestSession: {
+      payload: Prisma.$GuestSessionPayload<ExtArgs>
+      fields: Prisma.GuestSessionFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.GuestSessionFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GuestSessionPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.GuestSessionFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GuestSessionPayload>
+        }
+        findFirst: {
+          args: Prisma.GuestSessionFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GuestSessionPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.GuestSessionFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GuestSessionPayload>
+        }
+        findMany: {
+          args: Prisma.GuestSessionFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GuestSessionPayload>[]
+        }
+        create: {
+          args: Prisma.GuestSessionCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GuestSessionPayload>
+        }
+        createMany: {
+          args: Prisma.GuestSessionCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.GuestSessionCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GuestSessionPayload>[]
+        }
+        delete: {
+          args: Prisma.GuestSessionDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GuestSessionPayload>
+        }
+        update: {
+          args: Prisma.GuestSessionUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GuestSessionPayload>
+        }
+        deleteMany: {
+          args: Prisma.GuestSessionDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.GuestSessionUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.GuestSessionUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GuestSessionPayload>[]
+        }
+        upsert: {
+          args: Prisma.GuestSessionUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GuestSessionPayload>
+        }
+        aggregate: {
+          args: Prisma.GuestSessionAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateGuestSession>
+        }
+        groupBy: {
+          args: Prisma.GuestSessionGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.GuestSessionGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.GuestSessionCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.GuestSessionCountAggregateOutputType> | number
+        }
+      }
+    }
+    UserPreference: {
+      payload: Prisma.$UserPreferencePayload<ExtArgs>
+      fields: Prisma.UserPreferenceFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.UserPreferenceFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$UserPreferencePayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.UserPreferenceFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$UserPreferencePayload>
+        }
+        findFirst: {
+          args: Prisma.UserPreferenceFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$UserPreferencePayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.UserPreferenceFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$UserPreferencePayload>
+        }
+        findMany: {
+          args: Prisma.UserPreferenceFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$UserPreferencePayload>[]
+        }
+        create: {
+          args: Prisma.UserPreferenceCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$UserPreferencePayload>
+        }
+        createMany: {
+          args: Prisma.UserPreferenceCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.UserPreferenceCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$UserPreferencePayload>[]
+        }
+        delete: {
+          args: Prisma.UserPreferenceDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$UserPreferencePayload>
+        }
+        update: {
+          args: Prisma.UserPreferenceUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$UserPreferencePayload>
+        }
+        deleteMany: {
+          args: Prisma.UserPreferenceDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.UserPreferenceUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.UserPreferenceUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$UserPreferencePayload>[]
+        }
+        upsert: {
+          args: Prisma.UserPreferenceUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$UserPreferencePayload>
+        }
+        aggregate: {
+          args: Prisma.UserPreferenceAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateUserPreference>
+        }
+        groupBy: {
+          args: Prisma.UserPreferenceGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.UserPreferenceGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.UserPreferenceCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.UserPreferenceCountAggregateOutputType> | number
         }
       }
     }
@@ -1044,11 +1194,38 @@ export type TransactionIsolationLevel = (typeof TransactionIsolationLevel)[keyof
 
 export const UserScalarFieldEnum = {
   id: 'id',
+  kind: 'kind',
+  clerkUserId: 'clerkUserId',
+  email: 'email',
   name: 'name',
   createdAt: 'createdAt'
 } as const
 
 export type UserScalarFieldEnum = (typeof UserScalarFieldEnum)[keyof typeof UserScalarFieldEnum]
+
+
+export const GuestSessionScalarFieldEnum = {
+  id: 'id',
+  tokenHash: 'tokenHash',
+  userId: 'userId',
+  expiresAt: 'expiresAt',
+  createdAt: 'createdAt',
+  lastUsedAt: 'lastUsedAt'
+} as const
+
+export type GuestSessionScalarFieldEnum = (typeof GuestSessionScalarFieldEnum)[keyof typeof GuestSessionScalarFieldEnum]
+
+
+export const UserPreferenceScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  cardBackStyle: 'cardBackStyle',
+  theme: 'theme',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type UserPreferenceScalarFieldEnum = (typeof UserPreferenceScalarFieldEnum)[keyof typeof UserPreferenceScalarFieldEnum]
 
 
 export const GameScalarFieldEnum = {
@@ -1173,6 +1350,14 @@ export const QueryMode = {
 export type QueryMode = (typeof QueryMode)[keyof typeof QueryMode]
 
 
+export const NullsOrder = {
+  first: 'first',
+  last: 'last'
+} as const
+
+export type NullsOrder = (typeof NullsOrder)[keyof typeof NullsOrder]
+
+
 export const JsonNullValueFilter = {
   DbNull: DbNull,
   JsonNull: JsonNull,
@@ -1180,14 +1365,6 @@ export const JsonNullValueFilter = {
 } as const
 
 export type JsonNullValueFilter = (typeof JsonNullValueFilter)[keyof typeof JsonNullValueFilter]
-
-
-export const NullsOrder = {
-  first: 'first',
-  last: 'last'
-} as const
-
-export type NullsOrder = (typeof NullsOrder)[keyof typeof NullsOrder]
 
 
 
@@ -1368,6 +1545,8 @@ export type PrismaClientOptions = ({
 }
 export type GlobalOmitConfig = {
   user?: Prisma.UserOmit
+  guestSession?: Prisma.GuestSessionOmit
+  userPreference?: Prisma.UserPreferenceOmit
   game?: Prisma.GameOmit
   gameMove?: Prisma.GameMoveOmit
   playerStats?: Prisma.PlayerStatsOmit

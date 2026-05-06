@@ -6,6 +6,7 @@ import { MatchSetup } from "@/components/home/match-setup";
 import { AppBackground } from "@/components/layout/app-background";
 import { PageMotion } from "@/components/layout/page-motion";
 import { ThemeSelector } from "@/components/game/theme-selector";
+import { AuthControls } from "@/components/auth/auth-controls";
 
 export const metadata = {
   title: "対局を始める | カード将棋",
@@ -28,7 +29,8 @@ export default function PlayPage() {
               ホーム
             </Link>
           </div>
-          <div className="absolute top-2 right-4 sm:top-3">
+          <div className="absolute top-2 right-4 sm:top-3 flex items-center gap-2">
+            <AuthControls variant="indicator" />
             <ThemeSelector />
           </div>
           <h1 className="text-xl sm:text-3xl font-bold tracking-tight">対局を始める</h1>

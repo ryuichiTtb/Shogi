@@ -6,6 +6,7 @@
 
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
+import { AuthControls } from "@/components/auth/auth-controls";
 import { cn } from "@/lib/utils";
 
 interface DecksPageHeaderProps {
@@ -44,6 +45,9 @@ export function DecksPageHeader({ homeDisabled = false }: DecksPageHeaderProps) 
             カード将棋のデッキを作成・編集する
           </p>
         </div>
+        {/* origin/main で導入された AuthControls (ヘッダ右端に認証状態 indicator)。
+            旧 /decks Server Component 側にあったものを Client ヘッダに移管。 */}
+        <AuthControls variant="indicator" />
       </div>
     </header>
   );

@@ -20,6 +20,7 @@ import { BoardOverlay, type OverlayEvent } from "../board-overlay";
 import { CharacterPanel } from "@/components/character/character-panel";
 import { MobileDrawer } from "../mobile-drawer";
 import { ThemeSelector } from "../theme-selector";
+import { AuthControls } from "@/components/auth/auth-controls";
 
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -1207,6 +1208,7 @@ export function CardShogiGame({
       </div>
       <div className="flex items-center gap-2">
         <span className="text-xs text-muted-foreground">{gameState.moveCount}手目</span>
+        <AuthControls variant="indicator" />
         <ThemeSelector />
       </div>
     </div>
@@ -1618,9 +1620,17 @@ export function CardShogiGame({
           </div>
         </div>
 
-        {/* Col 1: 自分カードエリア(縦並び、横幅一杯+中央揃え) */}
+        {/* Col 1: 自分カードエリア(縦並び、横幅一杯+中央揃え)
+            Issue #150: PC (xl 以上) では「相手エリア=右側」レイアウトのため、
+            ヘッダー右端ではなく「自分エリア先頭の ▲ 自分 ラベル」横に
+            ログインインジケータを配置する。
+            ラッパーに py-1 を持たせて、aside の overflow-hidden で
+            アバターの緑 ring が上下に見切れないよう余白を確保する。 */}
         <aside className="flex flex-col gap-2 border-r pr-2 min-h-0 overflow-hidden">
-          <Badge variant="default" className="self-center shrink-0">▲ 自分</Badge>
+          <div className="flex items-center justify-center gap-2 self-center shrink-0 py-1">
+            <AuthControls variant="indicator" />
+            <Badge variant="default">▲ 自分</Badge>
+          </div>
           <div className="shrink-0 w-full">{ownManaGauge}</div>
           <div className="flex gap-2 shrink-0 w-full">
             <div ref={ownDeckPileXlRef} className="flex-1 min-w-0">

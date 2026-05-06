@@ -2,15 +2,20 @@
 // 新スタイル追加時はここに 1 行足し、CardBack ラッパーから自動的に使えるようになる。
 import type { ComponentType } from "react";
 
+import {
+  DEFAULT_CARD_BACK_STYLE,
+  isValidCardBackStyle,
+  type CardBackStyle,
+} from "@/lib/user-preferences";
 import { CardBackEmblem } from "./back-emblem";
 import { CardBackSeigaiha } from "./back-seigaiha";
 import { CardBackMinimal } from "./back-minimal";
+import { CardBackKoke } from "./back-koke";
+import { CardBackKurenai } from "./back-kurenai";
 import type { MockSize } from "./sizes";
 
-export type CardBackStyle = "emblem" | "seigaiha" | "minimal";
-
-// デフォルト = 青海波 (Issue #110 で採用)
-export const DEFAULT_CARD_BACK_STYLE: CardBackStyle = "seigaiha";
+export { DEFAULT_CARD_BACK_STYLE, isValidCardBackStyle };
+export type { CardBackStyle };
 
 export interface CardBackComponentProps {
   size?: MockSize;
@@ -27,24 +32,36 @@ interface CardBackStyleEntry {
 export const CARD_BACK_STYLES: Record<CardBackStyle, CardBackStyleEntry> = {
   seigaiha: {
     label: "波",
-    description: "金箔の波柄が広がる、和の落ち着きある一品。",
+    description: "深紺の海原に金箔の波柄が広がる、悠久の大海を思わせる和の意匠。",
     Component: CardBackSeigaiha,
+  },
+  koke: {
+    label: "苔",
+    description: "深緑の苔地に金の五葉松の房がほろりと落ちる、静謐な杉林の趣。",
+    Component: CardBackKoke,
   },
   emblem: {
     label: "煌",
-    description: "金色の斜線に閃光がきらめく、華やかなデザイン。",
+    description: "深紺地に金の斜光が閃いてきらめく、華やぎを宿した玉将の意匠。",
     Component: CardBackEmblem,
   },
   minimal: {
     label: "漆",
-    description: "黒地に金の輝きをあしらった、上品でシックな佇まい。",
+    description: "漆黒に金の溜まり光がにじむ、上品でシックな佇まい。",
     Component: CardBackMinimal,
+  },
+  kurenai: {
+    label: "紅",
+    description: "深紅の漆地に金の葉文が舞い散る、雅やかな宴を思わせる華やぎの意匠。",
+    Component: CardBackKurenai,
   },
 };
 
-// 設定画面はこの順序で並べる (デフォルトを先頭に)。
-export const CARD_BACK_STYLE_LIST: CardBackStyle[] = ["seigaiha", "emblem", "minimal"];
-
-export function isValidCardBackStyle(value: unknown): value is CardBackStyle {
-  return value === "emblem" || value === "seigaiha" || value === "minimal";
-}
+// 設定画面はこの順序で並べる。
+export const CARD_BACK_STYLE_LIST: CardBackStyle[] = [
+  "seigaiha",
+  "koke",
+  "emblem",
+  "minimal",
+  "kurenai",
+];

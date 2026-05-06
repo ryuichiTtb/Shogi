@@ -15,10 +15,11 @@ export const metadata = {
   title: "デッキ編成 | カード将棋",
 };
 
-// Issue #155: ヘッダ (「ホームへ戻る」リンク含む) と wrapper のレイアウトは
-// DecksPage 側に内包させ、editor 保存中に Client 側で「ホームへ戻る」を
-// disabled にできるようにした。Server Component はデータ取得とレイアウト枠
-// (main + AppBackground) のみを責務とする。
+// Issue #155: ヘッダ (「ホームへ戻る」リンク + AuthControls) と wrapper の
+// レイアウトは DecksPage 側に内包させ、editor 保存中に Client 側で「ホームへ
+// 戻る」を disabled にできるようにした。Server Component はデータ取得と
+// レイアウト枠 (main + AppBackground) のみを責務とする。
+// origin/main 由来の AuthControls は DecksPageHeader 内で表示する。
 export default async function DecksRoute() {
   const [decks, owned] = await Promise.all([
     listDecksForCurrentUser(),

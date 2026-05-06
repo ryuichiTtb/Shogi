@@ -13,6 +13,7 @@ import {
 } from "@/lib/shogi/cards/labels";
 import type { CardId } from "@/lib/shogi/cards/types";
 import { cn } from "@/lib/utils";
+import { AuthControls } from "@/components/auth/auth-controls";
 
 interface CardDetailPageProps {
   params: Promise<{ id: string }>;
@@ -56,6 +57,7 @@ export default async function CardDetailPage({ params }: CardDetailPageProps) {
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight">{def.name}</h1>
             <p className="text-xs sm:text-sm text-muted-foreground font-mono">{def.id}</p>
           </div>
+          <AuthControls variant="indicator" />
         </header>
 
         {/* 固定ヘッダ: 実物プレビュー + バッジ */}

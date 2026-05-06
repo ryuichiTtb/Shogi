@@ -26,18 +26,27 @@ export type AggregateUser = {
 
 export type UserMinAggregateOutputType = {
   id: string | null
+  kind: string | null
+  clerkUserId: string | null
+  email: string | null
   name: string | null
   createdAt: Date | null
 }
 
 export type UserMaxAggregateOutputType = {
   id: string | null
+  kind: string | null
+  clerkUserId: string | null
+  email: string | null
   name: string | null
   createdAt: Date | null
 }
 
 export type UserCountAggregateOutputType = {
   id: number
+  kind: number
+  clerkUserId: number
+  email: number
   name: number
   createdAt: number
   _all: number
@@ -46,18 +55,27 @@ export type UserCountAggregateOutputType = {
 
 export type UserMinAggregateInputType = {
   id?: true
+  kind?: true
+  clerkUserId?: true
+  email?: true
   name?: true
   createdAt?: true
 }
 
 export type UserMaxAggregateInputType = {
   id?: true
+  kind?: true
+  clerkUserId?: true
+  email?: true
   name?: true
   createdAt?: true
 }
 
 export type UserCountAggregateInputType = {
   id?: true
+  kind?: true
+  clerkUserId?: true
+  email?: true
   name?: true
   createdAt?: true
   _all?: true
@@ -137,6 +155,9 @@ export type UserGroupByArgs<ExtArgs extends runtime.Types.Extensions.InternalArg
 
 export type UserGroupByOutputType = {
   id: string
+  kind: string
+  clerkUserId: string | null
+  email: string | null
   name: string
   createdAt: Date
   _count: UserCountAggregateOutputType | null
@@ -164,39 +185,57 @@ export type UserWhereInput = {
   OR?: Prisma.UserWhereInput[]
   NOT?: Prisma.UserWhereInput | Prisma.UserWhereInput[]
   id?: Prisma.StringFilter<"User"> | string
+  kind?: Prisma.StringFilter<"User"> | string
+  clerkUserId?: Prisma.StringNullableFilter<"User"> | string | null
+  email?: Prisma.StringNullableFilter<"User"> | string | null
   name?: Prisma.StringFilter<"User"> | string
   createdAt?: Prisma.DateTimeFilter<"User"> | Date | string
   games?: Prisma.GameListRelationFilter
   stats?: Prisma.XOR<Prisma.PlayerStatsNullableScalarRelationFilter, Prisma.PlayerStatsWhereInput> | null
   collections?: Prisma.PlayerCardCollectionListRelationFilter
   decks?: Prisma.DeckListRelationFilter
+  guestSessions?: Prisma.GuestSessionListRelationFilter
+  preference?: Prisma.XOR<Prisma.UserPreferenceNullableScalarRelationFilter, Prisma.UserPreferenceWhereInput> | null
 }
 
 export type UserOrderByWithRelationInput = {
   id?: Prisma.SortOrder
+  kind?: Prisma.SortOrder
+  clerkUserId?: Prisma.SortOrderInput | Prisma.SortOrder
+  email?: Prisma.SortOrderInput | Prisma.SortOrder
   name?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   games?: Prisma.GameOrderByRelationAggregateInput
   stats?: Prisma.PlayerStatsOrderByWithRelationInput
   collections?: Prisma.PlayerCardCollectionOrderByRelationAggregateInput
   decks?: Prisma.DeckOrderByRelationAggregateInput
+  guestSessions?: Prisma.GuestSessionOrderByRelationAggregateInput
+  preference?: Prisma.UserPreferenceOrderByWithRelationInput
 }
 
 export type UserWhereUniqueInput = Prisma.AtLeast<{
   id?: string
+  clerkUserId?: string
   AND?: Prisma.UserWhereInput | Prisma.UserWhereInput[]
   OR?: Prisma.UserWhereInput[]
   NOT?: Prisma.UserWhereInput | Prisma.UserWhereInput[]
+  kind?: Prisma.StringFilter<"User"> | string
+  email?: Prisma.StringNullableFilter<"User"> | string | null
   name?: Prisma.StringFilter<"User"> | string
   createdAt?: Prisma.DateTimeFilter<"User"> | Date | string
   games?: Prisma.GameListRelationFilter
   stats?: Prisma.XOR<Prisma.PlayerStatsNullableScalarRelationFilter, Prisma.PlayerStatsWhereInput> | null
   collections?: Prisma.PlayerCardCollectionListRelationFilter
   decks?: Prisma.DeckListRelationFilter
-}, "id">
+  guestSessions?: Prisma.GuestSessionListRelationFilter
+  preference?: Prisma.XOR<Prisma.UserPreferenceNullableScalarRelationFilter, Prisma.UserPreferenceWhereInput> | null
+}, "id" | "clerkUserId">
 
 export type UserOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
+  kind?: Prisma.SortOrder
+  clerkUserId?: Prisma.SortOrderInput | Prisma.SortOrder
+  email?: Prisma.SortOrderInput | Prisma.SortOrder
   name?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   _count?: Prisma.UserCountOrderByAggregateInput
@@ -209,82 +248,123 @@ export type UserScalarWhereWithAggregatesInput = {
   OR?: Prisma.UserScalarWhereWithAggregatesInput[]
   NOT?: Prisma.UserScalarWhereWithAggregatesInput | Prisma.UserScalarWhereWithAggregatesInput[]
   id?: Prisma.StringWithAggregatesFilter<"User"> | string
+  kind?: Prisma.StringWithAggregatesFilter<"User"> | string
+  clerkUserId?: Prisma.StringNullableWithAggregatesFilter<"User"> | string | null
+  email?: Prisma.StringNullableWithAggregatesFilter<"User"> | string | null
   name?: Prisma.StringWithAggregatesFilter<"User"> | string
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"User"> | Date | string
 }
 
 export type UserCreateInput = {
   id?: string
+  kind?: string
+  clerkUserId?: string | null
+  email?: string | null
   name?: string
   createdAt?: Date | string
   games?: Prisma.GameCreateNestedManyWithoutPlayerInput
   stats?: Prisma.PlayerStatsCreateNestedOneWithoutUserInput
   collections?: Prisma.PlayerCardCollectionCreateNestedManyWithoutUserInput
   decks?: Prisma.DeckCreateNestedManyWithoutUserInput
+  guestSessions?: Prisma.GuestSessionCreateNestedManyWithoutUserInput
+  preference?: Prisma.UserPreferenceCreateNestedOneWithoutUserInput
 }
 
 export type UserUncheckedCreateInput = {
   id?: string
+  kind?: string
+  clerkUserId?: string | null
+  email?: string | null
   name?: string
   createdAt?: Date | string
   games?: Prisma.GameUncheckedCreateNestedManyWithoutPlayerInput
   stats?: Prisma.PlayerStatsUncheckedCreateNestedOneWithoutUserInput
   collections?: Prisma.PlayerCardCollectionUncheckedCreateNestedManyWithoutUserInput
   decks?: Prisma.DeckUncheckedCreateNestedManyWithoutUserInput
+  guestSessions?: Prisma.GuestSessionUncheckedCreateNestedManyWithoutUserInput
+  preference?: Prisma.UserPreferenceUncheckedCreateNestedOneWithoutUserInput
 }
 
 export type UserUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.StringFieldUpdateOperationsInput | string
+  clerkUserId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  email?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   games?: Prisma.GameUpdateManyWithoutPlayerNestedInput
   stats?: Prisma.PlayerStatsUpdateOneWithoutUserNestedInput
   collections?: Prisma.PlayerCardCollectionUpdateManyWithoutUserNestedInput
   decks?: Prisma.DeckUpdateManyWithoutUserNestedInput
+  guestSessions?: Prisma.GuestSessionUpdateManyWithoutUserNestedInput
+  preference?: Prisma.UserPreferenceUpdateOneWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.StringFieldUpdateOperationsInput | string
+  clerkUserId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  email?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   games?: Prisma.GameUncheckedUpdateManyWithoutPlayerNestedInput
   stats?: Prisma.PlayerStatsUncheckedUpdateOneWithoutUserNestedInput
   collections?: Prisma.PlayerCardCollectionUncheckedUpdateManyWithoutUserNestedInput
   decks?: Prisma.DeckUncheckedUpdateManyWithoutUserNestedInput
+  guestSessions?: Prisma.GuestSessionUncheckedUpdateManyWithoutUserNestedInput
+  preference?: Prisma.UserPreferenceUncheckedUpdateOneWithoutUserNestedInput
 }
 
 export type UserCreateManyInput = {
   id?: string
+  kind?: string
+  clerkUserId?: string | null
+  email?: string | null
   name?: string
   createdAt?: Date | string
 }
 
 export type UserUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.StringFieldUpdateOperationsInput | string
+  clerkUserId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  email?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
 export type UserUncheckedUpdateManyInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.StringFieldUpdateOperationsInput | string
+  clerkUserId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  email?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
 export type UserCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
+  kind?: Prisma.SortOrder
+  clerkUserId?: Prisma.SortOrder
+  email?: Prisma.SortOrder
   name?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
 export type UserMaxOrderByAggregateInput = {
   id?: Prisma.SortOrder
+  kind?: Prisma.SortOrder
+  clerkUserId?: Prisma.SortOrder
+  email?: Prisma.SortOrder
   name?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
 export type UserMinOrderByAggregateInput = {
   id?: Prisma.SortOrder
+  kind?: Prisma.SortOrder
+  clerkUserId?: Prisma.SortOrder
+  email?: Prisma.SortOrder
   name?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
@@ -298,8 +378,40 @@ export type StringFieldUpdateOperationsInput = {
   set?: string
 }
 
+export type NullableStringFieldUpdateOperationsInput = {
+  set?: string | null
+}
+
 export type DateTimeFieldUpdateOperationsInput = {
   set?: Date | string
+}
+
+export type UserCreateNestedOneWithoutGuestSessionsInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutGuestSessionsInput, Prisma.UserUncheckedCreateWithoutGuestSessionsInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutGuestSessionsInput
+  connect?: Prisma.UserWhereUniqueInput
+}
+
+export type UserUpdateOneRequiredWithoutGuestSessionsNestedInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutGuestSessionsInput, Prisma.UserUncheckedCreateWithoutGuestSessionsInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutGuestSessionsInput
+  upsert?: Prisma.UserUpsertWithoutGuestSessionsInput
+  connect?: Prisma.UserWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutGuestSessionsInput, Prisma.UserUpdateWithoutGuestSessionsInput>, Prisma.UserUncheckedUpdateWithoutGuestSessionsInput>
+}
+
+export type UserCreateNestedOneWithoutPreferenceInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutPreferenceInput, Prisma.UserUncheckedCreateWithoutPreferenceInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutPreferenceInput
+  connect?: Prisma.UserWhereUniqueInput
+}
+
+export type UserUpdateOneRequiredWithoutPreferenceNestedInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutPreferenceInput, Prisma.UserUncheckedCreateWithoutPreferenceInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutPreferenceInput
+  upsert?: Prisma.UserUpsertWithoutPreferenceInput
+  connect?: Prisma.UserWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutPreferenceInput, Prisma.UserUpdateWithoutPreferenceInput>, Prisma.UserUncheckedUpdateWithoutPreferenceInput>
 }
 
 export type UserCreateNestedOneWithoutGamesInput = {
@@ -358,22 +470,176 @@ export type UserUpdateOneRequiredWithoutDecksNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutDecksInput, Prisma.UserUpdateWithoutDecksInput>, Prisma.UserUncheckedUpdateWithoutDecksInput>
 }
 
+export type UserCreateWithoutGuestSessionsInput = {
+  id?: string
+  kind?: string
+  clerkUserId?: string | null
+  email?: string | null
+  name?: string
+  createdAt?: Date | string
+  games?: Prisma.GameCreateNestedManyWithoutPlayerInput
+  stats?: Prisma.PlayerStatsCreateNestedOneWithoutUserInput
+  collections?: Prisma.PlayerCardCollectionCreateNestedManyWithoutUserInput
+  decks?: Prisma.DeckCreateNestedManyWithoutUserInput
+  preference?: Prisma.UserPreferenceCreateNestedOneWithoutUserInput
+}
+
+export type UserUncheckedCreateWithoutGuestSessionsInput = {
+  id?: string
+  kind?: string
+  clerkUserId?: string | null
+  email?: string | null
+  name?: string
+  createdAt?: Date | string
+  games?: Prisma.GameUncheckedCreateNestedManyWithoutPlayerInput
+  stats?: Prisma.PlayerStatsUncheckedCreateNestedOneWithoutUserInput
+  collections?: Prisma.PlayerCardCollectionUncheckedCreateNestedManyWithoutUserInput
+  decks?: Prisma.DeckUncheckedCreateNestedManyWithoutUserInput
+  preference?: Prisma.UserPreferenceUncheckedCreateNestedOneWithoutUserInput
+}
+
+export type UserCreateOrConnectWithoutGuestSessionsInput = {
+  where: Prisma.UserWhereUniqueInput
+  create: Prisma.XOR<Prisma.UserCreateWithoutGuestSessionsInput, Prisma.UserUncheckedCreateWithoutGuestSessionsInput>
+}
+
+export type UserUpsertWithoutGuestSessionsInput = {
+  update: Prisma.XOR<Prisma.UserUpdateWithoutGuestSessionsInput, Prisma.UserUncheckedUpdateWithoutGuestSessionsInput>
+  create: Prisma.XOR<Prisma.UserCreateWithoutGuestSessionsInput, Prisma.UserUncheckedCreateWithoutGuestSessionsInput>
+  where?: Prisma.UserWhereInput
+}
+
+export type UserUpdateToOneWithWhereWithoutGuestSessionsInput = {
+  where?: Prisma.UserWhereInput
+  data: Prisma.XOR<Prisma.UserUpdateWithoutGuestSessionsInput, Prisma.UserUncheckedUpdateWithoutGuestSessionsInput>
+}
+
+export type UserUpdateWithoutGuestSessionsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.StringFieldUpdateOperationsInput | string
+  clerkUserId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  email?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  games?: Prisma.GameUpdateManyWithoutPlayerNestedInput
+  stats?: Prisma.PlayerStatsUpdateOneWithoutUserNestedInput
+  collections?: Prisma.PlayerCardCollectionUpdateManyWithoutUserNestedInput
+  decks?: Prisma.DeckUpdateManyWithoutUserNestedInput
+  preference?: Prisma.UserPreferenceUpdateOneWithoutUserNestedInput
+}
+
+export type UserUncheckedUpdateWithoutGuestSessionsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.StringFieldUpdateOperationsInput | string
+  clerkUserId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  email?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  games?: Prisma.GameUncheckedUpdateManyWithoutPlayerNestedInput
+  stats?: Prisma.PlayerStatsUncheckedUpdateOneWithoutUserNestedInput
+  collections?: Prisma.PlayerCardCollectionUncheckedUpdateManyWithoutUserNestedInput
+  decks?: Prisma.DeckUncheckedUpdateManyWithoutUserNestedInput
+  preference?: Prisma.UserPreferenceUncheckedUpdateOneWithoutUserNestedInput
+}
+
+export type UserCreateWithoutPreferenceInput = {
+  id?: string
+  kind?: string
+  clerkUserId?: string | null
+  email?: string | null
+  name?: string
+  createdAt?: Date | string
+  games?: Prisma.GameCreateNestedManyWithoutPlayerInput
+  stats?: Prisma.PlayerStatsCreateNestedOneWithoutUserInput
+  collections?: Prisma.PlayerCardCollectionCreateNestedManyWithoutUserInput
+  decks?: Prisma.DeckCreateNestedManyWithoutUserInput
+  guestSessions?: Prisma.GuestSessionCreateNestedManyWithoutUserInput
+}
+
+export type UserUncheckedCreateWithoutPreferenceInput = {
+  id?: string
+  kind?: string
+  clerkUserId?: string | null
+  email?: string | null
+  name?: string
+  createdAt?: Date | string
+  games?: Prisma.GameUncheckedCreateNestedManyWithoutPlayerInput
+  stats?: Prisma.PlayerStatsUncheckedCreateNestedOneWithoutUserInput
+  collections?: Prisma.PlayerCardCollectionUncheckedCreateNestedManyWithoutUserInput
+  decks?: Prisma.DeckUncheckedCreateNestedManyWithoutUserInput
+  guestSessions?: Prisma.GuestSessionUncheckedCreateNestedManyWithoutUserInput
+}
+
+export type UserCreateOrConnectWithoutPreferenceInput = {
+  where: Prisma.UserWhereUniqueInput
+  create: Prisma.XOR<Prisma.UserCreateWithoutPreferenceInput, Prisma.UserUncheckedCreateWithoutPreferenceInput>
+}
+
+export type UserUpsertWithoutPreferenceInput = {
+  update: Prisma.XOR<Prisma.UserUpdateWithoutPreferenceInput, Prisma.UserUncheckedUpdateWithoutPreferenceInput>
+  create: Prisma.XOR<Prisma.UserCreateWithoutPreferenceInput, Prisma.UserUncheckedCreateWithoutPreferenceInput>
+  where?: Prisma.UserWhereInput
+}
+
+export type UserUpdateToOneWithWhereWithoutPreferenceInput = {
+  where?: Prisma.UserWhereInput
+  data: Prisma.XOR<Prisma.UserUpdateWithoutPreferenceInput, Prisma.UserUncheckedUpdateWithoutPreferenceInput>
+}
+
+export type UserUpdateWithoutPreferenceInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.StringFieldUpdateOperationsInput | string
+  clerkUserId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  email?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  games?: Prisma.GameUpdateManyWithoutPlayerNestedInput
+  stats?: Prisma.PlayerStatsUpdateOneWithoutUserNestedInput
+  collections?: Prisma.PlayerCardCollectionUpdateManyWithoutUserNestedInput
+  decks?: Prisma.DeckUpdateManyWithoutUserNestedInput
+  guestSessions?: Prisma.GuestSessionUpdateManyWithoutUserNestedInput
+}
+
+export type UserUncheckedUpdateWithoutPreferenceInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.StringFieldUpdateOperationsInput | string
+  clerkUserId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  email?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  games?: Prisma.GameUncheckedUpdateManyWithoutPlayerNestedInput
+  stats?: Prisma.PlayerStatsUncheckedUpdateOneWithoutUserNestedInput
+  collections?: Prisma.PlayerCardCollectionUncheckedUpdateManyWithoutUserNestedInput
+  decks?: Prisma.DeckUncheckedUpdateManyWithoutUserNestedInput
+  guestSessions?: Prisma.GuestSessionUncheckedUpdateManyWithoutUserNestedInput
+}
+
 export type UserCreateWithoutGamesInput = {
   id?: string
+  kind?: string
+  clerkUserId?: string | null
+  email?: string | null
   name?: string
   createdAt?: Date | string
   stats?: Prisma.PlayerStatsCreateNestedOneWithoutUserInput
   collections?: Prisma.PlayerCardCollectionCreateNestedManyWithoutUserInput
   decks?: Prisma.DeckCreateNestedManyWithoutUserInput
+  guestSessions?: Prisma.GuestSessionCreateNestedManyWithoutUserInput
+  preference?: Prisma.UserPreferenceCreateNestedOneWithoutUserInput
 }
 
 export type UserUncheckedCreateWithoutGamesInput = {
   id?: string
+  kind?: string
+  clerkUserId?: string | null
+  email?: string | null
   name?: string
   createdAt?: Date | string
   stats?: Prisma.PlayerStatsUncheckedCreateNestedOneWithoutUserInput
   collections?: Prisma.PlayerCardCollectionUncheckedCreateNestedManyWithoutUserInput
   decks?: Prisma.DeckUncheckedCreateNestedManyWithoutUserInput
+  guestSessions?: Prisma.GuestSessionUncheckedCreateNestedManyWithoutUserInput
+  preference?: Prisma.UserPreferenceUncheckedCreateNestedOneWithoutUserInput
 }
 
 export type UserCreateOrConnectWithoutGamesInput = {
@@ -394,38 +660,58 @@ export type UserUpdateToOneWithWhereWithoutGamesInput = {
 
 export type UserUpdateWithoutGamesInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.StringFieldUpdateOperationsInput | string
+  clerkUserId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  email?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   stats?: Prisma.PlayerStatsUpdateOneWithoutUserNestedInput
   collections?: Prisma.PlayerCardCollectionUpdateManyWithoutUserNestedInput
   decks?: Prisma.DeckUpdateManyWithoutUserNestedInput
+  guestSessions?: Prisma.GuestSessionUpdateManyWithoutUserNestedInput
+  preference?: Prisma.UserPreferenceUpdateOneWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutGamesInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.StringFieldUpdateOperationsInput | string
+  clerkUserId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  email?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   stats?: Prisma.PlayerStatsUncheckedUpdateOneWithoutUserNestedInput
   collections?: Prisma.PlayerCardCollectionUncheckedUpdateManyWithoutUserNestedInput
   decks?: Prisma.DeckUncheckedUpdateManyWithoutUserNestedInput
+  guestSessions?: Prisma.GuestSessionUncheckedUpdateManyWithoutUserNestedInput
+  preference?: Prisma.UserPreferenceUncheckedUpdateOneWithoutUserNestedInput
 }
 
 export type UserCreateWithoutStatsInput = {
   id?: string
+  kind?: string
+  clerkUserId?: string | null
+  email?: string | null
   name?: string
   createdAt?: Date | string
   games?: Prisma.GameCreateNestedManyWithoutPlayerInput
   collections?: Prisma.PlayerCardCollectionCreateNestedManyWithoutUserInput
   decks?: Prisma.DeckCreateNestedManyWithoutUserInput
+  guestSessions?: Prisma.GuestSessionCreateNestedManyWithoutUserInput
+  preference?: Prisma.UserPreferenceCreateNestedOneWithoutUserInput
 }
 
 export type UserUncheckedCreateWithoutStatsInput = {
   id?: string
+  kind?: string
+  clerkUserId?: string | null
+  email?: string | null
   name?: string
   createdAt?: Date | string
   games?: Prisma.GameUncheckedCreateNestedManyWithoutPlayerInput
   collections?: Prisma.PlayerCardCollectionUncheckedCreateNestedManyWithoutUserInput
   decks?: Prisma.DeckUncheckedCreateNestedManyWithoutUserInput
+  guestSessions?: Prisma.GuestSessionUncheckedCreateNestedManyWithoutUserInput
+  preference?: Prisma.UserPreferenceUncheckedCreateNestedOneWithoutUserInput
 }
 
 export type UserCreateOrConnectWithoutStatsInput = {
@@ -446,38 +732,58 @@ export type UserUpdateToOneWithWhereWithoutStatsInput = {
 
 export type UserUpdateWithoutStatsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.StringFieldUpdateOperationsInput | string
+  clerkUserId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  email?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   games?: Prisma.GameUpdateManyWithoutPlayerNestedInput
   collections?: Prisma.PlayerCardCollectionUpdateManyWithoutUserNestedInput
   decks?: Prisma.DeckUpdateManyWithoutUserNestedInput
+  guestSessions?: Prisma.GuestSessionUpdateManyWithoutUserNestedInput
+  preference?: Prisma.UserPreferenceUpdateOneWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutStatsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.StringFieldUpdateOperationsInput | string
+  clerkUserId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  email?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   games?: Prisma.GameUncheckedUpdateManyWithoutPlayerNestedInput
   collections?: Prisma.PlayerCardCollectionUncheckedUpdateManyWithoutUserNestedInput
   decks?: Prisma.DeckUncheckedUpdateManyWithoutUserNestedInput
+  guestSessions?: Prisma.GuestSessionUncheckedUpdateManyWithoutUserNestedInput
+  preference?: Prisma.UserPreferenceUncheckedUpdateOneWithoutUserNestedInput
 }
 
 export type UserCreateWithoutCollectionsInput = {
   id?: string
+  kind?: string
+  clerkUserId?: string | null
+  email?: string | null
   name?: string
   createdAt?: Date | string
   games?: Prisma.GameCreateNestedManyWithoutPlayerInput
   stats?: Prisma.PlayerStatsCreateNestedOneWithoutUserInput
   decks?: Prisma.DeckCreateNestedManyWithoutUserInput
+  guestSessions?: Prisma.GuestSessionCreateNestedManyWithoutUserInput
+  preference?: Prisma.UserPreferenceCreateNestedOneWithoutUserInput
 }
 
 export type UserUncheckedCreateWithoutCollectionsInput = {
   id?: string
+  kind?: string
+  clerkUserId?: string | null
+  email?: string | null
   name?: string
   createdAt?: Date | string
   games?: Prisma.GameUncheckedCreateNestedManyWithoutPlayerInput
   stats?: Prisma.PlayerStatsUncheckedCreateNestedOneWithoutUserInput
   decks?: Prisma.DeckUncheckedCreateNestedManyWithoutUserInput
+  guestSessions?: Prisma.GuestSessionUncheckedCreateNestedManyWithoutUserInput
+  preference?: Prisma.UserPreferenceUncheckedCreateNestedOneWithoutUserInput
 }
 
 export type UserCreateOrConnectWithoutCollectionsInput = {
@@ -498,38 +804,58 @@ export type UserUpdateToOneWithWhereWithoutCollectionsInput = {
 
 export type UserUpdateWithoutCollectionsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.StringFieldUpdateOperationsInput | string
+  clerkUserId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  email?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   games?: Prisma.GameUpdateManyWithoutPlayerNestedInput
   stats?: Prisma.PlayerStatsUpdateOneWithoutUserNestedInput
   decks?: Prisma.DeckUpdateManyWithoutUserNestedInput
+  guestSessions?: Prisma.GuestSessionUpdateManyWithoutUserNestedInput
+  preference?: Prisma.UserPreferenceUpdateOneWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutCollectionsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.StringFieldUpdateOperationsInput | string
+  clerkUserId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  email?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   games?: Prisma.GameUncheckedUpdateManyWithoutPlayerNestedInput
   stats?: Prisma.PlayerStatsUncheckedUpdateOneWithoutUserNestedInput
   decks?: Prisma.DeckUncheckedUpdateManyWithoutUserNestedInput
+  guestSessions?: Prisma.GuestSessionUncheckedUpdateManyWithoutUserNestedInput
+  preference?: Prisma.UserPreferenceUncheckedUpdateOneWithoutUserNestedInput
 }
 
 export type UserCreateWithoutDecksInput = {
   id?: string
+  kind?: string
+  clerkUserId?: string | null
+  email?: string | null
   name?: string
   createdAt?: Date | string
   games?: Prisma.GameCreateNestedManyWithoutPlayerInput
   stats?: Prisma.PlayerStatsCreateNestedOneWithoutUserInput
   collections?: Prisma.PlayerCardCollectionCreateNestedManyWithoutUserInput
+  guestSessions?: Prisma.GuestSessionCreateNestedManyWithoutUserInput
+  preference?: Prisma.UserPreferenceCreateNestedOneWithoutUserInput
 }
 
 export type UserUncheckedCreateWithoutDecksInput = {
   id?: string
+  kind?: string
+  clerkUserId?: string | null
+  email?: string | null
   name?: string
   createdAt?: Date | string
   games?: Prisma.GameUncheckedCreateNestedManyWithoutPlayerInput
   stats?: Prisma.PlayerStatsUncheckedCreateNestedOneWithoutUserInput
   collections?: Prisma.PlayerCardCollectionUncheckedCreateNestedManyWithoutUserInput
+  guestSessions?: Prisma.GuestSessionUncheckedCreateNestedManyWithoutUserInput
+  preference?: Prisma.UserPreferenceUncheckedCreateNestedOneWithoutUserInput
 }
 
 export type UserCreateOrConnectWithoutDecksInput = {
@@ -550,20 +876,30 @@ export type UserUpdateToOneWithWhereWithoutDecksInput = {
 
 export type UserUpdateWithoutDecksInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.StringFieldUpdateOperationsInput | string
+  clerkUserId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  email?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   games?: Prisma.GameUpdateManyWithoutPlayerNestedInput
   stats?: Prisma.PlayerStatsUpdateOneWithoutUserNestedInput
   collections?: Prisma.PlayerCardCollectionUpdateManyWithoutUserNestedInput
+  guestSessions?: Prisma.GuestSessionUpdateManyWithoutUserNestedInput
+  preference?: Prisma.UserPreferenceUpdateOneWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutDecksInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.StringFieldUpdateOperationsInput | string
+  clerkUserId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  email?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   games?: Prisma.GameUncheckedUpdateManyWithoutPlayerNestedInput
   stats?: Prisma.PlayerStatsUncheckedUpdateOneWithoutUserNestedInput
   collections?: Prisma.PlayerCardCollectionUncheckedUpdateManyWithoutUserNestedInput
+  guestSessions?: Prisma.GuestSessionUncheckedUpdateManyWithoutUserNestedInput
+  preference?: Prisma.UserPreferenceUncheckedUpdateOneWithoutUserNestedInput
 }
 
 
@@ -575,12 +911,14 @@ export type UserCountOutputType = {
   games: number
   collections: number
   decks: number
+  guestSessions: number
 }
 
 export type UserCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   games?: boolean | UserCountOutputTypeCountGamesArgs
   collections?: boolean | UserCountOutputTypeCountCollectionsArgs
   decks?: boolean | UserCountOutputTypeCountDecksArgs
+  guestSessions?: boolean | UserCountOutputTypeCountGuestSessionsArgs
 }
 
 /**
@@ -614,42 +952,65 @@ export type UserCountOutputTypeCountDecksArgs<ExtArgs extends runtime.Types.Exte
   where?: Prisma.DeckWhereInput
 }
 
+/**
+ * UserCountOutputType without action
+ */
+export type UserCountOutputTypeCountGuestSessionsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.GuestSessionWhereInput
+}
+
 
 export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
+  kind?: boolean
+  clerkUserId?: boolean
+  email?: boolean
   name?: boolean
   createdAt?: boolean
   games?: boolean | Prisma.User$gamesArgs<ExtArgs>
   stats?: boolean | Prisma.User$statsArgs<ExtArgs>
   collections?: boolean | Prisma.User$collectionsArgs<ExtArgs>
   decks?: boolean | Prisma.User$decksArgs<ExtArgs>
+  guestSessions?: boolean | Prisma.User$guestSessionsArgs<ExtArgs>
+  preference?: boolean | Prisma.User$preferenceArgs<ExtArgs>
   _count?: boolean | Prisma.UserCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["user"]>
 
 export type UserSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
+  kind?: boolean
+  clerkUserId?: boolean
+  email?: boolean
   name?: boolean
   createdAt?: boolean
 }, ExtArgs["result"]["user"]>
 
 export type UserSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
+  kind?: boolean
+  clerkUserId?: boolean
+  email?: boolean
   name?: boolean
   createdAt?: boolean
 }, ExtArgs["result"]["user"]>
 
 export type UserSelectScalar = {
   id?: boolean
+  kind?: boolean
+  clerkUserId?: boolean
+  email?: boolean
   name?: boolean
   createdAt?: boolean
 }
 
-export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "name" | "createdAt", ExtArgs["result"]["user"]>
+export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "kind" | "clerkUserId" | "email" | "name" | "createdAt", ExtArgs["result"]["user"]>
 export type UserInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   games?: boolean | Prisma.User$gamesArgs<ExtArgs>
   stats?: boolean | Prisma.User$statsArgs<ExtArgs>
   collections?: boolean | Prisma.User$collectionsArgs<ExtArgs>
   decks?: boolean | Prisma.User$decksArgs<ExtArgs>
+  guestSessions?: boolean | Prisma.User$guestSessionsArgs<ExtArgs>
+  preference?: boolean | Prisma.User$preferenceArgs<ExtArgs>
   _count?: boolean | Prisma.UserCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type UserIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {}
@@ -662,9 +1023,14 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
     stats: Prisma.$PlayerStatsPayload<ExtArgs> | null
     collections: Prisma.$PlayerCardCollectionPayload<ExtArgs>[]
     decks: Prisma.$DeckPayload<ExtArgs>[]
+    guestSessions: Prisma.$GuestSessionPayload<ExtArgs>[]
+    preference: Prisma.$UserPreferencePayload<ExtArgs> | null
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
+    kind: string
+    clerkUserId: string | null
+    email: string | null
     name: string
     createdAt: Date
   }, ExtArgs["result"]["user"]>
@@ -1065,6 +1431,8 @@ export interface Prisma__UserClient<T, Null = never, ExtArgs extends runtime.Typ
   stats<T extends Prisma.User$statsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$statsArgs<ExtArgs>>): Prisma.Prisma__PlayerStatsClient<runtime.Types.Result.GetResult<Prisma.$PlayerStatsPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   collections<T extends Prisma.User$collectionsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$collectionsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$PlayerCardCollectionPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   decks<T extends Prisma.User$decksArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$decksArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$DeckPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  guestSessions<T extends Prisma.User$guestSessionsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$guestSessionsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$GuestSessionPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  preference<T extends Prisma.User$preferenceArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$preferenceArgs<ExtArgs>>): Prisma.Prisma__UserPreferenceClient<runtime.Types.Result.GetResult<Prisma.$UserPreferencePayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -1095,6 +1463,9 @@ export interface Prisma__UserClient<T, Null = never, ExtArgs extends runtime.Typ
  */
 export interface UserFieldRefs {
   readonly id: Prisma.FieldRef<"User", 'String'>
+  readonly kind: Prisma.FieldRef<"User", 'String'>
+  readonly clerkUserId: Prisma.FieldRef<"User", 'String'>
+  readonly email: Prisma.FieldRef<"User", 'String'>
   readonly name: Prisma.FieldRef<"User", 'String'>
   readonly createdAt: Prisma.FieldRef<"User", 'DateTime'>
 }
@@ -1578,6 +1949,49 @@ export type User$decksArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs
   take?: number
   skip?: number
   distinct?: Prisma.DeckScalarFieldEnum | Prisma.DeckScalarFieldEnum[]
+}
+
+/**
+ * User.guestSessions
+ */
+export type User$guestSessionsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the GuestSession
+   */
+  select?: Prisma.GuestSessionSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the GuestSession
+   */
+  omit?: Prisma.GuestSessionOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.GuestSessionInclude<ExtArgs> | null
+  where?: Prisma.GuestSessionWhereInput
+  orderBy?: Prisma.GuestSessionOrderByWithRelationInput | Prisma.GuestSessionOrderByWithRelationInput[]
+  cursor?: Prisma.GuestSessionWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.GuestSessionScalarFieldEnum | Prisma.GuestSessionScalarFieldEnum[]
+}
+
+/**
+ * User.preference
+ */
+export type User$preferenceArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the UserPreference
+   */
+  select?: Prisma.UserPreferenceSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the UserPreference
+   */
+  omit?: Prisma.UserPreferenceOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.UserPreferenceInclude<ExtArgs> | null
+  where?: Prisma.UserPreferenceWhereInput
 }
 
 /**
