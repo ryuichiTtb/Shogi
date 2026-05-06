@@ -84,29 +84,31 @@ export async function ensureInitialUserData(
     ),
   );
 
-  let defaultDeck = await db.deck.findFirst({
+  // default deck の確保。
+  // Issue #150: ゲスト → アカウント merge 後にもこの関数が呼ばれるため、
+  // 「すでに default deck が存在する (= ゲストから移管された / 既存ユーザー)」場合は
+  // 編成 (deckEntry) には触らない。触ると「ユーザーが意図的に外したカード」が
+  // 勝手に再追加されてしまう。初期 entry は default deck を新規作成した場合のみ入れる。
+  const existingDefault = await db.deck.findFirst({
     where: { userId, isDefault: true },
   });
-  if (!defaultDeck) {
-    defaultDeck = await db.deck.create({
-      data: {
-        userId,
-        name: "デフォルトデッキ",
-        isDefault: true,
-      },
-    });
-  }
+  if (existingDefault) return;
 
+  const defaultDeck = await db.deck.create({
+    data: {
+      userId,
+      name: "デフォルトデッキ",
+      isDefault: true,
+    },
+  });
   await Promise.all(
     playableCardDefs.map((def) =>
-      db.deckEntry.upsert({
-        where: { deckId_cardId: { deckId: defaultDeck.id, cardId: def.id } },
-        create: {
+      db.deckEntry.create({
+        data: {
           deckId: defaultDeck.id,
           cardId: def.id,
           count: INITIAL_DECK_CARD_COUNT,
         },
-        update: {},
       }),
     ),
   );

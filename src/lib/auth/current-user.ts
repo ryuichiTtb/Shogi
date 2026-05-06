@@ -88,6 +88,43 @@ async function readClerkUserId(): Promise<string | null> {
   return authResult.userId ?? null;
 }
 
+export interface AccountUserShellResult {
+  user: AppUser;
+  isNewAccount: boolean;
+}
+
+// Issue #150: account User レコードの create/get のみを行い、初期データ (デッキ・所持カード・
+// preference) は作らない。merge フローで「ゲストデータを引っ越した後に不足分だけ補完したい」
+// ケースで使う。bootstrap 込みが必要なら getOrCreateAccountUser を使う。
+export async function findOrCreateAccountUserShell(
+  clerkUserId: string,
+): Promise<AccountUserShellResult> {
+  const existing = await prisma.user.findUnique({
+    where: { clerkUserId },
+  });
+  if (existing) {
+    return { user: toAppUser(existing), isNewAccount: false };
+  }
+
+  const profile = await readClerkProfile(clerkUserId);
+
+  try {
+    const created = await prisma.user.create({
+      data: {
+        kind: "account",
+        clerkUserId,
+        email: profile.email,
+        name: profile.name,
+      },
+    });
+    return { user: toAppUser(created), isNewAccount: true };
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) throw error;
+    const raced = await prisma.user.findUniqueOrThrow({ where: { clerkUserId } });
+    return { user: toAppUser(raced), isNewAccount: false };
+  }
+}
+
 export async function getOrCreateAccountUser(clerkUserId: string): Promise<AppUser> {
   const existing = await prisma.user.findUnique({
     where: { clerkUserId },

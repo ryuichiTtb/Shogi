@@ -7,6 +7,10 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // Issue #150: server-only は Client Component 経由 import を防ぐためのガード。
+      // vitest 環境では Server Component と Client Component の区別がないため、
+      // テスト時のみ no-op に置き換える。
+      "server-only": path.resolve(__dirname, "./src/test-helpers/server-only-shim.ts"),
     },
   },
   test: {
