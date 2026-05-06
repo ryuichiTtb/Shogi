@@ -85,9 +85,11 @@ export const DEFAULT_PIECE_BORDER = "#4a2e15";
 const IN_CHECK_BORDER = "#7f1d1d";
 const SELECTED_BORDER = "#1e3a8a";
 
-// 半透明オーバーレイ (alpha 0.4 で base 60% + tint 40% の混色感)。
-const IN_CHECK_TINT = "rgba(239, 68, 68, 0.4)";   // tailwind red-500 相当
-const SELECTED_TINT = "rgba(59, 130, 246, 0.4)";  // tailwind blue-500 相当
+// 半透明オーバーレイ。tint に白を多めに加算した淡色を使い、ベースの檜木茶
+// が透けて見えつつ「白っぽく明るい青/赤」が乗る印象にする (旧実装の単色
+// fillColor #dbeafe / #fee2e2 のような明るい見え方に近づける)。
+const IN_CHECK_TINT = "rgba(252, 165, 165, 0.55)";  // tailwind red-300 相当・白寄り
+const SELECTED_TINT = "rgba(147, 197, 253, 0.55)";  // tailwind blue-300 相当・白寄り
 
 export const ShogiPiece = memo(function ShogiPiece({
   piece,
