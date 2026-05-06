@@ -194,6 +194,18 @@ export const ShogiPiece = memo(function ShogiPiece({
             strokeWidth={strokeWidth}
             strokeLinejoin="round"
           />
+          {/* Issue #155 派生: 右辺と下辺だけ太線で上塗りし、光が左上から当たって
+              右下に影が落ちる立体感を演出する。右肩 → 右下 → 左下 を polyline
+              の一筆書きで描画 (五角形右下の 3 頂点)。strokeLinejoin/Linecap は
+              round で面取りを揃える。 */}
+          <polyline
+            points="96,22 100,100 0,100"
+            fill="none"
+            stroke={borderColor}
+            strokeWidth={strokeWidth * 1.9}
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
         </svg>
 
         {/* 駒の文字（SVG の上に絶対配置）。kanji が 2 文字以上のときは
