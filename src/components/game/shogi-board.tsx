@@ -341,7 +341,7 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
           data-shogi-board-grid="1"
           role="grid"
           aria-label="将棋盤"
-          className="grid border border-white bg-white/60 relative"
+          className="grid border border-black bg-black/60 relative"
           style={{
             gridTemplateColumns: `repeat(9, ${cellSize.width}px)`,
             gridTemplateRows: `repeat(9, ${cellSize.height}px)`,
