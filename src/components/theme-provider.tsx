@@ -51,6 +51,16 @@ export function ThemeProvider({
   initialTheme: Theme;
 }) {
   const [theme, setThemeState] = useState<Theme>(initialTheme);
+  // Issue #160: userId / initialTheme の props 変化に state を追従させる。以前は layout 側
+  // `key={userId}` による強制再マウントで対応していたが、Provider 配下 (対局画面など) ごと
+  // unmount → mount されて対局開始演出の二重再生・useSound (Howler) 再ロードを誘発していた。
+  // key を撤去し、React 19 推奨の render 中 conditional setState で同期する。
+  const [lastSync, setLastSync] = useState({ userId, initialTheme });
+  if (lastSync.userId !== userId || lastSync.initialTheme !== initialTheme) {
+    setLastSync({ userId, initialTheme });
+    setThemeState(initialTheme);
+  }
+
   const storageKey = `shogi-theme:${userId}`;
   const systemTheme = useSyncExternalStore<"light" | "dark">(
     subscribeSystemTheme,

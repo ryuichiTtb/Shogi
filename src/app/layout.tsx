@@ -78,6 +78,14 @@ export default async function RootLayout({
 }>) {
   const preferences = await getCurrentUserPreferences();
 
+  // Issue #160 Phase 1: 一時 instrumentation。Phase 3 で削除する (grep "#160-debug")。
+  // タイムスタンプは Vercel runtime logs / DevTools console が自動付与するため不要。
+  console.log("[#160-debug RootLayout]", {
+    userId: preferences.userId.slice(0, 8),
+    userKind: preferences.userKind,
+    theme: preferences.theme,
+  });
+
   return (
     <html
       lang="ja"
@@ -87,7 +95,6 @@ export default async function RootLayout({
       <body className="min-h-full flex flex-col bg-background text-foreground">
         <MaybeClerkProvider>
           <ThemeProvider
-            key={preferences.userId}
             userId={preferences.userId}
             initialTheme={preferences.theme}
           >

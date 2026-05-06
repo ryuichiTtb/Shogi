@@ -60,6 +60,12 @@ const guestOnlyProxy = (request: NextRequest) => ensureGuestCookie(request);
 
 const clerkProxy = clerkMiddleware(async (auth, request) => {
   const { userId } = await auth();
+  // Issue #160 Phase 1: 一時 instrumentation。Phase 3 で削除する (grep "#160-debug")。
+  // タイムスタンプは Vercel runtime logs が自動付与するため不要。
+  console.log("[#160-debug proxy]", {
+    path: request.nextUrl.pathname,
+    clerkUserId: userId ? userId.slice(0, 12) : null,
+  });
   if (userId) {
     return NextResponse.next();
   }

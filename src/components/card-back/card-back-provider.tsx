@@ -33,6 +33,15 @@ export function CardBackProvider({
   initialStyle: CardBackStyle;
 }) {
   const [style, setStyleState] = useState<CardBackStyle>(initialStyle);
+  // Issue #160: userId / initialStyle の props 変化に state を追従させる。
+  // ThemeProvider の `key={userId}` 撤去に伴い、CardBackProvider も親の暗黙的な
+  // 再マウントには依存できなくなるため、render 中 conditional setState で同期する。
+  const [lastSync, setLastSync] = useState({ userId, initialStyle });
+  if (lastSync.userId !== userId || lastSync.initialStyle !== initialStyle) {
+    setLastSync({ userId, initialStyle });
+    setStyleState(initialStyle);
+  }
+
   const storageKey = `shogi-card-back-style:${userId}`;
 
   const setStyle = useCallback((s: CardBackStyle) => {
