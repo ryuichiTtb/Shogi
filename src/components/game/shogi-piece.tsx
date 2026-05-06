@@ -214,13 +214,12 @@ export const ShogiPiece = memo(function ShogiPiece({
               右下に影が落ちる立体感を演出する。右肩 → 右下 → 左下 を polyline
               の一筆書きで描画 (五角形右下の 3 頂点)。strokeLinejoin/Linecap は
               round で面取りを揃える。
-              倍率は 3.5 倍 (= 5.25px、viewBox 100 に対し 5.25%)。1.9 倍では
-              視覚的に変化が分かりにくかったため引き上げ。 */}
+              倍率は 2.5 倍 (= 3.75px、viewBox 100 に対し 3.75%)。 */}
           <polyline
             points="96,22 100,100 0,100"
             fill="none"
             stroke={borderColor}
-            strokeWidth={strokeWidth * 3.5}
+            strokeWidth={strokeWidth * 2.5}
             strokeLinejoin="round"
             strokeLinecap="round"
           />

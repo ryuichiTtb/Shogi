@@ -110,8 +110,9 @@ const BoardSquare = memo(function BoardSquare({
       className={cn(
         "shogi-square relative flex items-center justify-center",
         "cursor-pointer",
-        // 通常背景
-        "bg-amber-50 dark:bg-amber-950",
+        // 通常背景 (Issue #155 派生: dark を amber-950 → amber-900 に 1 段明るく
+        // することで駒輪郭 (#4a2e15) との同化を解消し、立体感の太線が視認可能に)
+        "bg-amber-50 dark:bg-amber-900",
         // 直前の手（移動前・移動後）
         isLastMoveSq && !isSelected && "bg-emerald-200 dark:bg-emerald-800/60",
         // 王手中の王
@@ -127,8 +128,9 @@ const BoardSquare = memo(function BoardSquare({
         isForbiddenMate && "bg-red-400/60 dark:bg-red-700/50 ring-2 ring-inset ring-red-600 dark:ring-red-400",
         // プレイヤーのターンでない・AI思考中は操作不可
         !canHover && !isCardTarget && "cursor-not-allowed",
-        // ホバー
-        canHover && "hover:bg-amber-100 dark:hover:bg-amber-800/50"
+        // ホバー (dark の通常背景を 1 段明るくしたためホバーも amber-700/50 に揃え、
+        // 通常背景との差を維持)
+        canHover && "hover:bg-amber-100 dark:hover:bg-amber-700/50"
       )}
       style={{ width: cellWidth, height: cellHeight }}
     >
