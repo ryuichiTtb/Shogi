@@ -8,10 +8,16 @@ import {
   useCallback,
   useSyncExternalStore,
 } from "react";
-import { saveThemePreference } from "@/app/actions/preferences";
+import { useAuth } from "@clerk/nextjs";
+import {
+  getCurrentUserPreferences,
+  saveThemePreference,
+} from "@/app/actions/preferences";
 import type { ThemePreference } from "@/lib/user-preferences";
 
 type Theme = ThemePreference;
+
+const CLERK_CONFIGURED = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 
 interface ThemeContextValue {
   theme: Theme;
@@ -41,13 +47,47 @@ function subscribeSystemTheme(onChange: () => void) {
   return () => mq.removeEventListener("change", onChange);
 }
 
+// Issue #160: SSR で Clerk session 解決が間に合わずゲスト経路に落ちた場合の救済策。
+// Clerk client が hydrate 完了したタイミングで preferences を再取得し、SSR で得た
+// 値と異なれば onSync で state を更新する。SSR が account 経路で取れていた場合は
+// 上位で render 自体をスキップする (CLERK_CONFIGURED && ssrUserKind === "guest")。
+function ClerkPreferenceSync({
+  ssrUserId,
+  onSync,
+}: {
+  ssrUserId: string;
+  onSync: (theme: Theme) => void;
+}) {
+  const { isLoaded, isSignedIn } = useAuth();
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
+    let cancelled = false;
+    getCurrentUserPreferences()
+      .then((p) => {
+        if (cancelled) return;
+        if (p.userId !== ssrUserId) {
+          onSync(p.theme);
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to rehydrate theme preference", error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoaded, isSignedIn, ssrUserId, onSync]);
+  return null;
+}
+
 export function ThemeProvider({
   children,
   userId,
+  userKind,
   initialTheme,
 }: {
   children: React.ReactNode;
   userId: string;
+  userKind: "guest" | "account";
   initialTheme: Theme;
 }) {
   const [theme, setThemeState] = useState<Theme>(initialTheme);
@@ -77,6 +117,10 @@ export function ThemeProvider({
     });
   }, [storageKey]);
 
+  const handleClerkSync = useCallback((newTheme: Theme) => {
+    setThemeState((prev) => (prev === newTheme ? prev : newTheme));
+  }, []);
+
   // 初期化: DB の現在値を反映し、端末キャッシュは userId ごとに名前空間を分ける。
   useEffect(() => {
     localStorage.setItem(storageKey, theme);
@@ -85,6 +129,9 @@ export function ThemeProvider({
 
   return (
     <ThemeContext value={{ theme, setTheme, resolvedTheme }}>
+      {CLERK_CONFIGURED && userKind === "guest" && (
+        <ClerkPreferenceSync ssrUserId={userId} onSync={handleClerkSync} />
+      )}
       {children}
     </ThemeContext>
   );

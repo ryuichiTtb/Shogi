@@ -103,10 +103,12 @@ export default async function RootLayout({
         <MaybeClerkProvider>
           <ThemeProvider
             userId={preferences.userId}
+            userKind={preferences.userKind}
             initialTheme={preferences.theme}
           >
             <CardBackProvider
               userId={preferences.userId}
+              userKind={preferences.userKind}
               initialStyle={preferences.cardBackStyle}
             >
               {children}
