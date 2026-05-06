@@ -10,6 +10,7 @@ import { History, Swords, Castle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ThemeSelector } from "@/components/game/theme-selector";
+import { AuthControls } from "@/components/auth/auth-controls";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import { useAssetPreloader } from "@/hooks/use-asset-preloader";
 import { useBgm } from "@/hooks/use-bgm";
@@ -42,9 +43,22 @@ export default function Home() {
       <main className="flex flex-col min-h-dvh safe-area-inset overflow-x-hidden">
         <AppBackground variant="hero" />
 
-        {/* ヘッダー (ThemeSelector を右上に配置、見出し付き) */}
+        {/* ヘッダー (ThemeSelector を右上に配置、見出し付き)
+            Issue #150: モバイル (sm 未満) では未ログイン時のログインボタンが
+            タイトルと被るため左上に逃がす。PC (sm 以上) は元レイアウト通り右上で
+            ThemeSelector の隣に並べる。ログイン済み時のアイコンは画面サイズに
+            関わらず右上 (ThemeSelector の左) に常駐させる。 */}
         <div className="relative text-center pt-3 sm:pt-6 px-4 shrink-0">
-          <div className="absolute top-2 right-4 sm:top-3">
+          {/* モバイル専用: 左上にログインボタン (PC では sm:hidden で非表示) */}
+          <div className="absolute top-2 left-4 sm:hidden">
+            <AuthControls slot="signInOnly" variant="home" />
+          </div>
+          {/* 右上エリア: PC 時は signInOnly も含む / モバイル時は signedInOnly のみ */}
+          <div className="absolute top-2 right-4 sm:top-3 flex items-center gap-2">
+            <span className="hidden sm:inline-flex">
+              <AuthControls slot="signInOnly" variant="home" />
+            </span>
+            <AuthControls slot="signedInOnly" variant="home" />
             <ThemeSelector />
           </div>
           <motion.h1

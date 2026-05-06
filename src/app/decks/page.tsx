@@ -13,6 +13,7 @@ import {
 import { DecksPage } from "@/components/decks/decks-page";
 import { AppBackground } from "@/components/layout/app-background";
 import { BgmProvider } from "@/components/audio/bgm-provider";
+import { AuthControls } from "@/components/auth/auth-controls";
 
 export const metadata = {
   title: "デッキ編成 | カード将棋",
@@ -46,6 +47,7 @@ export default async function DecksRoute() {
               カード将棋のデッキを作成・編集する
             </p>
           </div>
+          <AuthControls variant="indicator" />
         </div>
       </header>
 

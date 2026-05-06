@@ -12,17 +12,25 @@ import {
   deserializeCardState,
   type DeckSpec,
 } from "@/lib/shogi/cards/state";
-import { ensureDefaultUser } from "@/lib/auth/default-user";
+import { getCurrentAppUser } from "@/lib/auth/current-user";
+import { ensureInitialUserData } from "@/lib/auth/user-bootstrap";
 import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
 
 // card-shogi variant 用: ユーザーのデフォルトデッキから DeckSpec を取得
 async function loadDeckSpecForUser(userId: string): Promise<DeckSpec[]> {
-  const deck = await prisma.deck.findFirst({
+  let deck = await prisma.deck.findFirst({
     where: { userId, isDefault: true },
     include: { entries: true },
   });
   if (!deck) {
-    throw new Error(`No default deck found for user ${userId}. Run "npx prisma db seed".`);
+    await ensureInitialUserData(prisma, userId);
+    deck = await prisma.deck.findFirst({
+      where: { userId, isDefault: true },
+      include: { entries: true },
+    });
+  }
+  if (!deck) {
+    throw new Error(`No default deck found for user ${userId}.`);
   }
   // Issue #117 (#128): 以下 2 種を初期デッキから除外。除外しないと
   // (a) deprecated カード: 効果ロジックが消えており playCard で例外
@@ -50,7 +58,7 @@ export async function createGame(
   characterId: string,
   variantId: string = "standard"
 ): Promise<string> {
-  const user = await ensureDefaultUser();
+  const user = await getCurrentAppUser();
   const variant = getVariantById(variantId);
   const initialState = createInitialGameState(variant);
 
@@ -90,8 +98,9 @@ export async function createGame(
 
 // ゲームを取得
 export async function getGame(gameId: string) {
-  const game = await prisma.game.findUnique({
-    where: { id: gameId },
+  const user = await getCurrentAppUser();
+  const game = await prisma.game.findFirst({
+    where: { id: gameId, playerId: user.id },
     include: {
       moves: {
         orderBy: { moveNum: "asc" },
@@ -139,8 +148,17 @@ export async function saveMove(
   moveNum: number,
   comment?: string
 ): Promise<void> {
-  await prisma.$transaction([
-    prisma.gameMove.create({
+  const user = await getCurrentAppUser();
+  await prisma.$transaction(async (tx) => {
+    const game = await tx.game.findFirst({
+      where: { id: gameId, playerId: user.id },
+      select: { id: true },
+    });
+    if (!game) {
+      throw new Error("対局が見つかりません");
+    }
+
+    await tx.gameMove.create({
       data: {
         gameId,
         moveNum,
@@ -149,16 +167,16 @@ export async function saveMove(
         notation,
         comment,
       },
-    }),
-    prisma.game.update({
+    });
+    await tx.game.update({
       where: { id: gameId },
       data: {
         boardState: serializeGameState(newBoardState),
         status: newBoardState.status,
         winner: newBoardState.winner,
       },
-    }),
-  ]);
+    });
+  });
 
   revalidatePath(`/game/${gameId}`);
 }
@@ -180,13 +198,22 @@ export async function saveCardShogiMove(
   moveNum: number,
   comment?: string
 ): Promise<void> {
-  await prisma.$transaction([
+  const user = await getCurrentAppUser();
+  await prisma.$transaction(async (tx) => {
+    const game = await tx.game.findFirst({
+      where: { id: gameId, playerId: user.id },
+      select: { id: true },
+    });
+    if (!game) {
+      throw new Error("対局が見つかりません");
+    }
+
     // 防御: 新しい手と同 moveNum 以降の旧分岐 GameMove を先に削除。
     // 通常は 0 件で空振り。UNDO 後の再分岐保存時のみ実行コストあり (該当行のみ)。
-    prisma.gameMove.deleteMany({
+    await tx.gameMove.deleteMany({
       where: { gameId, moveNum: { gte: moveNum } },
-    }),
-    prisma.gameMove.create({
+    });
+    await tx.gameMove.create({
       data: {
         gameId,
         moveNum,
@@ -195,8 +222,8 @@ export async function saveCardShogiMove(
         notation,
         comment,
       },
-    }),
-    prisma.game.update({
+    });
+    await tx.game.update({
       where: { id: gameId },
       data: {
         boardState: serializeGameState(newBoardState),
@@ -204,8 +231,8 @@ export async function saveCardShogiMove(
         status: newBoardState.status,
         winner: newBoardState.winner,
       },
-    }),
-  ]);
+    });
+  });
 
   revalidatePath(`/game/${gameId}`);
 }
@@ -222,8 +249,9 @@ export async function persistCardShogiState(
   newBoardState: GameState,
   newCardState: CardGameState,
 ): Promise<void> {
-  await prisma.game.update({
-    where: { id: gameId },
+  const user = await getCurrentAppUser();
+  const result = await prisma.game.updateMany({
+    where: { id: gameId, playerId: user.id },
     data: {
       boardState: serializeGameState(newBoardState),
       cardState: serializeCardState(newCardState) as never,
@@ -231,6 +259,9 @@ export async function persistCardShogiState(
       winner: newBoardState.winner,
     },
   });
+  if (result.count === 0) {
+    throw new Error("対局が見つかりません");
+  }
   revalidatePath(`/game/${gameId}`);
 }
 
@@ -250,11 +281,20 @@ export async function undoCardShogiGameState(
   newCardState: CardGameState,
   newMoveCount: number,
 ): Promise<void> {
-  await prisma.$transaction([
-    prisma.gameMove.deleteMany({
+  const user = await getCurrentAppUser();
+  await prisma.$transaction(async (tx) => {
+    const game = await tx.game.findFirst({
+      where: { id: gameId, playerId: user.id },
+      select: { id: true },
+    });
+    if (!game) {
+      throw new Error("対局が見つかりません");
+    }
+
+    await tx.gameMove.deleteMany({
       where: { gameId, moveNum: { gt: newMoveCount } },
-    }),
-    prisma.game.update({
+    });
+    await tx.game.update({
       where: { id: gameId },
       data: {
         boardState: serializeGameState(newBoardState),
@@ -262,8 +302,8 @@ export async function undoCardShogiGameState(
         status: newBoardState.status,
         winner: newBoardState.winner,
       },
-    }),
-  ]);
+    });
+  });
 
   revalidatePath(`/game/${gameId}`);
   revalidatePath("/history");
@@ -275,10 +315,14 @@ export async function updateGameStatus(
   status: string,
   winner?: string
 ): Promise<void> {
-  await prisma.game.update({
-    where: { id: gameId },
+  const user = await getCurrentAppUser();
+  const result = await prisma.game.updateMany({
+    where: { id: gameId, playerId: user.id },
     data: { status, winner },
   });
+  if (result.count === 0) {
+    throw new Error("対局が見つかりません");
+  }
 
   revalidatePath(`/game/${gameId}`);
   revalidatePath("/history");
@@ -286,7 +330,7 @@ export async function updateGameStatus(
 
 // 対局履歴を取得
 export async function getGameHistory() {
-  const user = await ensureDefaultUser();
+  const user = await getCurrentAppUser();
 
   const games = await prisma.game.findMany({
     where: { playerId: user.id },

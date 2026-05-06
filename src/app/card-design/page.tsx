@@ -15,6 +15,7 @@ import {
 } from "@/components/card-back/style-options";
 import type { MockSize } from "@/components/card-back/sizes";
 import { AppBackground } from "@/components/layout/app-background";
+import { AuthControls } from "@/components/auth/auth-controls";
 import { cn } from "@/lib/utils";
 
 const NORMAL_SIZES: MockSize[] = ["sm", "md", "lg"];
@@ -111,9 +112,10 @@ export default function CardDesignPage() {
               カードデザイン
             </h1>
             <p className="text-xs sm:text-sm text-muted-foreground">
-              山札と相手手札の裏面スタイルを選びます。選択は端末に保存されます。
+              山札と相手手札の裏面スタイルを選びます。選択はユーザーごとに保存されます。
             </p>
           </div>
+          <AuthControls variant="indicator" />
         </div>
       </header>
 
@@ -164,7 +166,7 @@ export default function CardDesignPage() {
         </div>
 
         <p className="text-xs text-muted-foreground mt-6 text-center">
-          設定はこの端末のみに保存されます (ログイン同期は将来対応予定)。
+          設定はログインユーザーまたはゲストごとに保存されます。
         </p>
       </div>
     </main>

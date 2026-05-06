@@ -10,6 +10,8 @@ import Link from "next/link";
 import { ArrowLeft, Inbox } from "lucide-react";
 import { AppBackground } from "@/components/layout/app-background";
 import { BgmProvider } from "@/components/audio/bgm-provider";
+import { AuthControls } from "@/components/auth/auth-controls";
+import { formatHistoryDateTime } from "@/lib/date-format";
 
 export default async function HistoryPage() {
   const games = await getGameHistory();
@@ -26,6 +28,9 @@ export default async function HistoryPage() {
           </Button>
         </Link>
         <h1 className="text-2xl font-bold">対局履歴</h1>
+        <div className="ml-auto">
+          <AuthControls variant="indicator" />
+        </div>
       </div>
 
       {games.length === 0 ? (
@@ -55,13 +60,7 @@ export default async function HistoryPage() {
                         <div>
                           <p className="font-medium text-sm">{character.name}との対局</p>
                           <p className="text-xs text-muted-foreground">
-                            {new Date(game.createdAt).toLocaleDateString("ja-JP", {
-                              year: "numeric",
-                              month: "short",
-                              day: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
+                            {formatHistoryDateTime(game.createdAt)}
                           </p>
                         </div>
                       </div>

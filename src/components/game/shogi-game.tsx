@@ -15,6 +15,7 @@ import type { OverlayEvent } from "./board-overlay";
 import { CharacterPanel } from "@/components/character/character-panel";
 import { MobileDrawer } from "@/components/game/mobile-drawer";
 import { ThemeSelector } from "@/components/game/theme-selector";
+import { AuthControls } from "@/components/auth/auth-controls";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -185,6 +186,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
               <span className="text-xs text-muted-foreground">
                 {gameState.moveCount}手目
               </span>
+              <AuthControls variant="indicator" />
               <ThemeSelector />
             </div>
           </div>

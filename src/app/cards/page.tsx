@@ -4,6 +4,7 @@ import { CardCatalogGrid } from "@/components/cards/card-catalog-grid";
 import { ALL_CARD_DEFS } from "@/lib/shogi/cards/definitions";
 import { AppBackground } from "@/components/layout/app-background";
 import { BgmProvider } from "@/components/audio/bgm-provider";
+import { AuthControls } from "@/components/auth/auth-controls";
 
 export const metadata = {
   title: "カード一覧 | カード将棋",
@@ -34,6 +35,7 @@ export default function CardsPage() {
               カード将棋のマスターカタログ (BETA)
             </p>
           </div>
+          <AuthControls variant="indicator" />
         </div>
       </header>
 

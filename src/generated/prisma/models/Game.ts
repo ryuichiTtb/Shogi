@@ -529,10 +529,6 @@ export type GameUncheckedUpdateManyWithoutPlayerNestedInput = {
   deleteMany?: Prisma.GameScalarWhereInput | Prisma.GameScalarWhereInput[]
 }
 
-export type NullableStringFieldUpdateOperationsInput = {
-  set?: string | null
-}
-
 export type GameCreateNestedOneWithoutMovesInput = {
   create?: Prisma.XOR<Prisma.GameCreateWithoutMovesInput, Prisma.GameUncheckedCreateWithoutMovesInput>
   connectOrCreate?: Prisma.GameCreateOrConnectWithoutMovesInput

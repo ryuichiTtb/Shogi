@@ -10,7 +10,6 @@ import { useCardShogiGame } from "@/hooks/use-card-shogi-game";
 import { useSound } from "@/hooks/use-sound";
 import { useBgm } from "@/hooks/use-bgm";
 import { useCardBoardSize } from "@/hooks/use-card-board-size";
-import { getUndoScope } from "@/hooks/card-shogi/undo-policy";
 
 import { ShogiBoard, type ShogiBoardHandle } from "../shogi-board";
 import { CapturedPieces } from "../captured-pieces";
@@ -22,6 +21,7 @@ import { BoardOverlay, type OverlayEvent } from "../board-overlay";
 import { CharacterPanel } from "@/components/character/character-panel";
 import { MobileDrawer } from "../mobile-drawer";
 import { ThemeSelector } from "../theme-selector";
+import { AuthControls } from "@/components/auth/auth-controls";
 
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -290,6 +290,7 @@ export function CardShogiGame({
     promotionPendingMove,
     cardState,
     eventLog,
+    canUndo: hookCanUndo,
     selectSquare,
     selectHandPiece,
     confirmPromotion,
@@ -1087,18 +1088,19 @@ export function CardShogiGame({
   // Issue #82 (二手指し): 二手指し中は手札・ドローも無効化 (reducer 側でも弾くが UI でも明示)
   const handDisabled = !isPlayerTurn || !isGameActive || cardState.pendingCard !== null || isDrawAnimating || isPlayingCard || isCheckBreakAnimating || doubleMove !== null;
 
-  // 待った可否 (P28): 駒指し2手以上 / 自分の手番 / AI 思考中でない / pendingCard 無し /
-  // 過去2ターンにカード操作なし。
-  // Issue #82 (二手指し): 二手指し中は通常の「待った」を不可。
-  // スコープ判定は reducer の UNDO ケースと共通化 (undo-policy.ts)。
+  // 待った可否 (Issue #149: ヘルパ集約版):
+  // - reducer 内部条件 (moveHistory >= 2 / undoSnapshots >= 2 / pendingCard なし / doubleMove なし
+  //   / getUndoScope 非 null) はフックの `hookCanUndo` (= undo-policy.canUndoFromState) に集約。
+  // - UI 固有条件 (isPlayerTurn / isAiThinking) のみここで wrap する。
+  // 旧実装は reducer 内部条件を UI 側で再実装していたが、`undoSnapshots.length >= 2` チェックが
+  // 抜けており、待った 1 回直後にボタン活性のまま無反応 (reducer 側だけ no-op) になる問題が発生。
+  // ヘルパ集約により UI/reducer の判定ズレを構造的に防ぐ。
   const canUndo = useMemo(() => {
-    if (gameState.moveHistory.length < 2) return false;
+    if (!hookCanUndo) return false;
     if (!isPlayerTurn) return false;
     if (isAiThinking) return false;
-    if (cardState.pendingCard) return false;
-    if (doubleMove) return false;
-    return getUndoScope(eventLog) !== null;
-  }, [gameState.moveHistory.length, isPlayerTurn, isAiThinking, cardState.pendingCard, doubleMove, eventLog]);
+    return true;
+  }, [hookCanUndo, isPlayerTurn, isAiThinking]);
 
   // 歩戻し等のターゲット選択時にハイライトする盤面マス
   // (Issue #132): 以前は effectId 別に手書き判定 + 末尾で王手回避フィルタを掛けていたが、
@@ -1213,6 +1215,7 @@ export function CardShogiGame({
       </div>
       <div className="flex items-center gap-2">
         <span className="text-xs text-muted-foreground">{gameState.moveCount}手目</span>
+        <AuthControls variant="indicator" />
         <ThemeSelector />
       </div>
     </div>
@@ -1624,9 +1627,17 @@ export function CardShogiGame({
           </div>
         </div>
 
-        {/* Col 1: 自分カードエリア(縦並び、横幅一杯+中央揃え) */}
+        {/* Col 1: 自分カードエリア(縦並び、横幅一杯+中央揃え)
+            Issue #150: PC (xl 以上) では「相手エリア=右側」レイアウトのため、
+            ヘッダー右端ではなく「自分エリア先頭の ▲ 自分 ラベル」横に
+            ログインインジケータを配置する。
+            ラッパーに py-1 を持たせて、aside の overflow-hidden で
+            アバターの緑 ring が上下に見切れないよう余白を確保する。 */}
         <aside className="flex flex-col gap-2 border-r pr-2 min-h-0 overflow-hidden">
-          <Badge variant="default" className="self-center shrink-0">▲ 自分</Badge>
+          <div className="flex items-center justify-center gap-2 self-center shrink-0 py-1">
+            <AuthControls variant="indicator" />
+            <Badge variant="default">▲ 自分</Badge>
+          </div>
           <div className="shrink-0 w-full">{ownManaGauge}</div>
           <div className="flex gap-2 shrink-0 w-full">
             <div ref={ownDeckPileXlRef} className="flex-1 min-w-0">

@@ -1,8 +1,17 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, useCallback } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+  useSyncExternalStore,
+} from "react";
+import { saveThemePreference } from "@/app/actions/preferences";
+import type { ThemePreference } from "@/lib/user-preferences";
 
-type Theme = "light" | "dark" | "system";
+type Theme = ThemePreference;
 
 interface ThemeContextValue {
   theme: Theme;
@@ -25,40 +34,44 @@ function getSystemTheme(): "light" | "dark" {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>("system");
-  const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">("light");
+function subscribeSystemTheme(onChange: () => void) {
+  if (typeof window === "undefined") return () => {};
+  const mq = window.matchMedia("(prefers-color-scheme: dark)");
+  mq.addEventListener("change", onChange);
+  return () => mq.removeEventListener("change", onChange);
+}
 
-  const applyTheme = useCallback((t: Theme) => {
-    const resolved = t === "system" ? getSystemTheme() : t;
-    setResolvedTheme(resolved);
-    const root = document.documentElement;
-    root.classList.toggle("dark", resolved === "dark");
-  }, []);
+export function ThemeProvider({
+  children,
+  userId,
+  initialTheme,
+}: {
+  children: React.ReactNode;
+  userId: string;
+  initialTheme: Theme;
+}) {
+  const [theme, setThemeState] = useState<Theme>(initialTheme);
+  const storageKey = `shogi-theme:${userId}`;
+  const systemTheme = useSyncExternalStore<"light" | "dark">(
+    subscribeSystemTheme,
+    getSystemTheme,
+    () => "light",
+  );
+  const resolvedTheme: "light" | "dark" = theme === "system" ? systemTheme : theme;
 
   const setTheme = useCallback((t: Theme) => {
     setThemeState(t);
-    localStorage.setItem("shogi-theme", t);
-    applyTheme(t);
-  }, [applyTheme]);
+    localStorage.setItem(storageKey, t);
+    saveThemePreference(t).catch((error) => {
+      console.error("Failed to save theme preference", error);
+    });
+  }, [storageKey]);
 
-  // 初期化: localStorageから復元
+  // 初期化: DB の現在値を反映し、端末キャッシュは userId ごとに名前空間を分ける。
   useEffect(() => {
-    const stored = localStorage.getItem("shogi-theme") as Theme | null;
-    const initial = stored ?? "system";
-    setThemeState(initial);
-    applyTheme(initial);
-  }, [applyTheme]);
-
-  // システムテーマ変更の監視
-  useEffect(() => {
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const handler = () => {
-      if (theme === "system") applyTheme("system");
-    };
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, [theme, applyTheme]);
+    localStorage.setItem(storageKey, theme);
+    document.documentElement.classList.toggle("dark", resolvedTheme === "dark");
+  }, [resolvedTheme, storageKey, theme]);
 
   return (
     <ThemeContext value={{ theme, setTheme, resolvedTheme }}>
