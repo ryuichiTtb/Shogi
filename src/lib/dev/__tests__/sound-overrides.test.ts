@@ -3,9 +3,12 @@ import { describe, expect, it } from "vitest";
 import { SFX_FILES } from "@/lib/audio/manifest";
 import {
   isAllowedSoundPath,
+  parseBgmStored,
   parseStored,
   SFX_EVENT_KEYS,
+  BGM_EVENT_KEYS,
   type SfxEventKey,
+  type BgmEventKey,
 } from "../sound-overrides";
 
 // parseStored は localStorage 改ざんに対する第一線の防御。
@@ -13,7 +16,7 @@ import {
 // fetch → 404 → 静寂」となり、最悪 path traversal の足場にもなる。
 // このテストはそのバリデーションが機能していることを保証する。
 
-describe("sound-overrides parseStored", () => {
+describe("sound-overrides parseStored (SFX)", () => {
   it("returns empty for null", () => {
     expect(parseStored(null)).toEqual({});
   });
@@ -62,7 +65,7 @@ describe("sound-overrides parseStored", () => {
     expect(parseStored(input)).toEqual({});
   });
 
-  it("accepts all 12 keys with all valid paths", () => {
+  it("accepts all 18 keys with valid pool paths", () => {
     const allValid: Record<SfxEventKey, string> = {
       piece_move: "/sounds/jump.mp3",
       piece_jump: "/sounds/piece-move.mp3",
@@ -76,15 +79,55 @@ describe("sound-overrides parseStored", () => {
       card_play: "/sounds/check.mp3",
       mana_charge: "/sounds/piece-move.mp3",
       trap_trigger: "/sounds/piece-promote.mp3",
+      trap_set: "/sounds/check.mp3",
+      card_to_hand: "/sounds/piece-drop.mp3",
+      draw_card_open_common: "/sounds/piece-move.mp3",
+      draw_card_open_rare: "/sounds/jump.mp3",
+      draw_card_open_super_rare: "/sounds/piece-promote.mp3",
+      draw_card_open_epic: "/sounds/check.mp3",
     };
     expect(parseStored(JSON.stringify(allValid))).toEqual(allValid);
   });
 });
 
+describe("sound-overrides parseBgmStored", () => {
+  it("returns empty for null", () => {
+    expect(parseBgmStored(null)).toEqual({});
+  });
+
+  it("drops unknown bgm keys", () => {
+    const input = JSON.stringify({
+      bgm_home: "/sounds/check.mp3", // valid path、unknown sfx event ではないので OK
+      bogus_bgm: "/sounds/check.mp3",
+    });
+    expect(parseBgmStored(input)).toEqual({ bgm_home: "/sounds/check.mp3" });
+  });
+
+  it("drops paths not in pool", () => {
+    const input = JSON.stringify({
+      bgm_home: "/etc/passwd",
+      bgm_game: "/sounds/check.mp3",
+    });
+    expect(parseBgmStored(input)).toEqual({ bgm_game: "/sounds/check.mp3" });
+  });
+
+  it("accepts all 4 BGM keys", () => {
+    const allValid: Record<BgmEventKey, string> = {
+      bgm_home: "/sounds/check.mp3",
+      bgm_match_setup: "/sounds/jump.mp3",
+      bgm_game: "/sounds/game-start.mp3",
+      bgm_game_over: "/sounds/game-over.mp3",
+    };
+    expect(parseBgmStored(JSON.stringify(allValid))).toEqual(allValid);
+  });
+});
+
 describe("isAllowedSoundPath", () => {
-  it("accepts all paths defined in SFX_FILES", () => {
+  it("accepts all non-empty paths defined in SFX_FILES", () => {
     for (const key of SFX_EVENT_KEYS) {
-      expect(isAllowedSoundPath(SFX_FILES[key])).toBe(true);
+      const path = SFX_FILES[key];
+      if (!path) continue; // 空文字 (未割当) は skip
+      expect(isAllowedSoundPath(path)).toBe(true);
     }
   });
 
@@ -93,5 +136,22 @@ describe("isAllowedSoundPath", () => {
     expect(isAllowedSoundPath("/etc/passwd")).toBe(false);
     expect(isAllowedSoundPath("")).toBe(false);
     expect(isAllowedSoundPath("https://evil.com/x.mp3")).toBe(false);
+  });
+});
+
+describe("SFX_EVENT_KEYS / BGM_EVENT_KEYS integrity", () => {
+  it("has 18 SFX events", () => {
+    expect(SFX_EVENT_KEYS.length).toBe(18);
+  });
+
+  it("has 4 BGM events", () => {
+    expect(BGM_EVENT_KEYS.length).toBe(4);
+  });
+
+  it("SFX/BGM event sets are disjoint", () => {
+    const sfxSet = new Set<string>(SFX_EVENT_KEYS);
+    for (const k of BGM_EVENT_KEYS) {
+      expect(sfxSet.has(k)).toBe(false);
+    }
   });
 });

@@ -1,21 +1,22 @@
 // Issue #79: 音源調整ツール用の波形ピークデータをビルドタイムに事前計算する。
 //
-// AUDIO_MANIFEST.sfxUrls の各 mp3 を Node 上で audio-decode → channelData[0]
-// を WAVEFORM_BIN_COUNT 個のビンに分割し、各ビンの max(abs(sample)) を取得 →
-// 全体最大値で正規化 → 固定精度で TS ファイルに書き出し。
+// public/sounds/**/*.mp3 を glob scan して Node 上で audio-decode →
+// channelData[0] を WAVEFORM_BIN_COUNT 個のビンに分割し、各ビンの
+// max(abs(sample)) を取得 → 全体最大値で正規化 → 固定精度で TS ファイル
+// に書き出し。出力は src/lib/dev/waveform-peaks-data.ts (committed)。
 //
-// 出力ファイル src/lib/dev/waveform-peaks-data.ts は committed されている
-// (dev mode で script 未実行でも import できるように)。
+// 入力ソースを manifest 非依存 (glob scan) にしているため、
+// この peaks-data.ts 自身が SOUND_POOL の source of truth となる
+// (manifest.ts は Object.keys(WAVEFORM_PEAKS) を SOUND_POOL として import)。
 //
 // Deterministic 出力なので input mp3 が変わらない限り git diff は出ない。
 
-import { readFile, writeFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import decode from "audio-decode";
 
-import { AUDIO_MANIFEST } from "../src/lib/audio/manifest";
 import {
   WAVEFORM_BIN_COUNT,
   WAVEFORM_FLOAT_PRECISION,
@@ -24,7 +25,26 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..");
 const PUBLIC_DIR = path.join(REPO_ROOT, "public");
+const SOUNDS_DIR = path.join(PUBLIC_DIR, "sounds");
 const OUTPUT_PATH = path.join(REPO_ROOT, "src/lib/dev/waveform-peaks-data.ts");
+
+// public/sounds/**/*.mp3 を再帰スキャンして URL (例: "/sounds/check.mp3") の配列を返す。
+// 出力順は深さ優先 + ファイル名ソートで deterministic。
+async function scanSoundUrls(dir: string, baseUrl: string): Promise<string[]> {
+  const entries = await readdir(dir, { withFileTypes: true });
+  const sorted = entries.slice().sort((a, b) => a.name.localeCompare(b.name));
+  const urls: string[] = [];
+  for (const entry of sorted) {
+    const fullPath = path.join(dir, entry.name);
+    const url = `${baseUrl}/${entry.name}`;
+    if (entry.isDirectory()) {
+      urls.push(...(await scanSoundUrls(fullPath, url)));
+    } else if (entry.isFile() && entry.name.endsWith(".mp3")) {
+      urls.push(url);
+    }
+  }
+  return urls;
+}
 
 interface PeaksAndDuration {
   peaks: number[];
@@ -99,7 +119,7 @@ ${durationLines}
 }
 
 async function main(): Promise<void> {
-  const urls = AUDIO_MANIFEST.sfxUrls;
+  const urls = await scanSoundUrls(SOUNDS_DIR, "/sounds");
   const results = await Promise.all(
     urls.map(async (url) => ({ url, data: await processFile(url) })),
   );

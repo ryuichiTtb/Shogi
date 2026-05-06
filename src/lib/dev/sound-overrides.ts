@@ -1,16 +1,23 @@
-// Issue #79: 音源調整ツール (/dev/sound-tuner) で「どの SFX イベントにどの mp3
-// を割り当てるか」を localStorage に保存する小さなストア。flight-params.ts と
-// 同じ構造 (useSyncExternalStore + storage event 購読) を踏襲。
+// Issue #79: 音源調整ツール (/dev/sound-tuner) で「どの SFX/BGM イベントに
+// どの mp3 を割り当てるか」を localStorage に保存する小さなストア。
+// flight-params.ts と同じ構造 (useSyncExternalStore + storage event 購読) を踏襲。
 //
-// オーバーライドが保存されると、useSound 経由で本番ゲーム (/play /classic) の
-// SFX 再生にも即時反映される (同タブ内は listeners 通知、別タブは storage event)。
+// SFX オーバーライドは PR 1 (#79-tuner-page) で実装、PR 2 (#79-tuner-wiring) で
+// useSound と統合される予定。本 PR 1.7 時点では SFX_EVENT_KEYS の event 体系を
+// 拡張 (12 → 18) しつつ、新たに BGM 用の override 系 API も追加する。
+// BGM オーバーライドは use-bgm.ts が即座に反映する。
+//
 // localStorage に値が無い一般ユーザーには影響なし (manifest.ts の既定値で動作)。
 
 import { useSyncExternalStore } from "react";
 
-import { AUDIO_MANIFEST, SFX_FILES } from "@/lib/audio/manifest";
+import { AUDIO_MANIFEST, BGM_FILES, SFX_FILES } from "@/lib/audio/manifest";
 
-// SFX_FILES のキー (12 種)。順序は UI 一覧の表示順を兼ねる。
+// =====================
+// SFX (効果音)
+// =====================
+
+// SFX_FILES のキー (18 種)。順序は UI 一覧の表示順を兼ねる。
 export type SfxEventKey =
   | "piece_move"
   | "piece_jump"
@@ -23,20 +30,36 @@ export type SfxEventKey =
   | "card_draw"
   | "card_play"
   | "mana_charge"
-  | "trap_trigger";
+  | "trap_trigger"
+  // ★ Issue #79 PR 1.7 で追加
+  | "trap_set"
+  | "card_to_hand"
+  | "draw_card_open_common"
+  | "draw_card_open_rare"
+  | "draw_card_open_super_rare"
+  | "draw_card_open_epic";
 
 export const SFX_EVENT_KEYS: readonly SfxEventKey[] = [
+  // 駒系
   "piece_move",
   "piece_jump",
   "piece_capture",
   "piece_promote",
   "piece_drop",
+  // 対局系
   "check",
-  "game_over",
   "game_start",
+  "game_over",
+  // カード系
   "card_draw",
+  "draw_card_open_common",
+  "draw_card_open_rare",
+  "draw_card_open_super_rare",
+  "draw_card_open_epic",
+  "card_to_hand",
   "card_play",
   "mana_charge",
+  "trap_set",
   "trap_trigger",
 ];
 
@@ -50,30 +73,67 @@ export const SFX_EVENT_LABELS: Record<SfxEventKey, string> = {
   check: "王手",
   game_over: "対局終了",
   game_start: "対局開始",
-  card_draw: "カードドロー",
+  card_draw: "カードドロー (山札)",
   card_play: "カードプレイ",
   mana_charge: "マナチャージ",
   trap_trigger: "トラップ発動",
+  trap_set: "トラップセット",
+  card_to_hand: "手札 IN",
+  draw_card_open_common: "ドローカードオープン (Common)",
+  draw_card_open_rare: "ドローカードオープン (Rare)",
+  draw_card_open_super_rare: "ドローカードオープン (Super Rare)",
+  draw_card_open_epic: "ドローカードオープン (Epic)",
 };
 
-// ホワイトリスト: AUDIO_MANIFEST.sfxUrls (manifest.ts の SFX_URLS) を再利用し
-// 二重管理を避ける。manifest に新ファイルが追加されたら自動的にこちらも追従。
+// =====================
+// BGM
+// =====================
+
+// BGM event 4 種 (画面/状態別)。
+export type BgmEventKey =
+  | "bgm_home"
+  | "bgm_match_setup"
+  | "bgm_game"
+  | "bgm_game_over";
+
+export const BGM_EVENT_KEYS: readonly BgmEventKey[] = [
+  "bgm_home",
+  "bgm_match_setup",
+  "bgm_game",
+  "bgm_game_over",
+];
+
+export const BGM_EVENT_LABELS: Record<BgmEventKey, string> = {
+  bgm_home: "ホーム / ロビー",
+  bgm_match_setup: "対局相手選択",
+  bgm_game: "対局中",
+  bgm_game_over: "対局終了",
+};
+
+// =====================
+// 共通: ホワイトリスト
+// =====================
+
+// dev tool で割り当て可能な全音源 (74 ファイル)。manifest.poolUrls = SOUND_POOL を参照。
 // localStorage 改ざん防御の要なので validation で必ず通す。
 export function isAllowedSoundPath(p: string): boolean {
-  return (AUDIO_MANIFEST.sfxUrls as readonly string[]).includes(p);
+  return (AUDIO_MANIFEST.poolUrls as readonly string[]).includes(p);
 }
 
-// SfxEventKey の集合判定 (parseStored で利用)。
-const EVENT_KEY_SET: ReadonlySet<string> = new Set(SFX_EVENT_KEYS);
+const SFX_KEY_SET: ReadonlySet<string> = new Set(SFX_EVENT_KEYS);
+const BGM_KEY_SET: ReadonlySet<string> = new Set(BGM_EVENT_KEYS);
+
+// =====================
+// SFX オーバーライド (localStorage)
+// =====================
 
 export type SoundOverrides = Partial<Record<SfxEventKey, string>>;
 
 export const DEFAULT_SOUND_OVERRIDES: SoundOverrides = {};
 
-const STORAGE_KEY = "dev:sound-overrides:v1";
+const SFX_STORAGE_KEY = "dev:sound-overrides:v1";
 
-// JSON パース + バリデーション。未知の event key・未知の path は drop する。
-// 完全に invalid な JSON はデフォルト (= 空オブジェクト) を返す。
+// JSON パース + バリデーション (SFX 用)。未知 key/path は drop。
 export function parseStored(raw: string | null): SoundOverrides {
   if (!raw) return DEFAULT_SOUND_OVERRIDES;
   try {
@@ -83,7 +143,7 @@ export function parseStored(raw: string | null): SoundOverrides {
     }
     const result: SoundOverrides = {};
     for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
-      if (!EVENT_KEY_SET.has(k)) continue;
+      if (!SFX_KEY_SET.has(k)) continue;
       if (typeof v !== "string" || !isAllowedSoundPath(v)) continue;
       result[k as SfxEventKey] = v;
     }
@@ -93,96 +153,200 @@ export function parseStored(raw: string | null): SoundOverrides {
   }
 }
 
-let cached: SoundOverrides | null = null;
-const listeners = new Set<() => void>();
+let cachedSfx: SoundOverrides | null = null;
+const sfxListeners = new Set<() => void>();
 
-function readStorage(): SoundOverrides {
+function readSfxStorage(): SoundOverrides {
   if (typeof window === "undefined") return DEFAULT_SOUND_OVERRIDES;
   try {
-    return parseStored(localStorage.getItem(STORAGE_KEY));
+    return parseStored(localStorage.getItem(SFX_STORAGE_KEY));
   } catch {
     return DEFAULT_SOUND_OVERRIDES;
   }
 }
 
-function getSnapshot(): SoundOverrides {
-  if (cached === null) cached = readStorage();
-  return cached;
+function getSfxSnapshot(): SoundOverrides {
+  if (cachedSfx === null) cachedSfx = readSfxStorage();
+  return cachedSfx;
 }
 
-function getServerSnapshot(): SoundOverrides {
+function getSfxServerSnapshot(): SoundOverrides {
   return DEFAULT_SOUND_OVERRIDES;
 }
 
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
+function subscribeSfx(listener: () => void): () => void {
+  sfxListeners.add(listener);
   return () => {
-    listeners.delete(listener);
+    sfxListeners.delete(listener);
   };
 }
 
-// 別タブから保存/削除された場合に追従するため storage イベントを購読する。
-// モジュール初回 import 時に 1 回だけ登録する。
-if (typeof window !== "undefined") {
-  window.addEventListener("storage", (e) => {
-    if (e.key === STORAGE_KEY || e.key === null) {
-      cached = readStorage();
-      listeners.forEach((l) => l());
-    }
-  });
-}
-
-function persistAndNotify(next: SoundOverrides): void {
-  cached = next;
+function persistSfxAndNotify(next: SoundOverrides): void {
+  cachedSfx = next;
   if (typeof window !== "undefined") {
     try {
-      // 空オブジェクトなら remove、それ以外は set
       if (Object.keys(next).length === 0) {
-        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(SFX_STORAGE_KEY);
       } else {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+        localStorage.setItem(SFX_STORAGE_KEY, JSON.stringify(next));
       }
     } catch {
-      // quota 等のエラーは握り潰す (cached は更新済なので画面には反映される)
+      // quota 等は無視
     }
   }
-  listeners.forEach((l) => l());
+  sfxListeners.forEach((l) => l());
 }
 
-// useSyncExternalStore で localStorage の値に追従。
-// SSR では DEFAULT (空) を返し、クライアント mount 後に保存値があれば差し替える。
 export function useSoundOverrides(): SoundOverrides {
-  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  return useSyncExternalStore(subscribeSfx, getSfxSnapshot, getSfxServerSnapshot);
 }
 
-// 1 イベントの割り当てを保存。filePath は isAllowedSoundPath を通過したものに限る。
 export function saveSoundOverride(key: SfxEventKey, filePath: string): void {
   if (!isAllowedSoundPath(filePath)) return;
-  const current = getSnapshot();
-  persistAndNotify({ ...current, [key]: filePath });
+  const current = getSfxSnapshot();
+  persistSfxAndNotify({ ...current, [key]: filePath });
 }
 
-// 1 イベントの割り当てをクリア (デフォルト = manifest の値に戻る)。
 export function resetSoundOverride(key: SfxEventKey): void {
-  const current = getSnapshot();
+  const current = getSfxSnapshot();
   if (!(key in current)) return;
   const next: SoundOverrides = { ...current };
   delete next[key];
-  persistAndNotify(next);
+  persistSfxAndNotify(next);
 }
 
-// 全オーバーライドを削除。
 export function resetAllSoundOverrides(): void {
-  if (Object.keys(getSnapshot()).length === 0) return;
-  persistAndNotify(DEFAULT_SOUND_OVERRIDES);
+  if (Object.keys(getSfxSnapshot()).length === 0) return;
+  persistSfxAndNotify(DEFAULT_SOUND_OVERRIDES);
 }
 
-// useSound などフック外から同期的に「現在有効な SFX URL」を引くためのヘルパ。
-// オーバーライドが無効値 (削除済 path 等) なら manifest 既定値にフォールバック。
-// 戻り値は string を保証 (SFX_FILES に必ず key が存在する前提)。
+// useSound などフック外から同期的に「現在有効な SFX URL」を引くヘルパ。
+// 値が空文字 `""` (未割当) の場合もそのまま返す。
+// 呼出側 (playSfx) で `if (!src) return;` ガードする前提。
 export function getEffectiveSfxPath(key: SfxEventKey): string {
-  const overrides = getSnapshot();
+  const overrides = getSfxSnapshot();
   const overridden = overrides[key];
   if (overridden && isAllowedSoundPath(overridden)) return overridden;
-  return SFX_FILES[key];
+  return SFX_FILES[key] ?? "";
+}
+
+// =====================
+// BGM オーバーライド (localStorage)
+// =====================
+
+export type BgmOverrides = Partial<Record<BgmEventKey, string>>;
+export const DEFAULT_BGM_OVERRIDES: BgmOverrides = {};
+
+const BGM_STORAGE_KEY = "dev:bgm-overrides:v1";
+
+export function parseBgmStored(raw: string | null): BgmOverrides {
+  if (!raw) return DEFAULT_BGM_OVERRIDES;
+  try {
+    const obj = JSON.parse(raw) as unknown;
+    if (typeof obj !== "object" || obj === null || Array.isArray(obj)) {
+      return DEFAULT_BGM_OVERRIDES;
+    }
+    const result: BgmOverrides = {};
+    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+      if (!BGM_KEY_SET.has(k)) continue;
+      if (typeof v !== "string" || !isAllowedSoundPath(v)) continue;
+      result[k as BgmEventKey] = v;
+    }
+    return result;
+  } catch {
+    return DEFAULT_BGM_OVERRIDES;
+  }
+}
+
+let cachedBgm: BgmOverrides | null = null;
+const bgmListeners = new Set<() => void>();
+
+function readBgmStorage(): BgmOverrides {
+  if (typeof window === "undefined") return DEFAULT_BGM_OVERRIDES;
+  try {
+    return parseBgmStored(localStorage.getItem(BGM_STORAGE_KEY));
+  } catch {
+    return DEFAULT_BGM_OVERRIDES;
+  }
+}
+
+function getBgmSnapshot(): BgmOverrides {
+  if (cachedBgm === null) cachedBgm = readBgmStorage();
+  return cachedBgm;
+}
+
+function getBgmServerSnapshot(): BgmOverrides {
+  return DEFAULT_BGM_OVERRIDES;
+}
+
+function subscribeBgm(listener: () => void): () => void {
+  bgmListeners.add(listener);
+  return () => {
+    bgmListeners.delete(listener);
+  };
+}
+
+function persistBgmAndNotify(next: BgmOverrides): void {
+  cachedBgm = next;
+  if (typeof window !== "undefined") {
+    try {
+      if (Object.keys(next).length === 0) {
+        localStorage.removeItem(BGM_STORAGE_KEY);
+      } else {
+        localStorage.setItem(BGM_STORAGE_KEY, JSON.stringify(next));
+      }
+    } catch {
+      // quota 等は無視
+    }
+  }
+  bgmListeners.forEach((l) => l());
+}
+
+export function useBgmOverrides(): BgmOverrides {
+  return useSyncExternalStore(subscribeBgm, getBgmSnapshot, getBgmServerSnapshot);
+}
+
+export function saveBgmOverride(key: BgmEventKey, filePath: string): void {
+  if (!isAllowedSoundPath(filePath)) return;
+  const current = getBgmSnapshot();
+  persistBgmAndNotify({ ...current, [key]: filePath });
+}
+
+export function resetBgmOverride(key: BgmEventKey): void {
+  const current = getBgmSnapshot();
+  if (!(key in current)) return;
+  const next: BgmOverrides = { ...current };
+  delete next[key];
+  persistBgmAndNotify(next);
+}
+
+export function resetAllBgmOverrides(): void {
+  if (Object.keys(getBgmSnapshot()).length === 0) return;
+  persistBgmAndNotify(DEFAULT_BGM_OVERRIDES);
+}
+
+// useBgm hook が同期的に「現在有効な BGM URL」を引くヘルパ。
+// 未割当 (空文字) の場合もそのまま返す。呼出側でガード。
+export function getEffectiveBgmPath(key: BgmEventKey): string {
+  const overrides = getBgmSnapshot();
+  const overridden = overrides[key];
+  if (overridden && isAllowedSoundPath(overridden)) return overridden;
+  return BGM_FILES[key] ?? "";
+}
+
+// =====================
+// 別タブからの storage event 購読 (SFX / BGM 共通)
+// =====================
+
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (e) => {
+    if (e.key === SFX_STORAGE_KEY || e.key === null) {
+      cachedSfx = readSfxStorage();
+      sfxListeners.forEach((l) => l());
+    }
+    if (e.key === BGM_STORAGE_KEY || e.key === null) {
+      cachedBgm = readBgmStorage();
+      bgmListeners.forEach((l) => l());
+    }
+  });
 }
