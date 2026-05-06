@@ -22,7 +22,8 @@ import { cn } from "@/lib/utils";
 
 // 表面に出す駒のプール。プロモート駒・成り駒は除外し、初心者にも一目で
 // 分かる主要 8 駒に絞る (Issue #155 のユーザー指定)。
-const LOADING_FACE_PIECE_TYPES = [
+// プレビューページ (/dev/loading-preview) からも参照するため export している。
+export const LOADING_FACE_PIECE_TYPES = [
   "pawn",
   "lance",
   "knight",
@@ -33,11 +34,11 @@ const LOADING_FACE_PIECE_TYPES = [
   "king",
 ] as const;
 
-type LoadingFacePieceType = (typeof LOADING_FACE_PIECE_TYPES)[number];
+export type LoadingFacePieceType = (typeof LOADING_FACE_PIECE_TYPES)[number];
 
 // 駒の正式名称 (ローディング表面で表示する文字)。盤上 1 文字表記とは別に、
 // 「歩・香車・桂馬・銀将・金将・飛車・角行・王将」の縦書き表示にする。
-const LOADING_FACE_PIECE_LABEL: Record<LoadingFacePieceType, string> = {
+export const LOADING_FACE_PIECE_LABEL: Record<LoadingFacePieceType, string> = {
   pawn: "歩",
   lance: "香車",
   knight: "桂馬",
@@ -60,6 +61,12 @@ const SIZE_STYLE = {
 
 interface LoadingCardFaceProps {
   pieceType: LoadingFacePieceType;
+}
+
+interface LoadingCardVisualProps {
+  // 駒種を強制指定する (主に /dev/loading-preview の確認用途)。
+  // 未指定時はマウント時にランダム選択 (本番動作)。
+  forcePieceType?: LoadingFacePieceType;
 }
 
 // 檜 (ひのき) の心材を意識した硬い質感。border は引き締まった こげ茶、
@@ -119,10 +126,14 @@ function LoadingCardFace({ pieceType }: LoadingCardFaceProps) {
   );
 }
 
-export const LoadingCardVisual = memo(function LoadingCardVisual() {
+export const LoadingCardVisual = memo(function LoadingCardVisual({
+  forcePieceType,
+}: LoadingCardVisualProps = {}) {
   const reduce = useReducedMotion() ?? false;
   // 表示中の駒種をマウント時に 1 度だけランダム決定 (memo で再レンダー抑止)。
-  const [pieceType] = useState(pickRandomPieceType);
+  // forcePieceType 指定時はそれを優先 (preview 用)。
+  const [randomPieceType] = useState(pickRandomPieceType);
+  const pieceType = forcePieceType ?? randomPieceType;
 
   // reduce 時は静止 (CardBack のみ)。preserve-3d 不要。
   if (reduce) {
