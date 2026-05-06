@@ -48,20 +48,38 @@ interface LoadingCardFaceProps {
   pieceType: PieceType;
 }
 
-// 表面: カード枠 (rounded-md + amber 系の縁) の中に駒シルエットを描画。
-// ShogiPiece が SVG で五角形枠と漢字を描くため、フォントは対局時と同じ
-// (font-yuji-boku) になる。
+// 表面: 裏面 (CardBackMinimal) と意図的に同じ枠デザインを採用し、回転して
+// 表に出てきたときに違和感がないよう揃える。
+//   - 外枠: amber-400/70 の border-2
+//   - 内枠: 内側 3px 位置に amber-300/35 の細枠
+//   - 四隅: amber-300/70 の菱形 (45° 回転した小正方形)
+//   - 背景: card-back-mock-minimal-bg (黒ベース + 中央寄り白ハイライトの
+//     ラジアルグラデ。globals.css 側で定義済み)。意図的に裏面と CSS class を
+//     共有し、外観の一体感を保つ。
+//   - 中央: ランダム駒シルエット (ShogiPiece = 五角形 SVG 枠 + yuji-boku 漢字)。
 function LoadingCardFace({ pieceType }: LoadingCardFaceProps) {
   return (
     <div
       className={cn(
-        "w-full h-full rounded-md border-2 shadow-sm",
-        "border-amber-700/50 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-950/30",
-        "flex items-center justify-center p-2",
+        "relative w-full h-full overflow-hidden rounded-md border-2",
+        "border-amber-400/70 card-back-mock-minimal-bg",
       )}
     >
-      <div className="h-[88%] aspect-[5/6] flex items-center justify-center">
-        <ShogiPiece piece={{ type: pieceType, owner: "sente" }} isLarge />
+      {/* 内側の細枠 (ゴールド) */}
+      <div
+        className="absolute inset-[3px] rounded-sm border border-amber-300/35 pointer-events-none"
+        aria-hidden
+      />
+      {/* 四隅の菱形 */}
+      <span className="absolute top-1 left-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
+      <span className="absolute top-1 right-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
+      <span className="absolute bottom-1 left-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
+      <span className="absolute bottom-1 right-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
+      {/* 中央: ランダム駒シルエット */}
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div className="h-[78%] aspect-[5/6]">
+          <ShogiPiece piece={{ type: pieceType, owner: "sente" }} isLarge />
+        </div>
       </div>
     </div>
   );
