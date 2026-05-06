@@ -2,6 +2,11 @@
 // 新スタイル追加時はここに 1 行足し、CardBack ラッパーから自動的に使えるようになる。
 import type { ComponentType } from "react";
 
+import {
+  DEFAULT_CARD_BACK_STYLE,
+  isValidCardBackStyle,
+  type CardBackStyle,
+} from "@/lib/user-preferences";
 import { CardBackEmblem } from "./back-emblem";
 import { CardBackSeigaiha } from "./back-seigaiha";
 import { CardBackMinimal } from "./back-minimal";
@@ -9,15 +14,8 @@ import { CardBackKoke } from "./back-koke";
 import { CardBackKurenai } from "./back-kurenai";
 import type { MockSize } from "./sizes";
 
-export type CardBackStyle =
-  | "seigaiha"
-  | "koke"
-  | "emblem"
-  | "minimal"
-  | "kurenai";
-
-// デフォルト = 青海波 (Issue #110 で採用)
-export const DEFAULT_CARD_BACK_STYLE: CardBackStyle = "seigaiha";
+export { DEFAULT_CARD_BACK_STYLE, isValidCardBackStyle };
+export type { CardBackStyle };
 
 export interface CardBackComponentProps {
   size?: MockSize;
@@ -67,15 +65,3 @@ export const CARD_BACK_STYLE_LIST: CardBackStyle[] = [
   "minimal",
   "kurenai",
 ];
-
-const VALID_STYLES: ReadonlySet<string> = new Set<CardBackStyle>([
-  "seigaiha",
-  "koke",
-  "emblem",
-  "minimal",
-  "kurenai",
-]);
-
-export function isValidCardBackStyle(value: unknown): value is CardBackStyle {
-  return typeof value === "string" && VALID_STYLES.has(value);
-}
