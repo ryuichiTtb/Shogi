@@ -988,4 +988,56 @@
   .animate-hero-card-float {
     animation: none;
   }
+
+  /* Issue #155: ローディングマスクのリッチ化。
+   * モバイル端末の発熱・バッテリー消耗を抑えるため、reduced-motion 環境では
+   * 連続再生される回転・上下揺れ・走査バー・ステージ文言フェードをすべて停止し、
+   * 静止表示にフォールバックする。LoadingCardVisual 側でも reduceMotion フラグに
+   * よる JS 経路で「静止カード+spinner」を出すため、ここでは念のための保険。 */
+  .animate-loading-card-flip,
+  .animate-loading-card-bob,
+  .animate-loading-progress-indeterminate,
+  .animate-loading-stage-fade {
+    animation: none;
+  }
+}
+
+/* Issue #155: ローディングマスク用の連続アニメ。
+ * いずれも CSS-only で実装し、JS イベントループ・framer-motion ランタイムに
+ * 依存させない (モバイル GPU で軽量に動かすため)。
+ * 各 class は will-change: transform / opacity を立て、合成レイヤーで GPU 処理
+ * させることでメインスレッドを占有しない。 */
+@keyframes loading-card-flip {
+  0%   { transform: rotateY(0deg); }
+  100% { transform: rotateY(360deg); }
+}
+@keyframes loading-card-bob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(6px); }
+}
+@keyframes loading-progress-indeterminate {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+@keyframes loading-stage-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.animate-loading-card-flip {
+  animation: loading-card-flip 4s linear infinite;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+.animate-loading-card-bob {
+  animation: loading-card-bob 3.2s ease-in-out infinite;
+  will-change: transform;
+}
+.animate-loading-progress-indeterminate {
+  animation: loading-progress-indeterminate 1.4s linear infinite;
+  will-change: transform;
+}
+.animate-loading-stage-fade {
+  animation: loading-stage-fade 0.2s ease-out forwards;
+  will-change: opacity;
 }
