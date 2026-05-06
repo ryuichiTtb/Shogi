@@ -1,8 +1,9 @@
-// 案 E-2: 苔 (Koke) variant B - 松葉菱 (kamon-style)
-//   - 深緑グラデベースに金の松葉を菱形に組んだ家紋風の意匠。
-//     4 つの V 字ペアが中央に向かい合い、中央に小さな円。
-//     幾何学的・端整な佇まいで「家紋」のような凛とした印象。
-//   - sheen は 5s で左→右 — 3 つの koke variant で共有。
+// 案 E: 松 (Matsu) - 五葉松房 + 金 sheen
+//   - 深緑グラデ (emerald-950 → green-950 → stone-950) ベース
+//   - 32×32 SVG タイルに 5 本針葉の房を 2 箇所、向きを反転して配置
+//     (左上=上向き / 右下=下向き)。本物の松葉のひと房に近い意匠。
+//   - 装飾(枠): 内側ゴールド細枠 + 四隅菱形 (既存案と統一感)
+//   - アニメ: 5s で左→右の薄ゴールド sheen (波と同テンポ)
 import { cn } from "@/lib/utils";
 import { KomaShape } from "./koma-shape";
 import {
@@ -18,7 +19,7 @@ interface Props {
   className?: string;
 }
 
-export function CardBackKokeB({ size = "md", fullWidth = false, className }: Props) {
+export function CardBackMatsu({ size = "md", fullWidth = false, className }: Props) {
   const sizeCls = fullWidth
     ? cn("w-full", MOCK_FULLWIDTH_HEIGHT[size])
     : MOCK_SIZE_CLASS[size];
@@ -32,9 +33,9 @@ export function CardBackKokeB({ size = "md", fullWidth = false, className }: Pro
       )}
       aria-label="伏せられたカード"
     >
-      {/* 松葉菱パターン (SVG タイル repeat) */}
-      <div className="absolute inset-0 card-back-mock-koke-b-pattern" aria-hidden />
-      {/* 内側の二重枠 */}
+      {/* 五葉松パターン (SVG タイル repeat) */}
+      <div className="absolute inset-0 card-back-mock-matsu-pattern" aria-hidden />
+      {/* 内側の二重枠 (内側 1px 細枠) */}
       <div className="absolute inset-[3px] rounded-sm border border-amber-300/40 pointer-events-none" aria-hidden />
       {/* 四隅の菱形 */}
       <span className="absolute top-1 left-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
@@ -48,8 +49,8 @@ export function CardBackKokeB({ size = "md", fullWidth = false, className }: Pro
           strokeWidth={3}
         />
       </div>
-      {/* sheen */}
-      <div className="absolute inset-0 card-back-mock-koke-sheen pointer-events-none" aria-hidden />
+      {/* sheen (左→右の金色光沢) */}
+      <div className="absolute inset-0 card-back-mock-matsu-sheen pointer-events-none" aria-hidden />
     </div>
   );
 }

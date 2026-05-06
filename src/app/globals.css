@@ -903,39 +903,15 @@
   100% { background-position: -10% 0; }
 }
 
-/* 案 E: 苔 (Koke) - 3 variant の松葉系パターン
- *   - 共通: 深緑グラデ (back-koke-*.tsx 側で指定) + ゴールド sheen (5s 左→右、波と同テンポ)
- *   - パターンのみ 3 通り (A: 細密散らし / B: 松葉菱家紋 / C: 五葉松房)
- *     採用 1 案決定後、未採用 2 案 + その pattern class は削除。
- */
-
-/* 案 E-A: 細密散らし
- *   - 32×32 タイルに 7 ペアの V 字松葉を位置・角度を揺らして配置。
- *   - 現行 matsuba (28×28・2 ペア) より密度を高めつつストロークを 0.55 に細く、
- *     角度を僅かに揺らして手仕事風の粒立ちを出す。 */
-.card-back-mock-koke-a-pattern {
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' width='32' height='32'><g fill='none' stroke='%23fcd34d' stroke-opacity='0.42' stroke-width='0.55' stroke-linecap='round'><path d='M6 4 L3 9'/><path d='M6 4 L9 8'/><path d='M18 5 L15 11'/><path d='M18 5 L21 10'/><path d='M28 3 L24 8'/><path d='M28 3 L30 9'/><path d='M11 14 L8 19'/><path d='M11 14 L13 20'/><path d='M23 16 L20 22'/><path d='M23 16 L26 21'/><path d='M5 24 L2 30'/><path d='M5 24 L8 30'/><path d='M19 25 L16 31'/><path d='M19 25 L22 30'/></g></svg>");
-  background-size: 32px 32px;
-}
-
-/* 案 E-B: 松葉菱 家紋
- *   - 32×32 タイル中央に、4 つの V 字ペアが菱形に向き合った家紋風意匠。
- *   - 中央に小さな円ドットを置いて視線を集める。家紋らしい端整・均整の美。 */
-.card-back-mock-koke-b-pattern {
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' width='32' height='32'><g fill='none' stroke='%23fcd34d' stroke-opacity='0.45' stroke-width='0.65' stroke-linecap='round'><path d='M16 5 L13 11'/><path d='M16 5 L19 11'/><path d='M27 16 L21 13'/><path d='M27 16 L21 19'/><path d='M16 27 L13 21'/><path d='M16 27 L19 21'/><path d='M5 16 L11 13'/><path d='M5 16 L11 19'/></g><circle cx='16' cy='16' r='0.9' fill='%23fcd34d' fill-opacity='0.55'/></svg>");
-  background-size: 32px 32px;
-}
-
-/* 案 E-C: 五葉松 房
- *   - 32×32 タイルに 5 本針葉の房を 2 箇所、向きを反転して配置 (左上=上向き / 右下=下向き)。
- *   - 単純な V 字 (2 本) より房感が強く、本物の松葉のひと房に近い意匠。 */
-.card-back-mock-koke-c-pattern {
+/* 案 E: 松 (Matsu) - 五葉松房 + 金 sheen
+ *   - 32×32 タイルに 5 本針葉の房を 2 箇所、向きを反転して配置
+ *     (左上=上向き / 右下=下向き)。本物の松葉のひと房に近い意匠。
+ *   - 深緑グラデの上にゴールド線でリピート、5s sheen は左→右 (波と同テンポ)。 */
+.card-back-mock-matsu-pattern {
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' width='32' height='32'><g fill='none' stroke='%23fcd34d' stroke-opacity='0.42' stroke-width='0.55' stroke-linecap='round'><path d='M8 14 L8 6'/><path d='M8 14 L11 7'/><path d='M8 14 L5 7'/><path d='M8 14 L14 9'/><path d='M8 14 L2 9'/><path d='M24 18 L24 26'/><path d='M24 18 L27 25'/><path d='M24 18 L21 25'/><path d='M24 18 L30 23'/><path d='M24 18 L18 23'/></g></svg>");
   background-size: 32px 32px;
 }
-
-/* 案 E 共通 sheen (3 variant が共有) — 5s で左→右に薄ゴールド光沢 */
-.card-back-mock-koke-sheen {
+.card-back-mock-matsu-sheen {
   background: linear-gradient(
     100deg,
     transparent 0%, transparent 40%,
@@ -944,9 +920,9 @@
   );
   background-size: 220% 100%;
   background-position: 110% 0;
-  animation: card-back-mock-koke-sheen-anim 5s ease-in-out infinite;
+  animation: card-back-mock-matsu-sheen-anim 5s ease-in-out infinite;
 }
-@keyframes card-back-mock-koke-sheen-anim {
+@keyframes card-back-mock-matsu-sheen-anim {
   0%   { background-position: 110% 0; }
   60%  { background-position: -10% 0; }
   100% { background-position: -10% 0; }
