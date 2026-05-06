@@ -12,6 +12,7 @@ import {
 } from "@/app/actions/deck";
 import { DecksPage } from "@/components/decks/decks-page";
 import { AppBackground } from "@/components/layout/app-background";
+import { BgmProvider } from "@/components/audio/bgm-provider";
 
 export const metadata = {
   title: "デッキ編成 | カード将棋",
@@ -25,6 +26,7 @@ export default async function DecksRoute() {
 
   return (
     <main className="h-dvh flex flex-col">
+      <BgmProvider eventKey="bgm_home" />
       <AppBackground variant="page" />
       {/* ヘッダ帯 (card-design と同じ視覚パターン): 半透明 + backdrop-blur で
           スクロール時に下のリストが透けないようにし、border-b で領域を分離。 */}

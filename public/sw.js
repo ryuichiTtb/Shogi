@@ -6,6 +6,9 @@
 // (旧モードタブ式 "/" の HTML) をオフライン時に拾わないようにする。
 // Issue #79: BGM 機能を削除したため v4 へバンプ。旧 shogi-v3 にキャッシュされた
 // .wav BGM (約 2.2MB × 3 ファイル) を自動削除する。
+// Issue #79 (PR 1.7): 音源プール拡張 + BGM 再導入で v5 へバンプ。
+// 新音源 (public/sounds/音源/ 配下 73 ファイル) と新 BGM mp3 は既存 /sounds/*
+// cache-first パターンで自動キャッシュされる。
 // PRECACHE_ASSETS の SE リストは src/lib/audio/manifest.ts SFX_FILES と
 // 同じ実体ファイルを指す (現状は重複管理。将来的には manifest 経由で同期する)。
 //
@@ -14,7 +17,7 @@
 // エラーで navigation 全体が Chrome NETERR になる、(b) navigation で 5xx 応答も
 // キャッシュ汚染する、(c) fallback で undefined を返しうる ──の 3 点で起動失敗
 // を引き起こしていた。3 点まとめて修正。
-const CACHE_NAME = "shogi-v4";
+const CACHE_NAME = "shogi-v5";
 
 // プリキャッシュする静的アセット
 const PRECACHE_ASSETS = [

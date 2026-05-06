@@ -9,12 +9,14 @@ import { getCharacterById } from "@/data/characters";
 import Link from "next/link";
 import { ArrowLeft, Inbox } from "lucide-react";
 import { AppBackground } from "@/components/layout/app-background";
+import { BgmProvider } from "@/components/audio/bgm-provider";
 
 export default async function HistoryPage() {
   const games = await getGameHistory();
 
   return (
     <main className="min-h-[100dvh] min-h-screen py-8 px-4 max-w-2xl mx-auto safe-area-inset">
+      <BgmProvider eventKey="bgm_home" />
       <AppBackground variant="page" />
       <div className="flex items-center gap-3 mb-6">
         <Link href="/">

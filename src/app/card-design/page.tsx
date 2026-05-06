@@ -7,6 +7,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
 import { useCardBackStyle } from "@/components/card-back/card-back-provider";
+import { useBgm } from "@/hooks/use-bgm";
 import {
   CARD_BACK_STYLES,
   CARD_BACK_STYLE_LIST,
@@ -86,6 +87,8 @@ function SizeLabeled({
 
 export default function CardDesignPage() {
   const { style: currentStyle, setStyle } = useCardBackStyle();
+  // Issue #79 (PR 1.7): ロビー扱い
+  useBgm("bgm_home");
 
   return (
     <main className="min-h-dvh pb-16">

@@ -8,6 +8,7 @@ import { ChevronUp, ChevronDown, Volume2, VolumeX } from "lucide-react";
 
 import { useCardShogiGame } from "@/hooks/use-card-shogi-game";
 import { useSound } from "@/hooks/use-sound";
+import { useBgm } from "@/hooks/use-bgm";
 import { useCardBoardSize } from "@/hooks/use-card-board-size";
 import { getUndoScope } from "@/hooks/card-shogi/undo-policy";
 
@@ -78,6 +79,9 @@ interface CardShogiGameProps {
     endCardMinimized?: boolean;
   };
   debugDisableServerEffects?: boolean;
+  // Issue #79 (PR 1.7): dev page 等で BGM を抑止したい時に false。
+  // default true: 通常対局画面では gameState.status から bgm_game / bgm_game_over を再生
+  enableBgm?: boolean;
 }
 
 function shouldPlayJumpSfx(move: Move): boolean {
@@ -105,6 +109,7 @@ export function CardShogiGame({
   gameConfig: serializableConfig,
   debugInitialUi,
   debugDisableServerEffects = false,
+  enableBgm = true,
 }: CardShogiGameProps) {
   const [commentEvent, setCommentEvent] = useState<CommentaryEvent | null>(null);
   const [overlayEvent, setOverlayEvent] = useState<{ event: OverlayEvent; key: number; trapName?: string } | null>(null);
@@ -317,6 +322,16 @@ export function CardShogiGame({
   const playerColor = gameConfig.playerColor;
   const aiColor: Player = playerColor === "sente" ? "gote" : "sente";
   const isPlayerTurn = gameState.currentPlayer === playerColor;
+
+  // Issue #79 (PR 1.7): 対局画面 BGM。dev page は enableBgm=false で抑止。
+  // gameState.status: "active" → bgm_game / それ以外 (resign/checkmate 等) → bgm_game_over
+  useBgm(
+    !enableBgm
+      ? null
+      : gameState.status === "active"
+        ? "bgm_game"
+        : "bgm_game_over",
+  );
   const isGameActive = gameState.status === "active";
   const inCheck =
     (isGameActive || gameState.status === "checkmate") &&

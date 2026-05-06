@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { useShogiGame } from "@/hooks/use-shogi-game";
 import { useSound } from "@/hooks/use-sound";
+import { useBgm } from "@/hooks/use-bgm";
 import { useBoardSize } from "@/hooks/use-board-size";
 import { ShogiBoard } from "./shogi-board";
 import { CapturedPieces } from "./captured-pieces";
@@ -107,6 +108,9 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
 
   const playerColor = gameConfig.playerColor;
   const aiColor = playerColor === "sente" ? "gote" : "sente";
+
+  // Issue #79 (PR 1.7): 通常将棋画面の BGM。"active" → bgm_game / 終了 → bgm_game_over。
+  useBgm(gameState.status === "active" ? "bgm_game" : "bgm_game_over");
   const isPlayerTurn = gameState.currentPlayer === playerColor;
   const isGameActive = gameState.status === "active";
   const inCheck = (isGameActive || gameState.status === "checkmate") && isInCheck(gameState, gameState.currentPlayer, STANDARD_VARIANT);

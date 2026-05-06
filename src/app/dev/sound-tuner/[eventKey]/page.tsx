@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { AUDIO_MANIFEST, SFX_FILES } from "@/lib/audio/manifest";
 import { prepareAudio } from "@/hooks/use-sound";
+import { useBgm } from "@/hooks/use-bgm";
 import {
   resetSoundOverride,
   saveSoundOverride,
@@ -183,6 +184,8 @@ function usePreviewPlayer() {
 }
 
 export default function SoundTunerDetailPage() {
+  // Issue #79 (PR 1.7): dev page では BGM 停止
+  useBgm(null);
   const params = useParams<{ eventKey: string }>();
   const eventKey = params?.eventKey ?? "";
   if (!isSfxEventKey(eventKey)) {

@@ -16,6 +16,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { SFX_FILES } from "@/lib/audio/manifest";
+import { useBgm } from "@/hooks/use-bgm";
 import {
   resetAllSoundOverrides,
   SFX_EVENT_KEYS,
@@ -31,6 +32,8 @@ function basename(path: string): string {
 }
 
 export default function SoundTunerPage() {
+  // Issue #79 (PR 1.7): dev page では BGM 停止
+  useBgm(null);
   const overrides = useSoundOverrides();
   const overrideCount = Object.keys(overrides).length;
 

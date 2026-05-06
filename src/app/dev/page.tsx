@@ -8,6 +8,7 @@ import Link from "next/link";
 import { ArrowLeft, ChevronRight, Music, Plane, LayoutGrid } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
+import { useBgm } from "@/hooks/use-bgm";
 
 interface DevTool {
   href: string;
@@ -41,6 +42,8 @@ const DEV_TOOLS: readonly DevTool[] = [
 ];
 
 export default function DevIndexPage() {
+  // Issue #79 (PR 1.7): dev pages では BGM を停止
+  useBgm(null);
   return (
     <main className="min-h-dvh bg-background p-4 sm:p-6">
       <div className="max-w-3xl mx-auto flex flex-col gap-4">

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 
 import { SFX_FILES } from "@/lib/audio/manifest";
+import { setBgmMuted } from "@/hooks/use-bgm";
 
 // Howler.jsのSSR対応（サーバーサイドでは何もしない）
 type HowlInstance = {
@@ -55,7 +56,9 @@ export function useSound() {
       HowlRef.current = HowlCtor;
 
       // 全SFXを事前生成してキャッシュ（初回再生時のロード遅延をなくす）
+      // 空文字 src (未割当 event) は preload skip して 404 を防ぐ。
       Object.entries(SFX_FILES).forEach(([key, src]) => {
+        if (!src) return;
         sfxCacheRef.current.set(key, new HowlCtor({ src: [src], volume: 0.7 }));
       });
 
@@ -82,7 +85,12 @@ export function useSound() {
   );
 
   const toggleMute = useCallback(() => {
-    setIsMuted((prev) => !prev);
+    setIsMuted((prev) => {
+      const next = !prev;
+      // Issue #79: BGM も連動 mute (use-bgm の module-level singleton に伝播)
+      setBgmMuted(next);
+      return next;
+    });
   }, []);
 
   return { playSfx, toggleMute, isMuted, isReady };

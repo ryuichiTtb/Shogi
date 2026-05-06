@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { ThemeSelector } from "@/components/game/theme-selector";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import { useAssetPreloader } from "@/hooks/use-asset-preloader";
+import { useBgm } from "@/hooks/use-bgm";
 import { AppBackground } from "@/components/layout/app-background";
 import { PageMotion } from "@/components/layout/page-motion";
 import { CardShogiTiles } from "@/components/home/card-shogi-tiles";
@@ -24,6 +25,8 @@ export default function Home() {
 
   // ロビー段階で SFX を先読み。
   useAssetPreloader();
+  // Issue #79 (PR 1.7): ロビー BGM
+  useBgm("bgm_home");
 
   const [pendingLabel, setPendingLabel] = useState<string | null>(null);
   const isPending = pendingLabel !== null;
