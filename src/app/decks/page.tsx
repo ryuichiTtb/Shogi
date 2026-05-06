@@ -4,20 +4,22 @@
 // ビルド時 DB 状態への依存と pre-render キャッシュの汚染リスクを排除する。
 export const dynamic = "force-dynamic";
 
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 import {
   listDecksForCurrentUser,
   listOwnedCardsForCurrentUser,
 } from "@/app/actions/deck";
 import { DecksPage } from "@/components/decks/decks-page";
 import { AppBackground } from "@/components/layout/app-background";
-import { AuthControls } from "@/components/auth/auth-controls";
 
 export const metadata = {
   title: "デッキ編成 | カード将棋",
 };
 
+// Issue #155: ヘッダ (「ホームへ戻る」リンク + AuthControls) と wrapper の
+// レイアウトは DecksPage 側に内包させ、editor 保存中に Client 側で「ホームへ
+// 戻る」を disabled にできるようにした。Server Component はデータ取得と
+// レイアウト枠 (main + AppBackground) のみを責務とする。
+// origin/main 由来の AuthControls は DecksPageHeader 内で表示する。
 export default async function DecksRoute() {
   const [decks, owned] = await Promise.all([
     listDecksForCurrentUser(),
@@ -27,33 +29,7 @@ export default async function DecksRoute() {
   return (
     <main className="h-dvh flex flex-col">
       <AppBackground variant="page" />
-      {/* ヘッダ帯 (card-design と同じ視覚パターン): 半透明 + backdrop-blur で
-          スクロール時に下のリストが透けないようにし、border-b で領域を分離。 */}
-      <header className="shrink-0 bg-background/90 backdrop-blur-sm border-b border-border/50">
-        <div className="max-w-6xl lg:max-w-[1440px] mx-auto px-4 py-3 sm:py-4 w-full flex items-center gap-3">
-          <Link
-            href="/"
-            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-            aria-label="ホームへ戻る"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            ホーム
-          </Link>
-          <div className="flex-1">
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight">デッキ編成</h1>
-            <p className="text-xs sm:text-sm text-muted-foreground">
-              カード将棋のデッキを作成・編集する
-            </p>
-          </div>
-          <AuthControls variant="indicator" />
-        </div>
-      </header>
-
-      {/* lg+ は左カラムを 560px に広げた分、全体幅も拡大して右カラム
-          (編集エリア) のサイズを維持する。 */}
-      <div className="max-w-6xl lg:max-w-[1440px] mx-auto px-4 pt-3 sm:pt-4 pb-2 w-full flex flex-col flex-1 min-h-0">
-        <DecksPage initialDecks={decks} ownedCards={owned} />
-      </div>
+      <DecksPage initialDecks={decks} ownedCards={owned} />
     </main>
   );
 }

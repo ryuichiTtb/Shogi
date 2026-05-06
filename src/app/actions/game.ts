@@ -313,6 +313,12 @@ export async function undoCardShogiGameState(
 }
 
 // ゲーム状態を更新（投了など）
+//
+// Issue #155: 本関数は Game.status のみ更新し boardState は触らないため、
+// 投了など「復元時に終局画面で開かれてほしい」終局種別では本関数ではなく
+// saveResign / saveCardShogiResign を使う必要がある (boardState の status も
+// 同時更新する責務を持たせる)。本関数は従来通り「status のみ更新」のシナリオ
+// (復元時に boardState 側に既に書かれている場合等) で使用する。
 export async function updateGameStatus(
   gameId: string,
   status: string,
@@ -327,6 +333,56 @@ export async function updateGameStatus(
     throw new Error("対局が見つかりません");
   }
 
+  revalidatePath(`/game/${gameId}`);
+  revalidatePath("/history");
+}
+
+// Issue #155: 投了時に Game.boardState (JSON) も "resign" 状態で保存する
+// 専用 Server Action (standard variant 用)。
+//
+// updateGameStatus との違い: Game.status だけでなく boardState の中身も同時更新
+// する。これにより履歴復元時の `deserializeGameState(boardState)` が
+// status: "resign" を返し、対局画面が「終局済」として正しく開く。
+//
+// 旧フローは updateGameStatus を fire-and-forget で呼ぶ + boardState を更新
+// しない実装で、(a) 復元時に「途中対局」として開く (b) ナビゲーション直後の
+// race で履歴一覧の status が古いまま見える、という二重の問題を抱えていた。
+// 本関数は呼び元で必ず await し、両方を解決する。
+export async function saveResign(
+  gameId: string,
+  newBoardState: GameState,
+  winner: string,
+): Promise<void> {
+  await prisma.game.update({
+    where: { id: gameId },
+    data: {
+      boardState: serializeGameState(newBoardState),
+      status: "resign",
+      winner,
+    },
+  });
+  revalidatePath(`/game/${gameId}`);
+  revalidatePath("/history");
+}
+
+// Issue #155: card-shogi variant 用の投了保存。
+// boardState に加え cardState も終局時点で保存することで、復元時に手札・マナ・
+// トラップ状況も終局時点の状態で開ける。
+export async function saveCardShogiResign(
+  gameId: string,
+  newBoardState: GameState,
+  newCardState: CardGameState,
+  winner: string,
+): Promise<void> {
+  await prisma.game.update({
+    where: { id: gameId },
+    data: {
+      boardState: serializeGameState(newBoardState),
+      cardState: serializeCardState(newCardState) as never,
+      status: "resign",
+      winner,
+    },
+  });
   revalidatePath(`/game/${gameId}`);
   revalidatePath("/history");
 }

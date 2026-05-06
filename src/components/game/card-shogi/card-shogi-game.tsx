@@ -338,7 +338,16 @@ export function CardShogiGame({
   const displayInCheck = inCheck && !isDoubleMoveSelfCheckTransient;
 
   // ----- サウンド -----
+  // Issue #155: 履歴復元時の演出再発火を抑止する。
+  // shogi-game.tsx と同じ「前回値追跡」パターン (StrictMode 二重 effect でも
+  // 安全)。詳細は shogi-game.tsx のコメント参照。
+  const lastMoveCountRef = useRef(gameState.moveCount);
+  const lastStatusRef = useRef(gameState.status);
+  const gameStartFiredRef = useRef(false);
+
   useEffect(() => {
+    if (lastMoveCountRef.current === gameState.moveCount) return;
+    lastMoveCountRef.current = gameState.moveCount;
     const lastMove = gameState.moveHistory[gameState.moveHistory.length - 1];
     if (!lastMove) return;
     if (lastMove.type === "drop") {
@@ -365,6 +374,8 @@ export function CardShogiGame({
   }, [gameState.moveCount]);
 
   useEffect(() => {
+    if (lastStatusRef.current === gameState.status) return;
+    lastStatusRef.current = gameState.status;
     if (gameState.status === "resign") {
       playSfx("game_over");
       setOverlayEvent({ event: "resign", key: Date.now() });
@@ -372,8 +383,13 @@ export function CardShogiGame({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState.status]);
 
+  // ゲーム開始演出。新規対局 (status: "active" + moveCount === 0) のときに
+  // 1 度だけ実演出を出す。履歴復元時はフラグを立てずに完全スキップ。
   useEffect(() => {
     if (!isReady) return;
+    if (gameStartFiredRef.current) return;
+    if (gameState.status !== "active" || gameState.moveCount !== 0) return;
+    gameStartFiredRef.current = true;
     playSfx("game_start");
     setOverlayEvent({ event: "game_start", key: Date.now() });
     setTimeout(() => handleComment("game_start"), 500);

@@ -12,12 +12,26 @@ import { Button } from "@/components/ui/button";
 import { ThemeSelector } from "@/components/game/theme-selector";
 import { AuthControls } from "@/components/auth/auth-controls";
 import { LoadingOverlay } from "@/components/loading-overlay";
+import { LOADING_STAGES } from "@/lib/loading-stages";
 import { useAssetPreloader } from "@/hooks/use-asset-preloader";
 import { AppBackground } from "@/components/layout/app-background";
 import { PageMotion } from "@/components/layout/page-motion";
 import { CardShogiTiles } from "@/components/home/card-shogi-tiles";
 import { HeroCardStack } from "@/components/home/hero-card-stack";
 import { cn } from "@/lib/utils";
+
+// Issue #155: ホームから各画面への遷移は href ごとに固有の stages を出す。
+// CardShogiTiles 等 onNavigate(href) で label を渡さない呼び出しでも、
+// 遷移先に応じた文言が出るよう一元化する。
+function resolveStages(href: string): readonly string[] {
+  if (href === "/play") return LOADING_STAGES.matchNavigate;
+  if (href === "/classic") return LOADING_STAGES.classicNavigate;
+  if (href === "/history") return LOADING_STAGES.historyNavigate;
+  if (href === "/decks") return LOADING_STAGES.decksNavigate;
+  if (href === "/cards") return LOADING_STAGES.cardsNavigate;
+  if (href === "/card-design") return LOADING_STAGES.cardDesignNavigate;
+  return LOADING_STAGES.defaultNavigate;
+}
 
 export default function Home() {
   const router = useRouter();
@@ -26,12 +40,12 @@ export default function Home() {
   // ロビー段階で SFX のみ先読み (BGM はキャラ確定後の /play・/classic で行う)。
   useAssetPreloader();
 
-  const [pendingLabel, setPendingLabel] = useState<string | null>(null);
-  const isPending = pendingLabel !== null;
+  const [pendingStages, setPendingStages] = useState<readonly string[] | null>(null);
+  const isPending = pendingStages !== null;
 
-  function navigateTo(href: string, label = "読み込み中...") {
+  function navigateTo(href: string, customStages?: readonly string[]) {
     if (isPending) return;
-    setPendingLabel(label);
+    setPendingStages(customStages ?? resolveStages(href));
     router.push(href);
   }
 
@@ -99,7 +113,7 @@ export default function Home() {
           >
             <Button
               size="lg"
-              onClick={() => navigateTo("/play", "対局画面を開いています...")}
+              onClick={() => navigateTo("/play")}
               disabled={isPending}
               className={cn(
                 "w-full text-base py-5 sm:py-6 font-bold",
@@ -121,7 +135,7 @@ export default function Home() {
             <Button
               variant="outline"
               size="lg"
-              onClick={() => navigateTo("/classic", "通常将棋を開いています...")}
+              onClick={() => navigateTo("/classic")}
               disabled={isPending}
               className="w-full text-sm sm:text-base py-3 sm:py-4 bg-card/60 backdrop-blur-sm"
               aria-label="通常将棋で遊ぶ"
@@ -140,7 +154,7 @@ export default function Home() {
           >
             <button
               type="button"
-              onClick={() => navigateTo("/history", "履歴を読み込んでいます...")}
+              onClick={() => navigateTo("/history")}
               disabled={isPending}
               className={cn(
                 "inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors",
@@ -153,7 +167,13 @@ export default function Home() {
           </motion.div>
         </div>
 
-        <LoadingOverlay show={isPending} fullScreen message={pendingLabel ?? "読み込み中..."} />
+        <LoadingOverlay
+          show={isPending}
+          fullScreen
+          card
+          stages={pendingStages ?? undefined}
+          progress
+        />
       </main>
     </PageMotion>
   );
