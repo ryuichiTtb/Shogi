@@ -2,29 +2,28 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createGuestSessionToken } from "@/lib/auth/guest-session";
 
-// prisma を vi.mock で差し替える。各シナリオで $transaction の中で使われるメソッドを
-// 必要なものだけ stub する。完全な inMemory 実装ではないため、主要な早期 return 系の
-// 振る舞いのみをここで担保する (フル DB 統合は別 Issue #154 でフォローアップ)。
+// prisma を vi.mock で差し替える。Issue #150 で merge.ts は transaction 撤去済みのため、
+// prisma 直下のメソッドを直接 stub する。完全な inMemory 実装ではないため、主要な
+// 早期 return 系の振る舞いをここで担保する (フル DB 統合は別 Issue #154)。
 // vi.mock factory は import より前に hoist されるため、共有 mock は vi.hoisted で先に作る。
-const txMocks = vi.hoisted(() => {
+const dbMocks = vi.hoisted(() => {
   const guestSession = {
     findUnique: vi.fn(),
-    delete: vi.fn(),
     deleteMany: vi.fn(),
   };
   const user = {
     findUnique: vi.fn(),
-    delete: vi.fn(),
+    deleteMany: vi.fn(),
   };
   const userPreference = {
     findUnique: vi.fn(),
     upsert: vi.fn(),
-    delete: vi.fn(),
+    deleteMany: vi.fn(),
   };
   const playerStats = {
     findUnique: vi.fn(),
     upsert: vi.fn(),
-    delete: vi.fn(),
+    deleteMany: vi.fn(),
   };
   const playerCardCollection = {
     findMany: vi.fn(),
@@ -50,18 +49,16 @@ const txMocks = vi.hoisted(() => {
   };
 });
 
-const guestSessionMock = txMocks.guestSession;
-const userMock = txMocks.user;
-const userPreferenceMock = txMocks.userPreference;
-const playerStatsMock = txMocks.playerStats;
-const playerCardCollectionMock = txMocks.playerCardCollection;
-const deckMock = txMocks.deck;
-const gameMock = txMocks.game;
+const guestSessionMock = dbMocks.guestSession;
+const userMock = dbMocks.user;
+const userPreferenceMock = dbMocks.userPreference;
+const playerStatsMock = dbMocks.playerStats;
+const playerCardCollectionMock = dbMocks.playerCardCollection;
+const deckMock = dbMocks.deck;
+const gameMock = dbMocks.game;
 
 vi.mock("@/lib/prisma", () => ({
-  prisma: {
-    $transaction: vi.fn(async (cb: (tx: typeof txMocks) => unknown) => cb(txMocks)),
-  },
+  prisma: dbMocks,
 }));
 
 import { mergeGuestSessionIntoAccount } from "@/lib/auth/merge";
@@ -71,16 +68,15 @@ const accountUserId = "account-user-id";
 function resetMocks() {
   for (const fn of [
     guestSessionMock.findUnique,
-    guestSessionMock.delete,
     guestSessionMock.deleteMany,
     userMock.findUnique,
-    userMock.delete,
+    userMock.deleteMany,
     userPreferenceMock.findUnique,
     userPreferenceMock.upsert,
-    userPreferenceMock.delete,
+    userPreferenceMock.deleteMany,
     playerStatsMock.findUnique,
     playerStatsMock.upsert,
-    playerStatsMock.delete,
+    playerStatsMock.deleteMany,
     playerCardCollectionMock.findMany,
     playerCardCollectionMock.upsert,
     playerCardCollectionMock.deleteMany,
@@ -111,7 +107,7 @@ describe("mergeGuestSessionIntoAccount (early-return behaviors)", () => {
     const result = await mergeGuestSessionIntoAccount(token, accountUserId);
 
     expect(result).toEqual({ merged: false, reason: "missing-session" });
-    expect(userMock.delete).not.toHaveBeenCalled();
+    expect(userMock.deleteMany).not.toHaveBeenCalled();
   });
 
   it("deletes the session and returns same-user when the guest already maps to the account", async () => {
@@ -121,13 +117,13 @@ describe("mergeGuestSessionIntoAccount (early-return behaviors)", () => {
       userId: accountUserId,
       user: { kind: "account" },
     });
-    guestSessionMock.delete.mockResolvedValue({});
+    guestSessionMock.deleteMany.mockResolvedValue({ count: 1 });
 
     const result = await mergeGuestSessionIntoAccount(token, accountUserId);
 
     expect(result).toEqual({ merged: false, reason: "same-user" });
-    expect(guestSessionMock.delete).toHaveBeenCalledWith({ where: { id: "session-1" } });
-    expect(userMock.delete).not.toHaveBeenCalled();
+    expect(guestSessionMock.deleteMany).toHaveBeenCalledWith({ where: { id: "session-1" } });
+    expect(userMock.deleteMany).not.toHaveBeenCalled();
   });
 
   it("refuses to merge if the session points to a non-guest user (defense against tampering)", async () => {
@@ -137,12 +133,12 @@ describe("mergeGuestSessionIntoAccount (early-return behaviors)", () => {
       userId: "another-account",
       user: { kind: "account" },
     });
-    guestSessionMock.delete.mockResolvedValue({});
+    guestSessionMock.deleteMany.mockResolvedValue({ count: 1 });
 
     const result = await mergeGuestSessionIntoAccount(token, accountUserId);
 
     expect(result).toEqual({ merged: false, reason: "not-guest" });
-    expect(guestSessionMock.delete).toHaveBeenCalledWith({ where: { id: "session-2" } });
+    expect(guestSessionMock.deleteMany).toHaveBeenCalledWith({ where: { id: "session-2" } });
     // データ移管系は一切走らないこと
     expect(deckMock.updateMany).not.toHaveBeenCalled();
     expect(gameMock.updateMany).not.toHaveBeenCalled();
@@ -166,7 +162,7 @@ describe("mergeGuestSessionIntoAccount (early-return behaviors)", () => {
     deckMock.updateMany.mockResolvedValue({ count: 0 });
     gameMock.updateMany.mockResolvedValue({ count: 0 });
     guestSessionMock.deleteMany.mockResolvedValue({ count: 1 });
-    userMock.delete.mockResolvedValue({});
+    userMock.deleteMany.mockResolvedValue({ count: 1 });
 
     const result = await mergeGuestSessionIntoAccount(token, accountUserId);
 
@@ -182,7 +178,7 @@ describe("mergeGuestSessionIntoAccount (early-return behaviors)", () => {
     expect(guestSessionMock.deleteMany).toHaveBeenCalledWith({
       where: { userId: guestUserId },
     });
-    expect(userMock.delete).toHaveBeenCalledWith({ where: { id: guestUserId } });
+    expect(userMock.deleteMany).toHaveBeenCalledWith({ where: { id: guestUserId } });
   });
 
   it("preserves the guest deck's isDefault when the new account has no deck yet (Issue #150 P1)", async () => {
@@ -205,7 +201,7 @@ describe("mergeGuestSessionIntoAccount (early-return behaviors)", () => {
     deckMock.updateMany.mockResolvedValue({ count: 1 });
     gameMock.updateMany.mockResolvedValue({ count: 0 });
     guestSessionMock.deleteMany.mockResolvedValue({ count: 1 });
-    userMock.delete.mockResolvedValue({});
+    userMock.deleteMany.mockResolvedValue({ count: 1 });
 
     await mergeGuestSessionIntoAccount(token, accountUserId);
 
@@ -218,5 +214,32 @@ describe("mergeGuestSessionIntoAccount (early-return behaviors)", () => {
       data: { userId: string; isDefault?: boolean };
     };
     expect(updateCallArg.data).not.toHaveProperty("isDefault");
+  });
+
+  it("does not wrap data movement in a transaction (Issue #150 Vercel/Neon timeout fix)", async () => {
+    // transaction を使うと Vercel + Neon HTTP の interactive transaction (5s) に
+    // 引っかかるため、Issue #150 で外した。再導入しないことを担保する regression test。
+    const token = createGuestSessionToken();
+    const guestUserId = "guest-user-3";
+
+    guestSessionMock.findUnique.mockResolvedValue({
+      id: "session-5",
+      userId: guestUserId,
+      user: { kind: "guest" },
+    });
+    userMock.findUnique.mockResolvedValue({ id: accountUserId, kind: "account" });
+    playerStatsMock.findUnique.mockResolvedValue(null);
+    userPreferenceMock.findUnique.mockResolvedValue(null);
+    playerCardCollectionMock.findMany.mockResolvedValue([]);
+    deckMock.findFirst.mockResolvedValue(null);
+    deckMock.updateMany.mockResolvedValue({ count: 0 });
+    gameMock.updateMany.mockResolvedValue({ count: 0 });
+    guestSessionMock.deleteMany.mockResolvedValue({ count: 1 });
+    userMock.deleteMany.mockResolvedValue({ count: 1 });
+
+    // prisma stub に $transaction を一切定義していない (= 呼ぶと undefined エラー)。
+    // この状態で merge が成功すれば、transaction 経由ではなく直接呼び出しで動いている証。
+    const result = await mergeGuestSessionIntoAccount(token, accountUserId);
+    expect(result).toEqual({ merged: true, reason: "merged" });
   });
 });
