@@ -9,6 +9,7 @@ import { getCharacterById } from "@/data/characters";
 import Link from "next/link";
 import { ArrowLeft, Inbox } from "lucide-react";
 import { AppBackground } from "@/components/layout/app-background";
+import { HistoryItemLink } from "@/components/history/history-item-link";
 
 export default async function HistoryPage() {
   const games = await getGameHistory();
@@ -44,7 +45,7 @@ export default async function HistoryPage() {
             const resultText = gameResultText(game.status, game.winner ?? undefined);
 
             return (
-              <Link key={game.id} href={`/game/${game.id}`}>
+              <HistoryItemLink key={game.id} href={`/game/${game.id}`}>
                 <Card className="card-hover-lift hover:shadow-md transition-shadow cursor-pointer bg-card/85 backdrop-blur-sm">
                   <CardContent className="py-3 px-4">
                     <div className="flex items-center justify-between">
@@ -83,7 +84,7 @@ export default async function HistoryPage() {
                     </div>
                   </CardContent>
                 </Card>
-              </Link>
+              </HistoryItemLink>
             );
           })}
         </div>
