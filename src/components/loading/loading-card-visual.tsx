@@ -20,7 +20,10 @@ import type { CardId, CardRarity } from "@/lib/shogi/cards/types";
 import { cn } from "@/lib/utils";
 
 interface LoadingCardVisualProps {
-  card: { cardId: string } | { variant: "generic" };
+  // CardId は CARD_DEFS のキーと一致するリテラル union 型。string 受けにすると
+  // CARD_DEFS[card.cardId] のインデックスアクセスで型エラー (Vercel ビルド失敗)
+  // となるため、呼び出し側に CardId 型での渡し方を強制する。
+  card: { cardId: CardId } | { variant: "generic" };
 }
 
 // レア度の枠色のみローディング用に簡略化して引用 (Issue #104 配色と整合)。

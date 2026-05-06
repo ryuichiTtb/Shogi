@@ -10,6 +10,7 @@
 
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { CardId } from "@/lib/shogi/cards/types";
 import { LoadingCardVisual } from "./loading/loading-card-visual";
 import { LoadingProgressBar } from "./loading/loading-progress-bar";
 import { LoadingStages } from "./loading/loading-stages";
@@ -25,7 +26,10 @@ interface LoadingOverlayProps {
   className?: string;
   // 中央に回転カードを表示する。{ cardId } で特定カード、{ variant: "generic" } で汎用裏面。
   // 省略時は従来の spinner のみ。
-  card?: { cardId: string } | { variant: "generic" };
+  // cardId は CARD_DEFS のキーと一致する CardId 型 (string 受けにすると
+  // 子コンポーネント LoadingCardVisual の Record インデックス型で TS ビルド
+  // エラーになるため)。
+  card?: { cardId: CardId } | { variant: "generic" };
   // ステージ文言を順送りで表示。省略時は message を 1 行表示。
   stages?: readonly string[];
   stageIntervalMs?: number;
