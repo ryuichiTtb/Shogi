@@ -1607,9 +1607,11 @@ export function CardShogiGame({
         {/* Col 1: 自分カードエリア(縦並び、横幅一杯+中央揃え)
             Issue #150: PC (xl 以上) では「相手エリア=右側」レイアウトのため、
             ヘッダー右端ではなく「自分エリア先頭の ▲ 自分 ラベル」横に
-            ログインインジケータを配置する。 */}
+            ログインインジケータを配置する。
+            ラッパーに py-1 を持たせて、aside の overflow-hidden で
+            アバターの緑 ring が上下に見切れないよう余白を確保する。 */}
         <aside className="flex flex-col gap-2 border-r pr-2 min-h-0 overflow-hidden">
-          <div className="flex items-center justify-center gap-2 self-center shrink-0">
+          <div className="flex items-center justify-center gap-2 self-center shrink-0 py-1">
             <AuthControls variant="indicator" />
             <Badge variant="default">▲ 自分</Badge>
           </div>
