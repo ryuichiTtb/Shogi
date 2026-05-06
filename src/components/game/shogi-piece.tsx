@@ -62,11 +62,19 @@ function isPromoted(type: string): boolean {
 //   - LoadingCardFace と完全に同じ stops を使い、ローディングと対局でカードと駒の世界観を一致させる。
 //   - 王手 (isInCheck) / 選択 (isSelected) は gradient OFF にせず、赤系・青系の stops に
 //     差替えて gradient を保つ。これにより質感 (左上ハイライト → 右下シャドウ) が保たれる。
+// 対局駒のデフォルトグラデ (Issue #155 派生): ユーザ指定の淡いトーン。
+// 0% / 100% を起点とし、30% / 60% は線形補間で自然なカーブを描く。
+//   0%   (254, 240, 200) #fef0c8 — 淡黄ハイライト
+//   30%  (238, 212, 169) #eed4a9 — 補間値: 0% から 30% 進んだ位置
+//   60%  (222, 185, 138) #deb98a — 補間値: 0% から 60% 進んだ位置
+//   100% (200, 148,  96) #c89460 — 中明の檜茶
+// ローディング表面は別パターン (やや濃いめ・シャドウ強め) を使うため、
+// LoadingCardFace 側で colorOverride を渡して上書きしている。
 export const DEFAULT_PIECE_GRADIENT: readonly ShogiPieceFillStop[] = [
-  { offset: "0%",   color: "#fef0c8" }, // 左上: 淡黄ハイライト
-  { offset: "30%",  color: "#e8c084" }, // 中明: 明るい金茶
-  { offset: "60%",  color: "#c89460" }, // 中暗: 中明の檜茶
-  { offset: "100%", color: "#7a4a25" }, // 右下: 焦げ茶 (温かみのある木の色)
+  { offset: "0%",   color: "#fef0c8" },
+  { offset: "30%",  color: "#eed4a9" },
+  { offset: "60%",  color: "#deb98a" },
+  { offset: "100%", color: "#c89460" },
 ];
 export const DEFAULT_PIECE_BORDER = "#4a2e15";
 

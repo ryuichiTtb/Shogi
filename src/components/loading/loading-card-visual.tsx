@@ -88,16 +88,32 @@ interface LoadingCardVisualProps {
   forcePieceType?: LoadingFacePieceType;
 }
 
+// ローディング表面の駒色オーバーライド (Issue #155 派生)。
+// 対局画面の DEFAULT_PIECE_GRADIENT (淡いトーン) と意図的に分離し、ローディング
+// では「黒地 + 中央スポット」の背景に映える「やや濃いめ・シャドウ強め」のトーン
+// を採用する。stops は対局駒よりも 1 段濃く、右下シャドウまで深めにすることで、
+// 黒地の中で駒が浮き立つコントラストを稼ぐ。
+const LOADING_PIECE_COLOR_OVERRIDE = {
+  border: "#4a2e15",
+  inner: "#a86d3b",
+  innerGradient: [
+    { offset: "0%",   color: "#fde8b8" }, // 左上: 明るめ金茶ハイライト
+    { offset: "30%",  color: "#d8a868" }, // 中明: 金茶
+    { offset: "60%",  color: "#b07a40" }, // 中暗: 中濃檜茶
+    { offset: "100%", color: "#5c3a1e" }, // 右下: 焦げ茶 (黒地に映える深め)
+  ],
+} as const;
+
 // 表面: 裏面と同じ「金フレーム + 中央スポット + 中央駒」の世界観を保ちつつ、
 // 背景は loading-card-face-bg (完全な黒地 + 中央楕円の白スポット) で漆 (minimal)
-// とは別パターンに差別化する。中央駒の色は ShogiPiece デフォルト (檜木グラデ +
-// こげ茶 border) をそのまま使い、対局画面とローディング表面で同じ駒の世界観に
-// 統一している (Issue #155 派生)。
+// とは別パターンに差別化する。中央駒は対局駒の淡いデフォルトとは分け、ローディング
+// 専用の濃いめトーン (LOADING_PIECE_COLOR_OVERRIDE) で描画して黒地に映えさせる。
 //   - 外枠: amber-400/70 の border-2
 //   - 内枠: 内側 3px 位置に amber-300/35 の細枠
 //   - 四隅: amber-300/70 の菱形 (45° 回転した小正方形)
 //   - 背景: loading-card-face-bg (globals.css の専用 class)
-//   - 中央: ランダム駒シルエット (ShogiPiece + 正式名称の縦書き)
+//   - 中央: ランダム駒シルエット (ShogiPiece + ローディング用 colorOverride
+//     + 正式名称の縦書き)
 function LoadingCardFace({ pieceType }: LoadingCardFaceProps) {
   return (
     <div
@@ -116,12 +132,13 @@ function LoadingCardFace({ pieceType }: LoadingCardFaceProps) {
       <span className="absolute top-1 right-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
       <span className="absolute bottom-1 left-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
       <span className="absolute bottom-1 right-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
-      {/* 中央: ランダム駒シルエット (ShogiPiece デフォルト檜木グラデ + 正式名称縦書き) */}
+      {/* 中央: ランダム駒シルエット (ローディング専用の濃いめグラデ + 正式名称縦書き) */}
       <div className="absolute inset-0 flex items-center justify-center">
         <div className="h-[78%] aspect-[5/6]">
           <ShogiPiece
             piece={{ type: pieceType, owner: "sente" }}
             isLarge
+            colorOverride={LOADING_PIECE_COLOR_OVERRIDE}
             kanjiOverride={LOADING_FACE_PIECE_LABEL[pieceType]}
           />
         </div>
