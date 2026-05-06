@@ -1,9 +1,8 @@
-// 案 G: 翠 (Sui) - 笹葉 + 斜光
-//   - 深緑グラデ (emerald-950 → green-900 → emerald-950) ベース
-//   - 全面に笹葉 (細長いランス形) の SVG タイルを斜めに repeat (色は他 4 案と
-//     統一する目的でゴールド: #fcd34d)
-//   - 装飾(枠): 内側ゴールド細枠 + 四隅菱形 (既存 3 案と統一感)
-//   - アニメ: 斜め (100°) のゴールド閃光 sheen が 3.5s で流れる (煌と同テンポ)
+// 案 E: 苔 (Koke) - 五葉松房 + 金 sheen
+//   - 深緑ベース (emerald-950 → green-950 → stone-950) に金の五葉松の房 (5 本針葉) を
+//     32×32 タイルで散らす。深い杉林の苔地に松葉のひと房がほろりと落ちた趣。
+//   - 装飾(枠): 内側ゴールド細枠 + 四隅菱形 (他案と統一感)
+//   - アニメ: 5s で左→右の薄ゴールド sheen (波と同テンポ)
 import { cn } from "@/lib/utils";
 import { KomaShape } from "./koma-shape";
 import {
@@ -19,29 +18,24 @@ interface Props {
   className?: string;
 }
 
-export function CardBackSasa({ size = "md", fullWidth = false, className }: Props) {
+export function CardBackKoke({ size = "md", fullWidth = false, className }: Props) {
   const sizeCls = fullWidth
     ? cn("w-full", MOCK_FULLWIDTH_HEIGHT[size])
     : MOCK_SIZE_CLASS[size];
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-md border-2 border-amber-400/80 shrink-0",
-        "bg-gradient-to-br from-emerald-950 via-green-900 to-emerald-950",
+        "relative overflow-hidden rounded-md border-2 border-amber-400/70 shrink-0",
+        "bg-gradient-to-br from-emerald-950 via-green-950 to-stone-950",
         sizeCls,
         className,
       )}
       aria-label="伏せられたカード"
     >
-      {/* 笹葉パターン (SVG タイル repeat) */}
-      <div className="absolute inset-0 card-back-mock-sasa-pattern" aria-hidden />
-      {/* 斜め閃光 sheen */}
-      <div
-        className="absolute inset-0 card-back-mock-sasa-shine pointer-events-none"
-        aria-hidden
-      />
-      {/* 内側の細枠 (ゴールド) */}
-      <div className="absolute inset-[3px] rounded-sm border border-amber-300/35 pointer-events-none" aria-hidden />
+      {/* 五葉松パターン (SVG タイル repeat) */}
+      <div className="absolute inset-0 card-back-mock-koke-pattern" aria-hidden />
+      {/* 内側の二重枠 (内側 1px 細枠) */}
+      <div className="absolute inset-[3px] rounded-sm border border-amber-300/40 pointer-events-none" aria-hidden />
       {/* 四隅の菱形 */}
       <span className="absolute top-1 left-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
       <span className="absolute top-1 right-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
@@ -54,6 +48,8 @@ export function CardBackSasa({ size = "md", fullWidth = false, className }: Prop
           strokeWidth={3}
         />
       </div>
+      {/* sheen (左→右の金色光沢) */}
+      <div className="absolute inset-0 card-back-mock-koke-sheen pointer-events-none" aria-hidden />
     </div>
   );
 }

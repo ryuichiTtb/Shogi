@@ -94,25 +94,25 @@ function pickOrbColors(style: string | null) {
         a: "radial-gradient(circle, rgba(251, 191, 36, 0.55), transparent 70%)",
         b: "radial-gradient(circle, rgba(120, 53, 15, 0.45), transparent 70%)",
       };
-    case "matsu":
-      // 松: 深緑ベース + ゴールド五葉松柄
+    case "koke":
+      // 苔: 深緑ベース + ゴールド五葉松柄
       return {
         a: "radial-gradient(circle, rgba(252, 211, 77, 0.50), transparent 70%)",
         b: "radial-gradient(circle, rgba(6, 78, 59, 0.55), transparent 70%)",
       };
-    case "sasa":
-      // 翠: 深緑ベース + ゴールド笹葉柄
+    case "kurenai":
+      // 紅: 深紅ベース + ゴールド葉文
       return {
         a: "radial-gradient(circle, rgba(252, 211, 77, 0.50), transparent 70%)",
-        b: "radial-gradient(circle, rgba(4, 120, 87, 0.50), transparent 70%)",
+        b: "radial-gradient(circle, rgba(127, 29, 29, 0.55), transparent 70%)",
       };
     case "seigaiha":
     default:
-      // 波: 水色ベース。差し色は金 + 水色オーブ。
+      // 波: 深紺ベース + 金箔の波柄。差し色は金 + indigo オーブ。
       // mounted 前 (style=null) もこの中立配色で描画される (実際は showDecorative=false で非表示)
       return {
         a: "radial-gradient(circle, rgba(251, 191, 36, 0.50), transparent 70%)",
-        b: "radial-gradient(circle, rgba(56, 189, 248, 0.50), transparent 70%)",
+        b: "radial-gradient(circle, rgba(99, 102, 241, 0.45), transparent 70%)",
       };
   }
 }

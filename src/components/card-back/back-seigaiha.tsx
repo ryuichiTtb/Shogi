@@ -1,9 +1,9 @@
 // 案 B: 青海波 + 金箔
-//   - 水色ベース (sky-700 → sky-900 → sky-950) + 薄ゴールド線の青海波パターン全面リピート (静止)
-//     初版 (sky-400 起点) は明るすぎたため、深い海の水色寄りに調整。
+//   - 深紺ベース (slate-900 → indigo-950 → slate-950) に薄ゴールド線の青海波パターンを
+//     全面リピート (静止)。金箔の波が深い藍の海に漂う、悠久の大海原の趣。
 //   - 中央: 駒シルエット (末広がり、文字なし)
-//   - 装飾(枠): 内側ゴールド細枠 + 四隅菱形 (A/D 案と統一感)
-//   - アニメ: 左→右の sheen (光沢)
+//   - 装飾(枠): 内側ゴールド細枠 + 四隅菱形 (他案と統一感)
+//   - アニメ: 左→右の sheen (薄ゴールドの光沢)
 import { cn } from "@/lib/utils";
 import { KomaShape } from "./koma-shape";
 import {
@@ -27,7 +27,7 @@ export function CardBackSeigaiha({ size = "md", fullWidth = false, className }: 
     <div
       className={cn(
         "relative overflow-hidden rounded-md border-2 border-amber-400/70 shrink-0",
-        "bg-gradient-to-br from-sky-700 via-sky-900 to-sky-950",
+        "bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-950",
         sizeCls,
         className,
       )}

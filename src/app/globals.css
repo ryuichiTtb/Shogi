@@ -903,15 +903,16 @@
   100% { background-position: -10% 0; }
 }
 
-/* 案 E: 松 (Matsu) - 五葉松房 + 金 sheen
+/* 案 E: 苔 (Koke) - 深緑苔地 + 金五葉松房 + 金 sheen
  *   - 32×32 タイルに 5 本針葉の房を 2 箇所、向きを反転して配置
- *     (左上=上向き / 右下=下向き)。本物の松葉のひと房に近い意匠。
- *   - 深緑グラデの上にゴールド線でリピート、5s sheen は左→右 (波と同テンポ)。 */
-.card-back-mock-matsu-pattern {
+ *     (左上=上向き / 右下=下向き)。深い杉林の苔地に松葉のひと房がほろりと落ちた趣。
+ *   - 深緑グラデ (back-koke.tsx 側で指定) の上にゴールド線でリピート、5s sheen は左→右
+ *     (波と同テンポ)。 */
+.card-back-mock-koke-pattern {
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' width='32' height='32'><g fill='none' stroke='%23fcd34d' stroke-opacity='0.42' stroke-width='0.55' stroke-linecap='round'><path d='M8 14 L8 6'/><path d='M8 14 L11 7'/><path d='M8 14 L5 7'/><path d='M8 14 L14 9'/><path d='M8 14 L2 9'/><path d='M24 18 L24 26'/><path d='M24 18 L27 25'/><path d='M24 18 L21 25'/><path d='M24 18 L30 23'/><path d='M24 18 L18 23'/></g></svg>");
   background-size: 32px 32px;
 }
-.card-back-mock-matsu-sheen {
+.card-back-mock-koke-sheen {
   background: linear-gradient(
     100deg,
     transparent 0%, transparent 40%,
@@ -920,23 +921,24 @@
   );
   background-size: 220% 100%;
   background-position: 110% 0;
-  animation: card-back-mock-matsu-sheen-anim 5s ease-in-out infinite;
+  animation: card-back-mock-koke-sheen-anim 5s ease-in-out infinite;
 }
-@keyframes card-back-mock-matsu-sheen-anim {
+@keyframes card-back-mock-koke-sheen-anim {
   0%   { background-position: 110% 0; }
   60%  { background-position: -10% 0; }
   100% { background-position: -10% 0; }
 }
 
-/* 案 G: 翠 (Sui) - 笹葉 + 金閃光
- *   - 24×24 SVG タイル (細長いランス形の笹葉を 2 枚、対角に配置)。
- *     色は他案と統一する目的でゴールド (#fcd34d) に変更。
+/* 案 G: 紅 (Kurenai) - 深紅漆地 + 金葉文 + 金閃光
+ *   - 24×24 SVG タイル (細長いランス形の葉を 2 枚、対角に配置) をゴールド (#fcd34d) で
+ *     repeat。深紅 (red-950 → red-800 → red-950) ベースの上で漆器の朱塗りに金箔の葉が
+ *     舞うような華やぎ。
  *   - shine は斜め (100°) のゴールド閃光が 3.5s で流れる (煌と同テンポ)。 */
-.card-back-mock-sasa-pattern {
+.card-back-mock-kurenai-pattern {
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24'><g fill='%23fcd34d' fill-opacity='0.22' stroke='%23fcd34d' stroke-opacity='0.45' stroke-width='0.5' stroke-linejoin='round'><path d='M6 2 L8 5 L6 12 L4 5 Z'/><path d='M18 12 L20 15 L18 22 L16 15 Z'/></g></svg>");
   background-size: 24px 24px;
 }
-.card-back-mock-sasa-shine {
+.card-back-mock-kurenai-shine {
   background: linear-gradient(
     100deg,
     transparent 0%, transparent 40%,
@@ -945,9 +947,9 @@
   );
   background-size: 220% 100%;
   background-position: 110% 0;
-  animation: card-back-mock-sasa-shine-anim 3.5s ease-in-out infinite;
+  animation: card-back-mock-kurenai-shine-anim 3.5s ease-in-out infinite;
 }
-@keyframes card-back-mock-sasa-shine-anim {
+@keyframes card-back-mock-kurenai-shine-anim {
   0%   { background-position: 110% 0; }
   55%  { background-position: -10% 0; }
   100% { background-position: -10% 0; }
