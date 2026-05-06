@@ -10,6 +10,36 @@ import {
   mergedStats,
   shouldUseGuestPreference,
 } from "@/lib/auth/merge-rules";
+import { INITIAL_DECK_CARD_COUNT } from "@/lib/auth/user-bootstrap";
+import { ALL_CARD_DEFS } from "@/lib/shogi/cards/definitions";
+
+// Issue #150: 「サインアウト→サインイン」を繰り返すと account の deck が増殖するバグ対策。
+// 新規ゲスト User 作成時に ensureInitialUserData で default deck (デフォルトデッキ名 +
+// 全 playable カード × INITIAL_DECK_CARD_COUNT 枚) が自動生成される。これを merge で
+// account に毎回 isDefault=false として移管していたため、ログインのたびに deck が増えた。
+// 「ユーザーが触っていない初期構成のまま」かを判定し、その場合は移管せず削除する。
+const PLAYABLE_CARD_IDS_FOR_MERGE: Set<string> = new Set(
+  ALL_CARD_DEFS.filter((d) => d.status !== "deprecated").map((d) => d.id),
+);
+const PRISTINE_DEFAULT_DECK_NAME = "デフォルトデッキ";
+
+interface DeckWithEntriesForMerge {
+  id: string;
+  name: string;
+  isDefault: boolean;
+  entries: { cardId: string; count: number }[];
+}
+
+function isPristineInitialDeck(deck: DeckWithEntriesForMerge): boolean {
+  if (!deck.isDefault) return false;
+  if (deck.name !== PRISTINE_DEFAULT_DECK_NAME) return false;
+  if (deck.entries.length !== PLAYABLE_CARD_IDS_FOR_MERGE.size) return false;
+  return deck.entries.every(
+    (e) =>
+      PLAYABLE_CARD_IDS_FOR_MERGE.has(e.cardId) &&
+      e.count === INITIAL_DECK_CARD_COUNT,
+  );
+}
 
 type MergeClient = Pick<
   typeof prisma,
@@ -134,12 +164,34 @@ async function moveDecks(
     select: { id: true },
   });
 
-  await db.deck.updateMany({
+  // Issue #150: 「未編集の初期構成 deck」と「ユーザーが触った deck」を判別するため、
+  // updateMany で一括ではなく 1 件ずつ取得して扱う。
+  const guestDecks = await db.deck.findMany({
     where: { userId: guestUserId },
-    data: accountDefault
-      ? { userId: accountUserId, isDefault: false }
-      : { userId: accountUserId },
+    select: {
+      id: true,
+      name: true,
+      isDefault: true,
+      entries: { select: { cardId: true, count: true } },
+    },
   });
+
+  for (const guestDeck of guestDecks) {
+    if (accountDefault && isPristineInitialDeck(guestDeck)) {
+      // 増殖防止: account に既に default deck がある状況で、
+      // ゲスト deck が「ensureInitialUserData が作った初期構成のまま」なら捨てる。
+      // FK は cascade なので deckEntry も自動削除される。
+      await db.deck.delete({ where: { id: guestDeck.id } });
+      continue;
+    }
+
+    await db.deck.update({
+      where: { id: guestDeck.id },
+      data: accountDefault
+        ? { userId: accountUserId, isDefault: false }
+        : { userId: accountUserId },
+    });
+  }
 
   if (accountDefault) return;
 

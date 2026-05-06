@@ -32,8 +32,10 @@ const dbMocks = vi.hoisted(() => {
   };
   const deck = {
     findFirst: vi.fn(),
+    findMany: vi.fn(),
     updateMany: vi.fn(),
     update: vi.fn(),
+    delete: vi.fn(),
   };
   const game = {
     updateMany: vi.fn(),
@@ -81,8 +83,10 @@ function resetMocks() {
     playerCardCollectionMock.upsert,
     playerCardCollectionMock.deleteMany,
     deckMock.findFirst,
+    deckMock.findMany,
     deckMock.updateMany,
     deckMock.update,
+    deckMock.delete,
     gameMock.updateMany,
   ]) {
     fn.mockReset();
@@ -140,7 +144,9 @@ describe("mergeGuestSessionIntoAccount (early-return behaviors)", () => {
     expect(result).toEqual({ merged: false, reason: "not-guest" });
     expect(guestSessionMock.deleteMany).toHaveBeenCalledWith({ where: { id: "session-2" } });
     // データ移管系は一切走らないこと
-    expect(deckMock.updateMany).not.toHaveBeenCalled();
+    expect(deckMock.findMany).not.toHaveBeenCalled();
+    expect(deckMock.update).not.toHaveBeenCalled();
+    expect(deckMock.delete).not.toHaveBeenCalled();
     expect(gameMock.updateMany).not.toHaveBeenCalled();
     expect(playerCardCollectionMock.upsert).not.toHaveBeenCalled();
   });
@@ -159,7 +165,7 @@ describe("mergeGuestSessionIntoAccount (early-return behaviors)", () => {
     userPreferenceMock.findUnique.mockResolvedValue(null);
     playerCardCollectionMock.findMany.mockResolvedValue([]);
     deckMock.findFirst.mockResolvedValue(null);
-    deckMock.updateMany.mockResolvedValue({ count: 0 });
+    deckMock.findMany.mockResolvedValue([]); // ゲストに deck なし
     gameMock.updateMany.mockResolvedValue({ count: 0 });
     guestSessionMock.deleteMany.mockResolvedValue({ count: 1 });
     userMock.deleteMany.mockResolvedValue({ count: 1 });
@@ -167,10 +173,6 @@ describe("mergeGuestSessionIntoAccount (early-return behaviors)", () => {
     const result = await mergeGuestSessionIntoAccount(token, accountUserId);
 
     expect(result).toEqual({ merged: true, reason: "merged" });
-    expect(deckMock.updateMany).toHaveBeenCalledWith({
-      where: { userId: guestUserId },
-      data: { userId: accountUserId },
-    });
     expect(gameMock.updateMany).toHaveBeenCalledWith({
       where: { playerId: guestUserId },
       data: { playerId: accountUserId },
@@ -198,19 +200,28 @@ describe("mergeGuestSessionIntoAccount (early-return behaviors)", () => {
     userPreferenceMock.findUnique.mockResolvedValue(null);
     playerCardCollectionMock.findMany.mockResolvedValue([]);
     deckMock.findFirst.mockResolvedValue(null); // account に default deck なし
-    deckMock.updateMany.mockResolvedValue({ count: 1 });
+    deckMock.findMany.mockResolvedValue([
+      {
+        id: "guest-deck-1",
+        name: "デフォルトデッキ",
+        isDefault: true,
+        entries: [{ cardId: "any", count: 2 }],
+      },
+    ]);
+    deckMock.update.mockResolvedValue({});
     gameMock.updateMany.mockResolvedValue({ count: 0 });
     guestSessionMock.deleteMany.mockResolvedValue({ count: 1 });
     userMock.deleteMany.mockResolvedValue({ count: 1 });
 
     await mergeGuestSessionIntoAccount(token, accountUserId);
 
-    expect(deckMock.updateMany).toHaveBeenCalledWith({
-      where: { userId: guestUserId },
+    // deck.update は呼ばれる (guest deck の所有権移管) が、isDefault は data に
+    // 含まれない (= ゲスト側の isDefault が保持される)。
+    expect(deckMock.update).toHaveBeenCalledWith({
+      where: { id: "guest-deck-1" },
       data: { userId: accountUserId },
     });
-    // 第二引数に isDefault: false が含まれていないことを念押し
-    const updateCallArg = deckMock.updateMany.mock.calls[0]?.[0] as {
+    const updateCallArg = deckMock.update.mock.calls[0]?.[0] as {
       data: { userId: string; isDefault?: boolean };
     };
     expect(updateCallArg.data).not.toHaveProperty("isDefault");
@@ -232,7 +243,7 @@ describe("mergeGuestSessionIntoAccount (early-return behaviors)", () => {
     userPreferenceMock.findUnique.mockResolvedValue(null);
     playerCardCollectionMock.findMany.mockResolvedValue([]);
     deckMock.findFirst.mockResolvedValue(null);
-    deckMock.updateMany.mockResolvedValue({ count: 0 });
+    deckMock.findMany.mockResolvedValue([]);
     gameMock.updateMany.mockResolvedValue({ count: 0 });
     guestSessionMock.deleteMany.mockResolvedValue({ count: 1 });
     userMock.deleteMany.mockResolvedValue({ count: 1 });
@@ -241,5 +252,89 @@ describe("mergeGuestSessionIntoAccount (early-return behaviors)", () => {
     // この状態で merge が成功すれば、transaction 経由ではなく直接呼び出しで動いている証。
     const result = await mergeGuestSessionIntoAccount(token, accountUserId);
     expect(result).toEqual({ merged: true, reason: "merged" });
+  });
+
+  it("deletes pristine guest default deck instead of stacking it onto the account (deck duplication regression)", async () => {
+    // Issue #150: サインアウト→サインインを繰り返すと account の deck が毎回 +1 増殖
+    // していた問題の regression test。
+    // ゲストが何も触っていない初期構成 (デフォルトデッキ名 + 全 playable カード ×
+    // INITIAL_DECK_CARD_COUNT 枚 + isDefault=true) かつ account に既に default deck が
+    // ある場合、移管せず削除する。
+    const { ALL_CARD_DEFS } = await import("@/lib/shogi/cards/definitions");
+    const { INITIAL_DECK_CARD_COUNT } = await import("@/lib/auth/user-bootstrap");
+    const playableEntries = ALL_CARD_DEFS.filter((d) => d.status !== "deprecated").map(
+      (d) => ({ cardId: d.id, count: INITIAL_DECK_CARD_COUNT }),
+    );
+
+    const token = createGuestSessionToken();
+    const guestUserId = "guest-user-4";
+
+    guestSessionMock.findUnique.mockResolvedValue({
+      id: "session-6",
+      userId: guestUserId,
+      user: { kind: "guest" },
+    });
+    userMock.findUnique.mockResolvedValue({ id: accountUserId, kind: "account" });
+    playerStatsMock.findUnique.mockResolvedValue(null);
+    userPreferenceMock.findUnique.mockResolvedValue(null);
+    playerCardCollectionMock.findMany.mockResolvedValue([]);
+    // account には既に default deck がある
+    deckMock.findFirst.mockResolvedValue({ id: "account-default" });
+    // ゲストは未編集の初期構成 default deck を 1 つ持つ
+    deckMock.findMany.mockResolvedValue([
+      {
+        id: "guest-pristine-deck",
+        name: "デフォルトデッキ",
+        isDefault: true,
+        entries: playableEntries,
+      },
+    ]);
+    deckMock.delete.mockResolvedValue({});
+    gameMock.updateMany.mockResolvedValue({ count: 0 });
+    guestSessionMock.deleteMany.mockResolvedValue({ count: 1 });
+    userMock.deleteMany.mockResolvedValue({ count: 1 });
+
+    await mergeGuestSessionIntoAccount(token, accountUserId);
+
+    expect(deckMock.delete).toHaveBeenCalledWith({ where: { id: "guest-pristine-deck" } });
+    expect(deckMock.update).not.toHaveBeenCalled();
+  });
+
+  it("preserves a guest-edited deck (different name or different entries) by moving it to the account", async () => {
+    // ゲストが触ったデッキ (= name 変更 / 編成変更) は削除せず移管。
+    const token = createGuestSessionToken();
+    const guestUserId = "guest-user-5";
+
+    guestSessionMock.findUnique.mockResolvedValue({
+      id: "session-7",
+      userId: guestUserId,
+      user: { kind: "guest" },
+    });
+    userMock.findUnique.mockResolvedValue({ id: accountUserId, kind: "account" });
+    playerStatsMock.findUnique.mockResolvedValue(null);
+    userPreferenceMock.findUnique.mockResolvedValue(null);
+    playerCardCollectionMock.findMany.mockResolvedValue([]);
+    deckMock.findFirst.mockResolvedValue({ id: "account-default" });
+    deckMock.findMany.mockResolvedValue([
+      {
+        id: "guest-custom-deck",
+        name: "ゲスト自作デッキ", // 名前が違う = 編集済み
+        isDefault: true,
+        entries: [{ cardId: "any", count: 2 }],
+      },
+    ]);
+    deckMock.update.mockResolvedValue({});
+    gameMock.updateMany.mockResolvedValue({ count: 0 });
+    guestSessionMock.deleteMany.mockResolvedValue({ count: 1 });
+    userMock.deleteMany.mockResolvedValue({ count: 1 });
+
+    await mergeGuestSessionIntoAccount(token, accountUserId);
+
+    // 削除はされず、isDefault=false で account 側に移管される
+    expect(deckMock.delete).not.toHaveBeenCalled();
+    expect(deckMock.update).toHaveBeenCalledWith({
+      where: { id: "guest-custom-deck" },
+      data: { userId: accountUserId, isDefault: false },
+    });
   });
 });
