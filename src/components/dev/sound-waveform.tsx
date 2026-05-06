@@ -22,6 +22,9 @@ interface SoundWaveformProps {
   height?: number;
   className?: string;
   ariaLabel?: string;
+  // touch target の最小高さ (デフォルト 44px = モバイル touch 推奨)。
+  // 一覧画面のような密度優先 UI では 0 を渡してコンパクトに。
+  touchMinHeight?: number;
 }
 
 const VIEWBOX_HEIGHT = 100;
@@ -38,6 +41,7 @@ function SoundWaveformImpl({
   height = 32,
   className,
   ariaLabel = "波形プレビュー (クリックでシーク)",
+  touchMinHeight = 44,
 }: SoundWaveformProps) {
   const handleClick = useCallback(
     (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -73,7 +77,7 @@ function SoundWaveformImpl({
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
         className,
       )}
-      style={{ minHeight: 44, padding: 0, background: "transparent", border: 0 }}
+      style={{ minHeight: touchMinHeight, padding: 0, background: "transparent", border: 0 }}
     >
       <svg
         viewBox={`0 0 ${bins} ${VIEWBOX_HEIGHT}`}

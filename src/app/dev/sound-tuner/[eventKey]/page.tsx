@@ -14,7 +14,7 @@
 //
 // 不正な eventKey は notFound() で 404。
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useParams, notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, ChevronDown, ChevronRight, Check, Pause, Play, RotateCcw } from "lucide-react";
@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 import { AUDIO_MANIFEST, BGM_FILES, SFX_FILES } from "@/lib/audio/manifest";
 import { prepareAudio } from "@/hooks/use-sound";
 import { useBgm } from "@/hooks/use-bgm";
+import { usePreviewPlayer } from "@/hooks/dev/use-preview-player";
 import {
   BGM_EVENT_KEYS,
   BGM_EVENT_LABELS,
@@ -47,24 +48,6 @@ import {
 import { SoundWaveform } from "@/components/dev/sound-waveform";
 import { SoundTime } from "@/components/dev/sound-time";
 
-type HowlInstance = {
-  play: () => number | undefined;
-  stop: () => void;
-  unload: () => void;
-  duration: () => number;
-  seek: (pos?: number) => number | HowlInstance;
-};
-
-type HowlConstructor = new (options: {
-  src: string[];
-  volume?: number;
-  preload?: boolean;
-  onload?: () => void;
-  onend?: () => void;
-  onloaderror?: () => void;
-  onplayerror?: () => void;
-}) => HowlInstance;
-
 function basename(path: string): string {
   if (!path) return "";
   const i = path.lastIndexOf("/");
@@ -82,115 +65,6 @@ function isSfxEventKey(s: string): s is SfxEventKey {
 
 function isBgmEventKey(s: string): s is BgmEventKey {
   return (BGM_EVENT_KEYS as readonly string[]).includes(s);
-}
-
-// 詳細ページ専用の Howler ラッパ + 再生位置トラッキング。
-function usePreviewPlayer() {
-  const HowlRef = useRef<HowlConstructor | null>(null);
-  const cacheRef = useRef<Map<string, HowlInstance>>(new Map());
-  const currentRef = useRef<HowlInstance | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const [ready, setReady] = useState(false);
-  const [activePath, setActivePath] = useState<string | null>(null);
-  const [progress, setProgress] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    const cache = cacheRef.current;
-    const current = currentRef;
-    const raf = rafRef;
-    import("howler").then(({ Howl }) => {
-      if (cancelled) return;
-      HowlRef.current = Howl as unknown as HowlConstructor;
-      setReady(true);
-    });
-    return () => {
-      cancelled = true;
-      if (raf.current !== null) {
-        cancelAnimationFrame(raf.current);
-        raf.current = null;
-      }
-      current.current?.stop();
-      cache.forEach((h) => h.unload());
-      cache.clear();
-      current.current = null;
-    };
-  }, []);
-
-  const stopRaf = useCallback(() => {
-    if (rafRef.current !== null) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
-  }, []);
-
-  const startTracking = useCallback(
-    (howl: HowlInstance, duration: number) => {
-      stopRaf();
-      const tick = () => {
-        const seekVal = howl.seek();
-        const seekSec = typeof seekVal === "number" ? seekVal : 0;
-        if (!Number.isFinite(seekSec)) {
-          rafRef.current = requestAnimationFrame(tick);
-          return;
-        }
-        const p = duration > 0 ? Math.min(1, seekSec / duration) : 0;
-        setProgress(p);
-        if (p < 1) {
-          rafRef.current = requestAnimationFrame(tick);
-        }
-      };
-      rafRef.current = requestAnimationFrame(tick);
-    },
-    [stopRaf],
-  );
-
-  const stop = useCallback(() => {
-    currentRef.current?.stop();
-    stopRaf();
-    setActivePath(null);
-    setProgress(0);
-  }, [stopRaf]);
-
-  const playFrom = useCallback(
-    (path: string, fromRatio: number = 0) => {
-      if (!HowlRef.current || !path) return;
-      currentRef.current?.stop();
-      stopRaf();
-
-      let howl = cacheRef.current.get(path);
-      if (!howl) {
-        const onClear = () => {
-          setActivePath((cur) => (cur === path ? null : cur));
-          setProgress((p) => (p > 0 ? 0 : p));
-          stopRaf();
-        };
-        howl = new HowlRef.current({
-          src: [path],
-          volume: 0.7,
-          preload: true,
-          onend: onClear,
-          onloaderror: onClear,
-          onplayerror: onClear,
-        });
-        cacheRef.current.set(path, howl);
-      }
-      currentRef.current = howl;
-
-      const duration = WAVEFORM_DURATIONS[path] ?? howl.duration() ?? 0;
-      const clamped = Math.max(0, Math.min(1, fromRatio));
-      if (clamped > 0 && duration > 0) {
-        howl.seek(clamped * duration);
-      }
-      setActivePath(path);
-      setProgress(clamped);
-      howl.play();
-      if (duration > 0) startTracking(howl, duration);
-    },
-    [startTracking, stopRaf],
-  );
-
-  return { playFrom, stop, activePath, progress, ready };
 }
 
 // SOUND_POOL を dirname でグループ化。各グループは {dir, paths} の配列。
