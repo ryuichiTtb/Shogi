@@ -110,33 +110,35 @@ const BoardSquare = memo(function BoardSquare({
       className={cn(
         "shogi-square relative flex items-center justify-center",
         "cursor-pointer",
-        // Issue #155 派生: 単色の濃い檜茶で統一 (light/dark 分岐撤去)。
-        // 単色 background-color のため、ハイライト系 (bg-X) が自然に上書きする。
-        "shogi-board-square-bg",
+        // Issue #155 派生: 通常背景。Tailwind の任意値で書くことで bg-X 系の
+        // ハイライトが自然に上書きする (CSS class 経由だと utility より優先度が
+        // 高くなりハイライトが効かない問題があったため)。
+        // ライト: antiquewhite (#FAEBD7) / ダーク: darkblue (#00008B)
+        "bg-[antiquewhite] dark:bg-[darkblue]",
         // 直前の手（移動前・移動後）
-        isLastMoveSq && !isSelected && "bg-emerald-200",
+        isLastMoveSq && !isSelected && "bg-emerald-200 dark:bg-emerald-800/60",
         // 王手中の王
-        isKingInCheck && "bg-red-300",
+        isKingInCheck && "bg-red-300 dark:bg-red-800/70",
         // 選択マス
-        isSelected && "bg-blue-200",
+        isSelected && "bg-blue-200 dark:bg-blue-800/60",
         // 合法手ハイライト (空きマス: 青、駒があるマス: 赤)
-        isLegalTarget && !piece && "bg-blue-200/70",
-        isLegalTarget && piece && "bg-red-200/70",
+        isLegalTarget && !piece && "bg-blue-200/70 dark:bg-blue-700/40",
+        isLegalTarget && piece && "bg-red-200/70 dark:bg-red-700/40",
         // カード効果のターゲット候補(歩戻し等) - 既存の合法手ハイライトより優先
-        isCardTarget && "bg-amber-300/80 ring-2 ring-inset ring-amber-500 animate-pulse",
+        isCardTarget && "bg-amber-300/80 dark:bg-amber-500/40 ring-2 ring-inset ring-amber-500 dark:ring-amber-300 animate-pulse",
         // 二手指し 2手目で禁止された詰み手 (Issue #82) - 合法手ハイライトより優先
-        isForbiddenMate && "bg-red-400/60 ring-2 ring-inset ring-red-600",
+        isForbiddenMate && "bg-red-400/60 dark:bg-red-700/50 ring-2 ring-inset ring-red-600 dark:ring-red-400",
         // プレイヤーのターンでない・AI思考中は操作不可
         !canHover && !isCardTarget && "cursor-not-allowed",
-        // ホバー (グラデを 1 段明るくする差替え)
-        canHover && "shogi-board-square-bg-hover"
+        // ホバー (ライトは 1 段濃い、ダークは 1 段明るい単色に差替え)
+        canHover && "hover:bg-[#f0d9bc] dark:hover:bg-[#1a1aa0]"
       )}
       style={{ width: cellWidth, height: cellHeight }}
     >
       {/* 星目（中央3×3四隅の交差点） */}
       {isStarPoint && (
         <div
-          className="absolute z-10 rounded-full bg-black/80 pointer-events-none"
+          className="absolute z-10 rounded-full bg-black/80 dark:bg-white/80 pointer-events-none"
           style={{
             width: Math.max(4, cellWidth * 0.08),
             height: Math.max(4, cellWidth * 0.08),
@@ -339,7 +341,7 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
           data-shogi-board-grid="1"
           role="grid"
           aria-label="将棋盤"
-          className="grid border border-black bg-black/60 relative"
+          className="grid border border-white bg-white/60 relative"
           style={{
             gridTemplateColumns: `repeat(9, ${cellSize.width}px)`,
             gridTemplateRows: `repeat(9, ${cellSize.height}px)`,

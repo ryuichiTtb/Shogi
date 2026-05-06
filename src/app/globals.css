@@ -1060,14 +1060,3 @@
     #000000;
 }
 
-/* Issue #155 派生: 将棋盤マスの統一カラー (light/dark を分けず 1 つに統合)。
- * 暗めの濃い茶色 (#6b4520) で「檜の威厳」を演出する。グラデを使うと選択時の
- * Tailwind bg-blue-200 (= background-color) を background-image が覆ってしまう
- * 問題があったため単色に戻している。ホバー時は 1 段明るい単色 (#7d5630) に
- * 切替えるだけで、background-image は使わない。 */
-.shogi-board-square-bg {
-  background-color: #6b4520;
-}
-.shogi-board-square-bg-hover:hover {
-  background-color: #7d5630;
-}
