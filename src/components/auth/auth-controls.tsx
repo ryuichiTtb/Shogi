@@ -69,7 +69,7 @@ function ClerkAuthControls({
     if (slot === "signInOnly" && variant === "home") {
       return <div className="h-8 w-20" aria-hidden />;
     }
-    return <div className="h-7 w-7" aria-hidden />;
+    return <div className="h-6 w-6" aria-hidden />;
   }
 
   // signInOnly: 未ログイン時のみ「ログイン」ボタン。それ以外は何も出さない。
@@ -83,7 +83,7 @@ function ClerkAuthControls({
     if (!isSignedIn) return null;
     return (
       <div className="inline-flex items-center">
-        {variant === "home" ? <UserButton /> : <SignedInIndicator />}
+        {variant === "home" ? <HomeUserButton /> : <SignedInIndicator />}
       </div>
     );
   }
@@ -101,7 +101,7 @@ function ClerkAuthControls({
   // default + home: 旧挙動 (1 箇所にログイン状態に応じた UI)。テスト互換のため残す。
   return (
     <div className="inline-flex items-center">
-      {isSignedIn ? <UserButton /> : renderSignInButton(completeUrl)}
+      {isSignedIn ? <HomeUserButton /> : renderSignInButton(completeUrl)}
     </div>
   );
 }
@@ -130,13 +130,31 @@ function renderSignInButton(completeUrl: string) {
   );
 }
 
+// Issue #150: ホーム画面のログインアイコン。Clerk の UserButton をそのまま使うと
+// 緑 ring が無いため、外側 span で包んで他画面の SignedInIndicator と揃える。
+// avatarBox は Tailwind 文字列で h-6 w-6 (24px) に縮小し、ヘッダーやステータスバーで
+// 上下に見切れないようにする。クリック挙動は維持し、サインアウト導線が機能する。
+function HomeUserButton() {
+  return (
+    <span className="inline-flex rounded-full ring-2 ring-emerald-500 leading-none">
+      <UserButton
+        appearance={{
+          elements: {
+            avatarBox: "h-6 w-6",
+          },
+        }}
+      />
+    </span>
+  );
+}
+
 // Issue #150: ログイン状態を示すだけの非操作インジケーター。
 // Clerk の <UserButton> はクリックでメニューを開くため、他画面では使わない。
 // 画像取得失敗時はイニシャル付きのフォールバック円を表示する。
 function SignedInIndicator() {
   const { isLoaded, user } = useUser();
   if (!isLoaded || !user) {
-    return <div className="h-7 w-7" aria-hidden />;
+    return <div className="h-6 w-6" aria-hidden />;
   }
 
   const initial = (user.firstName?.[0] ?? user.username?.[0] ?? "U").toUpperCase();
@@ -145,8 +163,9 @@ function SignedInIndicator() {
     // Issue #150: 「アクティブ (ログイン中)」を視覚的に示すため、Teams のオンライン
     // インジケータと同系の緑色 ring を装飾する。色そのものに UI 上の操作性は
     // 持たせず、サインアウトはホーム画面の UserButton に集約。
+    // ring-offset は対局画面ヘッダーで上下が見切れる原因になるため付けない。
     <div
-      className="h-7 w-7 rounded-full overflow-hidden bg-muted ring-2 ring-emerald-500 ring-offset-1 ring-offset-background flex items-center justify-center text-[10px] font-semibold select-none"
+      className="h-6 w-6 rounded-full overflow-hidden bg-muted ring-2 ring-emerald-500 flex items-center justify-center text-[9px] font-semibold select-none"
       aria-label="ログイン中"
       title="ログイン中 (サインアウトはホーム画面から)"
     >
