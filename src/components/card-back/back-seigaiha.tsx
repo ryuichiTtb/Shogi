@@ -1,5 +1,6 @@
 // 案 B: 青海波 + 金箔
-//   - 水色ベース (sky-400 → sky-700 → sky-950) + 薄ゴールド線の青海波パターン全面リピート (静止)
+//   - 水色ベース (sky-700 → sky-900 → sky-950) + 薄ゴールド線の青海波パターン全面リピート (静止)
+//     初版 (sky-400 起点) は明るすぎたため、深い海の水色寄りに調整。
 //   - 中央: 駒シルエット (末広がり、文字なし)
 //   - 装飾(枠): 内側ゴールド細枠 + 四隅菱形 (A/D 案と統一感)
 //   - アニメ: 左→右の sheen (光沢)
@@ -26,7 +27,7 @@ export function CardBackSeigaiha({ size = "md", fullWidth = false, className }: 
     <div
       className={cn(
         "relative overflow-hidden rounded-md border-2 border-amber-400/70 shrink-0",
-        "bg-gradient-to-br from-sky-400 via-sky-700 to-sky-950",
+        "bg-gradient-to-br from-sky-700 via-sky-900 to-sky-950",
         sizeCls,
         className,
       )}
