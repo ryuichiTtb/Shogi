@@ -100,7 +100,7 @@ export default function LoadingPreviewPage() {
             show={overlayOpen}
             card
             stages={LOADING_STAGES.deckSaving}
-            progress={{ kind: "indeterminate" }}
+            progress
           />
         </div>
       </section>

@@ -309,7 +309,7 @@ export function MatchSetup({ mode }: MatchSetupProps) {
         fullScreen
         card
         stages={LOADING_STAGES.matchSetup}
-        progress={{ kind: "indeterminate" }}
+        progress
         message={pendingLabel ?? "読み込み中..."}
       />
     </div>

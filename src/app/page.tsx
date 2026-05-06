@@ -158,7 +158,7 @@ export default function Home() {
           fullScreen
           card
           stages={pendingStages ?? undefined}
-          progress={{ kind: "indeterminate" }}
+          progress
         />
       </main>
     </PageMotion>

@@ -29,8 +29,9 @@ interface LoadingOverlayProps {
   // ステージ文言を順送りで表示。省略時は message を 1 行表示。
   stages?: readonly string[];
   stageIntervalMs?: number;
-  // indeterminate プログレスバーを下部に表示。省略時は非表示。
-  progress?: { kind: "indeterminate" };
+  // true で擬似進捗 (0 → 95% 減速接近) のプログレスバーを下部に表示。
+  // 省略・false なら非表示。実際の進捗値は取れないため、時間ベース演出。
+  progress?: boolean;
 }
 
 // 共通ローディングマスク。半透明背景 + backdrop-blur で背面の視認性を残しつつ、
@@ -48,7 +49,7 @@ export function LoadingOverlay({
   if (!show) return null;
 
   const showCard = card === true;
-  const showProgress = progress !== undefined;
+  const showProgress = progress === true;
   const showStages = stages !== undefined && stages.length > 0;
 
   return (

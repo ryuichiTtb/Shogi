@@ -42,7 +42,7 @@ export function DeckEditorSkeleton() {
         show
         card
         stages={LOADING_STAGES.deckLoading}
-        progress={{ kind: "indeterminate" }}
+        progress
       />
     </div>
   );

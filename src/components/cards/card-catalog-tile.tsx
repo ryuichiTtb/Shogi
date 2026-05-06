@@ -60,7 +60,7 @@ export function CardCatalogTile({ def }: CardCatalogTileProps) {
         fullScreen
         card
         stages={LOADING_STAGES.cardDetail}
-        progress={{ kind: "indeterminate" }}
+        progress
       />
     </>
   );

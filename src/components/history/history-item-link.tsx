@@ -79,7 +79,7 @@ export function HistoryItemLink({ href, children, className }: HistoryItemLinkPr
         fullScreen
         card
         stages={LOADING_STAGES.gameRestore}
-        progress={{ kind: "indeterminate" }}
+        progress
       />
     </>
   );

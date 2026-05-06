@@ -421,7 +421,7 @@ export function DeckEditorPane({
         show={isPending}
         card
         stages={LOADING_STAGES.deckSaving}
-        progress={{ kind: "indeterminate" }}
+        progress
       />
     </>
   );
