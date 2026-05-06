@@ -337,18 +337,16 @@ export function CardShogiGame({
   const displayInCheck = inCheck && !isDoubleMoveSelfCheckTransient;
 
   // ----- サウンド -----
-  // Issue #155: 履歴復元時の演出再発火を抑止する初回マウントガード。
-  // shogi-game.tsx と同じ方式で、各 useEffect に専用 ref を持たせ初回マウント時の
-  // 副作用 (駒音・王手・詰み・投了・対局開始演出) をスキップする。
-  const skipMoveSfxRef = useRef(true);
-  const skipResignFxRef = useRef(true);
-  const skipGameStartFxRef = useRef(true);
+  // Issue #155: 履歴復元時の演出再発火を抑止する。
+  // shogi-game.tsx と同じ「前回値追跡」パターン (StrictMode 二重 effect でも
+  // 安全)。詳細は shogi-game.tsx のコメント参照。
+  const lastMoveCountRef = useRef(gameState.moveCount);
+  const lastStatusRef = useRef(gameState.status);
+  const gameStartFiredRef = useRef(false);
 
   useEffect(() => {
-    if (skipMoveSfxRef.current) {
-      skipMoveSfxRef.current = false;
-      return;
-    }
+    if (lastMoveCountRef.current === gameState.moveCount) return;
+    lastMoveCountRef.current = gameState.moveCount;
     const lastMove = gameState.moveHistory[gameState.moveHistory.length - 1];
     if (!lastMove) return;
     if (lastMove.type === "drop") {
@@ -375,10 +373,8 @@ export function CardShogiGame({
   }, [gameState.moveCount]);
 
   useEffect(() => {
-    if (skipResignFxRef.current) {
-      skipResignFxRef.current = false;
-      return;
-    }
+    if (lastStatusRef.current === gameState.status) return;
+    lastStatusRef.current = gameState.status;
     if (gameState.status === "resign") {
       playSfx("game_over");
       setOverlayEvent({ event: "resign", key: Date.now() });
@@ -386,13 +382,13 @@ export function CardShogiGame({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState.status]);
 
-  // ゲーム開始演出。新規対局 (status: "active" + moveCount === 0) の初回マウント
-  // 時のみ実演出を出す。履歴から終局済 / 途中対局を復元した場合はスキップ。
+  // ゲーム開始演出。新規対局 (status: "active" + moveCount === 0) のときに
+  // 1 度だけ実演出を出す。履歴復元時はフラグを立てずに完全スキップ。
   useEffect(() => {
     if (!isReady) return;
-    if (!skipGameStartFxRef.current) return;
-    skipGameStartFxRef.current = false;
+    if (gameStartFiredRef.current) return;
     if (gameState.status !== "active" || gameState.moveCount !== 0) return;
+    gameStartFiredRef.current = true;
     playSfx("game_start");
     setOverlayEvent({ event: "game_start", key: Date.now() });
     setTimeout(() => handleComment("game_start"), 500);
