@@ -88,30 +88,16 @@ interface LoadingCardVisualProps {
   forcePieceType?: LoadingFacePieceType;
 }
 
-// 檜 (ひのき) の心材を意識した硬い質感。border は引き締まった こげ茶、
-// inner は単色フォールバック値、innerGradient で SVG linearGradient による
-// 金属ツヤを駒に重ねる (KomaShape の metallic と同方式: 左上 → 右下の
-// 4 stop。「明るい金茶 → 中明檜 → 中暗檜 → 黒寄り」で凹凸感を出す)。
-const LOADING_PIECE_COLOR_OVERRIDE = {
-  border: "#4a2e15",
-  inner: "#a86d3b",
-  innerGradient: [
-    { offset: "0%",   color: "#fcd9a0" }, // 左上ハイライト: 明るい金茶
-    { offset: "30%",  color: "#c08a4a" }, // 中明: 金茶
-    { offset: "60%",  color: "#8b5526" }, // 中暗: 檜茶
-    { offset: "100%", color: "#2b1808" }, // 右下シャドウ: 黒寄り
-  ],
-} as const;
-
 // 表面: 裏面と同じ「金フレーム + 中央スポット + 中央駒」の世界観を保ちつつ、
 // 背景は loading-card-face-bg (完全な黒地 + 中央楕円の白スポット) で漆 (minimal)
-// とは別パターンに差別化する。
+// とは別パターンに差別化する。中央駒の色は ShogiPiece デフォルト (檜木グラデ +
+// こげ茶 border) をそのまま使い、対局画面とローディング表面で同じ駒の世界観に
+// 統一している (Issue #155 派生)。
 //   - 外枠: amber-400/70 の border-2
 //   - 内枠: 内側 3px 位置に amber-300/35 の細枠
 //   - 四隅: amber-300/70 の菱形 (45° 回転した小正方形)
 //   - 背景: loading-card-face-bg (globals.css の専用 class)
-//   - 中央: ランダム駒シルエット (ShogiPiece = 五角形 SVG 枠 + yuji-boku 漢字、
-//     色は檜木調にオーバーライド)。
+//   - 中央: ランダム駒シルエット (ShogiPiece + 正式名称の縦書き)
 function LoadingCardFace({ pieceType }: LoadingCardFaceProps) {
   return (
     <div
@@ -130,13 +116,12 @@ function LoadingCardFace({ pieceType }: LoadingCardFaceProps) {
       <span className="absolute top-1 right-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
       <span className="absolute bottom-1 left-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
       <span className="absolute bottom-1 right-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
-      {/* 中央: ランダム駒シルエット (檜木調 + 金属ツヤ + 正式名称の縦書き) */}
+      {/* 中央: ランダム駒シルエット (ShogiPiece デフォルト檜木グラデ + 正式名称縦書き) */}
       <div className="absolute inset-0 flex items-center justify-center">
         <div className="h-[78%] aspect-[5/6]">
           <ShogiPiece
             piece={{ type: pieceType, owner: "sente" }}
             isLarge
-            colorOverride={LOADING_PIECE_COLOR_OVERRIDE}
             kanjiOverride={LOADING_FACE_PIECE_LABEL[pieceType]}
           />
         </div>

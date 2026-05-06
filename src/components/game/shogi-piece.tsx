@@ -42,16 +42,6 @@ interface ShogiPieceProps {
 // 五角形の頂点座標（viewBox 0 0 100 100 基準）
 const POLYGON_POINTS = "50,0 96,22 100,100 0,100 4,22";
 
-// 大駒（飛・角）とその成り駒
-const MAJOR_PIECES = new Set(["rook", "bishop", "promoted_rook", "promoted_bishop"]);
-
-// 枠線が太い駒（銀・金・飛・角・王 およびその成り駒）
-const THICK_BORDER_PIECES = new Set([
-  "silver", "gold", "rook", "bishop", "king",
-  "promoted_rook", "promoted_bishop", "promoted_silver",
-  "promoted_lance", "promoted_knight", "promoted_pawn",
-]);
-
 // 字が太い駒（飛・角・王 およびその成り駒）
 const BOLD_FONT_PIECES = new Set([
   "rook", "bishop", "king",
@@ -73,23 +63,34 @@ function isPromoted(type: string): boolean {
   return type.startsWith("promoted_");
 }
 
-// 駒種別の色設定（枠色・内側色）
-function getPieceColors(type: string): { border: string; inner: string } {
-  if (type === "king") {
-    return { border: "#5c3a1e", inner: "#d4a96a" }; // Eパターン: 濃め
-  }
-  if (MAJOR_PIECES.has(type)) {
-    return { border: "#7a5c1e", inner: "#e8c87a" }; // Cパターン: 中濃
-  }
-  return { border: "#8b5e3c", inner: "#f5deb3" };   // Aパターン: 薄め
-}
+// Issue #155 派生: 対局画面の駒塗りを「檜木調 + 金属グラデ」で統一する。
+//   - 旧 getPieceColors の king/大駒/通常 3 段階配色は撤去 (識別性は文字・字の太さで補う)。
+//   - LoadingCardFace と完全に同じ stops を使い、ローディングと対局でカードと駒の世界観を一致させる。
+//   - 王手 (isInCheck) / 選択 (isSelected) は gradient OFF にせず、赤系・青系の stops に
+//     差替えて gradient を保つ。これにより質感 (左上ハイライト → 右下シャドウ) が保たれる。
+export const DEFAULT_PIECE_GRADIENT: readonly ShogiPieceFillStop[] = [
+  { offset: "0%",   color: "#fcd9a0" }, // 左上: 明るい金茶ハイライト
+  { offset: "30%",  color: "#c08a4a" }, // 中明: 金茶
+  { offset: "60%",  color: "#8b5526" }, // 中暗: 檜茶
+  { offset: "100%", color: "#2b1808" }, // 右下: 黒寄りシャドウ
+];
+export const DEFAULT_PIECE_BORDER = "#4a2e15";
 
-// 駒種に応じたサイズ比率
-function getPieceSizeRatio(type: string): number {
-  if (SMALL_PIECES.has(type)) return 0.85;
-  if (MEDIUM_PIECES.has(type)) return 0.90;
-  return 1.0;
-}
+const IN_CHECK_GRADIENT: readonly ShogiPieceFillStop[] = [
+  { offset: "0%",   color: "#fef2f2" },
+  { offset: "30%",  color: "#fca5a5" },
+  { offset: "60%",  color: "#dc2626" },
+  { offset: "100%", color: "#7f1d1d" },
+];
+const IN_CHECK_BORDER = "#7f1d1d";
+
+const SELECTED_GRADIENT: readonly ShogiPieceFillStop[] = [
+  { offset: "0%",   color: "#eff6ff" },
+  { offset: "30%",  color: "#93c5fd" },
+  { offset: "60%",  color: "#2563eb" },
+  { offset: "100%", color: "#1e3a8a" },
+];
+const SELECTED_BORDER = "#1e3a8a";
 
 export const ShogiPiece = memo(function ShogiPiece({
   piece,
@@ -108,20 +109,31 @@ export const ShogiPiece = memo(function ShogiPiece({
   const promoted = isPromoted(piece.type);
   // playerColor が渡された場合は「相手の駒を回転」、未指定時は後手駒を回転（後方互換）
   const isGote = playerColor ? piece.owner !== playerColor : piece.owner === "gote";
-  const colors = colorOverride ?? getPieceColors(piece.type);
   const isBoldFont = BOLD_FONT_PIECES.has(piece.type);
 
-  const borderColor = isInCheck ? "#ef4444" : isSelected ? "#3b82f6" : colors.border;
-  const fillColor   = isInCheck ? "#fee2e2" : isSelected ? "#dbeafe" : colors.inner;
+  // 通常時の駒塗り: colorOverride 不指定なら「檜木調グラデ」を使う (LoadingCardFace と同じ)。
+  // 王手・選択は gradient を OFF にせず、赤・青系 stops に差替えて gradient を保つ。
+  const baseGradient = colorOverride?.innerGradient ?? DEFAULT_PIECE_GRADIENT;
+  const baseBorder = colorOverride?.border ?? DEFAULT_PIECE_BORDER;
+  const activeGradient = isInCheck
+    ? IN_CHECK_GRADIENT
+    : isSelected
+      ? SELECTED_GRADIENT
+      : baseGradient;
+  const borderColor = isInCheck
+    ? IN_CHECK_BORDER
+    : isSelected
+      ? SELECTED_BORDER
+      : baseBorder;
+
   // strokeWidth の半分が外側にはみ出すため viewBox に 3px のマージンを確保
   const strokeWidth = 1.5;
 
-  // 金属グラデ用の SVG defs id (同一ページで複数描画される場合の id 衝突回避)。
-  // hooks 規則により条件分岐内で呼べないため、gradient 不使用時も呼んでおく。
+  // SVG defs id (同一ページで複数描画される場合の id 衝突回避)。各 ShogiPiece が
+  // 独自の useId() を呼ぶことで盤上 40 駒 + 持ち駒の各 linearGradient が
+  // 衝突しない。
   const uid = useId();
   const gradientId = `piece-grad-${uid}`;
-  const useGradient =
-    !isInCheck && !isSelected && !!colorOverride?.innerGradient?.length;
 
   // フォントサイズの計算。複数文字 (例: "香車") のときは縦書きにし、
   // 1 文字目安より小さく (約 65%) して駒シルエットに収まるよう調整する。
@@ -158,32 +170,25 @@ export const ShogiPiece = memo(function ShogiPiece({
     >
       {/* 盤上サイズ調整用のラッパー（isSmall 時は不要） */}
       <div className={cn("relative", isSmall ? "w-full h-full" : sizeClass)}>
-        {/* SVG で五角形を描画（stroke が辺に沿って均一な枠線になる） */}
+        {/* SVG で五角形を描画（stroke が辺に沿って均一な枠線になる）。
+            常に linearGradient を使って塗る (通常: 檜木調 / 王手: 赤系 /
+            選択: 青系)。KomaShape (metallic) と同じ左上 → 右下の斜めグラデ
+            方向で「ハイライト → 中間 → シャドウ」の流れを駒に重ねる。 */}
         <svg
           viewBox="-3 -3 106 106"
           preserveAspectRatio="none"
           className="absolute inset-0 w-full h-full hover:brightness-90 transition-all duration-150"
         >
-          {useGradient && colorOverride?.innerGradient && (
-            <defs>
-              {/* 左上 → 右下の斜めグラデ。KomaShape (metallic) と同方向で
-                  「ハイライト → 中間 → シャドウ」の流れを駒に重ねる。 */}
-              <linearGradient
-                id={gradientId}
-                x1="0.15"
-                y1="0"
-                x2="0.85"
-                y2="1"
-              >
-                {colorOverride.innerGradient.map((stop, i) => (
-                  <stop key={i} offset={stop.offset} stopColor={stop.color} />
-                ))}
-              </linearGradient>
-            </defs>
-          )}
+          <defs>
+            <linearGradient id={gradientId} x1="0.15" y1="0" x2="0.85" y2="1">
+              {activeGradient.map((stop, i) => (
+                <stop key={i} offset={stop.offset} stopColor={stop.color} />
+              ))}
+            </linearGradient>
+          </defs>
           <polygon
             points={POLYGON_POINTS}
-            fill={useGradient ? `url(#${gradientId})` : fillColor}
+            fill={`url(#${gradientId})`}
             stroke={borderColor}
             strokeWidth={strokeWidth}
             strokeLinejoin="round"
