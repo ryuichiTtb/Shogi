@@ -10,7 +10,7 @@ import type {
 } from "@/lib/shogi/types";
 import { moveToNotation } from "@/lib/shogi/notation";
 import { getAiMove } from "@/app/actions/ai";
-import { updateGameStatus, saveCardShogiMove, undoCardShogiGameState, persistCardShogiState } from "@/app/actions/game";
+import { saveCardShogiMove, saveCardShogiResign, undoCardShogiGameState, persistCardShogiState } from "@/app/actions/game";
 
 import type { CardGameState } from "@/lib/shogi/cards/types";
 import { isValidCardTargetSquare } from "@/lib/shogi/cards/effects";
@@ -324,11 +324,29 @@ export function useCardShogiGame({
   }, []);
 
   const resign = useCallback(() => {
+    // Issue #155: DB 保存は dispatch 結果が反映された state を見て useEffect 経由で
+    // 行う (use-shogi-game.ts と同じ方式)。boardState + cardState を一緒に
+    // "resign" 状態で永続化するため saveCardShogiResign を使う。
     dispatch({ type: "RESIGN" });
+  }, []);
+
+  // Issue #155: 投了確定後の DB 保存 (card-shogi variant)。
+  //   - saveCardShogiResign で boardState (status: "resign" を含む) と
+  //     cardState (手札・マナ・トラップ等) を同時に永続化する。
+  //   - resignedRef で重複保存防止 (StrictMode の二重 effect 等への保険)。
+  //   - disableServerSync (テスト・モック用フラグ) は従来通り尊重する。
+  const resignedRef = useRef(false);
+  useEffect(() => {
+    if (state.gameState.status !== "resign") return;
+    if (resignedRef.current) return;
     if (disableServerSync) return;
-    const winner: Player = state.gameState.currentPlayer === "sente" ? "gote" : "sente";
-    updateGameStatus(gameId, "resign", winner);
-  }, [state.gameState.currentPlayer, gameId, disableServerSync]);
+    resignedRef.current = true;
+    const winner = state.gameState.winner ?? "";
+    void saveCardShogiResign(gameId, state.gameState, state.cardState, winner);
+    // 依存配列を status に絞ることで status 不変ターンでの fire を抑止する。
+    // gameState / cardState は effect 内で closure の最新値を参照する。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.gameState.status, gameId, disableServerSync]);
 
   // Issue #132: 待った時に DB 側も巻き戻す。reducer dispatch は同期に state を更新しないため、
   // ref フラグを立てて next render の useEffect (後述) で post-UNDO state を確定後にサーバーアクションを呼ぶ。
