@@ -308,40 +308,42 @@ export default function SoundTunerDetailPage() {
                 </div>
               </>
             )}
-            {isOverridden && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleReset}
-                className="h-7 text-[11px] px-2 shrink-0"
-                title="デフォルトに戻す"
-              >
-                <RotateCcw className="w-3 h-3 sm:mr-1" />
-                <span className="hidden sm:inline">既定に戻す</span>
-              </Button>
-            )}
+            {/* 既定に戻す: 常時表示。override されていない時は非活性。 */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleReset}
+              disabled={!isOverridden}
+              className="h-7 text-[11px] px-2 shrink-0"
+              title={isOverridden ? "デフォルトに戻す" : "既にデフォルトを使用中"}
+            >
+              <RotateCcw className="w-3 h-3 sm:mr-1" />
+              <span className="hidden sm:inline">既定に戻す</span>
+            </Button>
           </div>
         </div>
       </header>
 
-      {/* ===== 2 カラムレイアウト (lg+ 横並び、それ以下は縦) ===== */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-6xl mx-auto px-4 py-3 grid gap-4 lg:grid-cols-[1fr_320px]">
-          {/* 左カラム: 音源プール (サブヘッダはスクロール時 sticky 固定) */}
-          <section className="flex flex-col gap-2 min-w-0 order-2 lg:order-1">
-            <div className="sticky top-0 z-[5] bg-background/95 backdrop-blur-sm flex items-center justify-between gap-2 py-2 px-1 border-b border-border/40">
-              <h2 className="text-sm font-bold text-muted-foreground truncate">
-                音源を選ぶ ({AUDIO_MANIFEST.poolUrls.length} 件 / {groups.length} フォルダ)
-              </h2>
-              <div className="flex gap-1 shrink-0">
-                <Button variant="outline" size="sm" onClick={expandAll} className="h-7 text-[11px] px-2">
-                  全展開
-                </Button>
-                <Button variant="outline" size="sm" onClick={collapseAll} className="h-7 text-[11px] px-2">
-                  全折りたたみ
-                </Button>
-              </div>
+      {/* ===== 2 カラムレイアウト (lg+ 横並び、それ以下は縦) =====
+          ・外側はスクロールなし。摸擬 UI とサブヘッダは固定配置。
+          ・スクロールは「音源を選ぶ」配下の groups 一覧のみで発生。 */}
+      <div className="flex-1 min-h-0 max-w-6xl w-full mx-auto px-4 py-3 flex flex-col lg:flex-row gap-4">
+        {/* 左カラム: 音源プール (サブヘッダ固定 + 一覧のみ縦スクロール) */}
+        <section className="flex flex-col gap-2 min-w-0 min-h-0 flex-1 order-2 lg:order-1">
+          <div className="shrink-0 flex items-center justify-between gap-2 pb-2 px-1 border-b border-border/40">
+            <h2 className="text-sm font-bold text-muted-foreground truncate">
+              音源を選ぶ ({AUDIO_MANIFEST.poolUrls.length} 件 / {groups.length} フォルダ)
+            </h2>
+            <div className="flex gap-1 shrink-0">
+              <Button variant="outline" size="sm" onClick={expandAll} className="h-7 text-[11px] px-2">
+                全展開
+              </Button>
+              <Button variant="outline" size="sm" onClick={collapseAll} className="h-7 text-[11px] px-2">
+                全折りたたみ
+              </Button>
             </div>
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2 pb-2">
             {groups.map((group) => {
               const isExpanded = expandedDirs.has(group.dir);
               const groupContainsAssigned = group.paths.includes(effectivePath);
@@ -441,56 +443,54 @@ export default function SoundTunerDetailPage() {
                 </Card>
               );
             })}
-          </section>
+          </div>
+        </section>
 
-          {/* 右カラム: 摸擬 UI (lg+ で sticky) */}
-          <aside className="flex flex-col gap-2 min-w-0 order-1 lg:order-2">
-            <div className="lg:sticky lg:top-2">
-              <Card className="p-4 flex flex-col items-center gap-3">
-                <div className="flex items-center justify-between w-full gap-2">
-                  <h2 className="text-sm font-bold text-muted-foreground shrink-0">摸擬操作</h2>
-                  {Mock && (
-                    <div className="flex items-center gap-2 shrink-0">
-                      <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={autoResetEnabled}
-                          onChange={(e) => setAutoResetEnabled(e.target.checked)}
-                          className="w-3.5 h-3.5 rounded accent-primary cursor-pointer"
-                        />
-                        自動リセット
-                      </label>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleMockReset}
-                        className="h-7 text-[11px] px-2"
-                        title="盤面をリセット"
-                      >
-                        <RotateCcw className="w-3 h-3 mr-1" />
-                        リセット
-                      </Button>
-                    </div>
-                  )}
+        {/* 右カラム: 摸擬 UI (固定配置、スクロールしない) */}
+        <aside className="shrink-0 lg:w-80 order-1 lg:order-2 min-w-0">
+          <Card className="p-4 flex flex-col items-center gap-3">
+            <div className="flex items-center justify-between w-full gap-2">
+              <h2 className="text-sm font-bold text-muted-foreground shrink-0">摸擬操作</h2>
+              {Mock && (
+                <div className="flex items-center gap-2 shrink-0">
+                  <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={autoResetEnabled}
+                      onChange={(e) => setAutoResetEnabled(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded accent-primary cursor-pointer"
+                    />
+                    自動リセット
+                  </label>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleMockReset}
+                    className="h-7 text-[11px] px-2"
+                    title="盤面をリセット"
+                  >
+                    <RotateCcw className="w-3 h-3 mr-1" />
+                    リセット
+                  </Button>
                 </div>
-                {Mock ? (
-                  <Mock key={mockResetKey} onTrigger={handleMockTrigger} />
-                ) : (
-                  <div className="text-[11px] text-muted-foreground text-center py-6 max-w-[240px]">
-                    このイベントの摸擬操作 UI は未実装です。
-                    <br />
-                    左の音源リストから ▶ プレビューで試聴できます。
-                  </div>
-                )}
-                {!effectivePath && Mock && (
-                  <div className="text-[11px] text-amber-700 dark:text-amber-400 text-center max-w-[240px]">
-                    音源未割当のため操作しても無音です。先に左から割り当ててください。
-                  </div>
-                )}
-              </Card>
+              )}
             </div>
-          </aside>
-        </div>
+            {Mock ? (
+              <Mock key={mockResetKey} onTrigger={handleMockTrigger} />
+            ) : (
+              <div className="text-[11px] text-muted-foreground text-center py-6 max-w-[240px]">
+                このイベントの摸擬操作 UI は未実装です。
+                <br />
+                左の音源リストから ▶ プレビューで試聴できます。
+              </div>
+            )}
+            {!effectivePath && Mock && (
+              <div className="text-[11px] text-amber-700 dark:text-amber-400 text-center max-w-[240px]">
+                音源未割当のため操作しても無音です。先に左から割り当ててください。
+              </div>
+            )}
+          </Card>
+        </aside>
       </div>
     </main>
   );
