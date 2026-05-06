@@ -50,6 +50,7 @@ import { CardPlayDialog, CardTargetingNotice } from "./card-play-dialog";
 import { DoubleMoveNotice } from "./double-move-notice";
 import { ForbiddenMateDialog } from "./forbidden-mate-dialog";
 import { DrawFlightCard } from "./draw-flight-card";
+import { DRAW_FADE_IN_MS } from "./animation-constants";
 import { AutoDrawBurst } from "./auto-draw-burst";
 import { CardPlayFlight } from "./card-play-flight";
 import { PieceFlight, type PieceFlightSpec } from "./piece-flight";
@@ -506,6 +507,13 @@ export function CardShogiGame({
           const isSelf = ev.player === playerColor;
           if (isSelf) {
             playSfx("card_draw");
+            // Issue #79: 中央表示タイミング (T=DRAW_FADE_IN_MS = 500ms) で
+            // レア度別 draw_card_open SE を発火。default 未割当なら playSfx 内で skip。
+            const rarity = CARD_DEFS[ev.instance.defId].rarity;
+            scheduleTimer(
+              () => playSfx(`draw_card_open_${rarity}` as never),
+              DRAW_FADE_IN_MS,
+            );
             setDrawFlightQueue((q) => [
               ...q,
               { card: ev.instance, source, key: nextFlightKey() },
@@ -610,7 +618,8 @@ export function CardShogiGame({
           }
           break;
         case "trapSetEvent": {
-          playSfx("card_play");
+          // Issue #79: トラップセットは固有 SE (旧 card_play 流用は廃止)
+          playSfx("trap_set");
           const def = CARD_DEFS[ev.instance.defId];
           if (def.cost > 0) {
             triggerManaFlight(-def.cost, getOriginRect(ev.instance.instanceId));
@@ -890,6 +899,8 @@ export function CardShogiGame({
     const item = currentDrawFlight;
     setDrawFlightQueue((q) => q.slice(1));
     finalizeDraw();
+    // Issue #79: ドローカードが手札に着地した瞬間の SE
+    playSfx("card_to_hand");
     if (item) {
       const id = item.card.instanceId;
       if (item.source === "auto") {
@@ -925,7 +936,7 @@ export function CardShogiGame({
         });
       });
     }
-  }, [currentDrawFlight, finalizeDraw, scheduleTimer]);
+  }, [currentDrawFlight, finalizeDraw, scheduleTimer, playSfx]);
 
   // ----- レイアウト用ヘルパ -----
 
