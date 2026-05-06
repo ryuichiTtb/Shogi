@@ -48,21 +48,30 @@ interface LoadingCardFaceProps {
   pieceType: PieceType;
 }
 
-// 表面: 裏面 (CardBackMinimal) と意図的に同じ枠デザインを採用し、回転して
-// 表に出てきたときに違和感がないよう揃える。
+// 檜 (ひのき) の心材を意識した、硬く落ち着いた茶色。標準将棋盤上の駒色 (薄い
+// ベージュ系) より明確に濃く、黒背景にも埋もれない明度を保つようチューニング。
+//   - inner: #a86d3b (濃い檜茶。中央スポットの白光と相互作用してふんわり浮き上がる)
+//   - border: #4a2e15 (こげ茶。標準 king (#5c3a1e) より一段濃く、引き締まった輪郭)
+const LOADING_PIECE_COLOR_OVERRIDE = {
+  border: "#4a2e15",
+  inner: "#a86d3b",
+} as const;
+
+// 表面: 裏面と同じ「金フレーム + 中央スポット + 中央駒」の世界観を保ちつつ、
+// 背景は loading-card-face-bg (完全な黒地 + 中央楕円の白スポット) で漆 (minimal)
+// とは別パターンに差別化する。
 //   - 外枠: amber-400/70 の border-2
 //   - 内枠: 内側 3px 位置に amber-300/35 の細枠
 //   - 四隅: amber-300/70 の菱形 (45° 回転した小正方形)
-//   - 背景: card-back-mock-minimal-bg (黒ベース + 中央寄り白ハイライトの
-//     ラジアルグラデ。globals.css 側で定義済み)。意図的に裏面と CSS class を
-//     共有し、外観の一体感を保つ。
-//   - 中央: ランダム駒シルエット (ShogiPiece = 五角形 SVG 枠 + yuji-boku 漢字)。
+//   - 背景: loading-card-face-bg (globals.css の専用 class)
+//   - 中央: ランダム駒シルエット (ShogiPiece = 五角形 SVG 枠 + yuji-boku 漢字、
+//     色は檜木調にオーバーライド)。
 function LoadingCardFace({ pieceType }: LoadingCardFaceProps) {
   return (
     <div
       className={cn(
         "relative w-full h-full overflow-hidden rounded-md border-2",
-        "border-amber-400/70 card-back-mock-minimal-bg",
+        "border-amber-400/70 loading-card-face-bg",
       )}
     >
       {/* 内側の細枠 (ゴールド) */}
@@ -75,10 +84,14 @@ function LoadingCardFace({ pieceType }: LoadingCardFaceProps) {
       <span className="absolute top-1 right-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
       <span className="absolute bottom-1 left-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
       <span className="absolute bottom-1 right-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
-      {/* 中央: ランダム駒シルエット */}
+      {/* 中央: ランダム駒シルエット (檜木調にオーバーライド) */}
       <div className="absolute inset-0 flex items-center justify-center">
         <div className="h-[78%] aspect-[5/6]">
-          <ShogiPiece piece={{ type: pieceType, owner: "sente" }} isLarge />
+          <ShogiPiece
+            piece={{ type: pieceType, owner: "sente" }}
+            isLarge
+            colorOverride={LOADING_PIECE_COLOR_OVERRIDE}
+          />
         </div>
       </div>
     </div>

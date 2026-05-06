@@ -14,6 +14,10 @@ interface ShogiPieceProps {
   playerColor?: Player;
   onClick?: () => void;
   squareSize?: number;
+  // Issue #155: 駒の色 (枠・内側) を上書きする。ローディング演出のように
+  // 通常対局とは異なる雰囲気で描画したい用途で使用。未指定時は従来通り
+  // getPieceColors の駒種別配色を使う。
+  colorOverride?: { border: string; inner: string };
 }
 
 // 五角形の頂点座標（viewBox 0 0 100 100 基準）
@@ -77,12 +81,13 @@ export const ShogiPiece = memo(function ShogiPiece({
   playerColor,
   onClick,
   squareSize,
+  colorOverride,
 }: ShogiPieceProps) {
   const kanji = getPieceKanji(piece.type);
   const promoted = isPromoted(piece.type);
   // playerColor が渡された場合は「相手の駒を回転」、未指定時は後手駒を回転（後方互換）
   const isGote = playerColor ? piece.owner !== playerColor : piece.owner === "gote";
-  const colors = getPieceColors(piece.type);
+  const colors = colorOverride ?? getPieceColors(piece.type);
   const isBoldFont = BOLD_FONT_PIECES.has(piece.type);
 
   const borderColor = isInCheck ? "#ef4444" : isSelected ? "#3b82f6" : colors.border;
