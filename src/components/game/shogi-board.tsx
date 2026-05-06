@@ -110,35 +110,35 @@ const BoardSquare = memo(function BoardSquare({
       className={cn(
         "shogi-square relative flex items-center justify-center",
         "cursor-pointer",
-        // Issue #155 派生: 通常背景。Tailwind の任意値で書くことで bg-X 系の
-        // ハイライトが自然に上書きする (CSS class 経由だと utility より優先度が
-        // 高くなりハイライトが効かない問題があったため)。
-        // ライト: antiquewhite (#FAEBD7) / ダーク: darkblue (#00008B)
-        "bg-[antiquewhite] dark:bg-[darkblue]",
+        // Issue #155 派生: 盤面色は light/dark 統一の 1 色 (antiquewhite)。
+        // dark バリアントを全撤去し、ダークモード時もライトテーマ相当の見た目で
+        // 揃える (ユーザ要望)。Tailwind 任意値で書くことで bg-X 系のハイライト
+        // utility が自然に上書きする。
+        "bg-[antiquewhite]",
         // 直前の手（移動前・移動後）
-        isLastMoveSq && !isSelected && "bg-emerald-200 dark:bg-emerald-800/60",
+        isLastMoveSq && !isSelected && "bg-emerald-200",
         // 王手中の王
-        isKingInCheck && "bg-red-300 dark:bg-red-800/70",
+        isKingInCheck && "bg-red-300",
         // 選択マス
-        isSelected && "bg-blue-200 dark:bg-blue-800/60",
+        isSelected && "bg-blue-200",
         // 合法手ハイライト (空きマス: 青、駒があるマス: 赤)
-        isLegalTarget && !piece && "bg-blue-200/70 dark:bg-blue-700/40",
-        isLegalTarget && piece && "bg-red-200/70 dark:bg-red-700/40",
+        isLegalTarget && !piece && "bg-blue-200/70",
+        isLegalTarget && piece && "bg-red-200/70",
         // カード効果のターゲット候補(歩戻し等) - 既存の合法手ハイライトより優先
-        isCardTarget && "bg-amber-300/80 dark:bg-amber-500/40 ring-2 ring-inset ring-amber-500 dark:ring-amber-300 animate-pulse",
+        isCardTarget && "bg-amber-300/80 ring-2 ring-inset ring-amber-500 animate-pulse",
         // 二手指し 2手目で禁止された詰み手 (Issue #82) - 合法手ハイライトより優先
-        isForbiddenMate && "bg-red-400/60 dark:bg-red-700/50 ring-2 ring-inset ring-red-600 dark:ring-red-400",
+        isForbiddenMate && "bg-red-400/60 ring-2 ring-inset ring-red-600",
         // プレイヤーのターンでない・AI思考中は操作不可
         !canHover && !isCardTarget && "cursor-not-allowed",
-        // ホバー (ライトは 1 段濃い、ダークは 1 段明るい単色に差替え)
-        canHover && "hover:bg-[#f0d9bc] dark:hover:bg-[#1a1aa0]"
+        // ホバー (1 段濃い単色に差替え)
+        canHover && "hover:bg-[#f0d9bc]"
       )}
       style={{ width: cellWidth, height: cellHeight }}
     >
       {/* 星目（中央3×3四隅の交差点） */}
       {isStarPoint && (
         <div
-          className="absolute z-10 rounded-full bg-black/80 dark:bg-white/80 pointer-events-none"
+          className="absolute z-10 rounded-full bg-black/80 pointer-events-none"
           style={{
             width: Math.max(4, cellWidth * 0.08),
             height: Math.max(4, cellWidth * 0.08),
