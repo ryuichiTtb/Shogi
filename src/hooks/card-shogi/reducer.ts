@@ -50,7 +50,7 @@ import {
   moveNoPromoteMark,
   hasSameKindTrapPlaced,
 } from "@/lib/shogi/cards/effects";
-import { getUndoScope } from "./undo-policy";
+import { canUndoFromState } from "./undo-policy";
 
 export type ShogiAction =
   | { type: "SELECT_SQUARE"; pos: Position }
@@ -935,34 +935,21 @@ export function reducer(
     }
 
     case "UNDO": {
-      // Issue #82 (二手指し): 二手指し中は通常の「待った」を不可。
-      // 1手目戻しは UNDO_DOUBLE_MOVE_FIRST 専用アクションを使う。
-      if (state.doubleMove) return state;
-
-      // Issue #132: 待った = スナップショット復元方式 (旧: createInitialGameState + replay)。
-      // 旧実装はカード効果 (歩戻し / 駒戻し / 二歩指し / 王手崩し / no_promote / トラップ /
-      // 手札・山札・墓地) を moveHistory から再現できないため、UNDO 時に消失していた。
-      // また getUndoScope の 2 ターンスコープ走査が cardOp に到達する前に break するケースで、
-      // cardOp guard を素通りして UNDO が許可される結果、戻したはずの駒が盤上に復活する事象も発生。
-      // スナップショット方式は state 全量を保持するため、scope-bounds の漏れに依存せず常に正しく復元する。
+      // Issue #149: 待った可否ガードを undo-policy.canUndoFromState() に集約。
+      // ガード条件 (二手指し中除外 / moveHistory >= 2 / undoSnapshots >= 2 / pendingCard なし /
+      //  getUndoScope 非 null) の単一情報源化により、UI 側の canUndo memo と
+      // reducer 側のガードが分裂してズレることを構造的に防ぐ (旧バグ: 1 回 UNDO 直後に
+      // ボタン活性のまま無反応 = reducer 側のみ undoSnapshots 不足を検知していた事象)。
       //
-      // 復元手順:
-      // 1. ring に 2 件以上の snapshot がある (= 直近 2 ply 分) こと
-      // 2. cardOp guard (getUndoScope) は引き続き保持。これは「カード操作直後はその効果を
-      //    取り消せない (= カード使用は確定アクション)」という仕様 UX を維持するため。
-      //    snapshot 自体はカード効果も保持しているので、guard を外すと「カード後の自分の手だけ
-      //    取り消し」が可能になり、cardOp 直後は「カードを残しつつ移動だけ取り消し」できてしまう。
-      //    UI の canUndo memo と整合させるため guard は維持する。
-      // 3. snapshots[0] (= 2 ply 前の状態) を gameState/cardState/eventLog に丸ごと適用
-      // 4. ring を空に戻し、UI 一時 state・演出フラグをすべてクリア
+      // Issue #132 仕様 (待った = スナップショット復元方式) は維持:
+      // - snapshots[0] (= 2 ply 前) を gameState/cardState/eventLog に丸ごと適用
+      // - ring を空に戻し、UI 一時 state・演出フラグをすべてクリア
+      // - リロード後 (undoSnapshots: []) は canUndoFromState で弾かれて待った不可
       //
-      // リロード後 (undoSnapshots: []) は条件 1 で弾かれて「待った 不可」となる。
-      // これは Issue #132 の仕様 (リロード直後はスナップショットがないため待った不可) 通り。
-      const history = state.gameState.moveHistory;
-      if (history.length < 2) return state;
-      if (state.undoSnapshots.length < 2) return state;
-      const scopeStartIndex = getUndoScope(state.eventLog);
-      if (scopeStartIndex === null) return state;
+      // cardOp guard (getUndoScope) を引き続き保持する理由は Issue #132 と同じ:
+      // 「カード使用は確定アクション。カード直後の手だけ取り消すことは UI 仕様上許可しない」
+      // ため、snapshot に カード効果が残っていても eventLog の scope 判定で block する。
+      if (!canUndoFromState(state)) return state;
 
       const target = state.undoSnapshots[state.undoSnapshots.length - 2];
       return {

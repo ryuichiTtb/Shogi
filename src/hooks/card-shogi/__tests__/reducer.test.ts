@@ -639,6 +639,66 @@ describe("reducer / UNDO", () => {
     const next = reducer(state, { type: "UNDO" });
     expect(next).toBe(state);
   });
+
+  // ===== Issue #149: 連続 UNDO の構造的ブロック (UI/reducer 判定統合) =====
+
+  it("Issue #149: 1 回 UNDO 直後の連続 UNDO は no-op (snapshot ring 枯渇による)", () => {
+    // 旧バグ: 1 回 UNDO 後、eventLog は 2 ply 前の状態に復元されるため getUndoScope は依然
+    // 非 null を返す。一方 undoSnapshots は slice(0,-2) で空になる。UI 側 canUndo memo は
+    // undoSnapshots の状態を見ていなかったため「ボタン活性表示のまま、押しても reducer が
+    // no-op で何も起きない」状態が発生していた。
+    //
+    // 本テストは「1 回目の UNDO は成功し、2 回目は state 不変 (no-op)」を検証する。
+    // ヘルパ集約 (canUndoFromState) で UI/reducer の判定を統一したことで、フックから返る
+    // canUndo も 2 回目で false になり、UI/reducer 双方で挙動が一致する (= ボタン非活性 +
+    // reducer no-op が同期する) ことが構造的に保証される。
+    const senteMove = {
+      type: "move" as const,
+      player: "sente" as const,
+      piece: "pawn",
+      from: { row: 6, col: 4 },
+      to: { row: 5, col: 4 },
+    };
+    const goteMove = {
+      type: "move" as const,
+      player: "gote" as const,
+      piece: "pawn",
+      from: { row: 2, col: 4 },
+      to: { row: 3, col: 4 },
+    };
+    const snap0Game = makeInitialState().gameState;
+    const snap1Game = { ...makeInitialState().gameState, moveHistory: [senteMove] };
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(),
+      gameState: {
+        ...makeInitialState().gameState,
+        moveHistory: [senteMove, goteMove],
+      },
+      eventLog: [
+        { kind: "moveEvent", move: senteMove, at: 0 },
+        { kind: "moveEvent", move: goteMove, at: 1 },
+      ],
+      undoSnapshots: [
+        { gameState: snap0Game, cardState: makeInitialCardState(), eventLog: [] },
+        {
+          gameState: snap1Game,
+          cardState: makeInitialCardState(),
+          eventLog: [{ kind: "moveEvent", move: senteMove, at: 0 }],
+        },
+      ],
+    };
+
+    // 1 回目: 成立して snapshot[0] (= 初期局面) に復元、ring は空になる
+    const after1st = reducer(state, { type: "UNDO" });
+    expect(after1st).not.toBe(state);
+    expect(after1st.undoSnapshots).toEqual([]);
+    expect(after1st.gameState.moveHistory).toEqual([]);
+
+    // 2 回目: ring が空なので canUndoFromState で false、reducer は state 不変
+    // (= 旧バグ「ボタン活性のまま無反応」を構造的に再発させない回帰防止)
+    const after2nd = reducer(after1st, { type: "UNDO" });
+    expect(after2nd).toBe(after1st);
+  });
 });
 
 describe("reducer / RESET_TURN_TIMER", () => {

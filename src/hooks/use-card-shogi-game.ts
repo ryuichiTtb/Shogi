@@ -19,6 +19,7 @@ import { isValidCardTargetSquare } from "@/lib/shogi/cards/effects";
 // reducer 関数本体) は src/hooks/card-shogi/reducer.ts に分離。本ファイルは
 // useReducer + useEffect + useCallback の薄いフックとして公開 API のみを担う。
 import { reducer } from "./card-shogi/reducer";
+import { canUndoFromState } from "./card-shogi/undo-policy";
 
 interface UseCardShogiGameOptions {
   initialState: GameState;
@@ -424,6 +425,9 @@ export function useCardShogiGame({
     promotionPendingMove: state.promotionPendingMove,
     cardState: state.cardState,
     eventLog: state.eventLog,
+    // Issue #149: 待った可能か (reducer 内部条件のみ)。UI 側で isPlayerTurn / isAiThinking と
+    // 合わせて最終判定する。undoSnapshots 自体は公開せず派生値のみ公開し API を最小化。
+    canUndo: canUndoFromState(state),
     selectSquare,
     selectHandPiece,
     confirmPromotion,
