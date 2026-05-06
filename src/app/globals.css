@@ -1061,20 +1061,13 @@
 }
 
 /* Issue #155 派生: 将棋盤マスの統一カラー (light/dark を分けず 1 つに統合)。
- * 旧実装は bg-amber-50 / dark:bg-amber-950 でモード別に大きく異なる色を当て
- * ていたが、ユーザ要望によりその中間 (中明檜茶) で統一し、対角線の linear
- * gradient で高級感のある木目調を演出する。
- * - 上左 (光が当たる側): #cda078 - 淡い檜茶 (駒色との対比を意識)
- * - 下右 (影側):       #a37a4d - 中濃の檜茶
- * 駒のデフォルトグラデ (#fef0c8 → #c89460) より一段濃く、駒が盤面から浮き
- * 立つコントラストを確保する。
- *
- * .shogi-board-square-bg-hover はホバー時にトーンを 1 段明るくする差替え。
- * filter: brightness を使うと選択状態の青/赤マスにも影響するため、背景画像
- * 自体を持つ別 class で切替える。 */
+ * 暗めの濃い茶色 (#6b4520) で「檜の威厳」を演出する。グラデを使うと選択時の
+ * Tailwind bg-blue-200 (= background-color) を background-image が覆ってしまう
+ * 問題があったため単色に戻している。ホバー時は 1 段明るい単色 (#7d5630) に
+ * 切替えるだけで、background-image は使わない。 */
 .shogi-board-square-bg {
-  background-image: linear-gradient(135deg, #cda078 0%, #a37a4d 100%);
+  background-color: #6b4520;
 }
 .shogi-board-square-bg-hover:hover {
-  background-image: linear-gradient(135deg, #ddb088 0%, #b48a5d 100%);
+  background-color: #7d5630;
 }

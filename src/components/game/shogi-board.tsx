@@ -110,25 +110,22 @@ const BoardSquare = memo(function BoardSquare({
       className={cn(
         "shogi-square relative flex items-center justify-center",
         "cursor-pointer",
-        // Issue #155 派生: 統一の中明檜茶グラデ (light/dark 分岐撤去)。
-        // ハイライト系 class が当たった場合は背景色が単色で上書きされ、グラデは
-        // 隠れる (Tailwind の bg-* は background-color を指定し、CSS では
-        // background-image を上書きしないため、念のため後段で background-image
-        // を打ち消したい場合は別途 [background-image:none] を併記する)。
+        // Issue #155 派生: 単色の濃い檜茶で統一 (light/dark 分岐撤去)。
+        // 単色 background-color のため、ハイライト系 (bg-X) が自然に上書きする。
         "shogi-board-square-bg",
         // 直前の手（移動前・移動後）
-        isLastMoveSq && !isSelected && "bg-emerald-200 [background-image:none]",
+        isLastMoveSq && !isSelected && "bg-emerald-200",
         // 王手中の王
-        isKingInCheck && "bg-red-300 [background-image:none]",
+        isKingInCheck && "bg-red-300",
         // 選択マス
-        isSelected && "bg-blue-200 [background-image:none]",
+        isSelected && "bg-blue-200",
         // 合法手ハイライト (空きマス: 青、駒があるマス: 赤)
-        isLegalTarget && !piece && "bg-blue-200/70 [background-image:none]",
-        isLegalTarget && piece && "bg-red-200/70 [background-image:none]",
+        isLegalTarget && !piece && "bg-blue-200/70",
+        isLegalTarget && piece && "bg-red-200/70",
         // カード効果のターゲット候補(歩戻し等) - 既存の合法手ハイライトより優先
-        isCardTarget && "bg-amber-300/80 [background-image:none] ring-2 ring-inset ring-amber-500 animate-pulse",
+        isCardTarget && "bg-amber-300/80 ring-2 ring-inset ring-amber-500 animate-pulse",
         // 二手指し 2手目で禁止された詰み手 (Issue #82) - 合法手ハイライトより優先
-        isForbiddenMate && "bg-red-400/60 [background-image:none] ring-2 ring-inset ring-red-600",
+        isForbiddenMate && "bg-red-400/60 ring-2 ring-inset ring-red-600",
         // プレイヤーのターンでない・AI思考中は操作不可
         !canHover && !isCardTarget && "cursor-not-allowed",
         // ホバー (グラデを 1 段明るくする差替え)

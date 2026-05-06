@@ -78,21 +78,16 @@ export const DEFAULT_PIECE_GRADIENT: readonly ShogiPieceFillStop[] = [
 ];
 export const DEFAULT_PIECE_BORDER = "#4a2e15";
 
-const IN_CHECK_GRADIENT: readonly ShogiPieceFillStop[] = [
-  { offset: "0%",   color: "#fef2f2" },
-  { offset: "30%",  color: "#fca5a5" },
-  { offset: "60%",  color: "#dc2626" },
-  { offset: "100%", color: "#7f1d1d" },
-];
+// 王手・選択時は枠線を専用色 (赤/青) に切替えて識別性を担保する。
+// 塗り (gradient) は base のまま、半透明の tint オーバーレイを polygon の上に
+// 重ねて色味を加算する方式。完全に色を差替えると「元の駒色」が失われ、青/赤
+// 一色の駒に見えてしまうため、ベースの檜木グラデは保つ。
 const IN_CHECK_BORDER = "#7f1d1d";
-
-const SELECTED_GRADIENT: readonly ShogiPieceFillStop[] = [
-  { offset: "0%",   color: "#eff6ff" },
-  { offset: "30%",  color: "#93c5fd" },
-  { offset: "60%",  color: "#2563eb" },
-  { offset: "100%", color: "#1e3a8a" },
-];
 const SELECTED_BORDER = "#1e3a8a";
+
+// 半透明オーバーレイ (alpha 0.4 で base 60% + tint 40% の混色感)。
+const IN_CHECK_TINT = "rgba(239, 68, 68, 0.4)";   // tailwind red-500 相当
+const SELECTED_TINT = "rgba(59, 130, 246, 0.4)";  // tailwind blue-500 相当
 
 export const ShogiPiece = memo(function ShogiPiece({
   piece,
@@ -112,20 +107,21 @@ export const ShogiPiece = memo(function ShogiPiece({
   // playerColor が渡された場合は「相手の駒を回転」、未指定時は後手駒を回転（後方互換）
   const isGote = playerColor ? piece.owner !== playerColor : piece.owner === "gote";
 
-  // 通常時の駒塗り: colorOverride 不指定なら「檜木調グラデ」を使う (LoadingCardFace と同じ)。
-  // 王手・選択は gradient を OFF にせず、赤・青系 stops に差替えて gradient を保つ。
+  // 駒塗りはベースの檜木グラデ (colorOverride.innerGradient ?? DEFAULT_PIECE_GRADIENT)。
+  // 王手・選択時もこのベースを保ち、半透明 tint を polygon 上に重ねて色味を加算する。
+  // borderColor のみ専用の赤・青に切替えて識別性を担保。
   const baseGradient = colorOverride?.innerGradient ?? DEFAULT_PIECE_GRADIENT;
   const baseBorder = colorOverride?.border ?? DEFAULT_PIECE_BORDER;
-  const activeGradient = isInCheck
-    ? IN_CHECK_GRADIENT
-    : isSelected
-      ? SELECTED_GRADIENT
-      : baseGradient;
   const borderColor = isInCheck
     ? IN_CHECK_BORDER
     : isSelected
       ? SELECTED_BORDER
       : baseBorder;
+  const tintColor = isInCheck
+    ? IN_CHECK_TINT
+    : isSelected
+      ? SELECTED_TINT
+      : null;
 
   // strokeWidth の半分が外側にはみ出すため viewBox に 3px のマージンを確保
   const strokeWidth = 1.5;
@@ -182,7 +178,7 @@ export const ShogiPiece = memo(function ShogiPiece({
         >
           <defs>
             <linearGradient id={gradientId} x1="0.15" y1="0" x2="0.85" y2="1">
-              {activeGradient.map((stop, i) => (
+              {baseGradient.map((stop, i) => (
                 <stop key={i} offset={stop.offset} stopColor={stop.color} />
               ))}
             </linearGradient>
@@ -194,6 +190,15 @@ export const ShogiPiece = memo(function ShogiPiece({
             strokeWidth={strokeWidth}
             strokeLinejoin="round"
           />
+          {/* 王手・選択時の半透明ティント (元の檜木グラデを残しつつ青/赤を加算)。 */}
+          {tintColor && (
+            <polygon
+              points={POLYGON_POINTS}
+              fill={tintColor}
+              stroke="none"
+              pointerEvents="none"
+            />
+          )}
           {/* Issue #155 派生: 右辺と下辺だけ太線で上塗りし、光が左上から当たって
               右下に影が落ちる立体感を演出する。右肩 → 右下 → 左下 を polyline
               の一筆書きで描画 (五角形右下の 3 頂点)。strokeLinejoin/Linecap は
