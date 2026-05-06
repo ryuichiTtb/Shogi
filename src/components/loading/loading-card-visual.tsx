@@ -18,23 +18,37 @@ import { useReducedMotion } from "framer-motion";
 
 import { CardBack } from "@/components/card-back/card-back";
 import { ShogiPiece } from "@/components/game/shogi-piece";
-import type { PieceType } from "@/lib/shogi/types";
 import { cn } from "@/lib/utils";
 
 // 表面に出す駒のプール。プロモート駒・成り駒は除外し、初心者にも一目で
 // 分かる主要 8 駒に絞る (Issue #155 のユーザー指定)。
-const LOADING_FACE_PIECE_TYPES: readonly PieceType[] = [
-  "pawn",   // 歩
-  "lance",  // 香車
-  "knight", // 桂馬
-  "silver", // 銀将
-  "gold",   // 金将
-  "rook",   // 飛車
-  "bishop", // 角行
-  "king",   // 王将
+const LOADING_FACE_PIECE_TYPES = [
+  "pawn",
+  "lance",
+  "knight",
+  "silver",
+  "gold",
+  "rook",
+  "bishop",
+  "king",
 ] as const;
 
-function pickRandomPieceType(): PieceType {
+type LoadingFacePieceType = (typeof LOADING_FACE_PIECE_TYPES)[number];
+
+// 駒の正式名称 (ローディング表面で表示する文字)。盤上 1 文字表記とは別に、
+// 「歩・香車・桂馬・銀将・金将・飛車・角行・王将」の縦書き表示にする。
+const LOADING_FACE_PIECE_LABEL: Record<LoadingFacePieceType, string> = {
+  pawn: "歩",
+  lance: "香車",
+  knight: "桂馬",
+  silver: "銀将",
+  gold: "金将",
+  rook: "飛車",
+  bishop: "角行",
+  king: "王将",
+};
+
+function pickRandomPieceType(): LoadingFacePieceType {
   const idx = Math.floor(Math.random() * LOADING_FACE_PIECE_TYPES.length);
   return LOADING_FACE_PIECE_TYPES[idx];
 }
@@ -45,16 +59,22 @@ const SIZE_STYLE = {
 } as const;
 
 interface LoadingCardFaceProps {
-  pieceType: PieceType;
+  pieceType: LoadingFacePieceType;
 }
 
-// 檜 (ひのき) の心材を意識した、硬く落ち着いた茶色。標準将棋盤上の駒色 (薄い
-// ベージュ系) より明確に濃く、黒背景にも埋もれない明度を保つようチューニング。
-//   - inner: #a86d3b (濃い檜茶。中央スポットの白光と相互作用してふんわり浮き上がる)
-//   - border: #4a2e15 (こげ茶。標準 king (#5c3a1e) より一段濃く、引き締まった輪郭)
+// 檜 (ひのき) の心材を意識した硬い質感。border は引き締まった こげ茶、
+// inner は単色フォールバック値、innerGradient で SVG linearGradient による
+// 金属ツヤを駒に重ねる (KomaShape の metallic と同方式: 左上 → 右下の
+// 4 stop。「明るい金茶 → 中明檜 → 中暗檜 → 黒寄り」で凹凸感を出す)。
 const LOADING_PIECE_COLOR_OVERRIDE = {
   border: "#4a2e15",
   inner: "#a86d3b",
+  innerGradient: [
+    { offset: "0%",   color: "#fcd9a0" }, // 左上ハイライト: 明るい金茶
+    { offset: "30%",  color: "#c08a4a" }, // 中明: 金茶
+    { offset: "60%",  color: "#8b5526" }, // 中暗: 檜茶
+    { offset: "100%", color: "#2b1808" }, // 右下シャドウ: 黒寄り
+  ],
 } as const;
 
 // 表面: 裏面と同じ「金フレーム + 中央スポット + 中央駒」の世界観を保ちつつ、
@@ -84,13 +104,14 @@ function LoadingCardFace({ pieceType }: LoadingCardFaceProps) {
       <span className="absolute top-1 right-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
       <span className="absolute bottom-1 left-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
       <span className="absolute bottom-1 right-1 w-1.5 h-1.5 rotate-45 bg-amber-300/70" aria-hidden />
-      {/* 中央: ランダム駒シルエット (檜木調にオーバーライド) */}
+      {/* 中央: ランダム駒シルエット (檜木調 + 金属ツヤ + 正式名称の縦書き) */}
       <div className="absolute inset-0 flex items-center justify-center">
         <div className="h-[78%] aspect-[5/6]">
           <ShogiPiece
             piece={{ type: pieceType, owner: "sente" }}
             isLarge
             colorOverride={LOADING_PIECE_COLOR_OVERRIDE}
+            kanjiOverride={LOADING_FACE_PIECE_LABEL[pieceType]}
           />
         </div>
       </div>
