@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
+import { auth } from "@clerk/nextjs/server";
 import { Geist, Geist_Mono, Noto_Sans_JP } from "next/font/google";
 import localFont from "next/font/local";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -7,6 +8,12 @@ import { CardBackProvider } from "@/components/card-back/card-back-provider";
 import { ServiceWorkerRegister } from "@/components/sw-register";
 import { getCurrentUserPreferences } from "@/app/actions/preferences";
 import "./globals.css";
+
+// Issue #160: 初回 SSR で Clerk session 解決が間に合わずゲスト経路に落ちる現象を防ぐため、
+// Static Render / Edge Cache を明示的に無効化する。getCurrentUserPreferences が
+// cookies()/auth() を呼ぶので元々 dynamic 扱いになるはずだが、Vercel preview で初回
+// アクセスのキャッシュ動作が観測されたため明示する。
+export const dynamic = "force-dynamic";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -76,15 +83,15 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const preferences = await getCurrentUserPreferences();
+  // Issue #160: Clerk session の解決を SSR の最初に明示的に待たせる。
+  // 初回アクセス時、proxy (clerkMiddleware) で auth() の userId が null になり
+  // getCurrentAppUser がゲスト経路に落ちて preference (theme=system) が新規生成される
+  // 現象が観測されたため、layout の冒頭で auth() を await して認証解決を強制する。
+  // 同 request 内では cache(...) で memoize されるため getCurrentAppUser 内の auth() は
+  // cache hit する。
+  await auth();
 
-  // Issue #160 Phase 1: 一時 instrumentation。Phase 3 で削除する (grep "#160-debug")。
-  // タイムスタンプは Vercel runtime logs / DevTools console が自動付与するため不要。
-  console.log("[#160-debug RootLayout]", {
-    userId: preferences.userId.slice(0, 8),
-    userKind: preferences.userKind,
-    theme: preferences.theme,
-  });
+  const preferences = await getCurrentUserPreferences();
 
   return (
     <html

@@ -227,18 +227,12 @@ export async function getOrCreateGuestUserForToken(token: string): Promise<AppUs
 
 export const getCurrentAppUser = cache(async (): Promise<AppUser> => {
   const clerkUserId = await readClerkUserId();
-  const cookieStore = await cookies();
-  const guestToken = cookieStore.get(GUEST_SESSION_COOKIE_NAME)?.value;
-  // Issue #160 Phase 1: 一時 instrumentation。Phase 3 で削除する (grep "#160-debug")。
-  // タイムスタンプは Vercel runtime logs が自動付与するため不要。
-  console.log("[#160-debug getCurrentAppUser]", {
-    clerkUserId: clerkUserId ? clerkUserId.slice(0, 12) : null,
-    hasGuestCookie: Boolean(guestToken),
-  });
   if (clerkUserId) {
     return getOrCreateAccountUser(clerkUserId);
   }
 
+  const cookieStore = await cookies();
+  const guestToken = cookieStore.get(GUEST_SESSION_COOKIE_NAME)?.value;
   if (!guestToken) {
     throw new Error("Guest session cookie is missing");
   }
