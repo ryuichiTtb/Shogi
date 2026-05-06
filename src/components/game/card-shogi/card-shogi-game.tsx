@@ -337,7 +337,18 @@ export function CardShogiGame({
   const displayInCheck = inCheck && !isDoubleMoveSelfCheckTransient;
 
   // ----- サウンド -----
+  // Issue #155: 履歴復元時の演出再発火を抑止する初回マウントガード。
+  // shogi-game.tsx と同じ方式で、各 useEffect に専用 ref を持たせ初回マウント時の
+  // 副作用 (駒音・王手・詰み・投了・対局開始演出) をスキップする。
+  const skipMoveSfxRef = useRef(true);
+  const skipResignFxRef = useRef(true);
+  const skipGameStartFxRef = useRef(true);
+
   useEffect(() => {
+    if (skipMoveSfxRef.current) {
+      skipMoveSfxRef.current = false;
+      return;
+    }
     const lastMove = gameState.moveHistory[gameState.moveHistory.length - 1];
     if (!lastMove) return;
     if (lastMove.type === "drop") {
@@ -364,6 +375,10 @@ export function CardShogiGame({
   }, [gameState.moveCount]);
 
   useEffect(() => {
+    if (skipResignFxRef.current) {
+      skipResignFxRef.current = false;
+      return;
+    }
     if (gameState.status === "resign") {
       playSfx("game_over");
       setOverlayEvent({ event: "resign", key: Date.now() });
@@ -371,8 +386,13 @@ export function CardShogiGame({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState.status]);
 
+  // ゲーム開始演出。新規対局 (status: "active" + moveCount === 0) の初回マウント
+  // 時のみ実演出を出す。履歴から終局済 / 途中対局を復元した場合はスキップ。
   useEffect(() => {
     if (!isReady) return;
+    if (!skipGameStartFxRef.current) return;
+    skipGameStartFxRef.current = false;
+    if (gameState.status !== "active" || gameState.moveCount !== 0) return;
     playSfx("game_start");
     setOverlayEvent({ event: "game_start", key: Date.now() });
     setTimeout(() => handleComment("game_start"), 500);

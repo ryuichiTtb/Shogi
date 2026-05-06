@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useShogiGame } from "@/hooks/use-shogi-game";
 import { useSound } from "@/hooks/use-sound";
 import { useBoardSize } from "@/hooks/use-board-size";
@@ -114,8 +114,24 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
   const isGameActive = gameState.status === "active";
   const inCheck = (isGameActive || gameState.status === "checkmate") && isInCheck(gameState, gameState.currentPlayer, STANDARD_VARIANT);
 
-  // サウンドエフェクト
+  // Issue #155: 履歴復元時の演出再発火を抑止する初回マウントガード。
+  //   - 履歴から終局済対局を復元したとき、moveCount が初期値→復元値に変化し
+  //     [moveCount] 監視 useEffect が初回マウントで fire してしまうため、
+  //     最後の手の駒音・王手・詰み演出が意図せず再生されていた。
+  //   - 同様に [status] 監視も復元時に "active" ではない初期値で fire する。
+  //   - [isReady] 監視 (game_start) も復元時に発火していた。
+  //   各監視に専用 ref を持たせ、初回マウント時は副作用をスキップ → 2 回目
+  //   以降 (= 実際の指し手・状態遷移) のみ演出を再生する。
+  const skipMoveSfxRef = useRef(true);
+  const skipResignFxRef = useRef(true);
+  const skipGameStartFxRef = useRef(true);
+
+  // サウンドエフェクト (駒音・王手・詰み)
   useEffect(() => {
+    if (skipMoveSfxRef.current) {
+      skipMoveSfxRef.current = false;
+      return;
+    }
     const lastMove = gameState.moveHistory[gameState.moveHistory.length - 1];
     if (!lastMove) return;
 
@@ -145,15 +161,24 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
 
   // 投了時（moveCountが変わらないため別途監視）
   useEffect(() => {
+    if (skipResignFxRef.current) {
+      skipResignFxRef.current = false;
+      return;
+    }
     if (gameState.status === "resign") {
       playSfx("game_over");
       setOverlayEvent({ event: "resign", key: Date.now() });
     }
   }, [gameState.status]);
 
-  // ゲーム開始時のコメント・サウンド（Howler初期化完了後に再生）
+  // ゲーム開始時のコメント・サウンド (Howler 初期化完了後に再生)。
+  // 初回マウント時のみ、かつ「新規対局」(status: "active" + moveCount === 0) の
+  // ときだけ実演出を出す。履歴から終局済 / 途中対局を復元した場合は skip。
   useEffect(() => {
     if (!isReady) return;
+    if (!skipGameStartFxRef.current) return; // 既に1度通過した (= 演出済)
+    skipGameStartFxRef.current = false;
+    if (gameState.status !== "active" || gameState.moveCount !== 0) return;
     playSfx("game_start");
     setOverlayEvent({ event: "game_start", key: Date.now() });
     setTimeout(() => handleComment("game_start"), 500);
