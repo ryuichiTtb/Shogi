@@ -10,7 +10,6 @@
 
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { CardId } from "@/lib/shogi/cards/types";
 import { LoadingCardVisual } from "./loading/loading-card-visual";
 import { LoadingProgressBar } from "./loading/loading-progress-bar";
 import { LoadingStages } from "./loading/loading-stages";
@@ -24,12 +23,9 @@ interface LoadingOverlayProps {
   // false → 直近の position:relative 親を覆う (absolute)。
   fullScreen?: boolean;
   className?: string;
-  // 中央に回転カードを表示する。{ cardId } で特定カード、{ variant: "generic" } で汎用裏面。
-  // 省略時は従来の spinner のみ。
-  // cardId は CARD_DEFS のキーと一致する CardId 型 (string 受けにすると
-  // 子コンポーネント LoadingCardVisual の Record インデックス型で TS ビルド
-  // エラーになるため)。
-  card?: { cardId: CardId } | { variant: "generic" };
+  // true で中央に「裏面 ↔ ランダム駒」の回転カードを表示する。
+  // 省略・false なら従来の spinner のみ (後方互換)。
+  card?: boolean;
   // ステージ文言を順送りで表示。省略時は message を 1 行表示。
   stages?: readonly string[];
   stageIntervalMs?: number;
@@ -51,7 +47,7 @@ export function LoadingOverlay({
 }: LoadingOverlayProps) {
   if (!show) return null;
 
-  const showCard = card !== undefined;
+  const showCard = card === true;
   const showProgress = progress !== undefined;
   const showStages = stages !== undefined && stages.length > 0;
 
@@ -68,7 +64,7 @@ export function LoadingOverlay({
       aria-live="polite"
     >
       {showCard ? (
-        <LoadingCardVisual card={card} />
+        <LoadingCardVisual />
       ) : (
         <div className="rounded-full bg-background/85 shadow-lg p-3">
           <Loader2 className="w-7 h-7 text-primary animate-spin" />

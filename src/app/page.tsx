@@ -156,7 +156,7 @@ export default function Home() {
         <LoadingOverlay
           show={isPending}
           fullScreen
-          card={{ variant: "generic" }}
+          card
           stages={pendingStages ?? undefined}
           progress={{ kind: "indeterminate" }}
         />

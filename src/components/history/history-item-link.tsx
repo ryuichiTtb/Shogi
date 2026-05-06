@@ -77,7 +77,7 @@ export function HistoryItemLink({ href, children, className }: HistoryItemLinkPr
       <LoadingOverlay
         show={showOverlay}
         fullScreen
-        card={{ variant: "generic" }}
+        card
         stages={LOADING_STAGES.gameRestore}
         progress={{ kind: "indeterminate" }}
       />

@@ -307,7 +307,7 @@ export function MatchSetup({ mode }: MatchSetupProps) {
       <LoadingOverlay
         show={isPending}
         fullScreen
-        card={{ variant: "generic" }}
+        card
         stages={LOADING_STAGES.matchSetup}
         progress={{ kind: "indeterminate" }}
         message={pendingLabel ?? "読み込み中..."}

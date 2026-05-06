@@ -4,36 +4,40 @@
 //   - rotateY 360° の連続ループを CSS keyframes (loading-card-flip) で再生し、
 //     表面と裏面の 2 枚を [transform-style: preserve-3d] の親に重ねて
 //     [backface-visibility: hidden] で半周ごとに表裏を切替える。
-//   - 表面はレア度演出 (epic オーブ・shine・グラデ) を OFF にした最小描画で、
-//     モバイル端末の発熱を抑える (Issue #109 性能観点)。
+//   - 表面は将棋の主要 8 駒 (歩・香車・桂馬・銀将・金将・飛車・角行・王将) から
+//     1 枚ランダム選択し、対局時と同じ ShogiPiece (font: yuji-boku、五角形 SVG
+//     枠) で描画する。マウントごとにランダムだが、useState 初期化なのでカード
+//     表面を見ているあいだは固定される (くるくる入れ替わると目障りなため)。
 //   - prefers-reduced-motion: reduce のときは framer-motion の useReducedMotion
 //     経由で reduce フラグを取得し、回転を止めて CardBack のみを静止表示する。
-//   - サイズはレスポンシブに clamp(140px, 40vw, 240px)、アスペクト比 8:5 を維持。
+//   - サイズはレスポンシブに clamp(140px, 40vw, 240px)、アスペクト比 8:5。
 "use client";
 
-import { memo } from "react";
+import { memo, useState } from "react";
 import { useReducedMotion } from "framer-motion";
 
 import { CardBack } from "@/components/card-back/card-back";
-import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
-import type { CardId, CardRarity } from "@/lib/shogi/cards/types";
+import { ShogiPiece } from "@/components/game/shogi-piece";
+import type { PieceType } from "@/lib/shogi/types";
 import { cn } from "@/lib/utils";
 
-interface LoadingCardVisualProps {
-  // CardId は CARD_DEFS のキーと一致するリテラル union 型。string 受けにすると
-  // CARD_DEFS[card.cardId] のインデックスアクセスで型エラー (Vercel ビルド失敗)
-  // となるため、呼び出し側に CardId 型での渡し方を強制する。
-  card: { cardId: CardId } | { variant: "generic" };
-}
+// 表面に出す駒のプール。プロモート駒・成り駒は除外し、初心者にも一目で
+// 分かる主要 8 駒に絞る (Issue #155 のユーザー指定)。
+const LOADING_FACE_PIECE_TYPES: readonly PieceType[] = [
+  "pawn",   // 歩
+  "lance",  // 香車
+  "knight", // 桂馬
+  "silver", // 銀将
+  "gold",   // 金将
+  "rook",   // 飛車
+  "bishop", // 角行
+  "king",   // 王将
+] as const;
 
-// レア度の枠色のみローディング用に簡略化して引用 (Issue #104 配色と整合)。
-// 動的グラデ・shine・オーブ等の重演出は意図的に OFF。
-const RARITY_FRAME_CLASS: Record<CardRarity, string> = {
-  common: "border-slate-400 dark:border-slate-500",
-  rare: "border-sky-500",
-  super_rare: "border-amber-400",
-  epic: "border-violet-500",
-};
+function pickRandomPieceType(): PieceType {
+  const idx = Math.floor(Math.random() * LOADING_FACE_PIECE_TYPES.length);
+  return LOADING_FACE_PIECE_TYPES[idx];
+}
 
 const SIZE_STYLE = {
   width: "clamp(140px, 40vw, 240px)",
@@ -41,54 +45,34 @@ const SIZE_STYLE = {
 } as const;
 
 interface LoadingCardFaceProps {
-  cardId: CardId;
+  pieceType: PieceType;
 }
 
-// 表面の最小描画 (アイコン+コスト+カード名のみ)。
-// CardView の動的演出 (epic オーブ等) を持ち込まないことで GPU 負荷を抑える。
-function LoadingCardFace({ cardId }: LoadingCardFaceProps) {
-  const def = CARD_DEFS[cardId];
+// 表面: カード枠 (rounded-md + amber 系の縁) の中に駒シルエットを描画。
+// ShogiPiece が SVG で五角形枠と漢字を描くため、フォントは対局時と同じ
+// (font-yuji-boku) になる。
+function LoadingCardFace({ pieceType }: LoadingCardFaceProps) {
   return (
     <div
       className={cn(
-        "w-full h-full rounded-md border-2 bg-card text-card-foreground shadow-sm",
-        "flex items-center gap-2 px-2 overflow-hidden",
-        RARITY_FRAME_CLASS[def.rarity],
+        "w-full h-full rounded-md border-2 shadow-sm",
+        "border-amber-700/50 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-950/30",
+        "flex items-center justify-center p-2",
       )}
     >
-      <div className="flex flex-col items-center gap-0.5 shrink-0">
-        <span
-          className={cn(
-            "rounded-full px-1 leading-tight font-bold tabular-nums whitespace-nowrap inline-flex items-center gap-0.5 text-[10px]",
-            def.kind === "trap"
-              ? "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200"
-              : "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
-          )}
-        >
-          <span aria-hidden>💎</span>
-          <span>×{def.cost}</span>
-        </span>
-        <span className="text-3xl leading-none" aria-hidden>
-          {def.icon}
-        </span>
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="font-bold text-xs leading-tight truncate">{def.name}</div>
+      <div className="h-[88%] aspect-[5/6] flex items-center justify-center">
+        <ShogiPiece piece={{ type: pieceType, owner: "sente" }} isLarge />
       </div>
     </div>
   );
 }
 
-export const LoadingCardVisual = memo(function LoadingCardVisual({
-  card,
-}: LoadingCardVisualProps) {
+export const LoadingCardVisual = memo(function LoadingCardVisual() {
   const reduce = useReducedMotion() ?? false;
-  const isGeneric = "variant" in card;
-  // 不正な cardId が渡された場合は generic にフォールバックして安全側に倒す。
-  const def = !isGeneric ? CARD_DEFS[card.cardId] : null;
-  const showFace = def !== null;
+  // 表示中の駒種をマウント時に 1 度だけランダム決定 (memo で再レンダー抑止)。
+  const [pieceType] = useState(pickRandomPieceType);
 
-  // reduce 時は静止 (CardBack のみ)。表裏切替アニメも止めるため preserve-3d 不要。
+  // reduce 時は静止 (CardBack のみ)。preserve-3d 不要。
   if (reduce) {
     return (
       <div style={SIZE_STYLE} aria-hidden>
@@ -103,7 +87,16 @@ export const LoadingCardVisual = memo(function LoadingCardVisual({
       style={SIZE_STYLE}
       aria-hidden
     >
-      <div className="relative w-full h-full animate-loading-card-flip">
+      <div
+        className={cn(
+          "relative w-full h-full",
+          // Tailwind の任意値で transform-style を確実に適用。globals.css の
+          // animation class 側でも同プロパティを指定しているが、Tailwind v4 の
+          // ユーティリティ優先度を借りて表裏切替が確実に効くようにする。
+          "[transform-style:preserve-3d]",
+          "animate-loading-card-flip",
+        )}
+      >
         {/* 裏面: rotateY(0deg) を起点とし、ループの 0°・360° で正面に来る。
             backface-visibility: hidden により 90°〜270° の範囲は自動で隠れる。 */}
         <div className="absolute inset-0 [backface-visibility:hidden]">
@@ -111,14 +104,12 @@ export const LoadingCardVisual = memo(function LoadingCardVisual({
         </div>
         {/* 表面: rotateY(180deg) を初期姿勢にして裏面と背中合わせに重ねる。
             ループの 180° で正面に来る (= 半周ごとに表裏が切替わる)。 */}
-        {showFace && !isGeneric && (
-          <div
-            className="absolute inset-0 [backface-visibility:hidden]"
-            style={{ transform: "rotateY(180deg)" }}
-          >
-            <LoadingCardFace cardId={card.cardId} />
-          </div>
-        )}
+        <div
+          className="absolute inset-0 [backface-visibility:hidden]"
+          style={{ transform: "rotateY(180deg)" }}
+        >
+          <LoadingCardFace pieceType={pieceType} />
+        </div>
       </div>
     </div>
   );

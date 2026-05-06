@@ -58,7 +58,7 @@ export function CardCatalogTile({ def }: CardCatalogTileProps) {
       <LoadingOverlay
         show={navigating || isPending}
         fullScreen
-        card={{ cardId: def.id }}
+        card
         stages={LOADING_STAGES.cardDetail}
         progress={{ kind: "indeterminate" }}
       />

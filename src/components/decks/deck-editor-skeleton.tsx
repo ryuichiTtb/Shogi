@@ -40,7 +40,7 @@ export function DeckEditorSkeleton() {
 
       <LoadingOverlay
         show
-        card={{ variant: "generic" }}
+        card
         stages={LOADING_STAGES.deckLoading}
         progress={{ kind: "indeterminate" }}
       />
