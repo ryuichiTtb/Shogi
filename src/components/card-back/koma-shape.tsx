@@ -9,6 +9,8 @@
 //
 // variant="metallic" (default): 金 → 黒の対角グラデで塗りつぶし、
 //   駒形にクリップした白い斜め光帯が 4.5s 周期で左→右に流れて「キラッ」と光る。
+//   tone でグラデ色味を切り替え可能 ("gold" / "orange"; default "gold")。
+//   "orange" は紅カード用に黄色寄り橙 → 黒のグラデを採用する。
 // variant="plain": 単色 fill のみ (採用案決定後の比較用に残す)。
 "use client";
 
@@ -18,6 +20,8 @@ import { cn } from "@/lib/utils";
 interface KomaShapeProps {
   className?: string;
   variant?: "metallic" | "plain";
+  /** "metallic" 時のグラデ色味。default "gold"。 */
+  tone?: "gold" | "orange";
   fillClassName?: string;
   strokeClassName?: string;
   strokeWidth?: number;
@@ -31,9 +35,21 @@ interface KomaShapeProps {
 //   側面の傾斜は片側 8px / 86px ≒ 5.3° (角度は維持し横方向に拡張)。
 const KOMA_PATH = "M50 6 L80 28 L88 114 L12 114 L20 28 Z";
 
+// metallic グラデの色ストップ。
+//   gold (default): 既存 4 案で共通の金 → 黒。明部=amber-100、コア=amber-300、
+//     深部=amber-900、底=黒。
+//   orange (紅専用): 黄色寄りの橙 → 黒。明部=amber-100 (温かい光)、
+//     コア=amber-500 (鮮やかな黄橙)、深部=orange-800 (深い焦げ橙)、底=黒。
+//     紅カードの深紅地と調和するよう、紅 (赤) には寄せず黄色寄りの橙で構成。
+const TONE_STOPS: Record<NonNullable<KomaShapeProps["tone"]>, [string, string, string, string]> = {
+  gold: ["#fef3c7", "#fcd34d", "#78350f", "#000000"],
+  orange: ["#fef3c7", "#f59e0b", "#9a3412", "#000000"],
+};
+
 export function KomaShape({
   className,
   variant = "metallic",
+  tone = "gold",
   fillClassName,
   strokeClassName = "stroke-amber-400",
   strokeWidth = 2,
@@ -45,6 +61,7 @@ export function KomaShape({
   const gradientId = `koma-grad-${uid}`;
   const clipId = `koma-clip-${uid}`;
   const isMetallic = variant === "metallic";
+  const stops = TONE_STOPS[tone];
 
   return (
     <svg
@@ -55,13 +72,13 @@ export function KomaShape({
     >
       {isMetallic && (
         <defs>
-          {/* 左上の明るい金 → 右下の黒、4 ストップで金属感。明部は維持し
-              暗部を amber-900→黒で深く落として透過感を消す。 */}
+          {/* 左上の明部 → 右下の黒、4 ストップで金属感。明部は維持し
+              暗部を深部色→黒で深く落として透過感を消す。tone 別に色構成を切替。 */}
           <linearGradient id={gradientId} x1="0.15" y1="0" x2="0.85" y2="1">
-            <stop offset="0%" stopColor="#fef3c7" />
-            <stop offset="22%" stopColor="#fcd34d" />
-            <stop offset="60%" stopColor="#78350f" />
-            <stop offset="100%" stopColor="#000000" />
+            <stop offset="0%" stopColor={stops[0]} />
+            <stop offset="22%" stopColor={stops[1]} />
+            <stop offset="60%" stopColor={stops[2]} />
+            <stop offset="100%" stopColor={stops[3]} />
           </linearGradient>
           {/* 駒形でクリップ (sheen が外にはみ出さないように) */}
           <clipPath id={clipId}>
