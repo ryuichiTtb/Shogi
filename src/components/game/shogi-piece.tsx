@@ -85,11 +85,20 @@ export const DEFAULT_PIECE_BORDER = "#4a2e15";
 const IN_CHECK_BORDER = "#7f1d1d";
 const SELECTED_BORDER = "#1e3a8a";
 
-// 半透明オーバーレイ。tint に白を多めに加算した淡色を使い、ベースの檜木茶
-// が透けて見えつつ「白っぽく明るい青/赤」が乗る印象にする (旧実装の単色
-// fillColor #dbeafe / #fee2e2 のような明るい見え方に近づける)。
-const IN_CHECK_TINT = "rgba(252, 165, 165, 0.55)";  // tailwind red-300 相当・白寄り
-const SELECTED_TINT = "rgba(147, 197, 253, 0.55)";  // tailwind blue-300 相当・白寄り
+// 半透明オーバーレイ。
+//
+// なぜこの値か: 旧実装 (Issue #155 派生対応前) は ShogiPiece の fillColor を
+// "#dbeafe" / "#fee2e2" の単色で「完全に上書き」していたため、駒は純粋な淡水
+// 色 / 淡桜色に見えていた。新実装はベースの檜木グラデを残してその上に半透明
+// オーバーレイを重ねる方式のため、alpha が低いとベース茶 (#fef0c8〜#c89460)
+// が透けて「青 × 茶 = くすんだ青グレー」のように暗く見える問題があった。
+//
+// tint の色を旧 fillColor と同一 (#dbeafe / #fee2e2) にし、alpha を 0.9 まで
+// 上げることで「ベース茶は 10% 程度しか透けず、ほぼ旧実装と同じ淡水/淡桜の
+// 見え方」になる。それでもベース茶がわずかに透けるので、駒の温かみは僅かに
+// 保たれる。
+const IN_CHECK_TINT = "rgba(254, 226, 226, 0.9)";   // 旧 fillColor #fee2e2 相当
+const SELECTED_TINT = "rgba(219, 234, 254, 0.9)";   // 旧 fillColor #dbeafe 相当
 
 export const ShogiPiece = memo(function ShogiPiece({
   piece,
