@@ -9,7 +9,6 @@ import { ChevronUp, ChevronDown, Volume2, VolumeX } from "lucide-react";
 import { useCardShogiGame } from "@/hooks/use-card-shogi-game";
 import { useSound } from "@/hooks/use-sound";
 import { useCardBoardSize } from "@/hooks/use-card-board-size";
-import { getUndoScope } from "@/hooks/card-shogi/undo-policy";
 
 import { ShogiBoard, type ShogiBoardHandle } from "../shogi-board";
 import { CapturedPieces } from "../captured-pieces";
@@ -287,6 +286,7 @@ export function CardShogiGame({
     promotionPendingMove,
     cardState,
     eventLog,
+    canUndo: hookCanUndo,
     selectSquare,
     selectHandPiece,
     confirmPromotion,
@@ -1064,18 +1064,19 @@ export function CardShogiGame({
   // Issue #82 (二手指し): 二手指し中は手札・ドローも無効化 (reducer 側でも弾くが UI でも明示)
   const handDisabled = !isPlayerTurn || !isGameActive || cardState.pendingCard !== null || isDrawAnimating || isPlayingCard || isCheckBreakAnimating || doubleMove !== null;
 
-  // 待った可否 (P28): 駒指し2手以上 / 自分の手番 / AI 思考中でない / pendingCard 無し /
-  // 過去2ターンにカード操作なし。
-  // Issue #82 (二手指し): 二手指し中は通常の「待った」を不可。
-  // スコープ判定は reducer の UNDO ケースと共通化 (undo-policy.ts)。
+  // 待った可否 (Issue #149: ヘルパ集約版):
+  // - reducer 内部条件 (moveHistory >= 2 / undoSnapshots >= 2 / pendingCard なし / doubleMove なし
+  //   / getUndoScope 非 null) はフックの `hookCanUndo` (= undo-policy.canUndoFromState) に集約。
+  // - UI 固有条件 (isPlayerTurn / isAiThinking) のみここで wrap する。
+  // 旧実装は reducer 内部条件を UI 側で再実装していたが、`undoSnapshots.length >= 2` チェックが
+  // 抜けており、待った 1 回直後にボタン活性のまま無反応 (reducer 側だけ no-op) になる問題が発生。
+  // ヘルパ集約により UI/reducer の判定ズレを構造的に防ぐ。
   const canUndo = useMemo(() => {
-    if (gameState.moveHistory.length < 2) return false;
+    if (!hookCanUndo) return false;
     if (!isPlayerTurn) return false;
     if (isAiThinking) return false;
-    if (cardState.pendingCard) return false;
-    if (doubleMove) return false;
-    return getUndoScope(eventLog) !== null;
-  }, [gameState.moveHistory.length, isPlayerTurn, isAiThinking, cardState.pendingCard, doubleMove, eventLog]);
+    return true;
+  }, [hookCanUndo, isPlayerTurn, isAiThinking]);
 
   // 歩戻し等のターゲット選択時にハイライトする盤面マス
   // (Issue #132): 以前は effectId 別に手書き判定 + 末尾で王手回避フィルタを掛けていたが、

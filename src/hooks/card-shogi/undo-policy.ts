@@ -84,3 +84,46 @@ export function getUndoScope(eventLog: GameEvent[]): number | null {
   if (scopeStartIndex < 0) return null;
   return scopeStartIndex;
 }
+
+/**
+ * 待った可否判定に必要な reducer 内部 state の最小 shape (Issue #149)。
+ *
+ * CardShogiGameStateInternal はこの shape に structural に互換。
+ * undo-policy.ts → reducer.ts の型循環参照を避けるため、最小 structural type を
+ * ここで定義する (length / null チェックしか行わないため `object | null` で十分)。
+ */
+export interface UndoEligibilityState {
+  doubleMove: object | null;
+  gameState: { moveHistory: { length: number } };
+  undoSnapshots: { length: number };
+  cardState: { pendingCard: object | null };
+  eventLog: GameEvent[];
+}
+
+/**
+ * 待った可能か判定する共通ヘルパ (Issue #149)。
+ *
+ * 呼び出し元は reducer の UNDO ケース冒頭ガードと、UI から参照されるフック return の両方。
+ * これにより UI/reducer の判定ズレ (Issue #149 の根本原因 = `undoSnapshots.length >= 2`
+ * チェックが reducer 側にしか存在せず、UI ボタンが活性表示のまま無反応になる事象) を
+ * 構造的に防ぐ。
+ *
+ * 判定条件 (reducer 内部条件):
+ * - 二手指し中ではない (`doubleMove === null`)
+ * - 駒指し履歴が 2 ply 以上
+ * - スナップショットリングが 2 件以上 (= 直近 2 ply 分の状態が保持されている)
+ *   → 1 回 UNDO 直後はリングが空になるので、次の UNDO はここで弾かれる
+ * - カード使用 pending 中ではない
+ * - eventLog 上で getUndoScope が非 null (cardOp ブロック通過 + 過去 2 ターン分のスコープ確保)
+ *
+ * UI 固有条件 (isPlayerTurn / isAiThinking) は UI 側で別途 wrap する。
+ * これらは reducer 内部 state からは導出できない (AI 戦で playerColor を外から渡される) ため。
+ */
+export function canUndoFromState(state: UndoEligibilityState): boolean {
+  if (state.doubleMove !== null) return false;
+  if (state.gameState.moveHistory.length < 2) return false;
+  if (state.undoSnapshots.length < 2) return false;
+  if (state.cardState.pendingCard !== null) return false;
+  if (getUndoScope(state.eventLog) === null) return false;
+  return true;
+}
