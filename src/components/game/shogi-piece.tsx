@@ -37,6 +37,12 @@ interface ShogiPieceProps {
   // 2 文字以上を渡すと自動で縦書き (writing-mode: vertical-rl) にし、
   // フォントサイズも自動で縮める。
   kanjiOverride?: string;
+  // Issue #162: 駒の文字 fontSize を強制指定。isLarge / isSmall / squareSize
+  // のいずれの算出よりも優先される。LoadingCardFace のように親要素のサイズが
+  // メディアクエリで動的に変わる環境で、文字サイズだけ細かく調整したい用途。
+  // 未指定時は従来の算出ロジックがそのまま走るため、対局画面・持ち駒・
+  // ダイアログには影響しない。
+  fontSizeOverride?: number;
 }
 
 // 五角形の頂点座標（viewBox 0 0 100 100 基準）
@@ -111,6 +117,7 @@ export const ShogiPiece = memo(function ShogiPiece({
   squareSize,
   colorOverride,
   kanjiOverride,
+  fontSizeOverride,
 }: ShogiPieceProps) {
   const kanji = kanjiOverride ?? getPieceKanji(piece.type);
   const isMultiChar = kanji.length > 1;
@@ -145,8 +152,9 @@ export const ShogiPiece = memo(function ShogiPiece({
 
   // フォントサイズの計算。複数文字 (例: "香車") のときは縦書きにし、
   // 1 文字目安より小さく (約 65%) して駒シルエットに収まるよう調整する。
+  // Issue #162: fontSizeOverride 指定時は他の算出を全て無視して直接採用する。
   const multiCharScale = 0.65;
-  const fontSize = isLarge
+  const fontSize = fontSizeOverride ?? (isLarge
     ? (isMultiChar ? Math.round(48 * multiCharScale) : 48)
     : isSmall
       ? (isMultiChar ? Math.round(14 * multiCharScale) : 14)
@@ -155,7 +163,7 @@ export const ShogiPiece = memo(function ShogiPiece({
             isMultiChar ? 8 : 12,
             squareSize * (isMultiChar ? 0.45 * multiCharScale : 0.45),
           )
-        : (isMultiChar ? Math.round(18 * multiCharScale) : 18);
+        : (isMultiChar ? Math.round(18 * multiCharScale) : 18));
 
   // isSmall（持ち駒・ダイアログ用）の場合は固定サイズ、盤上は駒種別サイズ
   const sizeClass = isSmall
