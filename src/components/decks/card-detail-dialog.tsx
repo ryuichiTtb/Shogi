@@ -18,14 +18,19 @@ const XL_W = 576;
 const XL_H = 352;
 
 // Dialog の固定パラメータ (CardDetailDialog 側の className と一致)
-// - mobile (< sm 640px): w = min(vw - 32, max-w-md=448), padding = p-4 (32 total)
-// - sm+:                 w = sm:max-w-sm=384, padding = p-4 (32 total)
+// Issue #183: PC で詳細をより広く表示するため、sm/lg で段階拡大する設計に変更。
+// - mobile (< sm 640px):  w = min(vw - 32, max-w-md=448),  padding = p-4 (32 total)
+// - sm/md (640-1023px):   w = min(vw - 32, max-w-xl=576),  padding = p-4 (32 total)
+// - lg+   (≥1024px):      w = min(vw - 32, max-w-2xl=672), padding = p-4 (32 total)
+// w-[calc(100%-2rem)] により vw - 32 を越えないクランプが効く。
 function computeDialogInnerWidth(vw: number): number {
   if (vw < 640) {
-    const dialogW = Math.min(vw - 32, 448);
-    return dialogW - 32;
+    return Math.min(vw - 32, 448) - 32;
   }
-  return 384 - 32;
+  if (vw < 1024) {
+    return Math.min(vw - 32, 576) - 32;
+  }
+  return Math.min(vw - 32, 672) - 32;
 }
 
 // 本文スクロール領域のため詳細カードはヘッダに固定。縦幅を抑えるための係数。
@@ -113,7 +118,9 @@ export function CardDetailDialog({ cardId, onClose }: CardDetailDialogProps) {
     >
       <DialogContent
         className={cn(
-          "max-w-md w-[calc(100%-2rem)] max-h-[85vh]",
+          // Issue #183: PC でも詳細をしっかり読めるよう sm/lg で段階拡大。
+          // computeDialogInnerWidth と数値を一致させること。
+          "max-w-md sm:max-w-xl lg:max-w-2xl w-[calc(100%-2rem)] max-h-[85vh]",
           // grid + p-4 + gap-4 を上書きし、自前で flex-col + 内側 padding。
           "flex flex-col gap-0 overflow-hidden p-0",
           !selectable && "select-none",

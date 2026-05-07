@@ -43,7 +43,9 @@ interface DeckCardTileProps {
   ghosted?: boolean;
 }
 
-const LONG_PRESS_MS = 450;
+// Issue #183: PC でも長押しで詳細を出す方針に伴い、450ms → 300ms へ短縮。
+// 通常タップ (50〜200ms) と十分に区別でき、PC マウス操作でも待ち感が少ない値。
+const LONG_PRESS_MS = 300;
 // pointer がこの px だけ動いたら長押しはキャンセル (スクロール意図とみなす)。
 // 一度キャンセルされたら、指を離すまで再開しない。
 const LONG_PRESS_MOVE_THRESHOLD_PX = 10;
