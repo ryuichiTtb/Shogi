@@ -6,6 +6,7 @@ import {
   useEffect,
   useState,
   useCallback,
+  useRef,
   useSyncExternalStore,
 } from "react";
 import { useAuth } from "@clerk/nextjs";
@@ -127,9 +128,19 @@ export function ThemeProvider({
     localStorage.setItem("shogi-theme:last", newTheme);
   }, []);
 
-  // 初期化: DB の現在値を反映し、端末キャッシュは userId ごとに名前空間を分ける。
+  // Issue #160 Phase 3e: 初回マウント時の `.dark` toggle は layout の inline script の
+  // 判定 (= localStorage["shogi-theme:last"] を踏まえた本来のテーマ) を尊重するため skip する。
+  // SSR で initialTheme="system" になっていても、inline script が `<body>` 描画前に
+  // `.dark` クラスを正しく設定済みのため、ThemeProvider が systemTheme=dark で再付与すると
+  // 一瞬のフラッシュ (システムテーマ → 本来のテーマ) が発生してしまう。
+  // 2回目以降の useEffect (ユーザーの setTheme・systemTheme 変化・rehydrate) は通常通り toggle する。
+  const initialMountRef = useRef(true);
   useEffect(() => {
     localStorage.setItem(storageKey, theme);
+    if (initialMountRef.current) {
+      initialMountRef.current = false;
+      return;
+    }
     document.documentElement.classList.toggle("dark", resolvedTheme === "dark");
   }, [resolvedTheme, storageKey, theme]);
 
