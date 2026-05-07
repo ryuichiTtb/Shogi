@@ -50,6 +50,9 @@ export function CharacterPanel({
 
   useEffect(() => {
     if (commentEvent) {
+      // 外部 API (server action) を起動する effect。setState は async fetch 後に反映するため
+      // 同期的な cascading render は発生しない。
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       fetchComment(commentEvent);
     }
   }, [commentEvent, fetchComment]);

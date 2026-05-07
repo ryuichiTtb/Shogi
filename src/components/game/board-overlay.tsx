@@ -66,8 +66,15 @@ export function BoardOverlay({ event, trapName }: BoardOverlayProps) {
     if (!event) return;
 
     const config = OVERLAY_CONFIG[event];
+    // event 変化時の初期化フェーズ。続く setTimeout 連鎖でフェードイン → ホールド
+    // → フェードアウトを進めるため、initial state を effect 内で確定する必要がある。
+    // 同一 event で再描画されるたびに毎回 0 → 1 → 0 とサイクルするので cascading
+    // にはならない。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setOpacity(0);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTransitionDuration(0);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setVisible(true);
 
     // フェードイン（transitionをfadeIn時間にセットしてから opacity 1 へ）

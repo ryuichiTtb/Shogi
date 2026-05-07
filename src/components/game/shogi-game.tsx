@@ -157,6 +157,9 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
 
     if (inCheck) {
       playSfx("check");
+      // moveCount 変化に同期した SFX & 演出発火。前回値 ref 追跡で 1 回だけ走るため
+      // cascading にはならない。
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setOverlayEvent({ event: "check", key: Date.now() });
     }
     // 詰みは手を指した後なので1秒遅延
@@ -173,6 +176,8 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
     lastStatusRef.current = gameState.status;
     if (gameState.status === "resign") {
       playSfx("game_over");
+      // status 変化に同期した投了演出。前回値 ref 追跡で 1 回だけ走る。
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setOverlayEvent({ event: "resign", key: Date.now() });
     }
   }, [gameState.status]);
@@ -188,6 +193,8 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
     if (gameState.status !== "active" || gameState.moveCount !== 0) return;
     gameStartFiredRef.current = true;
     playSfx("game_start");
+    // mount 1 回限りの対局開始演出。gameStartFiredRef ガードで再発火しない。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setOverlayEvent({ event: "game_start", key: Date.now() });
     setTimeout(() => handleComment("game_start"), 500);
   }, [isReady]);
