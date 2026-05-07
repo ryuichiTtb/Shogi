@@ -3,9 +3,11 @@
 import { SignInButton, UserButton, useAuth, useUser } from "@clerk/nextjs";
 import { LogIn } from "lucide-react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { Button } from "@/components/ui/button";
+import { LoadingOverlay } from "@/components/loading-overlay";
 
 // Issue #150: ログイン後の戻り先を「現在のページ」にするため、相対パス + 検索クエリを
 // next にエンコードして /auth/complete?next=... として渡す。
@@ -75,7 +77,7 @@ function ClerkAuthControls({
   // signInOnly: 未ログイン時のみ「ログイン」ボタン。それ以外は何も出さない。
   if (slot === "signInOnly") {
     if (isSignedIn) return null;
-    return renderSignInButton(completeUrl);
+    return <SignInButtonWithMask completeUrl={completeUrl} />;
   }
 
   // signedInOnly: ログイン済み時のみアイコン。未ログインは何も出さない。
@@ -101,32 +103,58 @@ function ClerkAuthControls({
   // default + home: 旧挙動 (1 箇所にログイン状態に応じた UI)。テスト互換のため残す。
   return (
     <div className="inline-flex items-center">
-      {isSignedIn ? <HomeUserButton /> : renderSignInButton(completeUrl)}
+      {isSignedIn ? <HomeUserButton /> : <SignInButtonWithMask completeUrl={completeUrl} />}
     </div>
   );
 }
 
-function renderSignInButton(completeUrl: string) {
+// Issue #163: ログインボタン押下時、Clerk OAuth ホストへの外部リダイレクトに
+// 入るまでの間 (= ブラウザの page redirect が完了するまで) にローディング
+// マスクを表示する。Clerk の SignInButton は Next.js のクライアント遷移ではなく
+// 外部 redirect を起こすため、useLinkStatus / loading.tsx は捕捉できない。
+// よってクリック時に local state を立て、Portal で body 直下に LoadingOverlay
+// を描画する。リダイレクト完了でコンポーネント自体が unmount されるため、
+// state は自然解除される。
+function SignInButtonWithMask({ completeUrl }: { completeUrl: string }) {
+  const [isSigningIn, setIsSigningIn] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    // SSR 時 createPortal は使えないため mount 後にだけ Portal を有効化する。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMounted(true);
+  }, []);
+
   return (
-    <SignInButton
-      mode="redirect"
-      oauthFlow="redirect"
-      forceRedirectUrl={completeUrl}
-      fallbackRedirectUrl={completeUrl}
-      signUpForceRedirectUrl={completeUrl}
-      signUpFallbackRedirectUrl={completeUrl}
-    >
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="bg-card/70 backdrop-blur-sm"
-        aria-label="Googleでログイン"
+    <>
+      <SignInButton
+        mode="redirect"
+        oauthFlow="redirect"
+        forceRedirectUrl={completeUrl}
+        fallbackRedirectUrl={completeUrl}
+        signUpForceRedirectUrl={completeUrl}
+        signUpFallbackRedirectUrl={completeUrl}
       >
-        <LogIn className="w-3.5 h-3.5" />
-        ログイン
-      </Button>
-    </SignInButton>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="bg-card/70 backdrop-blur-sm"
+          aria-label="Googleでログイン"
+          onClick={() => setIsSigningIn(true)}
+          disabled={isSigningIn}
+        >
+          <LogIn className="w-3.5 h-3.5" />
+          ログイン
+        </Button>
+      </SignInButton>
+      {mounted &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <LoadingOverlay show={isSigningIn} fullScreen message="ログイン画面へ移動中..." />,
+          document.body,
+        )}
+    </>
   );
 }
 
