@@ -11,6 +11,7 @@ import { GameControls } from "./game-controls";
 import { PromotionDialog } from "./promotion-dialog";
 import { BoardOverlay } from "./board-overlay";
 import type { OverlayEvent } from "./board-overlay";
+import { AiErrorModal } from "./ai-error-modal";
 import { CharacterPanel } from "@/components/character/character-panel";
 import { MobileDrawer } from "@/components/game/mobile-drawer";
 import { ThemeSelector } from "@/components/game/theme-selector";
@@ -97,6 +98,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
     legalMoves,
     isAiThinking,
     promotionPendingMove,
+    aiError,
     selectSquare,
     selectHandPiece,
     confirmPromotion,
@@ -104,6 +106,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
     resign,
     undo,
     deselect,
+    retryAiMove,
   } = useShogiGame({
     initialState: initialGameState,
     gameId,
@@ -359,6 +362,12 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
       card
       progress
       stages={LOADING_STAGES.matchRestart}
+    />
+    {/* Issue #176: AI 思考が連続失敗した場合のリカバリ UI */}
+    <AiErrorModal
+      open={aiError !== null}
+      onRetry={retryAiMove}
+      onResign={resign}
     />
     </>
   );

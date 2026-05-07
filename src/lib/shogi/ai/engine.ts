@@ -55,80 +55,7 @@ export const DIFFICULTY_PARAMS: Record<Difficulty, DifficultyParams> = {
   },
 };
 
-// 指定難易度でAIの最善手を計算
-export function calculateAiMove(
-  state: GameState,
-  player: Player,
-  difficulty: Difficulty,
-  variant: RuleVariant = STANDARD_VARIANT
-): Move | null {
-  const params = DIFFICULTY_PARAMS[difficulty];
-
-  // 定石ブック参照（序盤のみ）
-  if (params.useBook && state.moveCount < MAX_BOOK_MOVES * 2) {
-    const bookMove = getBookMove(state, player);
-    if (bookMove) {
-      // ブック手が合法手に含まれるか検証
-      const legalMoves = getFullLegalMoves(state, player, variant);
-      const isLegal = legalMoves.some(
-        (m) =>
-          m.type === bookMove.type &&
-          m.to.row === bookMove.to.row &&
-          m.to.col === bookMove.to.col &&
-          (bookMove.type === "drop"
-            ? m.dropPiece === bookMove.dropPiece
-            : m.from?.row === bookMove.from?.row &&
-              m.from?.col === bookMove.from?.col &&
-              (m.promote ?? false) === (bookMove.promote ?? false))
-      );
-      if (isLegal) return bookMove;
-    }
-  }
-
-  // 探索による手の選択
-  const bestMove = findBestMove(state, player, {
-    maxDepth: params.maxDepth,
-    timeLimitMs: params.timeLimitMs,
-    addNoise: params.addNoise,
-    nearEqualThreshold: params.nearEqualThreshold,
-  }, variant);
-
-  // ブランダーガード（上級・超上級専用）
-  // 探索結果の最終チェック: 選択した手を指した後に自駒がタダ取りされないか確認
-  if (
-    (difficulty === "advanced" || difficulty === "expert") &&
-    bestMove !== null
-  ) {
-    const nextState = applyMoveForSearch(state, bestMove);
-    if (hasHangingPiece(nextState, player, variant)) {
-      // ブランダーの可能性 → 全合法手から安全な手を選び直す
-      const legalMoves = getFullLegalMoves(state, player, variant);
-      const safeMoves = legalMoves.filter((move) => {
-        const ns = applyMoveForSearch(state, move);
-        return !hasHangingPiece(ns, player, variant);
-      });
-
-      if (safeMoves.length > 0) {
-        // 安全な手の中から静的評価で最善手を選択
-        let bestSafeScore = -Infinity;
-        let bestSafeMove = safeMoves[0];
-        for (const move of safeMoves) {
-          const ns = applyMoveForSearch(state, move);
-          const rawScore = evaluate(ns, variant);
-          const score = player === "sente" ? rawScore : -rawScore;
-          if (score > bestSafeScore) {
-            bestSafeScore = score;
-            bestSafeMove = move;
-          }
-        }
-        return bestSafeMove;
-      }
-      // 安全な手がない場合（全手がタダ取りされる場合）は元の最善手を返す
-    }
-  }
-
-  return bestMove;
-}
+// Issue #176: 旧 calculateAiMove は完全置換。findBestMoveWithStats (本ファイル末尾) を使う。
 
 // ブランダーガード用: 駒の価値テーブル
 const BLUNDER_PIECE_VALUES: Record<string, number> = {
@@ -184,9 +111,7 @@ export const DIFFICULTY_LABELS: Record<Difficulty, string> = {
 // Issue #176: Route Handler / hooks から呼ぶ統一 API。
 // SearchContext を内部生成し、deadline 付き探索を行う。stats を返すので
 // route 側で stoppedBy / depthCompleted / nodes をログに残せる。
-//
-// 旧 calculateAiMove は Stage B で削除予定。Stage A では並存させ、
-// 段階的に Route Handler 経由へ移行する。
+// 旧 calculateAiMove は Stage B で削除済み。
 export interface FindBestMoveOptions {
   signal?: AbortSignal;
 }

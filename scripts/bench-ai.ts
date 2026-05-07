@@ -1,9 +1,10 @@
-// Issue #176 Phase 0: 現行 calculateAiMove のベンチマーク。
+// Issue #176: AI ベンチマーク (Phase 0 ベースライン → Stage A/B/C 比較用)。
 //
 // 目的:
 //   - difficulty × variant × phase ごとに elapsed の分布 (p50 / p95 / max) を取得
 //   - 計画 md に記録した「最大5秒・平均1〜3秒」目標との差分を可視化
-//   - Phase 1+2 で deadline 付き探索を入れた後の比較ベースラインにする
+//   - Stage A (deadline 厳格化) / Stage B (Route Handler 化) / Stage C
+//     (per-request 隔離) 後の比較ベースラインにする
 //
 // 実行: `npx tsx scripts/bench-ai.ts [--runs=N] [--out=path]`
 //   - 出力先デフォルト: `bench-results/<timestamp>.json` (gitignore 対象)
@@ -12,16 +13,12 @@
 // 局面 fixture:
 //   - opening: createInitialGameState (moveCount=0)
 //   - midgame_30: deterministic legal-move walk で 30 手進めた局面
-//
-// 注: 現行 `calculateAiMove` は stats を返さないため、ここで計測できるのは
-//     wall clock elapsed と「move を返したか」のみ。Phase 2 で SearchStats を
-//     導入した後、本スクリプトを stats 対応に拡張する。
 
 import { performance } from "node:perf_hooks";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import { calculateAiMove } from "@/lib/shogi/ai/engine";
+import { findBestMoveWithStats, DIFFICULTY_PARAMS } from "@/lib/shogi/ai/engine";
 import { applyMove, createInitialGameState } from "@/lib/shogi/board";
 import { getFullLegalMoves } from "@/lib/shogi/moves";
 import { STANDARD_VARIANT } from "@/lib/shogi/variants/standard";
@@ -157,7 +154,7 @@ async function runBench(runsPerCase: number, outPath: string): Promise<void> {
 
     for (let i = 0; i < runsPerCase; i++) {
       const t0 = performance.now();
-      const move = calculateAiMove(c.state, c.player, c.difficulty, c.variant);
+      const { move } = findBestMoveWithStats(c.state, c.player, c.difficulty, c.variant);
       const t1 = performance.now();
       const elapsed = t1 - t0;
       elapsedMs.push(elapsed);
@@ -190,14 +187,11 @@ async function runBench(runsPerCase: number, outPath: string): Promise<void> {
   }
 
   // engine 側の現行 difficulty params を出力に含める (ベースライン解釈用)
-  // engine.ts の DIFFICULTY_PARAMS が export されていないため、本スクリプトでは
-  // 現行値を直接コピーして記録する。Phase 1 で DIFFICULTY_PARAMS を export する際
-  // 本スクリプト側もそのまま参照に切替える。
   const difficultyParams: BenchOutput["difficultyParams"] = {
-    beginner: { maxDepth: 3, timeLimitMs: 1000 },
-    intermediate: { maxDepth: 6, timeLimitMs: 2000 },
-    advanced: { maxDepth: 16, timeLimitMs: 4000 },
-    expert: { maxDepth: 24, timeLimitMs: 4500 },
+    beginner: { maxDepth: DIFFICULTY_PARAMS.beginner.maxDepth, timeLimitMs: DIFFICULTY_PARAMS.beginner.timeLimitMs },
+    intermediate: { maxDepth: DIFFICULTY_PARAMS.intermediate.maxDepth, timeLimitMs: DIFFICULTY_PARAMS.intermediate.timeLimitMs },
+    advanced: { maxDepth: DIFFICULTY_PARAMS.advanced.maxDepth, timeLimitMs: DIFFICULTY_PARAMS.advanced.timeLimitMs },
+    expert: { maxDepth: DIFFICULTY_PARAMS.expert.maxDepth, timeLimitMs: DIFFICULTY_PARAMS.expert.timeLimitMs },
   };
 
   const output: BenchOutput = {

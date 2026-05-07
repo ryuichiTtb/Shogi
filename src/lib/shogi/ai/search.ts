@@ -522,9 +522,9 @@ function negamax(
 }
 
 // 反復深化で最善手を探索。
-// Issue #176: SearchContext を必須引数化し、deadline / abort を貫通させる。
-// 旧 calculateAiMove 互換のため `ctx` は省略可能とし、省略時は options.timeLimitMs から
-// SearchContext を生成する。Route Handler 経由の呼び出しでは engine.ts が ctx を渡す。
+// Issue #176: SearchContext で deadline / abort / nodes / per-request stats を共有する。
+// `ctx` 省略時は options.timeLimitMs から SearchContext を生成する。通常は
+// engine.ts (findBestMoveWithStats) または Route Handler が ctx を渡す。
 export function findBestMove(
   state: GameState,
   player: Player,

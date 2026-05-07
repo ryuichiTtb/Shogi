@@ -1,6 +1,6 @@
 "use client";
 
-import { useReducer, useCallback, useEffect, useRef } from "react";
+import { useReducer, useCallback, useEffect, useRef, useState } from "react";
 import type {
   GameConfig,
   GameState,
@@ -9,8 +9,8 @@ import type {
   Position,
 } from "@/lib/shogi/types";
 import { moveToNotation } from "@/lib/shogi/notation";
-import { getAiMove } from "@/app/actions/ai";
 import { saveCardShogiMove, saveCardShogiResign, undoCardShogiGameState, persistCardShogiState } from "@/app/actions/game";
+import { useAiRequest, type AiRequestError } from "@/hooks/ai/use-ai-request";
 
 import type { CardGameState } from "@/lib/shogi/cards/types";
 import { isValidCardTargetSquare } from "@/lib/shogi/cards/effects";
@@ -74,6 +74,17 @@ export function useCardShogiGame({
     }
   }, [state.gameState.currentPlayer, state.gameState.status, state.cardState.lastTurnStartedAt]);
 
+  // Issue #176: AI 思考リクエストを Route Handler 経由に統一する。
+  const [aiError, setAiError] = useState<AiRequestError | null>(null);
+  const [aiRetryCounter, setAiRetryCounter] = useState(0);
+  const handleAiError = useCallback((err: AiRequestError) => {
+    setAiError(err);
+    dispatch({ type: "SET_AI_THINKING", thinking: false });
+  }, []);
+  const { requestMove: aiRequestMove, cancel: cancelAiRequest } = useAiRequest({
+    onError: handleAiError,
+  });
+
   // AI 自動応手
   useEffect(() => {
     const { gameState } = state;
@@ -95,25 +106,32 @@ export function useCardShogiGame({
 
     dispatch({ type: "SET_AI_THINKING", thinking: true });
 
-    getAiMove({
-      gameState,
-      player: aiPlayer,
-      difficulty: gameConfig.difficulty,
-      variantId: gameConfig.variant.id,
-    }).then((move) => {
+    void (async () => {
+      const result = await aiRequestMove({
+        gameId,
+        gameState,
+        player: aiPlayer,
+        difficulty: gameConfig.difficulty,
+        variantId: gameConfig.variant.id,
+        clientMoveCount: gameState.moveCount,
+      });
+      if (result.stale) {
+        // 待った / 終局 / unmount / 上書き / onError 経由の早期 abort。
+        // 既に setAiError 済みかキャンセル済みなので thinking 解除のみ。
+        dispatch({ type: "SET_AI_THINKING", thinking: false });
+        return;
+      }
+      const move = result.response.move;
       if (!move) {
         dispatch({ type: "SET_AI_THINKING", thinking: false });
         return;
       }
-
-      // Step 3 (Issue #107): 旧実装は AI 着手後にさらに 500ms 待機していた。
-      // getAiMove 自体に 100-300ms かかる上に固定 500ms で体感が重くなるため
-      // 撤廃し即時 dispatch する。React 19 では Promise.then 内の連続 dispatch
-      // も自動 batch されるため複数 re-render は発生しない想定。
+      // Step 3 (Issue #107) / Issue #176: 旧実装の固定 500ms 待ちを撤廃。
+      // Route Handler 化により AI 応答が独立したため、追加待機は体感悪化のみ。
       dispatch({ type: "MAKE_MOVE", move });
       dispatch({ type: "SET_AI_THINKING", thinking: false });
       onComment?.("ai_move");
-    });
+    })();
     // 依存配列の補足:
     // - isPlayingCard: 旧仕様では「演出 → ターン交代」の順で、ターン交代時には isPlayingCard=false
     //   になっていたため deps に入れる必要がなかった。
@@ -131,7 +149,21 @@ export function useCardShogiGame({
     state.isPlayingCard,
     state.isCheckBreakAnimating,
     disableAi,
+    aiRetryCounter,
   ]);
+
+  // 終局時に in-flight な AI 探索をキャンセル
+  useEffect(() => {
+    if (state.gameState.status !== "active") {
+      cancelAiRequest();
+    }
+  }, [state.gameState.status, cancelAiRequest]);
+
+  const dismissAiError = useCallback(() => setAiError(null), []);
+  const retryAiMove = useCallback(() => {
+    setAiError(null);
+    setAiRetryCounter((c) => c + 1);
+  }, []);
 
   // DB 保存(state 変更を監視して、最新の moveCount で保存)
   const lastSavedMoveCountRef = useRef(initialState.moveCount);
@@ -466,5 +498,8 @@ export function useCardShogiGame({
     isPlayingCard: state.isPlayingCard,
     isCheckBreakAnimating: state.isCheckBreakAnimating,
     doubleMove: state.doubleMove,
+    aiError,
+    dismissAiError,
+    retryAiMove,
   };
 }
