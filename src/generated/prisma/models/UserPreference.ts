@@ -29,6 +29,7 @@ export type UserPreferenceMinAggregateOutputType = {
   userId: string | null
   cardBackStyle: string | null
   theme: string | null
+  boardLayout: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -38,6 +39,7 @@ export type UserPreferenceMaxAggregateOutputType = {
   userId: string | null
   cardBackStyle: string | null
   theme: string | null
+  boardLayout: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -47,6 +49,7 @@ export type UserPreferenceCountAggregateOutputType = {
   userId: number
   cardBackStyle: number
   theme: number
+  boardLayout: number
   createdAt: number
   updatedAt: number
   _all: number
@@ -58,6 +61,7 @@ export type UserPreferenceMinAggregateInputType = {
   userId?: true
   cardBackStyle?: true
   theme?: true
+  boardLayout?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -67,6 +71,7 @@ export type UserPreferenceMaxAggregateInputType = {
   userId?: true
   cardBackStyle?: true
   theme?: true
+  boardLayout?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -76,6 +81,7 @@ export type UserPreferenceCountAggregateInputType = {
   userId?: true
   cardBackStyle?: true
   theme?: true
+  boardLayout?: true
   createdAt?: true
   updatedAt?: true
   _all?: true
@@ -158,6 +164,7 @@ export type UserPreferenceGroupByOutputType = {
   userId: string
   cardBackStyle: string
   theme: string
+  boardLayout: string
   createdAt: Date
   updatedAt: Date
   _count: UserPreferenceCountAggregateOutputType | null
@@ -188,6 +195,7 @@ export type UserPreferenceWhereInput = {
   userId?: Prisma.StringFilter<"UserPreference"> | string
   cardBackStyle?: Prisma.StringFilter<"UserPreference"> | string
   theme?: Prisma.StringFilter<"UserPreference"> | string
+  boardLayout?: Prisma.StringFilter<"UserPreference"> | string
   createdAt?: Prisma.DateTimeFilter<"UserPreference"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"UserPreference"> | Date | string
   user?: Prisma.XOR<Prisma.UserScalarRelationFilter, Prisma.UserWhereInput>
@@ -198,6 +206,7 @@ export type UserPreferenceOrderByWithRelationInput = {
   userId?: Prisma.SortOrder
   cardBackStyle?: Prisma.SortOrder
   theme?: Prisma.SortOrder
+  boardLayout?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   user?: Prisma.UserOrderByWithRelationInput
@@ -211,6 +220,7 @@ export type UserPreferenceWhereUniqueInput = Prisma.AtLeast<{
   NOT?: Prisma.UserPreferenceWhereInput | Prisma.UserPreferenceWhereInput[]
   cardBackStyle?: Prisma.StringFilter<"UserPreference"> | string
   theme?: Prisma.StringFilter<"UserPreference"> | string
+  boardLayout?: Prisma.StringFilter<"UserPreference"> | string
   createdAt?: Prisma.DateTimeFilter<"UserPreference"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"UserPreference"> | Date | string
   user?: Prisma.XOR<Prisma.UserScalarRelationFilter, Prisma.UserWhereInput>
@@ -221,6 +231,7 @@ export type UserPreferenceOrderByWithAggregationInput = {
   userId?: Prisma.SortOrder
   cardBackStyle?: Prisma.SortOrder
   theme?: Prisma.SortOrder
+  boardLayout?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   _count?: Prisma.UserPreferenceCountOrderByAggregateInput
@@ -236,6 +247,7 @@ export type UserPreferenceScalarWhereWithAggregatesInput = {
   userId?: Prisma.StringWithAggregatesFilter<"UserPreference"> | string
   cardBackStyle?: Prisma.StringWithAggregatesFilter<"UserPreference"> | string
   theme?: Prisma.StringWithAggregatesFilter<"UserPreference"> | string
+  boardLayout?: Prisma.StringWithAggregatesFilter<"UserPreference"> | string
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"UserPreference"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"UserPreference"> | Date | string
 }
@@ -244,6 +256,7 @@ export type UserPreferenceCreateInput = {
   id?: string
   cardBackStyle?: string
   theme?: string
+  boardLayout?: string
   createdAt?: Date | string
   updatedAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutPreferenceInput
@@ -254,6 +267,7 @@ export type UserPreferenceUncheckedCreateInput = {
   userId: string
   cardBackStyle?: string
   theme?: string
+  boardLayout?: string
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -262,6 +276,7 @@ export type UserPreferenceUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   cardBackStyle?: Prisma.StringFieldUpdateOperationsInput | string
   theme?: Prisma.StringFieldUpdateOperationsInput | string
+  boardLayout?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutPreferenceNestedInput
@@ -272,6 +287,7 @@ export type UserPreferenceUncheckedUpdateInput = {
   userId?: Prisma.StringFieldUpdateOperationsInput | string
   cardBackStyle?: Prisma.StringFieldUpdateOperationsInput | string
   theme?: Prisma.StringFieldUpdateOperationsInput | string
+  boardLayout?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -281,6 +297,7 @@ export type UserPreferenceCreateManyInput = {
   userId: string
   cardBackStyle?: string
   theme?: string
+  boardLayout?: string
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -289,6 +306,7 @@ export type UserPreferenceUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   cardBackStyle?: Prisma.StringFieldUpdateOperationsInput | string
   theme?: Prisma.StringFieldUpdateOperationsInput | string
+  boardLayout?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -298,6 +316,7 @@ export type UserPreferenceUncheckedUpdateManyInput = {
   userId?: Prisma.StringFieldUpdateOperationsInput | string
   cardBackStyle?: Prisma.StringFieldUpdateOperationsInput | string
   theme?: Prisma.StringFieldUpdateOperationsInput | string
+  boardLayout?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -312,6 +331,7 @@ export type UserPreferenceCountOrderByAggregateInput = {
   userId?: Prisma.SortOrder
   cardBackStyle?: Prisma.SortOrder
   theme?: Prisma.SortOrder
+  boardLayout?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -321,6 +341,7 @@ export type UserPreferenceMaxOrderByAggregateInput = {
   userId?: Prisma.SortOrder
   cardBackStyle?: Prisma.SortOrder
   theme?: Prisma.SortOrder
+  boardLayout?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -330,6 +351,7 @@ export type UserPreferenceMinOrderByAggregateInput = {
   userId?: Prisma.SortOrder
   cardBackStyle?: Prisma.SortOrder
   theme?: Prisma.SortOrder
+  boardLayout?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -370,6 +392,7 @@ export type UserPreferenceCreateWithoutUserInput = {
   id?: string
   cardBackStyle?: string
   theme?: string
+  boardLayout?: string
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -378,6 +401,7 @@ export type UserPreferenceUncheckedCreateWithoutUserInput = {
   id?: string
   cardBackStyle?: string
   theme?: string
+  boardLayout?: string
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -402,6 +426,7 @@ export type UserPreferenceUpdateWithoutUserInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   cardBackStyle?: Prisma.StringFieldUpdateOperationsInput | string
   theme?: Prisma.StringFieldUpdateOperationsInput | string
+  boardLayout?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -410,6 +435,7 @@ export type UserPreferenceUncheckedUpdateWithoutUserInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   cardBackStyle?: Prisma.StringFieldUpdateOperationsInput | string
   theme?: Prisma.StringFieldUpdateOperationsInput | string
+  boardLayout?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -421,6 +447,7 @@ export type UserPreferenceSelect<ExtArgs extends runtime.Types.Extensions.Intern
   userId?: boolean
   cardBackStyle?: boolean
   theme?: boolean
+  boardLayout?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
@@ -431,6 +458,7 @@ export type UserPreferenceSelectCreateManyAndReturn<ExtArgs extends runtime.Type
   userId?: boolean
   cardBackStyle?: boolean
   theme?: boolean
+  boardLayout?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
@@ -441,6 +469,7 @@ export type UserPreferenceSelectUpdateManyAndReturn<ExtArgs extends runtime.Type
   userId?: boolean
   cardBackStyle?: boolean
   theme?: boolean
+  boardLayout?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
@@ -451,11 +480,12 @@ export type UserPreferenceSelectScalar = {
   userId?: boolean
   cardBackStyle?: boolean
   theme?: boolean
+  boardLayout?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type UserPreferenceOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "userId" | "cardBackStyle" | "theme" | "createdAt" | "updatedAt", ExtArgs["result"]["userPreference"]>
+export type UserPreferenceOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "userId" | "cardBackStyle" | "theme" | "boardLayout" | "createdAt" | "updatedAt", ExtArgs["result"]["userPreference"]>
 export type UserPreferenceInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
 }
@@ -476,6 +506,7 @@ export type $UserPreferencePayload<ExtArgs extends runtime.Types.Extensions.Inte
     userId: string
     cardBackStyle: string
     theme: string
+    boardLayout: string
     createdAt: Date
     updatedAt: Date
   }, ExtArgs["result"]["userPreference"]>
@@ -906,6 +937,7 @@ export interface UserPreferenceFieldRefs {
   readonly userId: Prisma.FieldRef<"UserPreference", 'String'>
   readonly cardBackStyle: Prisma.FieldRef<"UserPreference", 'String'>
   readonly theme: Prisma.FieldRef<"UserPreference", 'String'>
+  readonly boardLayout: Prisma.FieldRef<"UserPreference", 'String'>
   readonly createdAt: Prisma.FieldRef<"UserPreference", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"UserPreference", 'DateTime'>
 }

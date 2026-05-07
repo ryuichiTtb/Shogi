@@ -1,7 +1,5 @@
-// Issue #177: 将棋盤レイアウト (盤面マス背景) のユーザー設定を localStorage で
-// 永続化し、Context で全体に提供する。CardBackProvider と異なり DB 同期は行わず、
-// ブラウザ単位の保存に留める (将来必要なら useBoardLayoutControls の setLayoutId
-// から server action 呼び出しを足せば拡張可能)。
+// Issue #177: 将棋盤レイアウト (盤面マス背景) のユーザー設定を DB と userId scoped
+// localStorage に保存し、Context で全体に提供する。CardBackProvider と同パターン。
 //
 // 派生 (Issue #177): 木目テクスチャ画像を mount 時に一括先読みし、URL 単位で
 // 「ロード完了済」状態を追跡する。対局画面 / 盤デザイン画面はテクスチャが
@@ -16,17 +14,21 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useAuth } from "@clerk/nextjs";
 
+import {
+  getCurrentUserPreferences,
+  saveBoardLayoutPreference,
+} from "@/app/actions/preferences";
 import {
   BOARD_LAYOUTS,
   DEFAULT_BOARD_LAYOUT_ID,
   findBoardLayout,
-  isBoardLayoutId,
   type BoardLayout,
   type BoardLayoutId,
 } from "./options";
 
-const STORAGE_KEY = "shogi-board-layout";
+const CLERK_CONFIGURED = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 
 interface BoardLayoutContextValue {
   layout: BoardLayout;
@@ -52,42 +54,71 @@ export function useBoardLayoutControls(): BoardLayoutContextValue {
   return useContext(BoardLayoutContext);
 }
 
-// 現在選択中の盤レイアウトテクスチャがロード完了済か。
-// 対局画面 (GameLayout) で初回マウント時のフラッシュを抑止するために使う。
 export function useIsBoardLayoutReady(): boolean {
   const ctx = useContext(BoardLayoutContext);
   return ctx.isTextureReady(ctx.layout.url);
 }
 
-// 採用 4 種のテクスチャがすべてロード完了済か。
-// 盤デザイン画面で 4 つのサムネイル全て出揃ってから表示するために使う。
 export function useAllBoardLayoutsReady(): boolean {
   return useContext(BoardLayoutContext).allTexturesReady;
 }
 
-export function BoardLayoutProvider({ children }: { children: ReactNode }) {
-  const [layoutId, setLayoutIdState] = useState<BoardLayoutId>(
-    DEFAULT_BOARD_LAYOUT_ID,
-  );
+// Issue #160 と同様、SSR で Clerk session 解決が間に合わずゲスト経路に
+// 落ちた場合の救済策。Clerk client が hydrate 完了したタイミングで preferences を再取得し、
+// SSR で得た値と異なれば onSync で state を更新する。
+function ClerkPreferenceSync({
+  ssrUserId,
+  onSync,
+}: {
+  ssrUserId: string;
+  onSync: (layoutId: BoardLayoutId) => void;
+}) {
+  const { isLoaded, isSignedIn } = useAuth();
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
+    let cancelled = false;
+    getCurrentUserPreferences()
+      .then((p) => {
+        if (cancelled) return;
+        if (p.userId !== ssrUserId) {
+          onSync(p.boardLayout);
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to rehydrate board layout preference", error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoaded, isSignedIn, ssrUserId, onSync]);
+  return null;
+}
+
+export function BoardLayoutProvider({
+  children,
+  userId,
+  userKind,
+  initialLayoutId,
+}: {
+  children: ReactNode;
+  userId: string;
+  userKind: "guest" | "account";
+  initialLayoutId: BoardLayoutId;
+}) {
+  const [layoutId, setLayoutIdState] = useState<BoardLayoutId>(initialLayoutId);
+  // Issue #160 同様: userId / initialLayoutId の props 変化に state を追従させる。
+  const [lastSync, setLastSync] = useState({ userId, initialLayoutId });
+  if (lastSync.userId !== userId || lastSync.initialLayoutId !== initialLayoutId) {
+    setLastSync({ userId, initialLayoutId });
+    setLayoutIdState(initialLayoutId);
+  }
+
+  const storageKey = `shogi-board-layout:${userId}`;
+
   const [readyUrls, setReadyUrls] = useState<Set<string>>(() => new Set());
 
-  // mount 時に localStorage から復元する。SSR とのハイドレーション差異を避ける
-  // ため、初期 render は DEFAULT_BOARD_LAYOUT_ID で固定し、mount 後にユーザー
-  // 選択値で上書きする (短時間のフラッシュは許容)。
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved && isBoardLayoutId(saved) && saved !== DEFAULT_BOARD_LAYOUT_ID) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setLayoutIdState(saved);
-      }
-    } catch {
-      // localStorage 利用不可 (Safari Private Mode 等) — 黙ってデフォルトを使う
-    }
-  }, []);
-
-  // 木目テクスチャを 4 種一括先読み。完了 URL を Set に蓄積して isTextureReady で
-  // 参照する。エラー時もマークを進める (画像取得失敗で UI を永久に止めない)。
+  // 木目テクスチャを 4 種一括先読み。完了 URL を Set に蓄積する。
+  // エラー時もマークを進めて UI を永久に止めない。
   useEffect(() => {
     if (typeof window === "undefined") return;
     let cancelled = false;
@@ -105,8 +136,8 @@ export function BoardLayoutProvider({ children }: { children: ReactNode }) {
       img.onload = () => markReady(lay.url);
       img.onerror = () => markReady(lay.url);
       img.src = lay.url;
-      // 既にブラウザキャッシュ済みなら onload が発火しない (or 既に発火済) ことが
-      // あるため complete を即時チェックする (load を待たずに ready マーク)。
+      // 既にブラウザキャッシュ済みなら onload が遅延発火する可能性に備え
+      // complete を即時チェックする (load を待たずに ready マーク)。
       if (img.complete && img.naturalWidth > 0) {
         markReady(lay.url);
       }
@@ -116,14 +147,34 @@ export function BoardLayoutProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const setLayoutId = useCallback((id: BoardLayoutId) => {
-    setLayoutIdState(id);
+  const setLayoutId = useCallback(
+    (id: BoardLayoutId) => {
+      setLayoutIdState(id);
+      try {
+        localStorage.setItem(storageKey, id);
+      } catch {
+        // ignore (Safari Private Mode 等)
+      }
+      saveBoardLayoutPreference(id).catch((error) => {
+        console.error("Failed to save board layout preference", error);
+      });
+    },
+    [storageKey],
+  );
+
+  const handleClerkSync = useCallback((newLayoutId: BoardLayoutId) => {
+    setLayoutIdState((prev) => (prev === newLayoutId ? prev : newLayoutId));
+  }, []);
+
+  // CardBackProvider と同様、SSR 値を localStorage にも書き戻しておく
+  // (将来の pre-mount 初期化スクリプト等で参照できる様に)。
+  useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, id);
+      localStorage.setItem(storageKey, initialLayoutId);
     } catch {
       // ignore
     }
-  }, []);
+  }, [initialLayoutId, storageKey]);
 
   const isTextureReady = useCallback(
     (url: string) => readyUrls.has(url),
@@ -136,6 +187,9 @@ export function BoardLayoutProvider({ children }: { children: ReactNode }) {
     <BoardLayoutContext.Provider
       value={{ layout, setLayoutId, isTextureReady, allTexturesReady }}
     >
+      {CLERK_CONFIGURED && userKind === "guest" && (
+        <ClerkPreferenceSync ssrUserId={userId} onSync={handleClerkSync} />
+      )}
       {children}
     </BoardLayoutContext.Provider>
   );

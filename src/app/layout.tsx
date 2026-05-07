@@ -144,7 +144,11 @@ if(dark)document.documentElement.classList.add("dark");else document.documentEle
               userKind={preferences.userKind}
               initialStyle={preferences.cardBackStyle}
             >
-              <BoardLayoutProvider>
+              <BoardLayoutProvider
+                userId={preferences.userId}
+                userKind={preferences.userKind}
+                initialLayoutId={preferences.boardLayout}
+              >
                 {children}
                 <ServiceWorkerRegister />
               </BoardLayoutProvider>
