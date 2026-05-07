@@ -2,6 +2,7 @@
 
 import { ShogiGame } from "./shogi-game";
 import { CardShogiGame } from "./card-shogi/card-shogi-game";
+import { AppBackground } from "@/components/layout/app-background";
 import type { Difficulty, GameState, Player } from "@/lib/shogi/types";
 import type { CardGameState } from "@/lib/shogi/cards/types";
 
@@ -35,20 +36,26 @@ export function GameLayout({
       throw new Error("card-shogi variant requires initialCardState");
     }
     return (
-      <CardShogiGame
-        initialGameState={initialGameState}
-        initialCardState={initialCardState}
-        gameId={gameId}
-        gameConfig={gameConfig}
-      />
+      <>
+        <AppBackground variant="setup" />
+        <CardShogiGame
+          initialGameState={initialGameState}
+          initialCardState={initialCardState}
+          gameId={gameId}
+          gameConfig={gameConfig}
+        />
+      </>
     );
   }
 
   return (
-    <ShogiGame
-      initialGameState={initialGameState}
-      gameId={gameId}
-      gameConfig={gameConfig}
-    />
+    <>
+      <AppBackground variant="setup" />
+      <ShogiGame
+        initialGameState={initialGameState}
+        gameId={gameId}
+        gameConfig={gameConfig}
+      />
+    </>
   );
 }
