@@ -391,8 +391,9 @@ export function CardShogiGame({
       playSfx("check");
       setOverlayEvent({ event: "check", key: Date.now() });
     }
+    // 詰み: Issue #79 で王手 SFX (check) と分離した専用 checkmate SFX を再生。
     if (gameState.status === "checkmate") {
-      setTimeout(() => playSfx("game_over"), 1000);
+      setTimeout(() => playSfx("checkmate"), 1000);
       setTimeout(() => setOverlayEvent({ event: "checkmate", key: Date.now() }), 1000);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -550,8 +551,9 @@ export function CardShogiGame({
           const source = ev.source ?? "manual";
           const isSelf = ev.player === playerColor;
           if (isSelf) {
-            playSfx("card_draw");
-            // Issue #79: 中央表示タイミング (T=DRAW_FADE_IN_MS = 500ms) で
+            // Issue #79: 手動ドロー (山札クリック) と自動ドロー (relay) を別 SFX に分離。
+            playSfx(source === "auto" ? "card_auto_draw" : "card_draw");
+            // 中央表示タイミング (T=DRAW_FADE_IN_MS = 500ms) で
             // レア度別 draw_card_open SE を発火。default 未割当なら playSfx 内で skip。
             const rarity = CARD_DEFS[ev.instance.defId].rarity;
             scheduleTimer(
@@ -613,6 +615,8 @@ export function CardShogiGame({
               const toRect = findVisibleCapturedPieceRect(playerColor, pending.pieceType);
               if (toRect) {
                 pieceFlightKeyRef.current += 1;
+                // Issue #79: 駒フライト演出 SFX (default = 刀剣・投げナイフ)。
+                playSfx("piece_flight");
                 setPieceFlight({
                   spec: {
                     pieceType: pending.pieceType,
@@ -761,6 +765,8 @@ export function CardShogiGame({
             }, 1600);
             // T=3900: ゴーストを消し、駒フライト並行発火
             window.setTimeout(() => {
+              // Issue #79: 駒フライト演出 SFX (王手崩し時)。
+              playSfx("piece_flight");
               setCheckBreakAnim((prev) => (prev ? { ...prev, ghosts: [], flights } : null));
             }, 1600 + 2300);
             break;
@@ -846,6 +852,8 @@ export function CardShogiGame({
             toY: toRect.top + toRect.height / 2,
           };
           const ht = hideTarget;
+          // Issue #79: 駒フライト演出 SFX (default = 刀剣・投げナイフ)。
+          playSfx("piece_flight");
           flushSync(() => {
             setPieceFlight({ spec, key: newKey, hideTarget: ht });
           });

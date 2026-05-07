@@ -174,9 +174,10 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
       playSfx("check");
       setOverlayEvent({ event: "check", key: Date.now() });
     }
-    // 詰みは手を指した後なので1秒遅延
+    // 詰みは手を指した後なので1秒遅延。Issue #79: 王手 SFX (check) と分離した
+    // 専用 checkmate SFX を再生 (default = 血しぶき・飛び散る03)。
     if (gameState.status === "checkmate") {
-      setTimeout(() => playSfx("game_over"), 1000);
+      setTimeout(() => playSfx("checkmate"), 1000);
       setTimeout(() => setOverlayEvent({ event: "checkmate", key: Date.now() }), 1000);
     }
   }, [gameState.moveCount]);

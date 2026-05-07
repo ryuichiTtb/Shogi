@@ -12,31 +12,39 @@ import { WAVEFORM_PEAKS } from "@/lib/dev/waveform-peaks-data";
 // 値が空文字 `""` の event は「未割当」で、playSfx 側でガードして無音 skip。
 // Web Audio API モードで Howler に渡されるためデコード済みバッファとして保持される。
 export const SFX_FILES: Record<string, string> = {
-  // 既存 SFX (8 + カード将棋用 4 = 12 event)
+  // 駒系
   piece_move: "/sounds/piece-move.mp3",
   piece_jump: "/sounds/jump.mp3",
   piece_capture: "/sounds/piece-capture.mp3",
   piece_promote: "/sounds/piece-promote.mp3",
   piece_drop: "/sounds/piece-drop.mp3",
+  // 駒のフライト演出 (歩戻し / 駒戻し / 王手崩し 等で発火)
+  piece_flight: "/sounds/音源/振る/刀剣・投げナイフ.mp3",
+  // 対局系
   check: "/sounds/check.mp3",
+  // 詰み (王手と分離。専用音源 = 血しぶき)
+  checkmate: "/sounds/音源/詰み/血しぶき・飛び散る03.mp3",
   // game_start / game_over は default 未割当 (鳴らさない)。dev tool で割当てると
-  // 鳴るようになる。Issue #79 派生のユーザ要望でデフォルト無音化。
+  // 鳴るようになる。
   game_over: "",
   game_start: "",
-  // カード将棋用 SE (Phase 0 では既存ファイルをエイリアスとして再利用、Phase A 以降で差替予定)
-  card_draw: "/sounds/piece-drop.mp3",
+  // カード系
+  // 手動ドロー (山札クリック): Motion-Swish で軽く
+  card_draw: "/sounds/音源/カード/山札ドロー/Motion-Swish01-01.mp3",
+  // 自動ドロー (AI ターン後の relay): 旧 card_draw の値 (piece-drop) を継続
+  card_auto_draw: "/sounds/piece-drop.mp3",
   card_play: "/sounds/piece-move.mp3",
   mana_charge: "/sounds/piece-promote.mp3",
-  trap_trigger: "/sounds/check.mp3",
-  // ★ Issue #79 PR 1.7: 新 SFX event 6 個
-  // 採用候補マーク付き音源を default に設定。未割当のものは "" で playSfx 側でガード。
+  // トラップ発動: 剣で斬る (ざっくり) で重みを出す
+  trap_trigger: "/sounds/音源/剣/剣で斬る3(ざっくり).mp3",
   trap_set:
     "/sounds/音源/トラップセット/【トラップセット採用候補】狙撃銃のボルトアクション.mp3",
   card_to_hand: "/sounds/音源/カード/手札IN/刀を鞘にしまう1（ｶﾁｬｯ）.mp3",
-  draw_card_open_common: "",
-  draw_card_open_rare: "",
-  draw_card_open_super_rare: "",
-  draw_card_open_epic: "",
+  // ドローカードオープン: 全レア度共通で「刀の素振り (シュピン)」(将来差別化予定)
+  draw_card_open_common: "/sounds/音源/剣/刀の素振り1（シュピン）.mp3",
+  draw_card_open_rare: "/sounds/音源/剣/刀の素振り1（シュピン）.mp3",
+  draw_card_open_super_rare: "/sounds/音源/剣/刀の素振り1（シュピン）.mp3",
+  draw_card_open_epic: "/sounds/音源/剣/刀の素振り1（シュピン）.mp3",
 };
 
 // BGM (画面/状態別ループ再生される長尺素材)。

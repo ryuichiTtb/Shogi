@@ -17,17 +17,20 @@ import { AUDIO_MANIFEST, BGM_FILES, SFX_FILES } from "@/lib/audio/manifest";
 // SFX (効果音)
 // =====================
 
-// SFX_FILES のキー (18 種)。順序は UI 一覧の表示順を兼ねる。
+// SFX_FILES のキー。順序は UI 一覧の表示順を兼ねる。
 export type SfxEventKey =
   | "piece_move"
   | "piece_jump"
   | "piece_capture"
   | "piece_promote"
   | "piece_drop"
+  | "piece_flight"
   | "check"
+  | "checkmate"
   | "game_over"
   | "game_start"
   | "card_draw"
+  | "card_auto_draw"
   | "card_play"
   | "mana_charge"
   | "trap_trigger"
@@ -46,12 +49,15 @@ export const SFX_EVENT_KEYS: readonly SfxEventKey[] = [
   "piece_capture",
   "piece_promote",
   "piece_drop",
+  "piece_flight",
   // 対局系
   "check",
+  "checkmate",
   "game_start",
   "game_over",
   // カード系
   "card_draw",
+  "card_auto_draw",
   "draw_card_open_common",
   "draw_card_open_rare",
   "draw_card_open_super_rare",
@@ -70,10 +76,13 @@ export const SFX_EVENT_LABELS: Record<SfxEventKey, string> = {
   piece_capture: "駒を取る",
   piece_promote: "成る",
   piece_drop: "駒を打つ",
+  piece_flight: "駒のフライト演出",
   check: "王手",
+  checkmate: "詰み",
   game_over: "対局終了",
   game_start: "対局開始",
-  card_draw: "カードドロー (山札)",
+  card_draw: "カードドロー (山札 手動)",
+  card_auto_draw: "カードドロー (自動)",
   card_play: "カードプレイ",
   mana_charge: "マナチャージ",
   trap_trigger: "トラップ発動",

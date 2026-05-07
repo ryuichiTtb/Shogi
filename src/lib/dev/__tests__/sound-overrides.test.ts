@@ -65,17 +65,20 @@ describe("sound-overrides parseStored (SFX)", () => {
     expect(parseStored(input)).toEqual({});
   });
 
-  it("accepts all 18 keys with valid pool paths", () => {
+  it("accepts all SFX keys with valid pool paths", () => {
     const allValid: Record<SfxEventKey, string> = {
       piece_move: "/sounds/jump.mp3",
       piece_jump: "/sounds/piece-move.mp3",
       piece_capture: "/sounds/check.mp3",
       piece_promote: "/sounds/piece-drop.mp3",
       piece_drop: "/sounds/piece-promote.mp3",
+      piece_flight: "/sounds/jump.mp3",
       check: "/sounds/piece-capture.mp3",
+      checkmate: "/sounds/check.mp3",
       game_over: "/sounds/game-start.mp3",
       game_start: "/sounds/game-over.mp3",
       card_draw: "/sounds/jump.mp3",
+      card_auto_draw: "/sounds/piece-drop.mp3",
       card_play: "/sounds/check.mp3",
       mana_charge: "/sounds/piece-move.mp3",
       trap_trigger: "/sounds/piece-promote.mp3",
@@ -140,8 +143,8 @@ describe("isAllowedSoundPath", () => {
 });
 
 describe("SFX_EVENT_KEYS / BGM_EVENT_KEYS integrity", () => {
-  it("has 18 SFX events", () => {
-    expect(SFX_EVENT_KEYS.length).toBe(18);
+  it("has 21 SFX events (18 base + checkmate + piece_flight + card_auto_draw)", () => {
+    expect(SFX_EVENT_KEYS.length).toBe(21);
   });
 
   it("has 4 BGM events", () => {
