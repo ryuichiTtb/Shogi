@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useShogiGame } from "@/hooks/use-shogi-game";
 import { useSound } from "@/hooks/use-sound";
 import { useBoardSize } from "@/hooks/use-board-size";
@@ -115,8 +115,28 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
   const isGameActive = gameState.status === "active";
   const inCheck = (isGameActive || gameState.status === "checkmate") && isInCheck(gameState, gameState.currentPlayer, STANDARD_VARIANT);
 
-  // サウンドエフェクト
+  // Issue #155: 履歴復元時の演出再発火を抑止する。
+  //
+  // 旧実装は [moveCount] / [status] / [isReady] 監視がいずれも「初回マウント時に
+  // fire する」性質を持ち、履歴から終局済対局を復元したときに最後の手の駒音・
+  // 王手・詰み・投了演出や対局開始演出が意図せず再生されていた。
+  //
+  // 各 useEffect に「前回値追跡」パターンを適用:
+  //   - useRef を初回 render 時の値で初期化し、effect 内で「前回値と一致」なら
+  //     skip。実際に値が変化したときだけ副作用を出す。
+  //   - StrictMode (dev) で effect が 2 回 fire しても、ref 値が等しいので
+  //     副作用は再生されず安全。単純な「初回フラグを倒す」方式より堅牢。
+  //
+  // 例外: game_start 演出は「新規対局のときに必ず 1 度発火」したいため、別途
+  // 「既に発火したか」のフラグを持つ (lastReadyRef)。
+  const lastMoveCountRef = useRef(gameState.moveCount);
+  const lastStatusRef = useRef(gameState.status);
+  const gameStartFiredRef = useRef(false);
+
+  // サウンドエフェクト (駒音・王手・詰み)
   useEffect(() => {
+    if (lastMoveCountRef.current === gameState.moveCount) return;
+    lastMoveCountRef.current = gameState.moveCount;
     const lastMove = gameState.moveHistory[gameState.moveHistory.length - 1];
     if (!lastMove) return;
 
@@ -144,17 +164,27 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
     }
   }, [gameState.moveCount]);
 
-  // 投了時（moveCountが変わらないため別途監視）
+  // 投了時 (moveCountが変わらないため別途監視)。
+  // 前回値追跡で「実際に status が変化したとき」だけ fire する。
   useEffect(() => {
+    if (lastStatusRef.current === gameState.status) return;
+    lastStatusRef.current = gameState.status;
     if (gameState.status === "resign") {
       playSfx("game_over");
       setOverlayEvent({ event: "resign", key: Date.now() });
     }
   }, [gameState.status]);
 
-  // ゲーム開始時のコメント・サウンド（Howler初期化完了後に再生）
+  // ゲーム開始時のコメント・サウンド (Howler 初期化完了後に再生)。
+  // gameStartFiredRef で「同一マウント内で 1 回だけ」発火し、新規対局
+  // (status: "active" + moveCount === 0) のときのみ実演出を出す。履歴から
+  // 終局済 / 途中対局を復元した場合は ref を立てずに完全スキップ (将来何かの
+  // タイミングで再評価されても発火しない)。
   useEffect(() => {
     if (!isReady) return;
+    if (gameStartFiredRef.current) return;
+    if (gameState.status !== "active" || gameState.moveCount !== 0) return;
+    gameStartFiredRef.current = true;
     playSfx("game_start");
     setOverlayEvent({ event: "game_start", key: Date.now() });
     setTimeout(() => handleComment("game_start"), 500);

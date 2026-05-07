@@ -1,6 +1,7 @@
 "use client";
 
 import { LoadingOverlay } from "@/components/loading-overlay";
+import { LOADING_STAGES } from "@/lib/loading-stages";
 
 // デッキ詳細を読み込み中・別デッキ切替直後に表示する placeholder。
 // DeckEditorPane と同じレイアウト構造 (header + body grid) を再現することで、
@@ -37,7 +38,12 @@ export function DeckEditorSkeleton() {
         <SkeletonSection labelW="w-28" />
       </div>
 
-      <LoadingOverlay show />
+      <LoadingOverlay
+        show
+        card
+        stages={LOADING_STAGES.deckLoading}
+        progress
+      />
     </div>
   );
 }

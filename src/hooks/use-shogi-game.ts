@@ -25,7 +25,7 @@ import { evaluateGameEnd } from "@/lib/shogi/rules";
 import { moveToNotation } from "@/lib/shogi/notation";
 import { STANDARD_VARIANT } from "@/lib/shogi/variants/standard";
 import { getAiMove } from "@/app/actions/ai";
-import { saveMove, updateGameStatus } from "@/app/actions/game";
+import { saveMove, saveResign } from "@/app/actions/game";
 
 type GameAction =
   | { type: "SELECT_SQUARE"; pos: Position }
@@ -410,10 +410,32 @@ export function useShogiGame({
   );
 
   const resign = useCallback(() => {
+    // Issue #155: DB 保存は dispatch 結果が反映された state を見て useEffect 経由で
+    // 行う。reducer の dispatch は同期的だが結果 state を直接掴めないため、
+    // useEffect で gameState.status === "resign" を検知して saveResign を await
+    // する方式 (重複保存防止に resignedRef を使う) を採用している。
     dispatch({ type: "RESIGN" });
-    const winner: Player = state.gameState.currentPlayer === "sente" ? "gote" : "sente";
-    updateGameStatus(gameId, "resign", winner);
-  }, [state.gameState.currentPlayer, gameId]);
+  }, []);
+
+  // Issue #155: 投了確定後の DB 保存。
+  //   - saveResign は boardState (JSON) も同時に "resign" 状態で永続化する。
+  //     これにより履歴復元時に途中対局として開かれるバグを根治する。
+  //   - resignedRef で「同じ対局内での重複保存」を防ぐ (StrictMode の二重 effect・
+  //     status が再度 "resign" に評価される再レンダー等への保険)。
+  //   - saveResign 失敗時の UI フォールバックは現時点では出さない (旧実装も
+  //     fire-and-forget で UI 側エラー処理がなかった)。Issue #109 観点での
+  //     改善余地として残すが、本 Issue のスコープ外。
+  const resignedRef = useRef(false);
+  useEffect(() => {
+    if (state.gameState.status !== "resign") return;
+    if (resignedRef.current) return;
+    resignedRef.current = true;
+    const winner = state.gameState.winner ?? "";
+    void saveResign(gameId, state.gameState, winner);
+    // gameState 全体を依存に入れると status 不変ターンでも fire するため、
+    // status のみで trigger する (effect 内では closure の最新 state を参照)。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.gameState.status, gameId]);
 
   const undo = useCallback(() => {
     if (state.gameState.moveHistory.length < 2) return;

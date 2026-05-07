@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { CardView } from "@/components/game/card-shogi/card-view";
 import { LoadingOverlay } from "@/components/loading-overlay";
+import { LOADING_STAGES } from "@/lib/loading-stages";
 import { cn } from "@/lib/utils";
 import { STATUS_INFO } from "@/lib/shogi/cards/labels";
 import type { CardDefinition } from "@/lib/shogi/cards/types";
@@ -54,7 +55,13 @@ export function CardCatalogTile({ def }: CardCatalogTileProps) {
           {statusInfo.label}
         </Badge>
       </div>
-      <LoadingOverlay show={navigating || isPending} fullScreen message="読み込み中..." />
+      <LoadingOverlay
+        show={navigating || isPending}
+        fullScreen
+        card
+        stages={LOADING_STAGES.cardDetail}
+        progress
+      />
     </>
   );
 }
