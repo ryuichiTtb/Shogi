@@ -104,6 +104,29 @@ const LOADING_PIECE_COLOR_OVERRIDE = {
   ],
 } as const;
 
+// Issue #162: モバイル判定 (sm breakpoint < 640px)。
+// ShogiPiece の isLarge fontSize (multichar 31px / 1 文字 48px) はカード幅
+// 240px 想定の値で、モバイルで縮んだカード (~156px) には大きすぎる。
+// モバイル時のみ fontSizeOverride で 22px に縮める (PC は undefined のまま現状維持)。
+const MOBILE_LOADING_FONT_SIZE = 22;
+const MOBILE_BREAKPOINT_QUERY = "(max-width: 639px)";
+
+function useIsMobileViewport(): boolean {
+  // SSR では window が無いので false で初期化 (= PC 表示)。ハイドレーション後の
+  // effect で正しい値に再評価される。一瞬の差し替えはローディング表示なので許容。
+  const [isMobile, setIsMobile] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia(MOBILE_BREAKPOINT_QUERY).matches;
+  });
+  useEffect(() => {
+    const mql = window.matchMedia(MOBILE_BREAKPOINT_QUERY);
+    const onChange = () => setIsMobile(mql.matches);
+    mql.addEventListener("change", onChange);
+    return () => mql.removeEventListener("change", onChange);
+  }, []);
+  return isMobile;
+}
+
 // 表面: 裏面と同じ「金フレーム + 中央スポット + 中央駒」の世界観を保ちつつ、
 // 背景は loading-card-face-bg (完全な黒地 + 中央楕円の白スポット) で漆 (minimal)
 // とは別パターンに差別化する。中央駒は対局駒の淡いデフォルトとは分け、ローディング
@@ -114,7 +137,9 @@ const LOADING_PIECE_COLOR_OVERRIDE = {
 //   - 背景: loading-card-face-bg (globals.css の専用 class)
 //   - 中央: ランダム駒シルエット (ShogiPiece + ローディング用 colorOverride
 //     + 正式名称の縦書き)
+//   - Issue #162: モバイルでは駒字 fontSize を 22px に縮小 (PC は現状維持)
 function LoadingCardFace({ pieceType }: LoadingCardFaceProps) {
+  const isMobile = useIsMobileViewport();
   return (
     <div
       className={cn(
@@ -140,6 +165,7 @@ function LoadingCardFace({ pieceType }: LoadingCardFaceProps) {
             isLarge
             colorOverride={LOADING_PIECE_COLOR_OVERRIDE}
             kanjiOverride={LOADING_FACE_PIECE_LABEL[pieceType]}
+            fontSizeOverride={isMobile ? MOBILE_LOADING_FONT_SIZE : undefined}
           />
         </div>
       </div>
