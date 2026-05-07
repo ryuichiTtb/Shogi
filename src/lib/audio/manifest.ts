@@ -19,8 +19,10 @@ export const SFX_FILES: Record<string, string> = {
   piece_promote: "/sounds/piece-promote.mp3",
   piece_drop: "/sounds/piece-drop.mp3",
   check: "/sounds/check.mp3",
-  game_over: "/sounds/game-over.mp3",
-  game_start: "/sounds/game-start.mp3",
+  // game_start / game_over は default 未割当 (鳴らさない)。dev tool で割当てると
+  // 鳴るようになる。Issue #79 派生のユーザ要望でデフォルト無音化。
+  game_over: "",
+  game_start: "",
   // カード将棋用 SE (Phase 0 では既存ファイルをエイリアスとして再利用、Phase A 以降で差替予定)
   card_draw: "/sounds/piece-drop.mp3",
   card_play: "/sounds/piece-move.mp3",
@@ -40,11 +42,17 @@ export const SFX_FILES: Record<string, string> = {
 // BGM (画面/状態別ループ再生される長尺素材)。
 // 値が空文字 `""` の event は「未割当」で、useBgm 側でガードして再生しない。
 // HTML5 Audio モード (html5: true) でストリーミング再生する。
+//
+// Issue #79 派生のユーザ要望:
+//   - ホーム / 対局相手選択など 対局画面以外: ファンタジー-日常-.mp3 (連続再生)
+//   - 対局中 / 対局終了画面: RPG_Battle_01.mp3
+// 同一 path を bgm_home / bgm_match_setup に設定することで、ホーム → /play
+// 遷移で BGM がリスタートしないように useBgm 側で same-path 早期 return する。
 export const BGM_FILES: Record<string, string> = {
-  bgm_home: "",
-  bgm_match_setup: "",
-  bgm_game: "",
-  bgm_game_over: "",
+  bgm_home: "/sounds/音源/BGM/ファンタジー-日常-.mp3",
+  bgm_match_setup: "/sounds/音源/BGM/ファンタジー-日常-.mp3",
+  bgm_game: "/sounds/音源/BGM/RPG_Battle_01.mp3",
+  bgm_game_over: "/sounds/音源/BGM/RPG_Battle_01.mp3",
 };
 
 // SFX の物理的な URL リスト (空文字除外 + 重複排除済み)。

@@ -87,8 +87,13 @@ async function startBgm(
   key: BgmEventKey | null,
   path: string,
 ): Promise<void> {
-  // 同じ key + 同じ path なら何もしない (Strict Mode 二重 effect でも no-op)
-  if (currentKey === key && currentResolvedPath === path) return;
+  // path が同一なら audio をリスタートせず key のみ更新する。
+  // 例: home (bgm_home) → /play (bgm_match_setup) の遷移で
+  // 同一 BGM_FILES 値が割り当てられていれば連続再生になる。
+  if (currentResolvedPath === path) {
+    currentKey = key;
+    return;
+  }
 
   // 旧 BGM を fade out → stop → unload (メモリ解放)
   const prev = currentHowl;
