@@ -97,6 +97,9 @@ export default async function RootLayout({
   // SSR 段階で `<html>` の class はテーマ未確定だが、CSS は `:root` (light) と
   // `.dark` のみで切り替わるため、初期 paint で `.dark` クラスを正しく付与すれば
   // フラッシュなしで描画できる。
+  // next-themes 等が採用する標準パターンで、`<body>` の最初の子要素として配置することで
+  // HTML パーサーが本体描画前に同期実行する。Next.js 16 で root layout の `<head>` に
+  // 手書き要素を入れた場合の挙動が不確実なため、確実な `<body>` 直下方式に統一する。
   // 優先順位:
   //   1. SSR が account 経路で取れた preferences.theme (light/dark/system)
   //   2. SSR がゲスト経路で theme="system" のとき、過去にユーザーが設定した
@@ -104,13 +107,15 @@ export default async function RootLayout({
   //      参照 (= 同一ブラウザで最後に切り替えた値)
   //   3. それも無ければ system → prefers-color-scheme で判定
   // theme は server actions で 3 値の enum なので JSON.stringify は安全。
+  // Phase 3d: 動作未達確認のため [#160-theme-init] ログを追加。Phase 4 で削除する。
   const themeInitScript = `(function(){try{
 var ssr=${JSON.stringify(preferences.theme)};
 var saved=null;try{saved=localStorage.getItem("shogi-theme:last");}catch(_){}
 var t=(ssr==="system"&&saved&&(saved==="light"||saved==="dark"))?saved:ssr;
 var dark=t==="dark"||(t==="system"&&window.matchMedia("(prefers-color-scheme: dark)").matches);
-if(dark)document.documentElement.classList.add("dark");
-}catch(e){}})();`;
+console.log("[#160-theme-init]",{ssr:ssr,saved:saved,t:t,dark:dark});
+if(dark)document.documentElement.classList.add("dark");else document.documentElement.classList.remove("dark");
+}catch(e){console.error("[#160-theme-init] error",e);}})();`;
 
   return (
     <html
@@ -118,10 +123,8 @@ if(dark)document.documentElement.classList.add("dark");
       suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} ${notoSansJP.variable} ${yujiBoku.variable} h-full antialiased`}
     >
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
-      </head>
       <body className="min-h-full flex flex-col bg-background text-foreground">
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         <MaybeClerkProvider>
           <ThemeProvider
             userId={preferences.userId}
