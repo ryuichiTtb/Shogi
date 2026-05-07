@@ -111,7 +111,7 @@ export function MobileDrawer({
                   {gameResultText(gameStatus, gameWinner)}
                 </p>
                 <div className="flex gap-2 justify-center">
-                  <MaskedLink href={homeHref}>
+                  <MaskedLink href={homeHref} loadingVariant="spinner">
                     <Button size="sm" variant="outline">
                       ホームへ
                     </Button>

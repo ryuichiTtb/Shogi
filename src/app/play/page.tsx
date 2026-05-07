@@ -24,6 +24,7 @@ export default function PlayPage() {
               href="/"
               className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
               aria-label="ホームへ戻る"
+              loadingVariant="spinner"
             >
               <ArrowLeft className="w-4 h-4" />
               ホーム

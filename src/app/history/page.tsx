@@ -20,7 +20,7 @@ export default async function HistoryPage() {
     <main className="min-h-[100dvh] min-h-screen py-8 px-4 max-w-2xl mx-auto safe-area-inset">
       <AppBackground variant="page" />
       <div className="flex items-center gap-3 mb-6">
-        <MaskedLink href="/">
+        <MaskedLink href="/" loadingVariant="spinner">
           <Button variant="ghost" size="sm" className="gap-1.5">
             <ArrowLeft className="w-4 h-4" />
             ホームへ

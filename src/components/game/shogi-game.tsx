@@ -305,7 +305,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
                 {gameResultText(gameState.status, gameState.winner)}
               </p>
               <div className="flex gap-2 justify-center">
-                <MaskedLink href="/classic">
+                <MaskedLink href="/classic" loadingVariant="spinner">
                   <Button size="sm" variant="outline">
                     ホームへ
                   </Button>

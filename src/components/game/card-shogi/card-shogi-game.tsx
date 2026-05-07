@@ -1363,7 +1363,7 @@ export function CardShogiGame({
             <Card className="p-3 text-center border-2 border-primary/20 bg-primary/5">
               <p className="text-sm font-bold mb-2">{gameResultText(gameState.status, gameState.winner)}</p>
               <div className="flex gap-2 justify-center">
-                <MaskedLink href="/">
+                <MaskedLink href="/" loadingVariant="spinner">
                   <Button size="sm" variant="outline">ホームへ</Button>
                 </MaskedLink>
                 <Button size="sm" onClick={handlePlayAgain} disabled={isPending}>
@@ -1427,7 +1427,7 @@ export function CardShogiGame({
               <Card className="p-2.5 text-center border-2 border-primary/20 bg-primary/5">
                 <p className="text-sm font-bold mb-1.5">{gameResultText(gameState.status, gameState.winner)}</p>
                 <div className="flex gap-2 justify-center">
-                  <MaskedLink href="/">
+                  <MaskedLink href="/" loadingVariant="spinner">
                     <Button size="sm" variant="outline">ホームへ</Button>
                   </MaskedLink>
                   <Button size="sm" onClick={handlePlayAgain} disabled={isPending}>
@@ -1756,7 +1756,7 @@ export function CardShogiGame({
             <Card className="p-3 text-center border-2 border-primary/20 bg-primary/5 shrink-0">
               <p className="text-sm font-bold mb-2">{gameResultText(gameState.status, gameState.winner)}</p>
               <div className="flex gap-2 justify-center">
-                <MaskedLink href="/">
+                <MaskedLink href="/" loadingVariant="spinner">
                   <Button size="sm" variant="outline">ホームへ</Button>
                 </MaskedLink>
                 <Button size="sm" onClick={handlePlayAgain} disabled={isPending}>
