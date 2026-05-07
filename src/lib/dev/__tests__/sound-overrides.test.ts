@@ -88,6 +88,9 @@ describe("sound-overrides parseStored (SFX)", () => {
       draw_card_open_rare: "/sounds/jump.mp3",
       draw_card_open_super_rare: "/sounds/piece-promote.mp3",
       draw_card_open_epic: "/sounds/check.mp3",
+      card_select: "/sounds/piece-move.mp3",
+      card_use_confirm: "/sounds/piece-capture.mp3",
+      card_use_animation: "/sounds/jump.mp3",
     };
     expect(parseStored(JSON.stringify(allValid))).toEqual(allValid);
   });
@@ -143,8 +146,8 @@ describe("isAllowedSoundPath", () => {
 });
 
 describe("SFX_EVENT_KEYS / BGM_EVENT_KEYS integrity", () => {
-  it("has 21 SFX events (18 base + checkmate + piece_flight + card_auto_draw)", () => {
-    expect(SFX_EVENT_KEYS.length).toBe(21);
+  it("has 24 SFX events (21 base + card_select + card_use_confirm + card_use_animation)", () => {
+    expect(SFX_EVENT_KEYS.length).toBe(24);
   });
 
   it("has 4 BGM events", () => {

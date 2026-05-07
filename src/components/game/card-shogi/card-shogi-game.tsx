@@ -335,8 +335,8 @@ export function CardShogiGame({
   //     場合 (もしくは manifest 既定が non-empty) のときに再生される。
   //   - dev page は enableBgm=false で抑止。
   //   - soundEnabled が false → null で停止 (#150 のサウンド ON/OFF ゲート)。
-  //   - キャラクター別 BGM (旧 character.bgmTrack) は撤去済 — 必要なら dev
-  //     tool から bgm_game / bgm_game_over の override を設定する運用に統一。
+  //   - 対局中は loop 継続、対局終了時は現在の loop を完了させた上で停止。
+  //     (shouldLoop=false → onend で自然停止)
   //   - status: "active" → bgm_game / それ以外 (resign/checkmate 等) → bgm_game_over
   useBgm(
     !enableBgm || !gameConfig.soundEnabled
@@ -344,6 +344,7 @@ export function CardShogiGame({
       : gameState.status === "active"
         ? "bgm_game"
         : "bgm_game_over",
+    { shouldLoop: !!enableBgm && gameState.status === "active" },
   );
   const isGameActive = gameState.status === "active";
   const inCheck =
@@ -514,6 +515,8 @@ export function CardShogiGame({
   );
 
   const handleConfirmPlayCard = useCallback(() => {
+    // Issue #79 派生: カード使用確定 SFX (default = piece-capture)
+    playSfx("card_use_confirm");
     cachePendingCardRect();
     // Issue #82: 駒フライト用 rect キャッシュは handleSquareClick 側 (盤面ターゲット
     // 選択時) で行う。target が要らないカードはここで通過するだけ。
@@ -521,7 +524,7 @@ export function CardShogiGame({
     // Issue #106: モバイル手札ドロワーは「使用する」確定時に閉じる
     // (キャンセル時は開いたままにし、再度カードを選び直しやすくする)
     setDrawerOpen(false);
-  }, [cachePendingCardRect, confirmPlayCard]);
+  }, [cachePendingCardRect, confirmPlayCard, playSfx]);
 
   // カードイベント由来の SE 再生・画面演出・マナ浮遊テキストを eventLog の差分監視で発火
   useEffect(() => {
@@ -633,6 +636,8 @@ export function CardShogiGame({
               } else {
                 // 取得失敗 → 中央カード演出のみ
                 playFlightKeyRef.current += 1;
+                // Issue #79 派生: カード使用演出 SFX
+                playSfx("card_use_animation");
                 setPlayFlight({ card: cardInstance, key: playFlightKeyRef.current, isTrap: false });
               }
             } else if (!pendingPlayFlightRef.current) {
@@ -655,6 +660,8 @@ export function CardShogiGame({
                 }
               }
               playFlightKeyRef.current += 1;
+              // Issue #79 派生: カード使用演出 SFX
+              playSfx("card_use_animation");
               setPlayFlight({ card: cardInstance, key: playFlightKeyRef.current, isTrap: false });
             }
           }
@@ -891,9 +898,11 @@ export function CardShogiGame({
   const handleBeginPlayCard = useCallback(
     (id: string) => {
       if (isDrawAnimating || isPlayingCard || isCheckBreakAnimating) return;
+      // Issue #79 派生: 手札クリックで中央 popup を開く SFX (default = カードをめくる)
+      playSfx("card_select");
       beginPlayCard(id);
     },
-    [isDrawAnimating, isPlayingCard, isCheckBreakAnimating, beginPlayCard],
+    [isDrawAnimating, isPlayingCard, isCheckBreakAnimating, beginPlayCard, playSfx],
   );
   const handleDeselect = useCallback(() => {
     if (isDrawAnimating || isPlayingCard || isCheckBreakAnimating) return;
@@ -957,6 +966,11 @@ export function CardShogiGame({
     const pendingPlay = pendingPlayFlightRef.current;
     if (pendingPlay) {
       playFlightKeyRef.current += 1;
+      // Issue #79 派生: カード使用演出 SFX (trap セット時は trap_set が別途
+      // 発火済のため non-trap のみ鳴らす)
+      if (!pendingPlay.isTrap) {
+        playSfx("card_use_animation");
+      }
       setPlayFlight({
         card: pendingPlay.card,
         key: playFlightKeyRef.current,

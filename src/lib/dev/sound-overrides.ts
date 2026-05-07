@@ -40,7 +40,11 @@ export type SfxEventKey =
   | "draw_card_open_common"
   | "draw_card_open_rare"
   | "draw_card_open_super_rare"
-  | "draw_card_open_epic";
+  | "draw_card_open_epic"
+  // ★ Issue #79 派生: カード使用時の 3 段階 SFX
+  | "card_select"
+  | "card_use_confirm"
+  | "card_use_animation";
 
 export const SFX_EVENT_KEYS: readonly SfxEventKey[] = [
   // 駒系
@@ -63,6 +67,9 @@ export const SFX_EVENT_KEYS: readonly SfxEventKey[] = [
   "draw_card_open_super_rare",
   "draw_card_open_epic",
   "card_to_hand",
+  "card_select",
+  "card_use_confirm",
+  "card_use_animation",
   "card_play",
   "mana_charge",
   "trap_set",
@@ -92,6 +99,9 @@ export const SFX_EVENT_LABELS: Record<SfxEventKey, string> = {
   draw_card_open_rare: "ドローカードオープン (Rare)",
   draw_card_open_super_rare: "ドローカードオープン (Super Rare)",
   draw_card_open_epic: "ドローカードオープン (Epic)",
+  card_select: "カード選択 (手札クリック)",
+  card_use_confirm: "カード使用確定 (使用ボタン押下)",
+  card_use_animation: "カード使用演出 (中央演出開始)",
 };
 
 // =====================

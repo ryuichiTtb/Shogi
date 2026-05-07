@@ -119,14 +119,15 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
   //   - useBgm が BGM の単一オーナー。dev tool で event override が設定された
   //     場合 (もしくは manifest 既定が non-empty) のときに再生される。
   //   - soundEnabled が false → null で停止 (#150 のサウンド ON/OFF ゲート)。
-  //   - キャラクター別 BGM (旧 character.bgmTrack) は撤去済 — 必要なら dev
-  //     tool から bgm_game / bgm_game_over の override を設定する運用に統一。
+  //   - 対局中は loop 継続、対局終了時は現在の loop を完了させた上で停止。
+  //     (shouldLoop=false → onend で自然停止)
   useBgm(
     gameConfig.soundEnabled
       ? gameState.status === "active"
         ? "bgm_game"
         : "bgm_game_over"
       : null,
+    { shouldLoop: gameState.status === "active" },
   );
   const isPlayerTurn = gameState.currentPlayer === playerColor;
   const isGameActive = gameState.status === "active";
