@@ -300,6 +300,122 @@ describe("mergeGuestSessionIntoAccount (early-return behaviors)", () => {
     expect(deckMock.update).not.toHaveBeenCalled();
   });
 
+  it("does not overwrite the account preference when guest preference is pristine (Issue #160)", async () => {
+    // Issue #160: PC で初めてアプリを開く → ゲスト preference が DEFAULT 値で自動生成
+    // → 同アカウントでログインすると updatedAt が account 側より新しいため、
+    // shouldUseGuestPreference が true を返してアカウント側の保存値 (例: モバイルで
+    // 設定した light + kurenai) が pristine ゲスト値 (system + seigaiha) で上書きされていた。
+    // pristine 判定が true のときは upsert をスキップし、ゲスト preference を削除のみする。
+    const { DEFAULT_THEME, DEFAULT_CARD_BACK_STYLE } = await import(
+      "@/lib/user-preferences"
+    );
+
+    const token = createGuestSessionToken();
+    const guestUserId = "guest-user-pristine-pref";
+
+    guestSessionMock.findUnique.mockResolvedValue({
+      id: "session-pref-1",
+      userId: guestUserId,
+      user: { kind: "guest" },
+    });
+    userMock.findUnique.mockResolvedValue({ id: accountUserId, kind: "account" });
+    playerStatsMock.findUnique.mockResolvedValue(null);
+    // account にはモバイルで保存済の preference あり (古い updatedAt)
+    // ゲスト側は pristine (デフォルト値) かつ updatedAt は新しい
+    userPreferenceMock.findUnique.mockImplementation(({ where }: { where: { userId: string } }) => {
+      if (where.userId === guestUserId) {
+        return Promise.resolve({
+          userId: guestUserId,
+          theme: DEFAULT_THEME,
+          cardBackStyle: DEFAULT_CARD_BACK_STYLE,
+          updatedAt: new Date("2026-05-10T00:00:00.000Z"),
+        });
+      }
+      if (where.userId === accountUserId) {
+        return Promise.resolve({
+          userId: accountUserId,
+          theme: "light",
+          cardBackStyle: "kurenai",
+          updatedAt: new Date("2026-05-01T00:00:00.000Z"),
+        });
+      }
+      return Promise.resolve(null);
+    });
+    userPreferenceMock.deleteMany.mockResolvedValue({ count: 1 });
+    playerCardCollectionMock.findMany.mockResolvedValue([]);
+    deckMock.findFirst.mockResolvedValue(null);
+    deckMock.findMany.mockResolvedValue([]);
+    gameMock.updateMany.mockResolvedValue({ count: 0 });
+    guestSessionMock.deleteMany.mockResolvedValue({ count: 1 });
+    userMock.deleteMany.mockResolvedValue({ count: 1 });
+
+    await mergeGuestSessionIntoAccount(token, accountUserId);
+
+    // pristine ゲスト preference のため upsert は呼ばれない (account 側保護)
+    expect(userPreferenceMock.upsert).not.toHaveBeenCalled();
+    // ゲスト側 preference は削除される
+    expect(userPreferenceMock.deleteMany).toHaveBeenCalledWith({
+      where: { userId: guestUserId },
+    });
+  });
+
+  it("still merges guest preference when guest is non-pristine and newer (Issue #160 negative case)", async () => {
+    // Issue #160 で追加した pristine 判定が、ユーザーが触ったゲスト preference を
+    // 誤って弾かないことの担保。
+    const token = createGuestSessionToken();
+    const guestUserId = "guest-user-edited-pref";
+
+    guestSessionMock.findUnique.mockResolvedValue({
+      id: "session-pref-2",
+      userId: guestUserId,
+      user: { kind: "guest" },
+    });
+    userMock.findUnique.mockResolvedValue({ id: accountUserId, kind: "account" });
+    playerStatsMock.findUnique.mockResolvedValue(null);
+    userPreferenceMock.findUnique.mockImplementation(({ where }: { where: { userId: string } }) => {
+      if (where.userId === guestUserId) {
+        return Promise.resolve({
+          userId: guestUserId,
+          theme: "dark",
+          cardBackStyle: "kurenai",
+          updatedAt: new Date("2026-05-10T00:00:00.000Z"),
+        });
+      }
+      if (where.userId === accountUserId) {
+        return Promise.resolve({
+          userId: accountUserId,
+          theme: "light",
+          cardBackStyle: "seigaiha",
+          updatedAt: new Date("2026-05-01T00:00:00.000Z"),
+        });
+      }
+      return Promise.resolve(null);
+    });
+    userPreferenceMock.upsert.mockResolvedValue({});
+    userPreferenceMock.deleteMany.mockResolvedValue({ count: 1 });
+    playerCardCollectionMock.findMany.mockResolvedValue([]);
+    deckMock.findFirst.mockResolvedValue(null);
+    deckMock.findMany.mockResolvedValue([]);
+    gameMock.updateMany.mockResolvedValue({ count: 0 });
+    guestSessionMock.deleteMany.mockResolvedValue({ count: 1 });
+    userMock.deleteMany.mockResolvedValue({ count: 1 });
+
+    await mergeGuestSessionIntoAccount(token, accountUserId);
+
+    expect(userPreferenceMock.upsert).toHaveBeenCalledWith({
+      where: { userId: accountUserId },
+      create: {
+        userId: accountUserId,
+        cardBackStyle: "kurenai",
+        theme: "dark",
+      },
+      update: {
+        cardBackStyle: "kurenai",
+        theme: "dark",
+      },
+    });
+  });
+
   it("preserves a guest-edited deck (different name or different entries) by moving it to the account", async () => {
     // ゲストが触ったデッキ (= name 変更 / 編成変更) は削除せず移管。
     const token = createGuestSessionToken();

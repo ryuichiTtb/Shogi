@@ -2,8 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type CSSProperties } from "react";
 import { flushSync, createPortal } from "react-dom";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
+
+import { LoadingOverlay } from "@/components/loading-overlay";
+import { MaskedLink } from "@/components/navigation/masked-link";
+import { LOADING_STAGES } from "@/lib/loading-stages";
 import { ChevronUp, ChevronDown, Volume2, VolumeX } from "lucide-react";
 
 import { useCardShogiGame } from "@/hooks/use-card-shogi-game";
@@ -66,6 +69,9 @@ interface SerializableGameConfig {
   difficulty: Difficulty;
   playerColor: Player;
   characterId: string;
+  // Issue #150 (origin/main): ユーザ環境設定 "サウンド ON/OFF" のゲート。
+  // false → useBgm に null を渡し BGM 停止。
+  soundEnabled: boolean;
   commentaryEnabled: boolean;
 }
 
@@ -324,14 +330,20 @@ export function CardShogiGame({
   const aiColor: Player = playerColor === "sente" ? "gote" : "sente";
   const isPlayerTurn = gameState.currentPlayer === playerColor;
 
-  // Issue #79 (PR 1.7): 対局画面 BGM。dev page は enableBgm=false で抑止。
-  // gameState.status: "active" → bgm_game / それ以外 (resign/checkmate 等) → bgm_game_over
+  // BGM (Issue #79 + #150 統合):
+  //   - useBgm が BGM の単一オーナー。
+  //   - dev page は enableBgm=false で抑止。
+  //   - soundEnabled が false なら null を渡して停止 (#150)。
+  //   - dev tool で event override 未設定 + manifest 既定も空のときは
+  //     character.bgmTrack に fallback (#150 のキャラ別 BGM を残す)。
+  //   - status: "active" → bgm_game / それ以外 (resign/checkmate 等) → bgm_game_over
   useBgm(
-    !enableBgm
+    !enableBgm || !gameConfig.soundEnabled
       ? null
       : gameState.status === "active"
         ? "bgm_game"
         : "bgm_game_over",
+    { fallbackPath: character.bgmTrack },
   );
   const isGameActive = gameState.status === "active";
   const inCheck =
@@ -351,7 +363,16 @@ export function CardShogiGame({
   const displayInCheck = inCheck && !isDoubleMoveSelfCheckTransient;
 
   // ----- サウンド -----
+  // Issue #155: 履歴復元時の演出再発火を抑止する。
+  // shogi-game.tsx と同じ「前回値追跡」パターン (StrictMode 二重 effect でも
+  // 安全)。詳細は shogi-game.tsx のコメント参照。
+  const lastMoveCountRef = useRef(gameState.moveCount);
+  const lastStatusRef = useRef(gameState.status);
+  const gameStartFiredRef = useRef(false);
+
   useEffect(() => {
+    if (lastMoveCountRef.current === gameState.moveCount) return;
+    lastMoveCountRef.current = gameState.moveCount;
     const lastMove = gameState.moveHistory[gameState.moveHistory.length - 1];
     if (!lastMove) return;
     if (lastMove.type === "drop") {
@@ -378,6 +399,8 @@ export function CardShogiGame({
   }, [gameState.moveCount]);
 
   useEffect(() => {
+    if (lastStatusRef.current === gameState.status) return;
+    lastStatusRef.current = gameState.status;
     if (gameState.status === "resign") {
       playSfx("game_over");
       setOverlayEvent({ event: "resign", key: Date.now() });
@@ -385,8 +408,13 @@ export function CardShogiGame({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState.status]);
 
+  // ゲーム開始演出。新規対局 (status: "active" + moveCount === 0) のときに
+  // 1 度だけ実演出を出す。履歴復元時はフラグを立てずに完全スキップ。
   useEffect(() => {
     if (!isReady) return;
+    if (gameStartFiredRef.current) return;
+    if (gameState.status !== "active" || gameState.moveCount !== 0) return;
+    gameStartFiredRef.current = true;
     playSfx("game_start");
     setOverlayEvent({ event: "game_start", key: Date.now() });
     setTimeout(() => handleComment("game_start"), 500);
@@ -1367,9 +1395,9 @@ export function CardShogiGame({
             <Card className="p-3 text-center border-2 border-primary/20 bg-primary/5">
               <p className="text-sm font-bold mb-2">{gameResultText(gameState.status, gameState.winner)}</p>
               <div className="flex gap-2 justify-center">
-                <Link href="/">
+                <MaskedLink href="/" loadingVariant="spinner">
                   <Button size="sm" variant="outline">ホームへ</Button>
-                </Link>
+                </MaskedLink>
                 <Button size="sm" onClick={handlePlayAgain} disabled={isPending}>
                   {isPending ? "準備中..." : "もう一局"}
                 </Button>
@@ -1431,9 +1459,9 @@ export function CardShogiGame({
               <Card className="p-2.5 text-center border-2 border-primary/20 bg-primary/5">
                 <p className="text-sm font-bold mb-1.5">{gameResultText(gameState.status, gameState.winner)}</p>
                 <div className="flex gap-2 justify-center">
-                  <Link href="/">
+                  <MaskedLink href="/" loadingVariant="spinner">
                     <Button size="sm" variant="outline">ホームへ</Button>
-                  </Link>
+                  </MaskedLink>
                   <Button size="sm" onClick={handlePlayAgain} disabled={isPending}>
                     {isPending ? "準備中..." : "もう一局"}
                   </Button>
@@ -1760,9 +1788,9 @@ export function CardShogiGame({
             <Card className="p-3 text-center border-2 border-primary/20 bg-primary/5 shrink-0">
               <p className="text-sm font-bold mb-2">{gameResultText(gameState.status, gameState.winner)}</p>
               <div className="flex gap-2 justify-center">
-                <Link href="/">
+                <MaskedLink href="/" loadingVariant="spinner">
                   <Button size="sm" variant="outline">ホームへ</Button>
-                </Link>
+                </MaskedLink>
                 <Button size="sm" onClick={handlePlayAgain} disabled={isPending}>
                   {isPending ? "準備中..." : "もう一局"}
                 </Button>
@@ -1974,6 +2002,17 @@ export function CardShogiGame({
 
       {/* Issue #81: 早指し時に駒の少し下に表示するバッジ */}
       <FastMoveBadgeLayer items={fastMoveBadges} onComplete={removeFastMoveBadge} />
+
+      {/* Issue #163: 「もう一局」(=createGame Server Action 後 router.push) 中のローディングマスク。
+          xl/xl 未満/モバイル の各レイアウトで同じ isPending を共有しているため Overlay 1 つで全カバー。
+          ビジュアルは他のリッチローディング (回転カード + プログレスバー + ステージ文言) に統一。 */}
+      <LoadingOverlay
+        show={isPending}
+        fullScreen
+        card
+        progress
+        stages={LOADING_STAGES.matchRestart}
+      />
     </div>
   );
 }

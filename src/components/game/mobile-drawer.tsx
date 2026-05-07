@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { gameResultText } from "@/lib/shogi/notation";
 import { MessageCircle, ScrollText, ChevronUp, ChevronDown } from "lucide-react";
-import Link from "next/link";
+import { MaskedLink } from "@/components/navigation/masked-link";
 import type { Character } from "@/data/characters";
 import type { CommentaryEvent } from "@/app/actions/commentary";
 import type { Move, GameStatus, Player } from "@/lib/shogi/types";
@@ -111,11 +111,11 @@ export function MobileDrawer({
                   {gameResultText(gameStatus, gameWinner)}
                 </p>
                 <div className="flex gap-2 justify-center">
-                  <Link href={homeHref}>
+                  <MaskedLink href={homeHref} loadingVariant="spinner">
                     <Button size="sm" variant="outline">
                       ホームへ
                     </Button>
-                  </Link>
+                  </MaskedLink>
                   <Button size="sm" onClick={onPlayAgain} disabled={isPending}>
                     {isPending ? "準備中..." : "もう一局"}
                   </Button>

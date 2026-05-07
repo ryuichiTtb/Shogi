@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { flushSync } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -25,6 +25,7 @@ import { DeckCardTile, type DeckArea } from "./deck-card-tile";
 import { DeckFlightLayer, type DeckFlightItem } from "./deck-flight-layer";
 import { CardDetailDialog } from "./card-detail-dialog";
 import { LoadingOverlay } from "@/components/loading-overlay";
+import { LOADING_STAGES } from "@/lib/loading-stages";
 
 interface DeckFlight extends DeckFlightItem {
   // 行先タイル (deck 側のとき) の identity。フライト中に重ねる元タイルを
@@ -37,12 +38,16 @@ interface DeckEditorPaneProps {
   deck: DeckDetail;
   ownedCards: OwnedCardSummary[];
   onChanged: (next: DeckDetail) => void;
+  // Issue #155: 保存中状態を親 (DecksPage) へ通知する。
+  // 親は editorSaving を listLocked と「ホームへ戻る」disabled に連携させる。
+  onSavingChange?: (saving: boolean) => void;
 }
 
 export function DeckEditorPane({
   deck,
   ownedCards,
   onChanged,
+  onSavingChange,
 }: DeckEditorPaneProps) {
   const [entries, setEntries] = useState<DeckEntrySummary[]>(deck.entries);
   // タイルごとに stable な slot ID を持たせる。クリックされたタイル自身が
@@ -54,6 +59,14 @@ export function DeckEditorPane({
   );
   const [isPending, startTransition] = useTransition();
   const [actionError, setActionError] = useState<string | null>(null);
+
+  // Issue #155: 保存中フラグを親 (DecksPage) に伝え、デッキ一覧操作・「ホームへ
+  // 戻る」リンクの操作ブロックを連動させる。useTransition の isPending が変化した
+  // タイミングのみ通知し、レンダリング毎に呼ばないようにする (関数参照が安定なので
+  // setState ループの懸念もなし)。
+  useEffect(() => {
+    onSavingChange?.(isPending);
+  }, [isPending, onSavingChange]);
   // 長押しで開くカード詳細 dialog。null=非表示。
   const [detailCardId, setDetailCardId] = useState<CardId | null>(null);
   const handleLongPressDetail = useCallback((cardId: CardId) => {
@@ -402,8 +415,14 @@ export function DeckEditorPane({
 
       {/* 保存中ローディングマスク。
           親 (DecksPage の編集枠 div) に position:relative が付与されているため
-          absolute で枠内のみを覆う。fullScreen=false で枠サイズに収まる。 */}
-      <LoadingOverlay show={isPending} message="保存中..." />
+          absolute で枠内のみを覆う。fullScreen=false で枠サイズに収まる。
+          中央のカードはマウント時にランダム選択される将棋駒シルエットに統一。 */}
+      <LoadingOverlay
+        show={isPending}
+        card
+        stages={LOADING_STAGES.deckSaving}
+        progress
+      />
     </>
   );
 }

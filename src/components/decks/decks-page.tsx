@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { DeckListPane } from "./deck-list-pane";
 import { DeckEditorPane } from "./deck-editor-pane";
 import { DeckEditorSkeleton } from "./deck-editor-skeleton";
+import { DecksPageHeader } from "./decks-page-header";
 import { ConfirmDialog } from "./confirm-dialog";
 import {
   createDeck,
@@ -73,6 +74,14 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
   // 一覧 row の削除確認ダイアログ。null=非表示。
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
+  // Issue #155: editor (DeckEditorPane) の保存中フラグ。
+  // 保存中はデッキ一覧の操作・「ホームへ戻る」リンクの両方をブロックし、
+  // 並行 fetch・遷移によるデータ整合崩れを防ぐ。
+  const [editorSaving, setEditorSaving] = useState(false);
+  const handleEditorSavingChange = useCallback((saving: boolean) => {
+    setEditorSaving(saving);
+  }, []);
+
   // detail が古い (別デッキ選択直後で fetch 未完了) ときは null として扱う。
   const currentDetail = detail && detail.id === selectedId ? detail : null;
   // 詳細 fetch 中 / 使用中切替の最中は一覧側の操作を抑止する。
@@ -81,7 +90,8 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
     isLoadingDetail ||
     pendingDefaultId !== null ||
     draftBusy ||
-    renameTarget?.busy === true;
+    renameTarget?.busy === true ||
+    editorSaving;
 
   useEffect(() => {
     if (!selectedId) return;
@@ -375,7 +385,11 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
 
   return (
     <>
-      <div className="flex-1 min-h-0 flex flex-col gap-3 sm:gap-4 lg:grid lg:grid-cols-[560px_1fr]">
+      {/* Issue #155: ヘッダを Client Component に切り出し、editorSaving と
+          連動させて保存中の「ホームへ戻る」操作をブロックする。 */}
+      <DecksPageHeader homeDisabled={editorSaving} />
+      <div className="max-w-6xl lg:max-w-[1440px] mx-auto px-4 pt-3 sm:pt-4 pb-2 w-full flex flex-col flex-1 min-h-0">
+        <div className="flex-1 min-h-0 flex flex-col gap-3 sm:gap-4 lg:grid lg:grid-cols-[560px_1fr]">
         {/* モバイル: 現在のデッキを示すトリガーボタン (タップで Dialog 起動) */}
         <button
           type="button"
@@ -421,6 +435,7 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
                 key={selectedId}
                 deck={currentDetail}
                 ownedCards={ownedCards}
+                onSavingChange={handleEditorSavingChange}
                 onChanged={(nextDetail) => {
                   setDetail(nextDetail);
                   // useEffect [initialDecks] による自動 sync を撤去したので、
@@ -450,6 +465,7 @@ export function DecksPage({ initialDecks, ownedCards }: DecksPageProps) {
               <DeckEditorSkeleton />
             )}
           </div>
+        </div>
         </div>
       </div>
       {/* モバイル: デッキピッカー Dialog */}

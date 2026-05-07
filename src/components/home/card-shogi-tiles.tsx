@@ -1,7 +1,10 @@
-// Issue #117: 新ホームに並べるカード将棋機能タイル。
+// Issue #117 (+#79): 新ホームに並べるカード将棋機能タイル。
 // 4 枚 (デッキ編成 / カードデザイン / カード一覧 / 開発者ツール) + 将来枠 (ガチャ Coming Soon)。
-// 順序は #82 でユーザーが整えた配置に揃え、4 枚目に dev ツール一覧 (/dev) への導線を置く。
-// クリックで親ページの onNavigate(href, label) を呼び、LoadingOverlay と整合させる。
+// 順序は #82 でユーザーが整えた配置に揃え、4 枚目に dev ツール一覧 (/dev) への導線を置く
+// (#79 で旧「フライト検証用」を /dev 配下に集約)。
+// クリックで親ページの onNavigate(href) を呼び、LoadingOverlay と整合させる。
+// (Issue #155: 親ページが href から自動で適切な stages を解決するため、ここから
+// label を渡す必要はない。)
 "use client";
 
 import { useEffect, useState } from "react";
@@ -16,7 +19,7 @@ import { useCardBackStyle } from "@/components/card-back/card-back-provider";
 import { cn } from "@/lib/utils";
 
 interface CardShogiTilesProps {
-  onNavigate: (href: string, label?: string) => void;
+  onNavigate: (href: string) => void;
   disabled?: boolean;
 }
 

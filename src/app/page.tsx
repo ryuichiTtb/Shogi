@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { ThemeSelector } from "@/components/game/theme-selector";
 import { AuthControls } from "@/components/auth/auth-controls";
 import { LoadingOverlay } from "@/components/loading-overlay";
+import { resolveLoadingStages } from "@/lib/loading-stages";
 import { useAssetPreloader } from "@/hooks/use-asset-preloader";
 import { useBgm } from "@/hooks/use-bgm";
 import { AppBackground } from "@/components/layout/app-background";
@@ -29,12 +30,12 @@ export default function Home() {
   // Issue #79 (PR 1.7): ロビー BGM
   useBgm("bgm_home");
 
-  const [pendingLabel, setPendingLabel] = useState<string | null>(null);
-  const isPending = pendingLabel !== null;
+  const [pendingStages, setPendingStages] = useState<readonly string[] | null>(null);
+  const isPending = pendingStages !== null;
 
-  function navigateTo(href: string, label = "読み込み中...") {
+  function navigateTo(href: string, customStages?: readonly string[]) {
     if (isPending) return;
-    setPendingLabel(label);
+    setPendingStages(customStages ?? resolveLoadingStages(href));
     router.push(href);
   }
 
@@ -102,7 +103,7 @@ export default function Home() {
           >
             <Button
               size="lg"
-              onClick={() => navigateTo("/play", "対局画面を開いています...")}
+              onClick={() => navigateTo("/play")}
               disabled={isPending}
               className={cn(
                 "w-full text-base py-5 sm:py-6 font-bold",
@@ -124,7 +125,7 @@ export default function Home() {
             <Button
               variant="outline"
               size="lg"
-              onClick={() => navigateTo("/classic", "通常将棋を開いています...")}
+              onClick={() => navigateTo("/classic")}
               disabled={isPending}
               className="w-full text-sm sm:text-base py-3 sm:py-4 bg-card/60 backdrop-blur-sm"
               aria-label="通常将棋で遊ぶ"
@@ -143,7 +144,7 @@ export default function Home() {
           >
             <button
               type="button"
-              onClick={() => navigateTo("/history", "履歴を読み込んでいます...")}
+              onClick={() => navigateTo("/history")}
               disabled={isPending}
               className={cn(
                 "inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors",
@@ -156,7 +157,13 @@ export default function Home() {
           </motion.div>
         </div>
 
-        <LoadingOverlay show={isPending} fullScreen message={pendingLabel ?? "読み込み中..."} />
+        <LoadingOverlay
+          show={isPending}
+          fullScreen
+          card
+          stages={pendingStages ?? undefined}
+          progress
+        />
       </main>
     </PageMotion>
   );

@@ -25,6 +25,7 @@ export default async function CardShogiLayoutDevPage({ searchParams }: CardShogi
         difficulty: "beginner",
         playerColor: "sente",
         characterId: "sakura",
+        soundEnabled: false,
         commentaryEnabled: false,
       }}
       debugInitialUi={fixture.debugInitialUi}

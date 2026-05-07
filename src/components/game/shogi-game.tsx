@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useShogiGame } from "@/hooks/use-shogi-game";
 import { useSound } from "@/hooks/use-sound";
 import { useBgm } from "@/hooks/use-bgm";
@@ -27,7 +27,9 @@ import { getVariantById } from "@/lib/shogi/variants/index";
 import type { GameConfig, GameState, Difficulty, Move, Player } from "@/lib/shogi/types";
 import type { CommentaryEvent } from "@/app/actions/commentary";
 import { createGame } from "@/app/actions/game";
-import Link from "next/link";
+import { LoadingOverlay } from "@/components/loading-overlay";
+import { MaskedLink } from "@/components/navigation/masked-link";
+import { LOADING_STAGES } from "@/lib/loading-stages";
 import { useRouter } from "next/navigation";
 
 // Server→Client props に関数を含められないため、シリアライズ可能な型を定義
@@ -36,6 +38,9 @@ interface SerializableGameConfig {
   difficulty: Difficulty;
   playerColor: Player;
   characterId: string;
+  // Issue #150 (origin/main): ユーザ環境設定 "サウンド ON/OFF" のゲート。
+  // false なら useBgm に null を渡して BGM 停止 (SFX は既存 isMuted で別経路)。
+  soundEnabled: boolean;
   commentaryEnabled: boolean;
 }
 
@@ -110,14 +115,46 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
   const playerColor = gameConfig.playerColor;
   const aiColor = playerColor === "sente" ? "gote" : "sente";
 
-  // Issue #79 (PR 1.7): 通常将棋画面の BGM。"active" → bgm_game / 終了 → bgm_game_over。
-  useBgm(gameState.status === "active" ? "bgm_game" : "bgm_game_over");
+  // BGM (Issue #79 + #150 統合):
+  //   - useBgm が BGM の単一オーナー。
+  //   - eventKey は対局中 → "bgm_game" / 終局 → "bgm_game_over"。
+  //   - soundEnabled が false なら null を渡して停止 (#150 のサウンド ON/OFF)。
+  //   - dev tool で event override 未設定 + manifest 既定も空のときは
+  //     character.bgmTrack に fallback (#150 のキャラ別 BGM を残す)。
+  useBgm(
+    gameConfig.soundEnabled
+      ? gameState.status === "active"
+        ? "bgm_game"
+        : "bgm_game_over"
+      : null,
+    { fallbackPath: character.bgmTrack },
+  );
   const isPlayerTurn = gameState.currentPlayer === playerColor;
   const isGameActive = gameState.status === "active";
   const inCheck = (isGameActive || gameState.status === "checkmate") && isInCheck(gameState, gameState.currentPlayer, STANDARD_VARIANT);
 
-  // サウンドエフェクト
+  // Issue #155: 履歴復元時の演出再発火を抑止する。
+  //
+  // 旧実装は [moveCount] / [status] / [isReady] 監視がいずれも「初回マウント時に
+  // fire する」性質を持ち、履歴から終局済対局を復元したときに最後の手の駒音・
+  // 王手・詰み・投了演出や対局開始演出が意図せず再生されていた。
+  //
+  // 各 useEffect に「前回値追跡」パターンを適用:
+  //   - useRef を初回 render 時の値で初期化し、effect 内で「前回値と一致」なら
+  //     skip。実際に値が変化したときだけ副作用を出す。
+  //   - StrictMode (dev) で effect が 2 回 fire しても、ref 値が等しいので
+  //     副作用は再生されず安全。単純な「初回フラグを倒す」方式より堅牢。
+  //
+  // 例外: game_start 演出は「新規対局のときに必ず 1 度発火」したいため、別途
+  // 「既に発火したか」のフラグを持つ (lastReadyRef)。
+  const lastMoveCountRef = useRef(gameState.moveCount);
+  const lastStatusRef = useRef(gameState.status);
+  const gameStartFiredRef = useRef(false);
+
+  // サウンドエフェクト (駒音・王手・詰み)
   useEffect(() => {
+    if (lastMoveCountRef.current === gameState.moveCount) return;
+    lastMoveCountRef.current = gameState.moveCount;
     const lastMove = gameState.moveHistory[gameState.moveHistory.length - 1];
     if (!lastMove) return;
 
@@ -145,23 +182,34 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
     }
   }, [gameState.moveCount]);
 
-  // 投了時（moveCountが変わらないため別途監視）
+  // 投了時 (moveCountが変わらないため別途監視)。
+  // 前回値追跡で「実際に status が変化したとき」だけ fire する。
   useEffect(() => {
+    if (lastStatusRef.current === gameState.status) return;
+    lastStatusRef.current = gameState.status;
     if (gameState.status === "resign") {
       playSfx("game_over");
       setOverlayEvent({ event: "resign", key: Date.now() });
     }
   }, [gameState.status]);
 
-  // ゲーム開始時のコメント・サウンド（Howler初期化完了後に再生）
+  // ゲーム開始時のコメント・サウンド (Howler 初期化完了後に再生)。
+  // gameStartFiredRef で「同一マウント内で 1 回だけ」発火し、新規対局
+  // (status: "active" + moveCount === 0) のときのみ実演出を出す。履歴から
+  // 終局済 / 途中対局を復元した場合は ref を立てずに完全スキップ (将来何かの
+  // タイミングで再評価されても発火しない)。
   useEffect(() => {
     if (!isReady) return;
+    if (gameStartFiredRef.current) return;
+    if (gameState.status !== "active" || gameState.moveCount !== 0) return;
+    gameStartFiredRef.current = true;
     playSfx("game_start");
     setOverlayEvent({ event: "game_start", key: Date.now() });
     setTimeout(() => handleComment("game_start"), 500);
   }, [isReady]);
 
   return (
+    <>
     <div
       className="shogi-game-area w-full overflow-hidden"
       style={{ height: viewportHeight }}
@@ -273,11 +321,11 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
                 {gameResultText(gameState.status, gameState.winner)}
               </p>
               <div className="flex gap-2 justify-center">
-                <Link href="/classic">
+                <MaskedLink href="/classic" loadingVariant="spinner">
                   <Button size="sm" variant="outline">
                     ホームへ
                   </Button>
-                </Link>
+                </MaskedLink>
                 <Button size="sm" onClick={handlePlayAgain} disabled={isPending}>
                   {isPending ? "準備中..." : "もう一局"}
                 </Button>
@@ -311,5 +359,16 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
         onCancel={cancelPromotion}
       />
     </div>
+    {/* Issue #163: 「もう一局」(=createGame Server Action 後 router.push) 中のローディングマスク。
+        PC/モバイル両方の同 isPending を共有しているため Overlay 1 つで両ボタンをカバー。
+        ビジュアルは他のリッチローディング (回転カード + プログレスバー + ステージ文言) に統一。 */}
+    <LoadingOverlay
+      show={isPending}
+      fullScreen
+      card
+      progress
+      stages={LOADING_STAGES.matchRestart}
+    />
+    </>
   );
 }

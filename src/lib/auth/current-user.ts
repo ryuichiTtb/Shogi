@@ -194,35 +194,43 @@ export async function getOrCreateGuestUserForToken(token: string): Promise<AppUs
   const existing = await findGuestByTokenHash(tokenHash);
   if (existing) return existing;
 
+  // Issue #168: ゲスト初回作成の interactive transaction を撤去する。Vercel Functions +
+  // Neon HTTP の cold start で Prisma の maxWait (default 2s) を踏み抜き、P2028
+  // ("Unable to start a transaction in the given time") を発生させていたため。
+  // merge.ts (#150) で確立された冪等化パターンに揃え、User と GuestSession を順次
+  // 作成する。GuestSession.tokenHash の @unique 制約で racing は P2002 として検出する。
+  // 部分失敗 (User 作成成功 → GuestSession 作成失敗) では User cleanup を試みた上で
+  // racing 経路に合流する。SIGKILL 等の突然死による User リークは merge.ts と同様の
+  // 設計トレードオフとして許容し、cleanup は別 Issue で扱う。
+  const created = await prisma.user.create({
+    data: {
+      kind: "guest",
+      name: "Guest",
+    },
+  });
+
   try {
-    // Issue #150: User と GuestSession の同時作成のみ atomic にする。
-    // ensureInitialUserData は Card マスタ全件 upsert を含み、
-    // Vercel + Neon HTTP の interactive transaction (5s timeout) に収まらないため、
-    // transaction 外で実行する。upsert ベースで冪等なので途中失敗時の再試行も安全。
-    const user = await prisma.$transaction(async (tx) => {
-      const created = await tx.user.create({
-        data: {
-          kind: "guest",
-          name: "Guest",
-        },
-      });
-      await tx.guestSession.create({
-        data: {
-          tokenHash,
-          userId: created.id,
-          expiresAt: getGuestSessionExpiresAt(),
-        },
-      });
-      return created;
+    await prisma.guestSession.create({
+      data: {
+        tokenHash,
+        userId: created.id,
+        expiresAt: getGuestSessionExpiresAt(),
+      },
     });
-    await ensureInitialUserData(prisma, user.id);
-    return toAppUser(user);
   } catch (error) {
-    if (!isUniqueConstraintError(error)) throw error;
-    const raced = await findGuestByTokenHash(tokenHash);
-    if (!raced) throw error;
-    return raced;
+    // 自分が作った User を best-effort で cleanup (cascade で関連 GuestSession も削除)。
+    // delete 自体が失敗しても racing 経路を継続する。
+    await prisma.user.delete({ where: { id: created.id } }).catch(() => {});
+    if (isUniqueConstraintError(error)) {
+      // 別 request が先に同じ tokenHash で session を作成済 → 既存 session を返す。
+      const raced = await findGuestByTokenHash(tokenHash);
+      if (raced) return raced;
+    }
+    throw error;
   }
+
+  await ensureInitialUserData(prisma, created.id);
+  return toAppUser(created);
 }
 
 export const getCurrentAppUser = cache(async (): Promise<AppUser> => {
