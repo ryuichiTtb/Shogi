@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isPristineGuestPreference,
   mergedCardCount,
   mergedStats,
   shouldUseGuestPreference,
 } from "@/lib/auth/merge-rules";
+import {
+  DEFAULT_CARD_BACK_STYLE,
+  DEFAULT_THEME,
+} from "@/lib/user-preferences";
 
 describe("guest account merge rules", () => {
   it("keeps the larger owned-card count instead of adding duplicates", () => {
@@ -46,6 +51,36 @@ describe("guest account merge rules", () => {
     ).toBe(true);
     expect(
       shouldUseGuestPreference({ updatedAt: newDate }, { updatedAt: oldDate }),
+    ).toBe(false);
+  });
+
+  it("classifies a guest preference as pristine only when both fields are at default", () => {
+    // Issue #160: 別端末で保存済の account preference を、PC 新規アクセス時に
+    // 自動生成された pristine ゲスト preference (DEFAULT_THEME / DEFAULT_CARD_BACK_STYLE)
+    // で上書きしない判定。
+    expect(
+      isPristineGuestPreference({
+        theme: DEFAULT_THEME,
+        cardBackStyle: DEFAULT_CARD_BACK_STYLE,
+      }),
+    ).toBe(true);
+
+    expect(
+      isPristineGuestPreference({
+        theme: "light",
+        cardBackStyle: DEFAULT_CARD_BACK_STYLE,
+      }),
+    ).toBe(false);
+
+    expect(
+      isPristineGuestPreference({
+        theme: DEFAULT_THEME,
+        cardBackStyle: "kurenai",
+      }),
+    ).toBe(false);
+
+    expect(
+      isPristineGuestPreference({ theme: "dark", cardBackStyle: "kurenai" }),
     ).toBe(false);
   });
 });

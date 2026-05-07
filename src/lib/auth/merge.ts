@@ -6,6 +6,7 @@ import {
   isValidGuestSessionToken,
 } from "@/lib/auth/guest-session";
 import {
+  isPristineGuestPreference,
   mergedCardCount,
   mergedStats,
   shouldUseGuestPreference,
@@ -99,7 +100,15 @@ async function mergePreferences(
   ]);
   if (!guestPreference) return;
 
-  if (shouldUseGuestPreference(accountPreference, guestPreference)) {
+  // Issue #160: ゲスト preference が pristine (デフォルト値のまま) なら merge をスキップし
+  // アカウント側を保護する。ensureInitialUserData で自動生成されたゲスト preference は
+  // updatedAt が新しくても「ユーザーが選んだ値」ではないため、別端末で保存済の値を
+  // 上書きしてはいけない。`moveDecks` の isPristineInitialDeck と同じ思想。
+  const guestIsPristine = isPristineGuestPreference(guestPreference);
+  if (
+    !guestIsPristine &&
+    shouldUseGuestPreference(accountPreference, guestPreference)
+  ) {
     await db.userPreference.upsert({
       where: { userId: accountUserId },
       create: {
