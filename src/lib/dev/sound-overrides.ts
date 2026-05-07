@@ -134,6 +134,7 @@ export const DEFAULT_SOUND_OVERRIDES: SoundOverrides = {};
 const SFX_STORAGE_KEY = "dev:sound-overrides:v1";
 
 // JSON パース + バリデーション (SFX 用)。未知 key/path は drop。
+// 空文字 `""` は「明示的に未割り当て (鳴らさない)」を表す特殊値として許可する。
 export function parseStored(raw: string | null): SoundOverrides {
   if (!raw) return DEFAULT_SOUND_OVERRIDES;
   try {
@@ -144,7 +145,8 @@ export function parseStored(raw: string | null): SoundOverrides {
     const result: SoundOverrides = {};
     for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
       if (!SFX_KEY_SET.has(k)) continue;
-      if (typeof v !== "string" || !isAllowedSoundPath(v)) continue;
+      if (typeof v !== "string") continue;
+      if (v !== "" && !isAllowedSoundPath(v)) continue;
       result[k as SfxEventKey] = v;
     }
     return result;
@@ -207,6 +209,17 @@ export function saveSoundOverride(key: SfxEventKey, filePath: string): void {
   persistSfxAndNotify({ ...current, [key]: filePath });
 }
 
+/**
+ * 該当 event の SFX を「鳴らさない」ように明示的に未割り当て化する。
+ * 既定 (SFX_FILES) があっても再生されなくなる。元に戻すには
+ * resetSoundOverride() で override 自体を削除する。
+ */
+export function unassignSoundOverride(key: SfxEventKey): void {
+  const current = getSfxSnapshot();
+  if (current[key] === "") return;
+  persistSfxAndNotify({ ...current, [key]: "" });
+}
+
 export function resetSoundOverride(key: SfxEventKey): void {
   const current = getSfxSnapshot();
   if (!(key in current)) return;
@@ -221,12 +234,18 @@ export function resetAllSoundOverrides(): void {
 }
 
 // useSound などフック外から同期的に「現在有効な SFX URL」を引くヘルパ。
-// 値が空文字 `""` (未割当) の場合もそのまま返す。
+// 解決順:
+//   1. override が存在 + 空文字 `""` → 「明示的に鳴らさない」→ "" を返す
+//   2. override が存在 + ホワイトリスト適合 → その path
+//   3. それ以外 → manifest 既定 (SFX_FILES[key])、それも無ければ ""
 // 呼出側 (playSfx) で `if (!src) return;` ガードする前提。
 export function getEffectiveSfxPath(key: SfxEventKey): string {
   const overrides = getSfxSnapshot();
-  const overridden = overrides[key];
-  if (overridden && isAllowedSoundPath(overridden)) return overridden;
+  if (key in overrides) {
+    const overridden = overrides[key]!;
+    if (overridden === "") return ""; // 明示 unassign
+    if (isAllowedSoundPath(overridden)) return overridden;
+  }
   return SFX_FILES[key] ?? "";
 }
 
@@ -239,6 +258,7 @@ export const DEFAULT_BGM_OVERRIDES: BgmOverrides = {};
 
 const BGM_STORAGE_KEY = "dev:bgm-overrides:v1";
 
+// 空文字 `""` は「明示的に未割り当て (BGM 鳴らさない)」を表す特殊値として許可する。
 export function parseBgmStored(raw: string | null): BgmOverrides {
   if (!raw) return DEFAULT_BGM_OVERRIDES;
   try {
@@ -249,7 +269,8 @@ export function parseBgmStored(raw: string | null): BgmOverrides {
     const result: BgmOverrides = {};
     for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
       if (!BGM_KEY_SET.has(k)) continue;
-      if (typeof v !== "string" || !isAllowedSoundPath(v)) continue;
+      if (typeof v !== "string") continue;
+      if (v !== "" && !isAllowedSoundPath(v)) continue;
       result[k as BgmEventKey] = v;
     }
     return result;
@@ -312,6 +333,17 @@ export function saveBgmOverride(key: BgmEventKey, filePath: string): void {
   persistBgmAndNotify({ ...current, [key]: filePath });
 }
 
+/**
+ * 該当 event の BGM を「鳴らさない」ように明示的に未割り当て化する。
+ * 既定 (BGM_FILES) があっても再生されなくなる。元に戻すには
+ * resetBgmOverride() で override 自体を削除する。
+ */
+export function unassignBgmOverride(key: BgmEventKey): void {
+  const current = getBgmSnapshot();
+  if (current[key] === "") return;
+  persistBgmAndNotify({ ...current, [key]: "" });
+}
+
 export function resetBgmOverride(key: BgmEventKey): void {
   const current = getBgmSnapshot();
   if (!(key in current)) return;
@@ -326,11 +358,17 @@ export function resetAllBgmOverrides(): void {
 }
 
 // useBgm hook が同期的に「現在有効な BGM URL」を引くヘルパ。
-// 未割当 (空文字) の場合もそのまま返す。呼出側でガード。
+// 解決順:
+//   1. override が存在 + 空文字 `""` → 「明示的に鳴らさない」→ "" を返す
+//   2. override が存在 + ホワイトリスト適合 → その path
+//   3. それ以外 → manifest 既定 (BGM_FILES[key])、それも無ければ ""
 export function getEffectiveBgmPath(key: BgmEventKey): string {
   const overrides = getBgmSnapshot();
-  const overridden = overrides[key];
-  if (overridden && isAllowedSoundPath(overridden)) return overridden;
+  if (key in overrides) {
+    const overridden = overrides[key]!;
+    if (overridden === "") return ""; // 明示 unassign
+    if (isAllowedSoundPath(overridden)) return overridden;
+  }
   return BGM_FILES[key] ?? "";
 }
 

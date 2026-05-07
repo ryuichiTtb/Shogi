@@ -7,6 +7,8 @@
 import Link from "next/link";
 import { ArrowLeft, ChevronRight, Music, Plane, LayoutGrid } from "lucide-react";
 
+import { MaskedLink } from "@/components/navigation/masked-link";
+
 import { Card } from "@/components/ui/card";
 import { useBgm } from "@/hooks/use-bgm";
 
@@ -48,13 +50,14 @@ export default function DevIndexPage() {
     <main className="min-h-dvh bg-background p-4 sm:p-6">
       <div className="max-w-3xl mx-auto flex flex-col gap-4">
         <header className="flex items-start gap-3 mb-1">
-          <Link
+          <MaskedLink
             href="/"
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mt-1"
+            loadingVariant="spinner"
           >
             <ArrowLeft className="w-4 h-4" />
             ホーム
-          </Link>
+          </MaskedLink>
           <div className="flex-1">
             <h1 className="text-xl sm:text-2xl font-bold">開発者ツール</h1>
             <p className="text-xs text-muted-foreground">

@@ -89,6 +89,7 @@ function SoundWaveformImpl({
         {peaks.map((peak, i) => {
           const fillH = Math.max(MIN_BAR_HEIGHT, peak * (VIEWBOX_HEIGHT - MIN_BAR_HEIGHT));
           const passed = isActive && i / bins <= progress;
+          // audiostock.jp 風 青ベース: 通過済 = 濃青、未通過 = 薄青/dark mode 配慮
           return (
             <rect
               key={i}
@@ -96,7 +97,11 @@ function SoundWaveformImpl({
               y={(VIEWBOX_HEIGHT - fillH) / 2}
               width={BAR_FILL_RATIO}
               height={fillH}
-              className={passed ? "fill-primary" : "fill-muted-foreground/30"}
+              className={
+                passed
+                  ? "fill-blue-600 dark:fill-blue-400"
+                  : "fill-blue-300/60 dark:fill-blue-500/30"
+              }
             />
           );
         })}
@@ -106,7 +111,7 @@ function SoundWaveformImpl({
             x2={progress * bins}
             y1={0}
             y2={VIEWBOX_HEIGHT}
-            className="stroke-primary"
+            className="stroke-blue-600 dark:stroke-blue-300"
             strokeWidth={0.4}
             vectorEffect="non-scaling-stroke"
           />

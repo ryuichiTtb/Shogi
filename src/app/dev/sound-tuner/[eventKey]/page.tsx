@@ -14,7 +14,9 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useParams, notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ChevronDown, ChevronRight, Check, Pause, Play, RotateCcw } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, Check, Pause, Play, RotateCcw, VolumeX } from "lucide-react";
+
+import { MaskedLink } from "@/components/navigation/masked-link";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,6 +35,8 @@ import {
   saveSoundOverride,
   SFX_EVENT_KEYS,
   SFX_EVENT_LABELS,
+  unassignBgmOverride,
+  unassignSoundOverride,
   useBgmOverrides,
   useSoundOverrides,
   type BgmEventKey,
@@ -188,6 +192,19 @@ export default function SoundTunerDetailPage() {
     }
   }, [eventKey, isSfx]);
 
+  // 「鳴らさない」(明示的 unassign): override 値を空文字にして既定よりも優先。
+  const handleUnassign = useCallback(() => {
+    stop(); // 再生中の試聴を止めてから切替
+    if (isSfx) {
+      unassignSoundOverride(eventKey as SfxEventKey);
+    } else {
+      unassignBgmOverride(eventKey as BgmEventKey);
+    }
+  }, [eventKey, isSfx, stop]);
+
+  // 現状が「明示的 unassign」(override が空文字)。再生中に切替できる UI 制御に使う。
+  const isExplicitlyUnassigned = isOverridden && overridePath === "";
+
   const groups = useMemo(
     () => groupSoundsByDir(AUDIO_MANIFEST.poolUrls),
     [],
@@ -238,13 +255,14 @@ export default function SoundTunerDetailPage() {
       <header className="shrink-0 bg-background/95 backdrop-blur-sm border-b border-border/50 z-10">
         <div className="max-w-6xl mx-auto px-4 py-2.5 sm:py-3 flex flex-col gap-2">
           <div className="flex items-start gap-3">
-            <Link
+            <MaskedLink
               href="/dev/sound-tuner"
               className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mt-0.5 shrink-0"
+              loadingVariant="spinner"
             >
               <ArrowLeft className="w-4 h-4" />
               一覧に戻る
-            </Link>
+            </MaskedLink>
             <div className="flex-1 min-w-0">
               <h1 className="text-base sm:text-lg font-bold leading-tight flex items-center gap-1.5 flex-wrap">
                 {label}
@@ -269,9 +287,17 @@ export default function SoundTunerDetailPage() {
             <div className="flex-1 min-w-0">
               <div
                 className="font-mono text-xs truncate"
-                title={effectivePath || "(未割当)"}
+                title={
+                  isExplicitlyUnassigned
+                    ? "(鳴らさない)"
+                    : effectivePath || "(未割当)"
+                }
               >
-                {effectivePath ? basename(effectivePath) : "(未割当)"}
+                {isExplicitlyUnassigned
+                  ? "(鳴らさない)"
+                  : effectivePath
+                    ? basename(effectivePath)
+                    : "(未割当)"}
               </div>
             </div>
             {effectivePath && (
@@ -308,6 +334,22 @@ export default function SoundTunerDetailPage() {
                 </div>
               </>
             )}
+            {/* 鳴らさない (明示 unassign): 既に unassigned なら非活性。 */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleUnassign}
+              disabled={isExplicitlyUnassigned}
+              className="h-7 text-[11px] px-2 shrink-0"
+              title={
+                isExplicitlyUnassigned
+                  ? "既に「鳴らさない」設定中"
+                  : "このイベントを無音にする"
+              }
+            >
+              <VolumeX className="w-3 h-3 sm:mr-1" />
+              <span className="hidden sm:inline">鳴らさない</span>
+            </Button>
             {/* 既定に戻す: 常時表示。override されていない時は非活性。 */}
             <Button
               variant="outline"

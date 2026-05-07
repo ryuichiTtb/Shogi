@@ -12,6 +12,8 @@ import { useCallback, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ChevronRight, Music, Pause, Play, RotateCcw, Volume2 } from "lucide-react";
 
+import { MaskedLink } from "@/components/navigation/masked-link";
+
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -93,15 +95,24 @@ function EventRow({
         <div className="min-w-0">
           <div className="font-bold text-xs sm:text-sm leading-tight truncate flex items-center gap-1">
             <span className="truncate">{label}</span>
-            {isOverridden && (
-              <Badge variant="default" className="text-[9px] px-1 h-3.5 leading-none shrink-0">
-                custom
+            {isOverridden && isUnassigned ? (
+              // 明示 unassign (鳴らさない) は単独 badge で区別
+              <Badge variant="outline" className="text-[9px] px-1 h-3.5 leading-none shrink-0 border-muted-foreground/40">
+                鳴らさない
               </Badge>
-            )}
-            {isUnassigned && (
-              <Badge variant="outline" className="text-[9px] px-1 h-3.5 leading-none shrink-0">
-                未割当
-              </Badge>
+            ) : (
+              <>
+                {isOverridden && (
+                  <Badge variant="default" className="text-[9px] px-1 h-3.5 leading-none shrink-0">
+                    custom
+                  </Badge>
+                )}
+                {isUnassigned && (
+                  <Badge variant="outline" className="text-[9px] px-1 h-3.5 leading-none shrink-0">
+                    未割当
+                  </Badge>
+                )}
+              </>
             )}
           </div>
           <code className="text-[9px] text-muted-foreground font-mono truncate block leading-tight">
@@ -114,9 +125,17 @@ function EventRow({
       <div className="hidden sm:block shrink min-w-0 w-[20%]">
         <span
           className="font-mono text-[11px] text-muted-foreground truncate block"
-          title={effectivePath || "(未割当)"}
+          title={
+            isOverridden && isUnassigned
+              ? "(鳴らさない)"
+              : effectivePath || "(未割当)"
+          }
         >
-          {isUnassigned ? "(未割当)" : fname}
+          {isOverridden && isUnassigned
+            ? "(鳴らさない)"
+            : isUnassigned
+              ? "(未割当)"
+              : fname}
         </span>
       </div>
 
@@ -150,7 +169,9 @@ function EventRow({
             />
           </>
         ) : (
-          <span className="text-[10px] text-muted-foreground italic">音源なし</span>
+          <span className="text-[10px] text-muted-foreground italic">
+            {isOverridden && isUnassigned ? "鳴らさない設定" : "音源なし"}
+          </span>
         )}
       </div>
 
@@ -214,13 +235,14 @@ export default function SoundTunerPage() {
       <header className="shrink-0 bg-background/95 backdrop-blur-sm border-b border-border/50 z-10">
         <div className="max-w-3xl mx-auto px-4 py-2.5 sm:py-3 flex flex-col gap-2">
           <div className="flex items-start gap-3">
-            <Link
+            <MaskedLink
               href="/dev"
               className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mt-0.5 shrink-0"
+              loadingVariant="spinner"
             >
               <ArrowLeft className="w-4 h-4" />
               開発者ツール
-            </Link>
+            </MaskedLink>
             <div className="flex-1 min-w-0">
               <h1 className="text-base sm:text-lg font-bold leading-tight">音源調整ツール</h1>
               <p className="text-[10px] sm:text-xs text-muted-foreground leading-tight">
