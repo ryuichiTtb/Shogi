@@ -54,9 +54,13 @@ export function DeckEditorPane({
   // タイルごとに stable な slot ID を持たせる。クリックされたタイル自身が
   // 取り除かれることで、後続タイルが layout アニメーションで詰める動きになる。
   // entries (cardId, count) の DB 形と並走させて、保存時は count に集約する。
-  const slotCounterRef = useRef(0);
+  // 初回 mount 時の slotId は entries の合計数 (= 1..N) で発行される。
+  // ref には初期化時に N をセットしておけば、以後の追加で衝突しない。
+  const slotCounterRef = useRef<number>(
+    deck.entries.reduce((sum, e) => sum + e.count, 0),
+  );
   const [slotIdsByCard, setSlotIdsByCard] = useState<Map<CardId, number[]>>(
-    () => buildSlotIdsFromEntries(deck.entries, slotCounterRef),
+    () => buildSlotIdsFromEntries(deck.entries, 0).map,
   );
   const [isPending, startTransition] = useTransition();
   const [actionError, setActionError] = useState<string | null>(null);
@@ -318,7 +322,9 @@ export function DeckEditorPane({
               variant="ghost"
               onClick={() => {
                 setEntries(deck.entries);
-                setSlotIdsByCard(buildSlotIdsFromEntries(deck.entries, slotCounterRef));
+                const rebuilt = buildSlotIdsFromEntries(deck.entries, slotCounterRef.current);
+                slotCounterRef.current = rebuilt.nextCounter;
+                setSlotIdsByCard(rebuilt.map);
                 setActionError(null);
               }}
               disabled={isPending}
@@ -434,19 +440,24 @@ export function DeckEditorPane({
   );
 }
 
-// entries (DB 形: cardId × count) から slotId 列を生成。slotCounterRef を
-// 進めて返るので、以後の追加で発行される slotId と衝突しない。
+// entries (DB 形: cardId × count) から slotId 列を生成。
+// startCounter を起点にカウンタを進め、最終 counter 値も返すので、
+// 以後の追加で発行される slotId と衝突しない。
+// ref を mutate しない pure 関数にしたのは、useState の lazy initializer
+// 内で render 中に ref を読み書きすると React 19 の lint ルール
+// (react-hooks/refs-during-render) に抵触するため。
 function buildSlotIdsFromEntries(
   entries: DeckEntrySummary[],
-  counterRef: { current: number },
-): Map<CardId, number[]> {
+  startCounter: number,
+): { map: Map<CardId, number[]>; nextCounter: number } {
   const m = new Map<CardId, number[]>();
+  let counter = startCounter;
   for (const e of entries) {
     const slots: number[] = [];
-    for (let i = 0; i < e.count; i++) slots.push(++counterRef.current);
+    for (let i = 0; i < e.count; i++) slots.push(++counter);
     m.set(e.cardId, slots);
   }
-  return m;
+  return { map: m, nextCounter: counter };
 }
 
 interface DeckSummaryBarProps {

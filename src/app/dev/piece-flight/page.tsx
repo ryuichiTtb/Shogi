@@ -105,10 +105,13 @@ export default function PieceFlightDevPage() {
   useEffect(() => {
     if (hydratedRef.current) return;
     hydratedRef.current = true;
+    // SSR -> hydration 後の 1 回だけ localStorage 値を反映。hydratedRef ガードで再走しない。
+    /* eslint-disable react-hooks/set-state-in-effect */
     setSpeedPxPerSec(saved.speedPxPerSec);
     setRotationSecPerTurn(saved.rotationSecPerTurn);
     setMinDurationMs(saved.minDurationMs);
     setEase(saved.ease);
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [saved]);
 
   // モックステージ上の from / to 位置 (ステージ内座標)
@@ -117,7 +120,7 @@ export default function PieceFlightDevPage() {
   // フライト起動
   const stageRef = useRef<HTMLDivElement>(null);
   const [flight, setFlight] = useState<PieceFlightSpec | null>(null);
-  const flightKeyRef = useRef(0);
+  const [flightKey, setFlightKey] = useState(0);
   const [lastDuration, setLastDuration] = useState<number | null>(null);
   const [lastRotateDeg, setLastRotateDeg] = useState<number | null>(null);
 
@@ -141,7 +144,7 @@ export default function PieceFlightDevPage() {
     setLastDuration(durationMs);
     setLastRotateDeg(rotateDeg);
 
-    flightKeyRef.current += 1;
+    setFlightKey((prev) => prev + 1);
     setFlight({
       pieceType,
       owner,
@@ -480,7 +483,7 @@ export default function PieceFlightDevPage() {
         {/* PieceFlight 本体 (検証用上書きパラメータあり) */}
         <PieceFlight
           spec={flight}
-          flightKey={flight ? flightKeyRef.current : null}
+          flightKey={flight ? flightKey : null}
           playerColor={playerColor}
           onComplete={handleComplete}
           speedPxPerSec={speedPxPerSec}
