@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type CSSProperties } from "react";
 import { flushSync, createPortal } from "react-dom";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
+
+import { LoadingOverlay } from "@/components/loading-overlay";
+import { MaskedLink } from "@/components/navigation/masked-link";
 import { ChevronUp, ChevronDown, Volume2, VolumeX } from "lucide-react";
 
 import { useCardShogiGame } from "@/hooks/use-card-shogi-game";
@@ -1360,9 +1362,9 @@ export function CardShogiGame({
             <Card className="p-3 text-center border-2 border-primary/20 bg-primary/5">
               <p className="text-sm font-bold mb-2">{gameResultText(gameState.status, gameState.winner)}</p>
               <div className="flex gap-2 justify-center">
-                <Link href="/">
+                <MaskedLink href="/" loadingMessage="ホームへ戻っています...">
                   <Button size="sm" variant="outline">ホームへ</Button>
-                </Link>
+                </MaskedLink>
                 <Button size="sm" onClick={handlePlayAgain} disabled={isPending}>
                   {isPending ? "準備中..." : "もう一局"}
                 </Button>
@@ -1424,9 +1426,9 @@ export function CardShogiGame({
               <Card className="p-2.5 text-center border-2 border-primary/20 bg-primary/5">
                 <p className="text-sm font-bold mb-1.5">{gameResultText(gameState.status, gameState.winner)}</p>
                 <div className="flex gap-2 justify-center">
-                  <Link href="/">
+                  <MaskedLink href="/" loadingMessage="ホームへ戻っています...">
                     <Button size="sm" variant="outline">ホームへ</Button>
-                  </Link>
+                  </MaskedLink>
                   <Button size="sm" onClick={handlePlayAgain} disabled={isPending}>
                     {isPending ? "準備中..." : "もう一局"}
                   </Button>
@@ -1753,9 +1755,9 @@ export function CardShogiGame({
             <Card className="p-3 text-center border-2 border-primary/20 bg-primary/5 shrink-0">
               <p className="text-sm font-bold mb-2">{gameResultText(gameState.status, gameState.winner)}</p>
               <div className="flex gap-2 justify-center">
-                <Link href="/">
+                <MaskedLink href="/" loadingMessage="ホームへ戻っています...">
                   <Button size="sm" variant="outline">ホームへ</Button>
-                </Link>
+                </MaskedLink>
                 <Button size="sm" onClick={handlePlayAgain} disabled={isPending}>
                   {isPending ? "準備中..." : "もう一局"}
                 </Button>
@@ -1967,6 +1969,10 @@ export function CardShogiGame({
 
       {/* Issue #81: 早指し時に駒の少し下に表示するバッジ */}
       <FastMoveBadgeLayer items={fastMoveBadges} onComplete={removeFastMoveBadge} />
+
+      {/* Issue #163: 「もう一局」(=createGame Server Action 後 router.push) 中のローディングマスク。
+          xl/xl 未満/モバイル の各レイアウトで同じ isPending を共有しているため Overlay 1 つで全カバー。 */}
+      <LoadingOverlay show={isPending} fullScreen message="次の対局を準備中..." />
     </div>
   );
 }

@@ -26,7 +26,8 @@ import { getVariantById } from "@/lib/shogi/variants/index";
 import type { GameConfig, GameState, Difficulty, Move, Player } from "@/lib/shogi/types";
 import type { CommentaryEvent } from "@/app/actions/commentary";
 import { createGame } from "@/app/actions/game";
-import Link from "next/link";
+import { LoadingOverlay } from "@/components/loading-overlay";
+import { MaskedLink } from "@/components/navigation/masked-link";
 import { useRouter } from "next/navigation";
 
 // Server→Client props に関数を含められないため、シリアライズ可能な型を定義
@@ -191,6 +192,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
   }, [isReady]);
 
   return (
+    <>
     <div
       className="shogi-game-area w-full overflow-hidden"
       style={{ height: viewportHeight }}
@@ -302,11 +304,11 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
                 {gameResultText(gameState.status, gameState.winner)}
               </p>
               <div className="flex gap-2 justify-center">
-                <Link href="/classic">
+                <MaskedLink href="/classic" loadingMessage="ホームへ戻っています...">
                   <Button size="sm" variant="outline">
                     ホームへ
                   </Button>
-                </Link>
+                </MaskedLink>
                 <Button size="sm" onClick={handlePlayAgain} disabled={isPending}>
                   {isPending ? "準備中..." : "もう一局"}
                 </Button>
@@ -340,5 +342,9 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
         onCancel={cancelPromotion}
       />
     </div>
+    {/* Issue #163: 「もう一局」(=createGame Server Action 後 router.push) 中のローディングマスク。
+        PC/モバイル両方の同 isPending を共有しているため Overlay 1 つで両ボタンをカバー。 */}
+    <LoadingOverlay show={isPending} fullScreen message="次の対局を準備中..." />
+    </>
   );
 }
