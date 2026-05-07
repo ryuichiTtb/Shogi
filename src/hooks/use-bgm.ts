@@ -119,7 +119,7 @@ if (typeof window !== "undefined") {
   });
 
   // =====================
-  // 初回 user interaction での BGM 強制再生リトライ
+  // user interaction での BGM 強制再生リトライ
   // =====================
   //
   // ホーム着地直後に startBgm が play() を呼んでも、ブラウザ autoplay policy で
@@ -128,38 +128,78 @@ if (typeof window !== "undefined") {
   // pool 全体の HTMLAudioElement をアンロックするが、既に play() を試みて
   // locked になった Howl の sound は自動再開されない。
   //
-  // 対策: window レベルで初回 click/touchstart/keydown を 1 度だけ listen し、
-  // currentHowl.play() を再試行する。
+  // 過去の落とし穴 (順次対応で得た知見):
+  //   (A) capture phase + 即時 play() は Howler autoUnlock より早く走り再失敗
+  //       → bubble + setTimeout 100ms で autoUnlock 完了を待つ
+  //   (B) 既に再生中の Howl に play() を呼ぶと Howler は新 sound ID + 新
+  //       HTMLAudioElement を pool から確保 → 二重再生 + プール圧迫
+  //       → 必ず playing() 判定して skip
+  //   (C) "初回 1 回だけ" ハンドラ実行だと、Howler の dynamic import が遅延した
+  //       環境で「click → handler 起動 → currentHowl=null → no-op → handler 削除」
+  //       となり、その後 Howl が生成されても二度とリトライされない。
+  //       → 成功 (= playing() 確認) するまで listener を保持する。
+  //   (D) play() 失敗で locked sound が currentHowl に貼り付いた場合、再 play()
+  //       を呼んでも同 locked sound が返るケースあり。
+  //       → discard + 再構築で確実に新規 audio element を確保する。
   //
-  // 注意点 (二度の問題対応で得た知見):
-  //   1. setTimeout 100ms で Howler の autoUnlock 完了を待つ (capture phase で
-  //      即時 play すると pool が locked のままで再失敗する)。
-  //   2. 既に再生中なら play() を skip (再生中の Howl に再 play すると Howler は
-  //      新 sound ID + 新 HTMLAudioElement を pool から確保 → 二重再生になる)。
-  //   3. bubble phase (capture: false) で listen し、navigation よりは少し遅い
-  //      タイミングで実行 (= 既に Howler の autoUnlock が走った後)。
-  let firstInteractionHandled = false;
-  const onFirstInteraction = (): void => {
-    if (firstInteractionHandled) return;
-    firstInteractionHandled = true;
-    window.removeEventListener("click", onFirstInteraction);
-    window.removeEventListener("touchstart", onFirstInteraction);
-    window.removeEventListener("keydown", onFirstInteraction);
-    // 100ms 後に再生試行 (Howler autoUnlock の test-sound 再生完了後にする)
+  // フロー:
+  //   1. user interaction (click/touch/key) で 100ms 後に retry スケジュール
+  //   2. retry: currentHowl が
+  //        - null → 何もしない (まだ Howl 未生成、次の interaction で再試行)
+  //        - playing → 成功確認 → listener 削除
+  //        - 非 playing → 既存 locked Howl を discard して同 key/path で再構築
+  //   3. 再構築後 500ms で playing() 検証 → 成功なら listener 削除、失敗なら次の
+  //      interaction で再試行
+  let bgmListenersAttached = false;
+  const removeBgmInteractionListeners = (): void => {
+    if (!bgmListenersAttached) return;
+    bgmListenersAttached = false;
+    window.removeEventListener("click", onBgmInteraction);
+    window.removeEventListener("touchstart", onBgmInteraction);
+    window.removeEventListener("keydown", onBgmInteraction);
+  };
+  const tryUnlockBgm = (): void => {
     window.setTimeout(() => {
-      if (!currentHowl) return;
-      try {
-        // 既に再生中なら何もしない (二重再生 = 新 sound ID 確保による pool 圧迫を回避)
-        if (currentHowl.playing()) return;
-        currentHowl.play();
-      } catch {
-        // 例外無視 (Howl が unload 済等)
+      if (!currentHowl) {
+        // Howl 未生成 (Howler import 中等) → 次の interaction を待つため
+        // listener はそのまま保持
+        return;
       }
+      try {
+        if (currentHowl.playing()) {
+          // 既に再生中 → 成功扱いで listener 撤去
+          removeBgmInteractionListeners();
+          return;
+        }
+      } catch {
+        // playing() 自体が例外 → 後続の discard+再構築に進む
+      }
+      // currentHowl は autoplay locked で stuck している可能性が高い。
+      // 同 key/path のまま discard + 再構築する (pageshow bfcache 復帰と同手口)。
+      const restoreKey = currentKey;
+      const restorePath = currentResolvedPath;
+      if (!restorePath) return;
+      discardCurrentHowl();
+      void startBgm(restoreKey, restorePath);
+      // 再構築後の再生確認 (autoUnlock 完了済 + Howl 新規 → 大半は成功)
+      window.setTimeout(() => {
+        try {
+          if (currentHowl?.playing()) {
+            removeBgmInteractionListeners();
+          }
+        } catch {
+          // 失敗時は listener 保持 → 次の interaction で再試行
+        }
+      }, 500);
     }, 100);
   };
-  window.addEventListener("click", onFirstInteraction);
-  window.addEventListener("touchstart", onFirstInteraction);
-  window.addEventListener("keydown", onFirstInteraction);
+  function onBgmInteraction(): void {
+    tryUnlockBgm();
+  }
+  bgmListenersAttached = true;
+  window.addEventListener("click", onBgmInteraction);
+  window.addEventListener("touchstart", onBgmInteraction);
+  window.addEventListener("keydown", onBgmInteraction);
 }
 
 async function startBgm(
