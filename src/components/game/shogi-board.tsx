@@ -7,6 +7,7 @@ import { ShogiPiece } from "./shogi-piece";
 import { useBoardTexture } from "./board-texture-context";
 import { useTouchHandler } from "@/hooks/use-touch-handler";
 import {
+  SHOGI_BOARD_CELLS,
   SHOGI_BOARD_GAP,
   getShogiBoardCellSize,
   getShogiBoardLabelSize,
@@ -75,6 +76,11 @@ interface BoardSquareProps {
   // Issue #177: 木目背景の URL。指定時は state なしの neutral マスのみ
   // background-image で適用する (state 時は従来通り Tailwind カラーで上書き)。
   boardTextureUrl: string | null;
+  // 視覚上のマス位置 (0..8)。木目テクスチャを盤全体で連続表示させるための
+  // background-position 計算に使う。先手目線/後手目線で row/col の並びは反転するため
+  // 描画時の visual インデックスをそのまま受け取る。
+  visualRow: number;
+  visualCol: number;
 }
 
 // 81 マスの 1 マス分。React.memo でラップし、変わっていないマスの再描画を skip する。
@@ -100,6 +106,8 @@ const BoardSquare = memo(function BoardSquare({
   playerColor,
   registerRef,
   boardTextureUrl,
+  visualRow,
+  visualCol,
 }: BoardSquareProps) {
   // ref 登録は registerRef + (rowIdx, colIdx) で stabilize。BoardSquare が memo で
   // 再描画 skip されると、ref callback の identity も変わらない。
@@ -143,6 +151,10 @@ const BoardSquare = memo(function BoardSquare({
         // Issue #177: state なし (neutral) マスのみ木目テクスチャを背景画像として適用。
         // state 時 (selected / lastMove / inCheck 等) は Tailwind カラーで上書きされ
         // テクスチャが見えなくなるよう、ここで条件分岐する。
+        // 盤全体で 1 枚の画像が連続して見えるよう、各マスは「盤全体サイズ」の画像から
+        // 自分の visual 位置の切片を表示する (background-size = 盤全体 / position =
+        // -自分のオフセット)。マス間の gap には grid container の bg が見えるため
+        // 盤線も従来通り保持される。
         ...(boardTextureUrl &&
         !isSelected &&
         !isLastMoveSq &&
@@ -152,8 +164,16 @@ const BoardSquare = memo(function BoardSquare({
         !isForbiddenMate
           ? {
               backgroundImage: `url(${boardTextureUrl})`,
-              backgroundSize: "cover",
-              backgroundPosition: "center",
+              backgroundSize: `${
+                cellWidth * SHOGI_BOARD_CELLS +
+                SHOGI_BOARD_GAP * (SHOGI_BOARD_CELLS - 1)
+              }px ${
+                cellHeight * SHOGI_BOARD_CELLS +
+                SHOGI_BOARD_GAP * (SHOGI_BOARD_CELLS - 1)
+              }px`,
+              backgroundPosition: `-${
+                visualCol * (cellWidth + SHOGI_BOARD_GAP)
+              }px -${visualRow * (cellHeight + SHOGI_BOARD_GAP)}px`,
             }
           : null),
       }}
@@ -417,6 +437,8 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
                   playerColor={playerColor}
                   registerRef={registerSquareRef}
                   boardTextureUrl={boardTexture.url}
+                  visualRow={visualRow}
+                  visualCol={visualCol}
                 />
               );
             })
