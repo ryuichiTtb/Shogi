@@ -28,17 +28,31 @@ export const BOARD_TEXTURES: readonly BoardTexture[] = [
 ];
 
 interface BoardTextureContextValue {
-  texture: BoardTexture;
-  setTextureById: (id: string) => void;
+  // 将棋盤マス背景
+  boardTexture: BoardTexture;
+  setBoardTextureById: (id: string) => void;
+  // 対局画面全体背景 (AppBackground の代替)
+  screenTexture: BoardTexture;
+  setScreenTextureById: (id: string) => void;
 }
 
 const BoardTextureContext = createContext<BoardTextureContextValue | null>(null);
 
+function findById(id: string): BoardTexture {
+  return BOARD_TEXTURES.find((t) => t.id === id) ?? BOARD_TEXTURES[0];
+}
+
 export function BoardTextureProvider({ children }: { children: ReactNode }) {
-  const [textureId, setTextureId] = useState<string>("default");
-  const texture = BOARD_TEXTURES.find((t) => t.id === textureId) ?? BOARD_TEXTURES[0];
+  const [boardId, setBoardId] = useState<string>("default");
+  const [screenId, setScreenId] = useState<string>("default");
+  const value: BoardTextureContextValue = {
+    boardTexture: findById(boardId),
+    setBoardTextureById: setBoardId,
+    screenTexture: findById(screenId),
+    setScreenTextureById: setScreenId,
+  };
   return (
-    <BoardTextureContext.Provider value={{ texture, setTextureById: setTextureId }}>
+    <BoardTextureContext.Provider value={value}>
       {children}
     </BoardTextureContext.Provider>
   );
@@ -47,7 +61,12 @@ export function BoardTextureProvider({ children }: { children: ReactNode }) {
 // Provider が無い文脈 (テスト・Storybook 等) でもクラッシュさせないため null 許容で扱う。
 export function useBoardTexture(): BoardTexture {
   const ctx = useContext(BoardTextureContext);
-  return ctx?.texture ?? BOARD_TEXTURES[0];
+  return ctx?.boardTexture ?? BOARD_TEXTURES[0];
+}
+
+export function useScreenTexture(): BoardTexture {
+  const ctx = useContext(BoardTextureContext);
+  return ctx?.screenTexture ?? BOARD_TEXTURES[0];
 }
 
 export function useBoardTextureControls(): BoardTextureContextValue | null {
