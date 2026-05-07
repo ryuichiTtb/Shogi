@@ -4,9 +4,9 @@
 "use client";
 
 import { useEffect } from "react";
-import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, Home, RefreshCw } from "lucide-react";
+import { MaskedLink } from "@/components/navigation/masked-link";
 
 export default function GlobalError({
   error,
@@ -38,12 +38,12 @@ export default function GlobalError({
             <RefreshCw className="w-4 h-4 mr-1.5" />
             再試行
           </Button>
-          <Link href="/">
+          <MaskedLink href="/" loadingMessage="ホームへ戻っています...">
             <Button variant="outline">
               <Home className="w-4 h-4 mr-1.5" />
               ホームへ
             </Button>
-          </Link>
+          </MaskedLink>
         </div>
       </div>
     </main>

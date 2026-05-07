@@ -3,10 +3,10 @@
 // 結果は山札 (deck-pile.tsx) と相手手札裏 (card-view.tsx) にリアルタイムで反映される。
 "use client";
 
-import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
 import { useCardBackStyle } from "@/components/card-back/card-back-provider";
+import { MaskedLink } from "@/components/navigation/masked-link";
 import {
   CARD_BACK_STYLES,
   CARD_BACK_STYLE_LIST,
@@ -96,14 +96,15 @@ export default function CardDesignPage() {
           下のリストが透けないようにする。 */}
       <header className="sticky top-0 z-40 bg-background/90 backdrop-blur-sm border-b border-border/50">
         <div className="max-w-5xl mx-auto px-4 py-3 sm:py-4 w-full flex items-center gap-3">
-          <Link
+          <MaskedLink
             href="/"
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
             aria-label="ホームへ戻る"
+            loadingMessage="ホームへ戻っています..."
           >
             <ArrowLeft className="w-4 h-4" />
             ホーム
-          </Link>
+          </MaskedLink>
           <div className="flex-1">
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
               カードデザイン

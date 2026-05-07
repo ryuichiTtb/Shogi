@@ -6,12 +6,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { gameResultText } from "@/lib/shogi/notation";
 import { getCharacterById } from "@/data/characters";
-import Link from "next/link";
 import { ArrowLeft, Inbox } from "lucide-react";
 import { AppBackground } from "@/components/layout/app-background";
 import { AuthControls } from "@/components/auth/auth-controls";
 import { HistoryItemLink } from "@/components/history/history-item-link";
 import { formatHistoryDateTime } from "@/lib/date-format";
+import { MaskedLink } from "@/components/navigation/masked-link";
 
 export default async function HistoryPage() {
   const games = await getGameHistory();
@@ -20,12 +20,12 @@ export default async function HistoryPage() {
     <main className="min-h-[100dvh] min-h-screen py-8 px-4 max-w-2xl mx-auto safe-area-inset">
       <AppBackground variant="page" />
       <div className="flex items-center gap-3 mb-6">
-        <Link href="/">
+        <MaskedLink href="/" loadingMessage="ホームへ戻っています...">
           <Button variant="ghost" size="sm" className="gap-1.5">
             <ArrowLeft className="w-4 h-4" />
             ホームへ
           </Button>
-        </Link>
+        </MaskedLink>
         <h1 className="text-2xl font-bold">対局履歴</h1>
         <div className="ml-auto">
           <AuthControls variant="indicator" />
@@ -37,9 +37,9 @@ export default async function HistoryPage() {
           <CardContent className="py-12 text-center text-muted-foreground">
             <Inbox className="w-12 h-12 mx-auto mb-3 opacity-60" aria-hidden />
             <p>まだ対局がありません</p>
-            <Link href="/">
+            <MaskedLink href="/" loadingMessage="ホームへ戻っています...">
               <Button className="mt-4">最初の対局を始める</Button>
-            </Link>
+            </MaskedLink>
           </CardContent>
         </Card>
       ) : (

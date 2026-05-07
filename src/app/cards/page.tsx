@@ -1,9 +1,9 @@
-import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { CardCatalogGrid } from "@/components/cards/card-catalog-grid";
 import { ALL_CARD_DEFS } from "@/lib/shogi/cards/definitions";
 import { AppBackground } from "@/components/layout/app-background";
 import { AuthControls } from "@/components/auth/auth-controls";
+import { MaskedLink } from "@/components/navigation/masked-link";
 
 export const metadata = {
   title: "カード一覧 | カード将棋",
@@ -19,14 +19,15 @@ export default function CardsPage() {
           スクロール時に下のリストが透けないようにし、border-b で領域を分離。 */}
       <header className="shrink-0 bg-background/90 backdrop-blur-sm border-b border-border/50">
         <div className="max-w-4xl mx-auto px-4 py-3 sm:py-4 w-full flex items-center gap-3">
-          <Link
+          <MaskedLink
             href="/"
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
             aria-label="ホームへ戻る"
+            loadingMessage="ホームへ戻っています..."
           >
             <ArrowLeft className="w-4 h-4" />
             ホーム
-          </Link>
+          </MaskedLink>
           <div className="flex-1">
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight">カード一覧</h1>
             <p className="text-xs sm:text-sm text-muted-foreground">
