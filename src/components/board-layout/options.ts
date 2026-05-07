@@ -8,13 +8,37 @@ export interface BoardLayout {
   id: BoardLayoutId;
   name: string;
   url: string;
+  // 盤線・中央 4 隅の星点に使う色。
+  // light-* は明るい木目の上で濃く出るよう濃焦茶、
+  // dark-* は暗い木目の上でも識別できるよう一段薄い焦茶を採用する (Issue #177)。
+  lineColor: string;
 }
 
 export const BOARD_LAYOUTS: readonly BoardLayout[] = [
-  { id: "light-1", name: "ライト 01", url: "/img/wood/mokume_light01.png" },
-  { id: "light-2", name: "ライト 02", url: "/img/wood/mokume_light02.png" },
-  { id: "dark-1", name: "ダーク 01", url: "/img/wood/mokume_dark01.png" },
-  { id: "dark-2", name: "ダーク 02", url: "/img/wood/mokume_dark02.png" },
+  {
+    id: "light-1",
+    name: "ライト 01",
+    url: "/img/wood/mokume_light01.png",
+    lineColor: "#3a1f0a",
+  },
+  {
+    id: "light-2",
+    name: "ライト 02",
+    url: "/img/wood/mokume_light02.png",
+    lineColor: "#3a1f0a",
+  },
+  {
+    id: "dark-1",
+    name: "ダーク 01",
+    url: "/img/wood/mokume_dark01.png",
+    lineColor: "#8a5e35",
+  },
+  {
+    id: "dark-2",
+    name: "ダーク 02",
+    url: "/img/wood/mokume_dark02.png",
+    lineColor: "#8a5e35",
+  },
 ];
 
 export const DEFAULT_BOARD_LAYOUT_ID: BoardLayoutId = "light-2";

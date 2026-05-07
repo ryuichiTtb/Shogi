@@ -81,6 +81,8 @@ interface BoardSquareProps {
   // 描画時の visual インデックスをそのまま受け取る。
   visualRow: number;
   visualCol: number;
+  // 中央 4 隅の星点に使う色 (盤レイアウトごとに切替: light は濃焦茶 / dark は薄い焦茶)。
+  lineColor: string;
 }
 
 // 81 マスの 1 マス分。React.memo でラップし、変わっていないマスの再描画を skip する。
@@ -108,6 +110,7 @@ const BoardSquare = memo(function BoardSquare({
   boardTextureUrl,
   visualRow,
   visualCol,
+  lineColor,
 }: BoardSquareProps) {
   // ref 登録は registerRef + (rowIdx, colIdx) で stabilize。BoardSquare が memo で
   // 再描画 skip されると、ref callback の identity も変わらない。
@@ -191,10 +194,11 @@ const BoardSquare = memo(function BoardSquare({
       {/* 星目（中央3×3四隅の交差点） */}
       {isStarPoint && (
         <div
-          className="absolute z-10 rounded-full bg-[#3a1f0a] pointer-events-none"
+          className="absolute z-10 rounded-full pointer-events-none"
           style={{
             width: Math.max(4, cellWidth * 0.08),
             height: Math.max(4, cellWidth * 0.08),
+            backgroundColor: lineColor,
             bottom: 0,
             right: 0,
             transform: "translate(50%, 50%)",
@@ -397,12 +401,15 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
           data-shogi-board-grid="1"
           role="grid"
           aria-label="将棋盤"
-          className="grid border border-[#3a1f0a] bg-[#3a1f0a] relative"
+          className="grid border relative"
           style={{
             gridTemplateColumns: `repeat(9, ${cellSize.width}px)`,
             gridTemplateRows: `repeat(9, ${cellSize.height}px)`,
             gap: SHOGI_BOARD_GAP,
             touchAction: "none",
+            // Issue #177: 線色は盤レイアウトに紐付く (light: 濃焦茶 / dark: 薄い焦茶)。
+            borderColor: boardLayout.lineColor,
+            backgroundColor: boardLayout.lineColor,
           }}
           onClick={(e) => e.stopPropagation()}
           {...pointerHandlers}
@@ -451,6 +458,7 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
                   boardTextureUrl={boardLayout.url}
                   visualRow={visualRow}
                   visualCol={visualCol}
+                  lineColor={boardLayout.lineColor}
                 />
               );
             })

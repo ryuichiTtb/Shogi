@@ -1,84 +1,88 @@
 // Issue #177: 将棋盤デザイン (盤面マス背景) 設定ページ。
-// /card-design (カード裏面設定) と同じ構造で、各案のサムネイルを並べ
-// クリックで BoardLayoutProvider の選択を切り替える。
-// 設定は localStorage に保存され、対局画面の ShogiBoard に即時反映される。
+// 2 カラム構成: 左に実際のゲーム画面と同じ ShogiBoard を初期盤面で描画して
+// プレビュー、右に選択肢リスト (縦スクロール)。右で選択するとすぐに左に反映。
+// 設定は localStorage に保存され、対局画面の ShogiBoard にも即時反映される。
 "use client";
 
+import { useCallback, useMemo } from "react";
 import { ArrowLeft, Check } from "lucide-react";
 
 import {
   useAllBoardLayoutsReady,
   useBoardLayoutControls,
 } from "@/components/board-layout/board-layout-provider";
-import { BOARD_LAYOUTS } from "@/components/board-layout/options";
+import { BOARD_LAYOUTS, type BoardLayout } from "@/components/board-layout/options";
+import { ShogiBoard } from "@/components/game/shogi-board";
 import { MaskedLink } from "@/components/navigation/masked-link";
 import { AppBackground } from "@/components/layout/app-background";
 import { AuthControls } from "@/components/auth/auth-controls";
 import { LoadingOverlay } from "@/components/loading-overlay";
+import { STANDARD_VARIANT } from "@/lib/shogi/variants/standard";
+import type { Move, Position } from "@/lib/shogi/types";
 import { cn } from "@/lib/utils";
 
-// 9x9 (n=9) のサムネイル盤面。実際の ShogiBoard と同じく、テクスチャ画像を盤全体で
-// 連続表示するため、各マスは「盤全体サイズ」の画像から自分の位置の切片を表示する。
-const BOARD_THUMB_CELLS = 9;
-const BOARD_THUMB_GAP = 1;
-// 線・星の色 (Issue #177): 濃い焦げ茶色で light/dark 共通。
-const BOARD_LINE_COLOR = "#3a1f0a";
+// プレビュー用 ShogiBoard の固定 props (mount 後不変)。配列は空参照を共有して
+// memo の不要な invalidate を避ける。
+const EMPTY_MOVES: readonly Move[] = [];
+const PREVIEW_SQUARE_SIZE = 36;
 
-interface BoardThumbnailProps {
-  url: string;
-  size: number; // px
+// 1 度だけ生成すれば十分な初期盤面を mount 時に固定して再利用する。
+function useInitialBoard() {
+  return useMemo(() => STANDARD_VARIANT.initialSetup({ rows: 9, cols: 9 }), []);
 }
 
-function BoardThumbnail({ url, size }: BoardThumbnailProps) {
-  const cellSize = (size - BOARD_THUMB_GAP * (BOARD_THUMB_CELLS - 1)) / BOARD_THUMB_CELLS;
-  const totalSize = cellSize * BOARD_THUMB_CELLS + BOARD_THUMB_GAP * (BOARD_THUMB_CELLS - 1);
-  const cells = Array.from({ length: BOARD_THUMB_CELLS * BOARD_THUMB_CELLS }, (_, i) => {
-    const row = Math.floor(i / BOARD_THUMB_CELLS);
-    const col = i % BOARD_THUMB_CELLS;
-    return { row, col };
-  });
+function BoardPreview() {
+  const board = useInitialBoard();
+  const noOp = useCallback((_pos: Position) => {}, []);
   return (
-    <div
-      className="grid relative rounded-sm border-2"
-      style={{
-        gridTemplateColumns: `repeat(${BOARD_THUMB_CELLS}, ${cellSize}px)`,
-        gridTemplateRows: `repeat(${BOARD_THUMB_CELLS}, ${cellSize}px)`,
-        gap: BOARD_THUMB_GAP,
-        backgroundColor: BOARD_LINE_COLOR,
-        borderColor: BOARD_LINE_COLOR,
-        width: totalSize,
-        height: totalSize,
-      }}
-      aria-hidden
-    >
-      {cells.map(({ row, col }) => (
-        <div
-          key={`${row}-${col}`}
-          style={{
-            backgroundImage: `url(${url})`,
-            backgroundSize: `${totalSize}px ${totalSize}px`,
-            backgroundPosition: `-${col * (cellSize + BOARD_THUMB_GAP)}px -${row * (cellSize + BOARD_THUMB_GAP)}px`,
-          }}
-        />
-      ))}
-      {/* 中央 4 隅の星点 (visualRow/visualCol = 2, 5 の交差) */}
-      {[2, 5].flatMap((r) =>
-        [2, 5].map((c) => (
-          <div
-            key={`star-${r}-${c}`}
-            className="absolute rounded-full pointer-events-none"
-            style={{
-              width: Math.max(2, cellSize * 0.12),
-              height: Math.max(2, cellSize * 0.12),
-              backgroundColor: BOARD_LINE_COLOR,
-              left: (c + 1) * cellSize + c * BOARD_THUMB_GAP - 1,
-              top: (r + 1) * cellSize + r * BOARD_THUMB_GAP - 1,
-              transform: "translate(-50%, -50%)",
-            }}
-          />
-        )),
+    <ShogiBoard
+      board={board}
+      currentPlayer="sente"
+      playerColor="sente"
+      selectedSquare={null}
+      legalMoves={EMPTY_MOVES as Move[]}
+      lastMove={null}
+      isAiThinking={false}
+      inCheck={false}
+      onSquareClick={noOp}
+      squareSize={PREVIEW_SQUARE_SIZE}
+      isMobile={false}
+    />
+  );
+}
+
+interface OptionRowProps {
+  layout: BoardLayout;
+  selected: boolean;
+  onSelect: () => void;
+}
+
+// 選択肢 1 行: 木目サムネ + 名前 + チェックマーク。
+function OptionRow({ layout, selected, onSelect }: OptionRowProps) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        "w-full flex items-center gap-3 p-2.5 rounded-lg border-2 bg-card/85 backdrop-blur-sm",
+        "cursor-pointer card-hover-lift transition-colors text-left",
+        selected
+          ? "border-primary ring-2 ring-primary/40"
+          : "border-border hover:border-primary/40",
       )}
-    </div>
+      aria-pressed={selected}
+    >
+      <div
+        className="w-12 h-12 shrink-0 rounded border-2 bg-cover bg-center"
+        style={{
+          backgroundImage: `url(${layout.url})`,
+          borderColor: layout.lineColor,
+        }}
+        aria-hidden
+      />
+      <span className="flex-1 text-sm font-medium">{layout.name}</span>
+      {selected && <Check className="w-4 h-4 text-primary shrink-0" />}
+    </button>
   );
 }
 
@@ -93,7 +97,7 @@ export default function BoardDesignPage() {
     <main className="min-h-dvh pb-16">
       <AppBackground variant="page" />
       <header className="sticky top-0 z-40 bg-background/90 backdrop-blur-sm border-b border-border/50">
-        <div className="max-w-3xl mx-auto px-4 py-3 sm:py-4 w-full flex items-center gap-3">
+        <div className="max-w-5xl mx-auto px-4 py-3 sm:py-4 w-full flex items-center gap-3">
           <MaskedLink
             href="/"
             className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
@@ -106,7 +110,7 @@ export default function BoardDesignPage() {
           <div className="flex-1" />
           <AuthControls variant="indicator" />
         </div>
-        <div className="max-w-3xl mx-auto px-4 pb-3 sm:pb-4">
+        <div className="max-w-5xl mx-auto px-4 pb-3 sm:pb-4">
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight">将棋盤デザイン</h1>
           <p className="text-xs sm:text-sm text-muted-foreground mt-1">
             対局画面で使用する盤面の見た目を選択します。設定はブラウザに保存されます。
@@ -114,41 +118,34 @@ export default function BoardDesignPage() {
         </div>
       </header>
 
-      <div className="max-w-3xl mx-auto px-4 py-6 w-full relative min-h-[260px]">
+      <div className="max-w-5xl mx-auto px-4 py-6 w-full relative min-h-[400px]">
         {!allReady && <LoadingOverlay show card />}
         <div
           className={cn(
-            "grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 transition-opacity",
+            "grid gap-6 transition-opacity",
+            // モバイル: 縦並び (上にプレビュー、下に選択肢)
+            // sm 以上: 左にプレビュー (auto)、右に選択肢 (1fr)
+            "grid-cols-1 sm:grid-cols-[auto_1fr]",
             allReady ? "opacity-100" : "opacity-0",
           )}
         >
-          {BOARD_LAYOUTS.map((layout) => {
-            const selected = currentLayout.id === layout.id;
-            return (
-              <button
+          {/* 左: プレビュー (PC で sticky 化してスクロール時も追従) */}
+          <div className="sm:sticky sm:top-32 sm:self-start flex justify-center">
+            <BoardPreview />
+          </div>
+
+          {/* 右: 縦スクロール選択リスト。max-height をスクリーン依存にし、
+              選択肢が増えても常時ホーム導線が見えるようにする。 */}
+          <div className="space-y-2 sm:max-h-[calc(100dvh-220px)] sm:overflow-y-auto sm:pr-1">
+            {BOARD_LAYOUTS.map((layout) => (
+              <OptionRow
                 key={layout.id}
-                type="button"
-                onClick={() => setLayoutId(layout.id)}
-                className={cn(
-                  "relative rounded-xl border-2 p-3 bg-card/85 backdrop-blur-sm",
-                  "flex flex-col items-center gap-2 cursor-pointer card-hover-lift transition-colors",
-                  selected
-                    ? "border-primary ring-2 ring-primary/40"
-                    : "border-border hover:border-primary/40",
-                )}
-                aria-label={`${layout.name}を選択`}
-                aria-pressed={selected}
-              >
-                <BoardThumbnail url={layout.url} size={140} />
-                <span className="text-xs sm:text-sm font-medium">{layout.name}</span>
-                {selected && (
-                  <div className="absolute top-1.5 right-1.5 bg-primary text-primary-foreground rounded-full p-1 shadow">
-                    <Check className="w-3 h-3" />
-                  </div>
-                )}
-              </button>
-            );
-          })}
+                layout={layout}
+                selected={currentLayout.id === layout.id}
+                onSelect={() => setLayoutId(layout.id)}
+              />
+            ))}
+          </div>
         </div>
       </div>
     </main>
