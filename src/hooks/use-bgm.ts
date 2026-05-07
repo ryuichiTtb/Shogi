@@ -41,6 +41,8 @@ type HowlInstance = {
   // 動的 setter として loop(value) を呼べる必要がある。
   // value 単独で group default を、(value, id) で特定 sound に loop を設定。
   loop: (value?: boolean, id?: number) => boolean | HowlInstance;
+  // 既に再生中かを判定 (autoplay locked 解除リトライで二重再生を防ぐため)
+  playing: (id?: number) => boolean;
 };
 
 type HowlConstructor = new (options: {
@@ -127,26 +129,37 @@ if (typeof window !== "undefined") {
   // locked になった Howl の sound は自動再開されない。
   //
   // 対策: window レベルで初回 click/touchstart/keydown を 1 度だけ listen し、
-  // currentHowl.play() を再試行する。capture:true でナビゲーション処理より早く
-  // 拾い、既に再生中の Howl があれば lock 解除と同時に再生開始させる。
+  // currentHowl.play() を再試行する。
+  //
+  // 注意点 (二度の問題対応で得た知見):
+  //   1. setTimeout 100ms で Howler の autoUnlock 完了を待つ (capture phase で
+  //      即時 play すると pool が locked のままで再失敗する)。
+  //   2. 既に再生中なら play() を skip (再生中の Howl に再 play すると Howler は
+  //      新 sound ID + 新 HTMLAudioElement を pool から確保 → 二重再生になる)。
+  //   3. bubble phase (capture: false) で listen し、navigation よりは少し遅い
+  //      タイミングで実行 (= 既に Howler の autoUnlock が走った後)。
   let firstInteractionHandled = false;
   const onFirstInteraction = (): void => {
     if (firstInteractionHandled) return;
     firstInteractionHandled = true;
-    window.removeEventListener("click", onFirstInteraction, true);
-    window.removeEventListener("touchstart", onFirstInteraction, true);
-    window.removeEventListener("keydown", onFirstInteraction, true);
-    if (currentHowl) {
+    window.removeEventListener("click", onFirstInteraction);
+    window.removeEventListener("touchstart", onFirstInteraction);
+    window.removeEventListener("keydown", onFirstInteraction);
+    // 100ms 後に再生試行 (Howler autoUnlock の test-sound 再生完了後にする)
+    window.setTimeout(() => {
+      if (!currentHowl) return;
       try {
+        // 既に再生中なら何もしない (二重再生 = 新 sound ID 確保による pool 圧迫を回避)
+        if (currentHowl.playing()) return;
         currentHowl.play();
       } catch {
-        // 既に再生中等の例外は無視 (二重 play は Howler 側で no-op)
+        // 例外無視 (Howl が unload 済等)
       }
-    }
+    }, 100);
   };
-  window.addEventListener("click", onFirstInteraction, { capture: true });
-  window.addEventListener("touchstart", onFirstInteraction, { capture: true });
-  window.addEventListener("keydown", onFirstInteraction, { capture: true });
+  window.addEventListener("click", onFirstInteraction);
+  window.addEventListener("touchstart", onFirstInteraction);
+  window.addEventListener("keydown", onFirstInteraction);
 }
 
 async function startBgm(
