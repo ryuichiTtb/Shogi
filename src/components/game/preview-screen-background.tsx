@@ -17,8 +17,12 @@ export function PreviewScreenBackground() {
       className="fixed inset-0 -z-10 pointer-events-none"
       style={{
         backgroundImage: `url(${screen.url})`,
-        backgroundSize: "auto",
-        backgroundRepeat: "repeat",
+        // 縦横比を保ったまま画面短辺に合わせて拡大し、画面全体をカバー。
+        // 1 枚のみ表示 (no-repeat)、画面より大きくなった分は右下方向にはみ出す
+        // (= 左上アンカー、右/下 を切り落とす) よう background-position を top left に。
+        backgroundSize: "cover",
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "top left",
       }}
       aria-hidden
     />
