@@ -247,6 +247,7 @@ async function startBgm(
     loop: shouldLoopFlag,
     html5: true, // BGM はストリーミング (decode 軽量、メモリ常駐少)
     onloaderror: () => {
+      // ファイル load 失敗 (404 等) → ファイル自体が無効なので state クリア
       if (currentHowl === next) {
         currentHowl = null;
         currentKey = null;
@@ -254,11 +255,15 @@ async function startBgm(
       }
     },
     onplayerror: () => {
-      if (currentHowl === next) {
-        currentHowl = null;
-        currentKey = null;
-        currentResolvedPath = "";
-      }
+      // ★ Issue #79 派生: ここで state を null クリアしてはいけない。
+      //
+      // Howler は autoplay policy で audio.play() Promise が reject した場合も
+      // onplayerror を発火する (= ファイルエラーではなく "一時的に再生できない"
+      // ケース)。ここで currentHowl=null すると user-interaction リトライ
+      // ハンドラ (tryUnlockBgm) が `if (!currentHowl) return;` で何も出来ず
+      // 詰むため、state は保持して retry に任せる。
+      //
+      // 真のファイルエラーは onloaderror が別途発火するためそちらでクリア済。
     },
     onplay: (id) => {
       // Howler の html5: true で内部の audio element に loop 属性が反映されない
