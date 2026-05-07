@@ -12,11 +12,16 @@ import {
 } from "./zobrist";
 import type { ZobristHash } from "./zobrist";
 import { getCaptureMovesForSearch, getPromotionMovesForSearch } from "./captureGen";
+import {
+  MAX_DEPTH,
+  createSearchContext,
+  shouldStop,
+  type SearchContext,
+} from "./search-context";
 
 const NEG_INF = -Infinity;
 const POS_INF = Infinity;
 
-const MAX_DEPTH = 64;
 const MATE_SCORE = 90000;
 const MAX_Q_DEPTH = 8;
 
@@ -220,7 +225,9 @@ function scoreMove(
   return historyTable[fromIdx][toIdx];
 }
 
-// 静止探索（取り駒 + 成り手 + 王手回避）
+// 静止探索（取り駒 + 成り手 + 王手回避）。
+// Issue #176: deadline / abort 貫通のため SearchContext を受け取る。
+// 停止後の score は上位で破棄されるが、念のため早期 return で探索爆発を抑える。
 function quiescence(
   state: GameState,
   alpha: number,
@@ -229,8 +236,12 @@ function quiescence(
   variant: RuleVariant,
   tt: TranspositionTable,
   hash: ZobristHash,
-  qDepth: number
+  qDepth: number,
+  ctx: SearchContext
 ): number {
+  ctx.nodes++;
+  if (shouldStop(ctx)) return 0;
+
   const opponent: Player = player === "sente" ? "gote" : "sente";
 
   // 深度制限
@@ -250,9 +261,10 @@ function quiescence(
 
     let bestScore = NEG_INF;
     for (const move of moves) {
+      if (shouldStop(ctx)) return 0;
       const nextState = applyMoveForSearch(state, move);
       const nextHash = updateHash(hash, state, move, nextState);
-      const score = -quiescence(nextState, -beta, -alpha, opponent, variant, tt, nextHash, qDepth + 1);
+      const score = -quiescence(nextState, -beta, -alpha, opponent, variant, tt, nextHash, qDepth + 1, ctx);
 
       if (score > bestScore) bestScore = score;
       if (score > alpha) alpha = score;
@@ -272,13 +284,14 @@ function quiescence(
   // 取り駒（MVV-LVAソート済み）
   const captures = getCaptureMovesForSearch(state, player, variant);
   for (const move of captures) {
+    if (shouldStop(ctx)) return 0;
     // Delta Pruning: 取っても到底alphaに届かない駒取りをスキップ
     const capturedValue = ORDER_PIECE_VALUES[move.captured!] ?? 100;
     if (standPat + capturedValue + 200 < currentAlpha) continue;
 
     const nextState = applyMoveForSearch(state, move);
     const nextHash = updateHash(hash, state, move, nextState);
-    const score = -quiescence(nextState, -beta, -currentAlpha, opponent, variant, tt, nextHash, qDepth + 1);
+    const score = -quiescence(nextState, -beta, -currentAlpha, opponent, variant, tt, nextHash, qDepth + 1, ctx);
 
     if (score >= beta) return beta;
     if (score > currentAlpha) currentAlpha = score;
@@ -287,9 +300,10 @@ function quiescence(
   // 非取り成り手（歩・香の成り。と金化は+500cpの価値があるため常に探索）
   const promotions = getPromotionMovesForSearch(state, player, variant);
   for (const move of promotions) {
+    if (shouldStop(ctx)) return 0;
     const nextState = applyMoveForSearch(state, move);
     const nextHash = updateHash(hash, state, move, nextState);
-    const score = -quiescence(nextState, -beta, -currentAlpha, opponent, variant, tt, nextHash, qDepth + 1);
+    const score = -quiescence(nextState, -beta, -currentAlpha, opponent, variant, tt, nextHash, qDepth + 1, ctx);
 
     if (score >= beta) return beta;
     if (score > currentAlpha) currentAlpha = score;
@@ -299,6 +313,7 @@ function quiescence(
 }
 
 // Negamax with alpha-beta, TT, null-move pruning, LMR, PVS, futility, killers, history
+// Issue #176: deadline / abort 貫通のため SearchContext を受け取る。
 function negamax(
   state: GameState,
   depth: number,
@@ -310,14 +325,10 @@ function negamax(
   hash: ZobristHash,
   ply: number,
   isNullMoveAllowed: boolean,
-  startTime: number,
-  timeLimitMs: number
+  ctx: SearchContext
 ): number {
-  // Time check（8ノードごと）
-  if ((ply & 7) === 0 && (Date.now() - startTime > timeLimitMs)) {
-    const rawScore = evaluate(state, variant);
-    return player === "sente" ? rawScore : -rawScore;
-  }
+  ctx.nodes++;
+  if (shouldStop(ctx)) return 0;
 
   // TT probe (dual hash)
   const ttEntry = tt.probe(hash.lo, hash.hi);
@@ -340,7 +351,7 @@ function negamax(
 
   // Quiescence search at depth 0
   if (depth <= 0) {
-    return quiescence(state, alpha, beta, player, variant, tt, hash, 0);
+    return quiescence(state, alpha, beta, player, variant, tt, hash, 0, ctx);
   }
 
   // 合法手生成
@@ -382,8 +393,7 @@ function negamax(
       nullHash,
       ply + 1,
       false,
-      startTime,
-      timeLimitMs
+      ctx
     );
     if (nullScore >= beta) {
       return beta;
@@ -435,8 +445,7 @@ function negamax(
         nextHash,
         ply + 1,
         true,
-        startTime,
-        timeLimitMs
+        ctx
       );
     } else {
       // PVS + LMR
@@ -457,8 +466,7 @@ function negamax(
         nextHash,
         ply + 1,
         true,
-        startTime,
-        timeLimitMs
+        ctx
       );
 
       if (score > alpha && score < beta) {
@@ -473,8 +481,7 @@ function negamax(
           nextHash,
           ply + 1,
           true,
-          startTime,
-          timeLimitMs
+          ctx
         );
       }
     }
@@ -487,40 +494,51 @@ function negamax(
       alpha = score;
     }
     if (alpha >= beta) {
-      updateKillerMove(move, ply);
-      const fromIdx = moveFromIndex(move);
-      const toIdx = moveToIndex(move);
-      historyTable[fromIdx][toIdx] += depth * depth;
+      // Issue #176: 停止後は killer / history を更新しない (途中値で汚染しないため)
+      if (!ctx.stopped) {
+        updateKillerMove(move, ply);
+        const fromIdx = moveFromIndex(move);
+        const toIdx = moveToIndex(move);
+        historyTable[fromIdx][toIdx] += depth * depth;
+      }
       break;
     }
   }
 
-  // TT store (dual hash)
-  let flag: "exact" | "lower" | "upper";
-  if (maxScore <= originalAlpha) {
-    flag = "upper";
-  } else if (maxScore >= beta) {
-    flag = "lower";
-  } else {
-    flag = "exact";
+  // TT store (dual hash)。Issue #176: 停止後の score は信頼できないため保存しない。
+  if (!ctx.stopped) {
+    let flag: "exact" | "lower" | "upper";
+    if (maxScore <= originalAlpha) {
+      flag = "upper";
+    } else if (maxScore >= beta) {
+      flag = "lower";
+    } else {
+      flag = "exact";
+    }
+    tt.store(hash.lo, hash.hi, depth, maxScore, flag, bestMove);
   }
-  tt.store(hash.lo, hash.hi, depth, maxScore, flag, bestMove);
 
   return maxScore;
 }
 
-// 反復深化で最善手を探索
+// 反復深化で最善手を探索。
+// Issue #176: SearchContext を必須引数化し、deadline / abort を貫通させる。
+// 旧 calculateAiMove 互換のため `ctx` は省略可能とし、省略時は options.timeLimitMs から
+// SearchContext を生成する。Route Handler 経由の呼び出しでは engine.ts が ctx を渡す。
 export function findBestMove(
   state: GameState,
   player: Player,
   options: SearchOptions,
-  variant: RuleVariant = STANDARD_VARIANT
+  variant: RuleVariant = STANDARD_VARIANT,
+  ctx?: SearchContext
 ): Move | null {
   const moves = getFullLegalMoves(state, player, variant);
   if (moves.length === 0) return null;
   if (moves.length === 1) return moves[0];
 
-  const startTime = Date.now();
+  const searchCtx: SearchContext =
+    ctx ?? createSearchContext({ timeLimitMs: options.timeLimitMs });
+
   globalTT.newSearch(); // 手番ごとに1回だけ（ループ内では呼ばない）
   resetSearchTables();
 
@@ -532,8 +550,10 @@ export function findBestMove(
 
   // 反復深化 + Aspiration Windows
   for (let depth = 1; depth <= options.maxDepth; depth++) {
-    const elapsed = Date.now() - startTime;
-    if (elapsed > options.timeLimitMs * 0.55) break;
+    if (shouldStop(searchCtx)) break;
+    // 時間予算の半分を超えたら次 depth に進まない (中途で打ち切るより早めに止める)
+    const elapsedFromStart = performance.now() - searchCtx.startedAt;
+    if (elapsedFromStart > options.timeLimitMs * 0.55) break;
 
     const ttEntry = globalTT.probe(initialHash.lo, initialHash.hi);
     const ttMove = ttEntry?.bestMove ?? null;
@@ -548,17 +568,21 @@ export function findBestMove(
     let aspirationAlpha = depth > 1 ? bestScore - 100 : NEG_INF;
     let aspirationBeta = depth > 1 ? bestScore + 100 : POS_INF;
     let aspirationRetry = 0;
+    let depthCompletedFully = false;
 
     while (aspirationRetry < 3) {
       let depthBestMove = sortedMoves[0];
       let depthBestScore = NEG_INF;
       const depthMoveScores: { move: Move; score: number }[] = [];
       let alpha = aspirationAlpha;
+      let stoppedDuringRoot = false;
 
       for (let i = 0; i < sortedMoves.length; i++) {
+        if (shouldStop(searchCtx)) {
+          stoppedDuringRoot = true;
+          break;
+        }
         const move = sortedMoves[i];
-        const elapsed2 = Date.now() - startTime;
-        if (elapsed2 > options.timeLimitMs * 0.92) break;
 
         const nextState = applyMoveForSearch(state, move);
         const nextHash = updateHash(initialHash, state, move, nextState);
@@ -576,8 +600,7 @@ export function findBestMove(
             nextHash,
             1,
             true,
-            startTime,
-            options.timeLimitMs
+            searchCtx
           );
         } else {
           // PVS at root
@@ -592,8 +615,7 @@ export function findBestMove(
             nextHash,
             1,
             true,
-            startTime,
-            options.timeLimitMs
+            searchCtx
           );
           if (score > alpha && score < aspirationBeta) {
             score = -negamax(
@@ -607,10 +629,16 @@ export function findBestMove(
               nextHash,
               1,
               true,
-              startTime,
-              options.timeLimitMs
+              searchCtx
             );
           }
+        }
+
+        // Issue #176: 停止後の score は信頼できない (途中で 0 が返る)。
+        // root の depthMoveScores には保存せず、当該 depth は未完了扱いにする。
+        if (searchCtx.stopped) {
+          stoppedDuringRoot = true;
+          break;
         }
 
         depthMoveScores.push({ move, score });
@@ -624,6 +652,9 @@ export function findBestMove(
         }
       }
 
+      // 停止で root を抜けた場合、当該 depth は未完了として採用しない
+      if (stoppedDuringRoot) break;
+
       // Aspiration fail check (段階的拡大)
       if (depthBestScore <= aspirationAlpha) {
         aspirationAlpha = aspirationRetry === 0 ? bestScore - 300 : NEG_INF;
@@ -636,15 +667,22 @@ export function findBestMove(
         continue;
       }
 
-      // 成功
+      // 成功 (depth 完全終了)
       if (depthBestScore > bestScore || depth === 1) {
         bestScore = depthBestScore;
         bestMove = depthBestMove;
         rootMoveScores = depthMoveScores;
       }
+      depthCompletedFully = true;
       break;
     }
-    // tt.newSearch()をループ内から削除（Phase 3-2）
+
+    if (depthCompletedFully) {
+      searchCtx.depthCompleted = depth;
+    } else {
+      // 停止または aspiration 連続失敗で当該 depth が完了しなかった場合は反復深化を打ち切る
+      break;
+    }
   }
 
   // nearEqualThreshold: 最善手に近い評価値の手からランダム選択（多様性確保）

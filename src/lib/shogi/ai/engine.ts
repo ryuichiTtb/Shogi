@@ -1,19 +1,30 @@
 import type { Difficulty, GameState, Move, Player, RuleVariant } from "../types";
 import { STANDARD_VARIANT } from "../variants/standard";
 import { findBestMove } from "./search";
+import {
+  createSearchContext,
+  finalizeStats,
+  type SearchStats,
+} from "./search-context";
 import { evaluate, getLeastAttackerValue } from "./evaluate";
 import { getBookMove, MAX_BOOK_MOVES } from "./openingBook";
 import { getFullLegalMoves, isSquareAttackedByFast } from "../moves";
 import { applyMoveForSearch } from "../board";
 
-// 難易度別探索パラメータ
-const DIFFICULTY_PARAMS: Record<Difficulty, {
+export interface DifficultyParams {
   maxDepth: number;
   timeLimitMs: number;
   addNoise: number;
   useBook: boolean;
   nearEqualThreshold: number; // 接戦時ランダム選択の閾値（cp）
-}> = {
+}
+
+// 難易度別探索パラメータ。
+// Issue #176: hard stop は 4000ms 以内に収める方針。Phase 0 ベンチで現行値の
+// expert 4500ms / advanced 4000ms が timeLimitMs を最大 7s 級まで踏み抜く挙動が
+// 確認されたため、deadline 厳格化 (Stage A) と組み合わせて以下に揃える。
+// 仮置きの目安。Stage C 完了後の bench 結果でさらに微調整する。
+export const DIFFICULTY_PARAMS: Record<Difficulty, DifficultyParams> = {
   beginner: {
     maxDepth: 3,
     timeLimitMs: 1000,
@@ -169,3 +180,127 @@ export const DIFFICULTY_LABELS: Record<Difficulty, string> = {
   advanced: "上級",
   expert: "超上級",
 };
+
+// Issue #176: Route Handler / hooks から呼ぶ統一 API。
+// SearchContext を内部生成し、deadline 付き探索を行う。stats を返すので
+// route 側で stoppedBy / depthCompleted / nodes をログに残せる。
+//
+// 旧 calculateAiMove は Stage B で削除予定。Stage A では並存させ、
+// 段階的に Route Handler 経由へ移行する。
+export interface FindBestMoveOptions {
+  signal?: AbortSignal;
+}
+
+export interface FindBestMoveResult {
+  move: Move | null;
+  stats: SearchStats;
+}
+
+export function findBestMoveWithStats(
+  state: GameState,
+  player: Player,
+  difficulty: Difficulty,
+  variant: RuleVariant = STANDARD_VARIANT,
+  options: FindBestMoveOptions = {},
+): FindBestMoveResult {
+  const params = DIFFICULTY_PARAMS[difficulty];
+  const ctx = createSearchContext({
+    timeLimitMs: params.timeLimitMs,
+    signal: options.signal,
+  });
+
+  // 定石ブック (序盤のみ)
+  let usedBook = false;
+  let bookMove: Move | null = null;
+  if (params.useBook && state.moveCount < MAX_BOOK_MOVES * 2) {
+    const candidate = getBookMove(state, player);
+    if (candidate) {
+      const legalMoves = getFullLegalMoves(state, player, variant);
+      const isLegal = legalMoves.some(
+        (m) =>
+          m.type === candidate.type &&
+          m.to.row === candidate.to.row &&
+          m.to.col === candidate.to.col &&
+          (candidate.type === "drop"
+            ? m.dropPiece === candidate.dropPiece
+            : m.from?.row === candidate.from?.row &&
+              m.from?.col === candidate.from?.col &&
+              (m.promote ?? false) === (candidate.promote ?? false))
+      );
+      if (isLegal) {
+        bookMove = candidate;
+        usedBook = true;
+      }
+    }
+  }
+
+  if (bookMove) {
+    return {
+      move: bookMove,
+      stats: finalizeStats(ctx, { usedBook: true, usedFallback: false }),
+    };
+  }
+
+  // 探索
+  const bestMove = findBestMove(
+    state,
+    player,
+    {
+      maxDepth: params.maxDepth,
+      timeLimitMs: params.timeLimitMs,
+      addNoise: params.addNoise,
+      nearEqualThreshold: params.nearEqualThreshold,
+    },
+    variant,
+    ctx,
+  );
+
+  // depth 1 すら完了しなかった場合の server fallback (合法手の先頭を返す)。
+  // Issue #176: client 側 fallback は持たない方針なので、ここで必ず非 null を返したい。
+  let move = bestMove;
+  let usedFallback = false;
+  if (move === null) {
+    const legal = getFullLegalMoves(state, player, variant);
+    if (legal.length > 0) {
+      move = legal[0];
+      usedFallback = true;
+    }
+  }
+
+  // ブランダーガード (advanced / expert のみ、抑制版)。
+  // Issue #176: 戦術的駒捨てを潰すリスクがあるが、Stage A では現行挙動を維持する。
+  // Phase 4 (PR 2) で抑制ロジックを再設計する。
+  if (
+    !usedFallback &&
+    move !== null &&
+    (difficulty === "advanced" || difficulty === "expert")
+  ) {
+    const nextState = applyMoveForSearch(state, move);
+    if (hasHangingPiece(nextState, player, variant)) {
+      const legalMoves = getFullLegalMoves(state, player, variant);
+      const safeMoves = legalMoves.filter((m) => {
+        const ns = applyMoveForSearch(state, m);
+        return !hasHangingPiece(ns, player, variant);
+      });
+      if (safeMoves.length > 0) {
+        let bestSafeScore = -Infinity;
+        let bestSafeMove = safeMoves[0];
+        for (const m of safeMoves) {
+          const ns = applyMoveForSearch(state, m);
+          const rawScore = evaluate(ns, variant);
+          const score = player === "sente" ? rawScore : -rawScore;
+          if (score > bestSafeScore) {
+            bestSafeScore = score;
+            bestSafeMove = m;
+          }
+        }
+        move = bestSafeMove;
+      }
+    }
+  }
+
+  return {
+    move,
+    stats: finalizeStats(ctx, { usedBook, usedFallback }),
+  };
+}
