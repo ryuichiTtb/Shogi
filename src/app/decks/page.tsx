@@ -10,16 +10,17 @@ import {
 } from "@/app/actions/deck";
 import { DecksPage } from "@/components/decks/decks-page";
 import { AppBackground } from "@/components/layout/app-background";
+import { BgmProvider } from "@/components/audio/bgm-provider";
 
 export const metadata = {
   title: "デッキ編成 | カード将棋",
 };
 
-// Issue #155: ヘッダ (「ホームへ戻る」リンク + AuthControls) と wrapper の
-// レイアウトは DecksPage 側に内包させ、editor 保存中に Client 側で「ホームへ
-// 戻る」を disabled にできるようにした。Server Component はデータ取得と
-// レイアウト枠 (main + AppBackground) のみを責務とする。
-// origin/main 由来の AuthControls は DecksPageHeader 内で表示する。
+// Issue #155 (origin/main): ヘッダ (「ホームへ戻る」リンク + AuthControls) と
+// wrapper のレイアウトは DecksPage / DecksPageHeader 側に内包され、editor 保存中
+// に Client 側で「ホームへ戻る」を disabled にできる。
+// Server Component はデータ取得 + ページ枠 (main + AppBackground) + Issue #79 BGM
+// (BgmProvider) のみを責務とする。
 export default async function DecksRoute() {
   const [decks, owned] = await Promise.all([
     listDecksForCurrentUser(),
@@ -28,6 +29,7 @@ export default async function DecksRoute() {
 
   return (
     <main className="h-dvh flex flex-col">
+      <BgmProvider eventKey="bgm_home" />
       <AppBackground variant="page" />
       <DecksPage initialDecks={decks} ownedCards={owned} />
     </main>

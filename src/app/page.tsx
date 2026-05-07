@@ -14,6 +14,8 @@ import { AuthControls } from "@/components/auth/auth-controls";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import { resolveLoadingStages } from "@/lib/loading-stages";
 import { useAssetPreloader } from "@/hooks/use-asset-preloader";
+import { useBgm } from "@/hooks/use-bgm";
+import { playSfxOnce } from "@/hooks/use-sound";
 import { AppBackground } from "@/components/layout/app-background";
 import { PageMotion } from "@/components/layout/page-motion";
 import { CardShogiTiles } from "@/components/home/card-shogi-tiles";
@@ -24,14 +26,18 @@ export default function Home() {
   const router = useRouter();
   const reduce = useReducedMotion();
 
-  // ロビー段階で SFX のみ先読み (BGM はキャラ確定後の /play・/classic で行う)。
+  // ロビー段階で SFX を先読み。
   useAssetPreloader();
+  // Issue #79 (PR 1.7): ロビー BGM
+  useBgm("bgm_home");
 
   const [pendingStages, setPendingStages] = useState<readonly string[] | null>(null);
   const isPending = pendingStages !== null;
 
   function navigateTo(href: string, customStages?: readonly string[]) {
     if (isPending) return;
+    // Issue #79 派生: forward 遷移 SFX (CTA / タイル共通)。
+    playSfxOnce("nav_forward");
     setPendingStages(customStages ?? resolveLoadingStages(href));
     router.push(href);
   }

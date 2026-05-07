@@ -2,6 +2,7 @@ import { ArrowLeft } from "lucide-react";
 import { CardCatalogGrid } from "@/components/cards/card-catalog-grid";
 import { ALL_CARD_DEFS } from "@/lib/shogi/cards/definitions";
 import { AppBackground } from "@/components/layout/app-background";
+import { BgmProvider } from "@/components/audio/bgm-provider";
 import { AuthControls } from "@/components/auth/auth-controls";
 import { MaskedLink } from "@/components/navigation/masked-link";
 
@@ -14,6 +15,7 @@ export const metadata = {
 export default function CardsPage() {
   return (
     <main className="h-dvh flex flex-col">
+      <BgmProvider eventKey="bgm_home" />
       <AppBackground variant="page" />
       {/* ヘッダ帯 (card-design と同じ視覚パターン): 半透明 + backdrop-blur で
           スクロール時に下のリストが透けないようにし、border-b で領域を分離。 */}

@@ -4,13 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && next build",
+    "build": "pnpm waveform:peaks && prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:ci": "vitest run",
     "test:layout:card-shogi": "node scripts/card-shogi-layout-audit.mjs",
+    "waveform:peaks": "tsx scripts/build-waveform-peaks.ts",
     "db:seed": "npx tsx prisma/seed.ts",
     "db:push": "prisma db push",
     "db:generate": "prisma generate"
@@ -52,6 +53,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/howler": "^2.2.12",
+    "audio-decode": "^3.10.1",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

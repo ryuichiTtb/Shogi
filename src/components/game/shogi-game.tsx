@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useShogiGame } from "@/hooks/use-shogi-game";
 import { useSound } from "@/hooks/use-sound";
+import { useBgm } from "@/hooks/use-bgm";
 import { useBoardSize } from "@/hooks/use-board-size";
 import { ShogiBoard } from "./shogi-board";
 import { CapturedPieces } from "./captured-pieces";
@@ -38,6 +39,8 @@ interface SerializableGameConfig {
   difficulty: Difficulty;
   playerColor: Player;
   characterId: string;
+  // Issue #150 (origin/main): ユーザ環境設定 "サウンド ON/OFF" のゲート。
+  // false なら useBgm に null を渡して BGM 停止 (SFX は既存 isMuted で別経路)。
   soundEnabled: boolean;
   commentaryEnabled: boolean;
 }
@@ -71,11 +74,11 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
   };
 
   const character = getCharacterById(gameConfig.characterId);
-  const { playSfx, toggleMute, isMuted, isReady } = useSound(
-    gameConfig.soundEnabled ? character.bgmTrack : undefined
-  );
+  const { playSfx, toggleMute, isMuted, isReady } = useSound();
 
   const handlePlayAgain = useCallback(() => {
+    // Issue #79 派生: forward 遷移 SFX (新規対局画面へ router.push する forward 系)
+    playSfx("nav_forward");
     startTransition(async () => {
       const newGameId = await createGame(
         gameConfig.difficulty,
@@ -84,7 +87,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
       );
       router.push(`/game/${newGameId}`);
     });
-  }, [gameConfig.difficulty, gameConfig.playerColor, gameConfig.characterId, router]);
+  }, [gameConfig.difficulty, gameConfig.playerColor, gameConfig.characterId, router, playSfx]);
 
   const handleComment = useCallback((event: string) => {
     setCommentEvent(event as CommentaryEvent);
@@ -116,6 +119,21 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
 
   const playerColor = gameConfig.playerColor;
   const aiColor = playerColor === "sente" ? "gote" : "sente";
+
+  // BGM (Issue #79):
+  //   - useBgm が BGM の単一オーナー。dev tool で event override が設定された
+  //     場合 (もしくは manifest 既定が non-empty) のときに再生される。
+  //   - soundEnabled が false → null で停止 (#150 のサウンド ON/OFF ゲート)。
+  //   - 対局中は loop 継続、対局終了時は現在の loop を完了させた上で停止。
+  //     (shouldLoop=false → onend で自然停止)
+  useBgm(
+    gameConfig.soundEnabled
+      ? gameState.status === "active"
+        ? "bgm_game"
+        : "bgm_game_over"
+      : null,
+    { shouldLoop: gameState.status === "active" },
+  );
   const isPlayerTurn = gameState.currentPlayer === playerColor;
   const isGameActive = gameState.status === "active";
   const inCheck = (isGameActive || gameState.status === "checkmate") && isInCheck(gameState, gameState.currentPlayer, STANDARD_VARIANT);
@@ -165,9 +183,10 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setOverlayEvent({ event: "check", key: Date.now() });
     }
-    // 詰みは手を指した後なので1秒遅延
+    // 詰みは手を指した後なので1秒遅延。Issue #79: 王手 SFX (check) と分離した
+    // 専用 checkmate SFX を再生 (default = 血しぶき・飛び散る03)。
     if (gameState.status === "checkmate") {
-      setTimeout(() => playSfx("game_over"), 1000);
+      setTimeout(() => playSfx("checkmate"), 1000);
       setTimeout(() => setOverlayEvent({ event: "checkmate", key: Date.now() }), 1000);
     }
   }, [gameState.moveCount]);

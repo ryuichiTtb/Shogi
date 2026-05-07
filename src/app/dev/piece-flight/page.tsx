@@ -27,6 +27,7 @@ import {
   type EaseOption,
   type FlightParams,
 } from "@/lib/dev/flight-params";
+import { useBgm } from "@/hooks/use-bgm";
 import type { Player } from "@/lib/shogi/types";
 import { cn } from "@/lib/utils";
 
@@ -72,6 +73,8 @@ const PRESET_DISTANCES: Array<{ label: string; from: { x: number; y: number }; t
 ];
 
 export default function PieceFlightDevPage() {
+  // Issue #79 (PR 1.7): dev pages では BGM を停止
+  useBgm(null);
   // 現在保存されている値 (ゲームに反映されている値)
   const saved = useFlightParams();
 
@@ -191,12 +194,12 @@ export default function PieceFlightDevPage() {
       <div className="max-w-7xl mx-auto flex flex-col gap-4">
         <header className="flex items-center gap-3 mb-1">
           <MaskedLink
-            href="/"
+            href="/dev"
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
             loadingVariant="spinner"
           >
             <ArrowLeft className="w-4 h-4" />
-            ホーム
+            開発者ツール
           </MaskedLink>
           <div>
             <h1 className="text-xl sm:text-2xl font-bold">PieceFlight 動作検証</h1>

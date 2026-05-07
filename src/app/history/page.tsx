@@ -8,6 +8,7 @@ import { gameResultText } from "@/lib/shogi/notation";
 import { getCharacterById } from "@/data/characters";
 import { ArrowLeft, Inbox } from "lucide-react";
 import { AppBackground } from "@/components/layout/app-background";
+import { BgmProvider } from "@/components/audio/bgm-provider";
 import { AuthControls } from "@/components/auth/auth-controls";
 import { HistoryItemLink } from "@/components/history/history-item-link";
 import { formatHistoryDateTime } from "@/lib/date-format";
@@ -18,6 +19,7 @@ export default async function HistoryPage() {
 
   return (
     <main className="min-h-[100dvh] min-h-screen py-8 px-4 max-w-2xl mx-auto safe-area-inset">
+      <BgmProvider eventKey="bgm_home" />
       <AppBackground variant="page" />
       <div className="flex items-center gap-3 mb-6">
         <MaskedLink href="/" loadingVariant="spinner">

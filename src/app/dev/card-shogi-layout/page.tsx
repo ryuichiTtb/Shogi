@@ -30,6 +30,7 @@ export default async function CardShogiLayoutDevPage({ searchParams }: CardShogi
       }}
       debugInitialUi={fixture.debugInitialUi}
       debugDisableServerEffects
+      enableBgm={false}
     />
   );
 }

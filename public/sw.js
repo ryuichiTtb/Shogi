@@ -4,18 +4,20 @@
 // activate ハンドラで自動削除する。
 // Issue #117: 新ホーム公開に合わせて v3 へバンプ。古い shogi-v2 キャッシュ
 // (旧モードタブ式 "/" の HTML) をオフライン時に拾わないようにする。
+// Issue #79: BGM 機能を削除したため v4 へバンプ。旧 shogi-v3 にキャッシュされた
+// .wav BGM (約 2.2MB × 3 ファイル) を自動削除する。
+// Issue #79 (PR 1.7): 音源プール拡張 + BGM 再導入で v5 へバンプ。
+// 新音源 (public/sounds/音源/ 配下 73 ファイル) と新 BGM mp3 は既存 /sounds/*
+// cache-first パターンで自動キャッシュされる。
 // PRECACHE_ASSETS の SE リストは src/lib/audio/manifest.ts SFX_FILES と
 // 同じ実体ファイルを指す (現状は重複管理。将来的には manifest 経由で同期する)。
-// BGM (.wav) は SW install 時のプリキャッシュ対象に含めない: 約 2.2MB を
-// 一気に取りに行くと初回起動が重くなるため、ロビーで選択中キャラ BGM のみを
-// useAssetPreloader (src/hooks/use-asset-preloader.ts) で軽く load する。
 //
 // Issue #117 (#128): SW フェッチハンドラの堅牢化 (バグ修正)。
 // 旧実装は (a) 静的アセットの fetch 失敗時に catch していないため、Vercel 一時
 // エラーで navigation 全体が Chrome NETERR になる、(b) navigation で 5xx 応答も
 // キャッシュ汚染する、(c) fallback で undefined を返しうる ──の 3 点で起動失敗
 // を引き起こしていた。3 点まとめて修正。
-const CACHE_NAME = "shogi-v3";
+const CACHE_NAME = "shogi-v6";
 
 // プリキャッシュする静的アセット
 const PRECACHE_ASSETS = [
@@ -136,25 +138,6 @@ self.addEventListener("fetch", (event) => {
           })
           .catch(() => offlineFallback());
       }),
-    );
-    return;
-  }
-
-  // BGM（大きいファイル）: ネットワーク優先、キャッシュに保存
-  if (url.pathname.endsWith(".wav")) {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          if (response.ok) {
-            const clone = response.clone();
-            caches
-              .open(CACHE_NAME)
-              .then((cache) => cache.put(request, clone))
-              .catch(() => {});
-          }
-          return response;
-        })
-        .catch(async () => (await caches.match(request)) ?? offlineFallback()),
     );
     return;
   }

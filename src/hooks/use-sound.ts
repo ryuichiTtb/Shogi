@@ -3,6 +3,7 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 
 import { SFX_FILES } from "@/lib/audio/manifest";
+import { setBgmMuted } from "@/hooks/use-bgm";
 
 // Howler.jsのSSR対応（サーバーサイドでは何もしない）
 type HowlInstance = {
@@ -38,16 +39,70 @@ export async function prepareAudio(): Promise<void> {
       await ctx.resume();
     }
   } catch {
-    // Howler 未対応環境 / 動的 import 失敗時は無視 (BGM/SE 自体が動かない)
+    // Howler 未対応環境 / 動的 import 失敗時は無視 (SE 自体が動かない)
   }
 }
 
-// bgmTrack の受け取り型を string | string[] に拡張 (将来 OGG/MP3 fallback ペアを
-// 受け取れるよう)。Howler の src は配列を受け取り順次フォールバックする。
-export function useSound(bgmTrack?: string | string[]) {
+// =====================
+// playSfxOnce: 軽量な module-level SFX プレイヤー
+// =====================
+//
+// Issue #79 派生: useSound は mount 時に SFX_FILES 全件 (~24 個) の Howl を
+// 一気に preload するため、対局画面のような頻繁に再生する component には
+// 適しているが、画面遷移ボタン (MaskedLink / CardShogiTiles 等) のような
+// 「ごくまれに 1 種類だけ鳴らす」軽量用途には Howl 大量生成のオーバーヘッドが
+// 重い (page 中の全 link が個別に useSound すると 24 × N の Howl 構築)。
+//
+// この関数は呼ばれた sound key の Howl だけを lazy-create + 共有 cache に
+// 保持する。useSound と独立した singleton で、mute 状態は setSfxOnceMuted
+// 経由で同期される (useSound.toggleMute から呼ばれる)。
+
+let sfxOnceMuted = false;
+const sfxOnceCache = new Map<string, HowlInstance>();
+let sfxOnceCtorPromise: Promise<HowlConstructor> | null = null;
+
+/**
+ * useSound の mute 状態を本 singleton にも反映する。useSound.toggleMute から呼ぶ。
+ */
+export function setSfxOnceMuted(muted: boolean): void {
+  sfxOnceMuted = muted;
+}
+
+/**
+ * 指定 SFX を 1 度再生する軽量ヘルパ。
+ * - 未 cache なら lazy-create して再生
+ * - mute 中は skip
+ * - 連打時は既存再生を stop してから play (重なり防止)
+ */
+export function playSfxOnce(soundKey: keyof typeof SFX_FILES): void {
+  if (typeof window === "undefined") return;
+  if (sfxOnceMuted) return;
+  const src = SFX_FILES[soundKey];
+  if (!src) return;
+
+  if (!sfxOnceCtorPromise) {
+    sfxOnceCtorPromise = import("howler").then(
+      ({ Howl }) => Howl as unknown as HowlConstructor,
+    );
+  }
+  void sfxOnceCtorPromise.then((HowlCtor) => {
+    let howl = sfxOnceCache.get(soundKey);
+    if (!howl) {
+      howl = new HowlCtor({ src: [src], volume: 0.7 });
+      sfxOnceCache.set(soundKey, howl);
+    }
+    try {
+      howl.stop();
+      howl.play();
+    } catch {
+      // Howler 内部エラーは無視
+    }
+  });
+}
+
+export function useSound() {
   const [isMuted, setIsMuted] = useState(false);
   const [isReady, setIsReady] = useState(false);
-  const bgmRef = useRef<HowlInstance | null>(null);
   const sfxCacheRef = useRef<Map<string, HowlInstance>>(new Map());
   const HowlRef = useRef<HowlConstructor | null>(null);
 
@@ -58,44 +113,15 @@ export function useSound(bgmTrack?: string | string[]) {
       HowlRef.current = HowlCtor;
 
       // 全SFXを事前生成してキャッシュ（初回再生時のロード遅延をなくす）
+      // 空文字 src (未割当 event) は preload skip して 404 を防ぐ。
       Object.entries(SFX_FILES).forEach(([key, src]) => {
+        if (!src) return;
         sfxCacheRef.current.set(key, new HowlCtor({ src: [src], volume: 0.7 }));
       });
 
       setIsReady(true);
     });
-
-    return () => {
-      bgmRef.current?.stop();
-    };
   }, []);
-
-  // BGMの切り替え
-  useEffect(() => {
-    if (!bgmTrack || !HowlRef.current || typeof window === "undefined") return;
-
-    bgmRef.current?.fade(1, 0, 500);
-    const prev = bgmRef.current;
-    setTimeout(() => prev?.stop(), 500);
-
-    const srcs = Array.isArray(bgmTrack) ? bgmTrack : [bgmTrack];
-    const newBgm = new HowlRef.current({
-      src: srcs,
-      volume: isMuted ? 0 : 0.3,
-      loop: true,
-      html5: true,
-    });
-
-    bgmRef.current = newBgm;
-    if (!isMuted) newBgm.play();
-
-    return () => {
-      newBgm.stop();
-    };
-    // bgmTrack が配列のときも primary URL の変化で再生し直したい。
-    // 単純化のため Array.isArray でも依存に渡す (= 配列参照変化で再発火)。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [Array.isArray(bgmTrack) ? bgmTrack[0] : bgmTrack]);
 
   const playSfx = useCallback(
     (sound: keyof typeof SFX_FILES) => {
@@ -118,9 +144,9 @@ export function useSound(bgmTrack?: string | string[]) {
   const toggleMute = useCallback(() => {
     setIsMuted((prev) => {
       const next = !prev;
-      if (bgmRef.current) {
-        bgmRef.current.volume(next ? 0 : 0.3);
-      }
+      // Issue #79: BGM / playSfxOnce singleton にも mute 連動
+      setBgmMuted(next);
+      setSfxOnceMuted(next);
       return next;
     });
   }, []);

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { CardView } from "@/components/game/card-shogi/card-view";
+import { BgmProvider } from "@/components/audio/bgm-provider";
 import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
 import {
   CHECK_USAGE_INFO,
@@ -42,6 +43,7 @@ export default async function CardDetailPage({ params }: CardDetailPageProps) {
     // 詳細ポップアップ (CardDetailDialog) と同じ「ヘッダ固定 + 本文スクロール」
     // パターンに揃える。
     <main className="h-dvh flex flex-col bg-gradient-to-b from-amber-50 dark:from-amber-950/30 to-background">
+      <BgmProvider eventKey="bgm_home" />
       <div className="max-w-4xl mx-auto px-4 pt-4 sm:pt-6 pb-2 w-full flex flex-col flex-1 min-h-0">
         {/* 戻るリンク + 名前 (固定) */}
         <header className="flex items-center gap-3 mb-3 sm:mb-4 shrink-0">

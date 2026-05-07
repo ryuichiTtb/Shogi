@@ -110,6 +110,8 @@ export interface GameConfig {
   playerColor: Player;
   timeControl?: TimeControl;
   characterId: string;
+  // Issue #150: ユーザ環境設定 "サウンド ON/OFF" のゲート。
+  // false → useBgm に null を渡し BGM 停止 (#79 統合)。
   soundEnabled: boolean;
   commentaryEnabled: boolean;
 }

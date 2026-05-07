@@ -68,6 +68,7 @@ export async function createGame(
     difficulty,
     playerColor,
     characterId,
+    // Issue #150: ユーザ環境設定 "サウンド ON/OFF"。デフォルト ON。
     soundEnabled: true,
     commentaryEnabled: true,
   };

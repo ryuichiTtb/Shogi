@@ -61,8 +61,9 @@ export function MatchSetup({ mode }: MatchSetupProps) {
 
   const selectedCharacter = CHARACTERS.find((c) => c.difficulty === selectedDifficulty)!;
 
-  // Step 4 (Issue #107): 選択中キャラの BGM と SFX を裏で先読み。
-  useAssetPreloader({ selectedCharacterId: selectedCharacter.id });
+  // Step 4 (Issue #107): SFX を裏で先読み。
+  // BGM 先読みは #79 でキャラ別 BGM 撤去に伴い廃止。
+  useAssetPreloader();
 
   async function handleStart() {
     if (isPending) return;

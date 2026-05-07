@@ -5,6 +5,7 @@ import { MatchSetup } from "@/components/home/match-setup";
 import { AppBackground } from "@/components/layout/app-background";
 import { PageMotion } from "@/components/layout/page-motion";
 import { ThemeSelector } from "@/components/game/theme-selector";
+import { BgmProvider } from "@/components/audio/bgm-provider";
 import { AuthControls } from "@/components/auth/auth-controls";
 import { MaskedLink } from "@/components/navigation/masked-link";
 
@@ -16,6 +17,7 @@ export default function ClassicPage() {
   return (
     <PageMotion>
       <main className="flex flex-col h-dvh safe-area-inset overflow-hidden">
+        <BgmProvider eventKey="bgm_match_setup" />
         <AppBackground variant="setup" />
 
         <div className="relative text-center py-2 sm:py-6 px-4 shrink-0">

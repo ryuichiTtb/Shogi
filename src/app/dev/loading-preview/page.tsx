@@ -24,8 +24,11 @@ import { CardBackSeigaiha } from "@/components/card-back/back-seigaiha";
 import { CardBackMinimal } from "@/components/card-back/back-minimal";
 import { Button } from "@/components/ui/button";
 import { AppBackground } from "@/components/layout/app-background";
+import { useBgm } from "@/hooks/use-bgm";
 
 export default function LoadingPreviewPage() {
+  // Issue #79: dev page では BGM 停止 (singleton 漏れ防止)
+  useBgm(null);
   const [overlayOpen, setOverlayOpen] = useState(false);
 
   return (

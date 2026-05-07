@@ -11,6 +11,7 @@ import { ChevronUp, ChevronDown, Volume2, VolumeX } from "lucide-react";
 
 import { useCardShogiGame } from "@/hooks/use-card-shogi-game";
 import { useSound } from "@/hooks/use-sound";
+import { useBgm } from "@/hooks/use-bgm";
 import { useCardBoardSize } from "@/hooks/use-card-board-size";
 
 import { ShogiBoard, type ShogiBoardHandle } from "../shogi-board";
@@ -54,6 +55,7 @@ import { CardPlayDialog, CardTargetingNotice } from "./card-play-dialog";
 import { DoubleMoveNotice } from "./double-move-notice";
 import { ForbiddenMateDialog } from "./forbidden-mate-dialog";
 import { DrawFlightCard } from "./draw-flight-card";
+import { DRAW_FADE_IN_MS } from "./animation-constants";
 import { AutoDrawBurst } from "./auto-draw-burst";
 import { CardPlayFlight } from "./card-play-flight";
 import { PieceFlight, type PieceFlightSpec } from "./piece-flight";
@@ -68,6 +70,8 @@ interface SerializableGameConfig {
   difficulty: Difficulty;
   playerColor: Player;
   characterId: string;
+  // Issue #150 (origin/main): ユーザ環境設定 "サウンド ON/OFF" のゲート。
+  // false → useBgm に null を渡し BGM 停止。
   soundEnabled: boolean;
   commentaryEnabled: boolean;
 }
@@ -82,6 +86,9 @@ interface CardShogiGameProps {
     endCardMinimized?: boolean;
   };
   debugDisableServerEffects?: boolean;
+  // Issue #79 (PR 1.7): dev page 等で BGM を抑止したい時に false。
+  // default true: 通常対局画面では gameState.status から bgm_game / bgm_game_over を再生
+  enableBgm?: boolean;
 }
 
 function shouldPlayJumpSfx(move: Move): boolean {
@@ -109,6 +116,7 @@ export function CardShogiGame({
   gameConfig: serializableConfig,
   debugInitialUi,
   debugDisableServerEffects = false,
+  enableBgm = true,
 }: CardShogiGameProps) {
   const [commentEvent, setCommentEvent] = useState<CommentaryEvent | null>(null);
   const [overlayEvent, setOverlayEvent] = useState<{ event: OverlayEvent; key: number; trapName?: string } | null>(null);
@@ -260,11 +268,11 @@ export function CardShogiGame({
   };
 
   const character = getCharacterById(gameConfig.characterId);
-  const { playSfx, toggleMute, isMuted, isReady } = useSound(
-    gameConfig.soundEnabled ? character.bgmTrack : undefined,
-  );
+  const { playSfx, toggleMute, isMuted, isReady } = useSound();
 
   const handlePlayAgain = useCallback(() => {
+    // Issue #79 派生: forward 遷移 SFX (新規対局画面へ router.push する forward 系)
+    playSfx("nav_forward");
     startTransition(async () => {
       const newGameId = await createGame(
         gameConfig.difficulty,
@@ -274,7 +282,7 @@ export function CardShogiGame({
       );
       router.push(`/game/${newGameId}`);
     });
-  }, [gameConfig.difficulty, gameConfig.playerColor, gameConfig.characterId, router]);
+  }, [gameConfig.difficulty, gameConfig.playerColor, gameConfig.characterId, router, playSfx]);
 
   const handleComment = useCallback((event: string) => {
     setCommentEvent(event as CommentaryEvent);
@@ -326,6 +334,23 @@ export function CardShogiGame({
   const playerColor = gameConfig.playerColor;
   const aiColor: Player = playerColor === "sente" ? "gote" : "sente";
   const isPlayerTurn = gameState.currentPlayer === playerColor;
+
+  // BGM (Issue #79):
+  //   - useBgm が BGM の単一オーナー。dev tool で event override が設定された
+  //     場合 (もしくは manifest 既定が non-empty) のときに再生される。
+  //   - dev page は enableBgm=false で抑止。
+  //   - soundEnabled が false → null で停止 (#150 のサウンド ON/OFF ゲート)。
+  //   - 対局中は loop 継続、対局終了時は現在の loop を完了させた上で停止。
+  //     (shouldLoop=false → onend で自然停止)
+  //   - status: "active" → bgm_game / それ以外 (resign/checkmate 等) → bgm_game_over
+  useBgm(
+    !enableBgm || !gameConfig.soundEnabled
+      ? null
+      : gameState.status === "active"
+        ? "bgm_game"
+        : "bgm_game_over",
+    { shouldLoop: !!enableBgm && gameState.status === "active" },
+  );
   const isGameActive = gameState.status === "active";
   const inCheck =
     (isGameActive || gameState.status === "checkmate") &&
@@ -372,8 +397,9 @@ export function CardShogiGame({
       playSfx("check");
       setOverlayEvent({ event: "check", key: Date.now() });
     }
+    // 詰み: Issue #79 で王手 SFX (check) と分離した専用 checkmate SFX を再生。
     if (gameState.status === "checkmate") {
-      setTimeout(() => playSfx("game_over"), 1000);
+      setTimeout(() => playSfx("checkmate"), 1000);
       setTimeout(() => setOverlayEvent({ event: "checkmate", key: Date.now() }), 1000);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -494,6 +520,8 @@ export function CardShogiGame({
   );
 
   const handleConfirmPlayCard = useCallback(() => {
+    // Issue #79 派生: カード使用確定 SFX (default = piece-capture)
+    playSfx("card_use_confirm");
     cachePendingCardRect();
     // Issue #82: 駒フライト用 rect キャッシュは handleSquareClick 側 (盤面ターゲット
     // 選択時) で行う。target が要らないカードはここで通過するだけ。
@@ -501,7 +529,7 @@ export function CardShogiGame({
     // Issue #106: モバイル手札ドロワーは「使用する」確定時に閉じる
     // (キャンセル時は開いたままにし、再度カードを選び直しやすくする)
     setDrawerOpen(false);
-  }, [cachePendingCardRect, confirmPlayCard]);
+  }, [cachePendingCardRect, confirmPlayCard, playSfx]);
 
   // カードイベント由来の SE 再生・画面演出・マナ浮遊テキストを eventLog の差分監視で発火
   useEffect(() => {
@@ -531,7 +559,15 @@ export function CardShogiGame({
           const source = ev.source ?? "manual";
           const isSelf = ev.player === playerColor;
           if (isSelf) {
-            playSfx("card_draw");
+            // Issue #79: 手動ドロー (山札クリック) と自動ドロー (relay) を別 SFX に分離。
+            playSfx(source === "auto" ? "card_auto_draw" : "card_draw");
+            // 中央表示タイミング (T=DRAW_FADE_IN_MS = 500ms) で
+            // レア度別 draw_card_open SE を発火。default 未割当なら playSfx 内で skip。
+            const rarity = CARD_DEFS[ev.instance.defId].rarity;
+            scheduleTimer(
+              () => playSfx(`draw_card_open_${rarity}` as never),
+              DRAW_FADE_IN_MS,
+            );
             setDrawFlightQueue((q) => [
               ...q,
               { card: ev.instance, source, key: nextFlightKey() },
@@ -587,6 +623,8 @@ export function CardShogiGame({
               const toRect = findVisibleCapturedPieceRect(playerColor, pending.pieceType);
               if (toRect) {
                 pieceFlightKeyRef.current += 1;
+                // Issue #79: 駒フライト演出 SFX (default = 刀剣・投げナイフ)。
+                playSfx("piece_flight");
                 setPieceFlight({
                   spec: {
                     pieceType: pending.pieceType,
@@ -603,6 +641,8 @@ export function CardShogiGame({
               } else {
                 // 取得失敗 → 中央カード演出のみ
                 playFlightKeyRef.current += 1;
+                // Issue #79 派生: カード使用演出 SFX
+                playSfx("card_use_animation");
                 setPlayFlight({ card: cardInstance, key: playFlightKeyRef.current, isTrap: false });
               }
             } else if (!pendingPlayFlightRef.current) {
@@ -625,6 +665,8 @@ export function CardShogiGame({
                 }
               }
               playFlightKeyRef.current += 1;
+              // Issue #79 派生: カード使用演出 SFX
+              playSfx("card_use_animation");
               setPlayFlight({ card: cardInstance, key: playFlightKeyRef.current, isTrap: false });
             }
           }
@@ -653,7 +695,8 @@ export function CardShogiGame({
           }
           break;
         case "trapSetEvent": {
-          playSfx("card_play");
+          // Issue #79: トラップセットは固有 SE (旧 card_play 流用は廃止)
+          playSfx("trap_set");
           const def = CARD_DEFS[ev.instance.defId];
           if (def.cost > 0) {
             triggerManaFlight(-def.cost, getOriginRect(ev.instance.instanceId));
@@ -734,6 +777,8 @@ export function CardShogiGame({
             }, 1600);
             // T=3900: ゴーストを消し、駒フライト並行発火
             window.setTimeout(() => {
+              // Issue #79: 駒フライト演出 SFX (王手崩し時)。
+              playSfx("piece_flight");
               setCheckBreakAnim((prev) => (prev ? { ...prev, ghosts: [], flights } : null));
             }, 1600 + 2300);
             break;
@@ -819,6 +864,8 @@ export function CardShogiGame({
             toY: toRect.top + toRect.height / 2,
           };
           const ht = hideTarget;
+          // Issue #79: 駒フライト演出 SFX (default = 刀剣・投げナイフ)。
+          playSfx("piece_flight");
           flushSync(() => {
             setPieceFlight({ spec, key: newKey, hideTarget: ht });
           });
@@ -856,9 +903,11 @@ export function CardShogiGame({
   const handleBeginPlayCard = useCallback(
     (id: string) => {
       if (isDrawAnimating || isPlayingCard || isCheckBreakAnimating) return;
+      // Issue #79 派生: 手札クリックで中央 popup を開く SFX (default = カードをめくる)
+      playSfx("card_select");
       beginPlayCard(id);
     },
-    [isDrawAnimating, isPlayingCard, isCheckBreakAnimating, beginPlayCard],
+    [isDrawAnimating, isPlayingCard, isCheckBreakAnimating, beginPlayCard, playSfx],
   );
   const handleDeselect = useCallback(() => {
     if (isDrawAnimating || isPlayingCard || isCheckBreakAnimating) return;
@@ -922,6 +971,11 @@ export function CardShogiGame({
     const pendingPlay = pendingPlayFlightRef.current;
     if (pendingPlay) {
       playFlightKeyRef.current += 1;
+      // Issue #79 派生: カード使用演出 SFX (trap セット時は trap_set が別途
+      // 発火済のため non-trap のみ鳴らす)
+      if (!pendingPlay.isTrap) {
+        playSfx("card_use_animation");
+      }
       setPlayFlight({
         card: pendingPlay.card,
         key: playFlightKeyRef.current,
@@ -947,6 +1001,8 @@ export function CardShogiGame({
     const item = currentDrawFlight;
     setDrawFlightQueue((q) => q.slice(1));
     finalizeDraw();
+    // Issue #79: ドローカードが手札に着地した瞬間の SE
+    playSfx("card_to_hand");
     if (item) {
       const id = item.card.instanceId;
       if (item.source === "auto") {
@@ -982,7 +1038,7 @@ export function CardShogiGame({
         });
       });
     }
-  }, [currentDrawFlight, finalizeDraw, scheduleTimer]);
+  }, [currentDrawFlight, finalizeDraw, scheduleTimer, playSfx]);
 
   // ----- レイアウト用ヘルパ -----
 
