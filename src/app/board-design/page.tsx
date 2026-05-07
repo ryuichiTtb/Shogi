@@ -98,9 +98,18 @@ export default function BoardDesignPage() {
   const allReady = useAllBoardLayoutsReady();
 
   return (
-    <main className="min-h-dvh pb-16">
+    <main
+      className={cn(
+        "flex flex-col",
+        // モバイル: 画面ぴったりの高さ + body スクロール禁止。
+        // 「ヘッダ + プレビュー」は固定エリア、選択肢のみ内部スクロール。
+        "h-dvh overflow-hidden",
+        // PC: 通常のページスクロール (右カラムで独自スクロール)
+        "sm:h-auto sm:min-h-dvh sm:overflow-visible sm:pb-16",
+      )}
+    >
       <AppBackground variant="page" />
-      <header className="sticky top-0 z-40 bg-background/90 backdrop-blur-sm border-b border-border/50">
+      <header className="sticky top-0 z-40 bg-background/90 backdrop-blur-sm border-b border-border/50 shrink-0">
         <div className="max-w-5xl mx-auto px-4 py-3 sm:py-4 w-full flex items-center gap-3">
           <MaskedLink
             href="/"
@@ -122,49 +131,61 @@ export default function BoardDesignPage() {
         </div>
       </header>
 
-      <div className="max-w-5xl mx-auto px-4 py-6 w-full relative min-h-[400px]">
+      <div
+        className={cn(
+          "max-w-5xl mx-auto px-4 w-full relative",
+          // モバイル: ヘッダ下の残り高さを埋め、内部レイアウトを flex で組む
+          "flex-1 flex flex-col min-h-0 py-3",
+          // PC: 通常 block + 元のスタイル
+          "sm:flex-none sm:block sm:py-6 sm:min-h-[400px]",
+        )}
+      >
         {!allReady && <LoadingOverlay show card />}
         <div
           className={cn(
-            "grid gap-3 sm:gap-6 transition-opacity",
-            // モバイル: 縦並び (上にプレビュー、下に選択肢)
-            // sm 以上: 左にプレビュー (auto)、右に選択肢 (1fr)
-            "grid-cols-1 sm:grid-cols-[auto_1fr]",
+            "transition-opacity",
+            // モバイル: flex-1 で残り高さを取り、内部に [プレビュー / オプション] を縦並び
+            "flex-1 flex flex-col gap-3 min-h-0",
+            // PC: 2 カラムグリッド (左プレビュー / 右リスト)
+            "sm:flex-none sm:grid sm:grid-cols-[auto_1fr] sm:gap-6",
             allReady ? "opacity-100" : "opacity-0",
           )}
         >
-          {/* プレビュー: モバイルはヘッダ的に sticky (スクロール時も常時表示)
-              PC は左カラムで sticky 追従。z-30 < ページヘッダ z-40。
-              モバイルでは半透明 bg + blur で背面の選択肢が透けないように、
-              さらに -mx-4 px-4 で画面端まで bg を広げて「ヘッダ」感を出す。 */}
+          {/* プレビュー
+              - モバイル: shrink-0 で固定領域。body スクロール禁止のため sticky 不要。
+                半透明 bg + blur + -mx-4 px-4 で画面端まで bg を広げ「ヘッダ」感を出す。
+              - PC: 左カラムで sticky 追従 (従来挙動)。 */}
           <div
             className={cn(
-              "sticky top-32 z-30 self-start flex justify-center",
-              "bg-background/95 backdrop-blur-sm py-2 -mx-4 px-4",
+              "shrink-0 flex justify-center",
+              "py-2 -mx-4 px-4 bg-background/95 backdrop-blur-sm",
               "sm:bg-transparent sm:backdrop-blur-none sm:py-0 sm:mx-0 sm:px-0",
+              "sm:sticky sm:top-32 sm:self-start",
             )}
           >
             <BoardPreview />
           </div>
 
-          {/* 選択肢:
-              - モバイル: 2 列グリッドの縦カード。ページ全体スクロールに乗る。
-              - PC: 1 列縦リストで右側を独自スクロール (max-h で常時ホーム導線が見える)。 */}
+          {/* オプション
+              - モバイル: flex-1 + min-h-0 + overflow-y-auto で内部スクロール。
+                プレビューと page header は動かず、ここだけが縦スクロールする。
+              - PC: 元の max-h スクロール。 */}
           <div
             className={cn(
-              "grid gap-2",
-              "grid-cols-2 sm:grid-cols-1",
-              "sm:max-h-[calc(100dvh-220px)] sm:overflow-y-auto sm:pr-1",
+              "flex-1 min-h-0 overflow-y-auto -mx-4 px-4",
+              "sm:flex-none sm:max-h-[calc(100dvh-220px)] sm:mx-0 sm:pr-1",
             )}
           >
-            {BOARD_LAYOUTS.map((layout) => (
-              <OptionRow
-                key={layout.id}
-                layout={layout}
-                selected={currentLayout.id === layout.id}
-                onSelect={() => setLayoutId(layout.id)}
-              />
-            ))}
+            <div className="grid grid-cols-2 sm:grid-cols-1 gap-2">
+              {BOARD_LAYOUTS.map((layout) => (
+                <OptionRow
+                  key={layout.id}
+                  layout={layout}
+                  selected={currentLayout.id === layout.id}
+                  onSelect={() => setLayoutId(layout.id)}
+                />
+              ))}
+            </div>
           </div>
         </div>
       </div>
