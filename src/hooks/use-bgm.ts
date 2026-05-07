@@ -115,6 +115,38 @@ if (typeof window !== "undefined") {
       void startBgm(restoreKey, restorePath);
     }
   });
+
+  // =====================
+  // 初回 user interaction での BGM 強制再生リトライ
+  // =====================
+  //
+  // ホーム着地直後に startBgm が play() を呼んでも、ブラウザ autoplay policy で
+  // 拒否されることがある (Howler は console に "HTML5 Audio pool exhausted,
+  // returning potentially locked audio object" を出力)。Howler の autoUnlock は
+  // pool 全体の HTMLAudioElement をアンロックするが、既に play() を試みて
+  // locked になった Howl の sound は自動再開されない。
+  //
+  // 対策: window レベルで初回 click/touchstart/keydown を 1 度だけ listen し、
+  // currentHowl.play() を再試行する。capture:true でナビゲーション処理より早く
+  // 拾い、既に再生中の Howl があれば lock 解除と同時に再生開始させる。
+  let firstInteractionHandled = false;
+  const onFirstInteraction = (): void => {
+    if (firstInteractionHandled) return;
+    firstInteractionHandled = true;
+    window.removeEventListener("click", onFirstInteraction, true);
+    window.removeEventListener("touchstart", onFirstInteraction, true);
+    window.removeEventListener("keydown", onFirstInteraction, true);
+    if (currentHowl) {
+      try {
+        currentHowl.play();
+      } catch {
+        // 既に再生中等の例外は無視 (二重 play は Howler 側で no-op)
+      }
+    }
+  };
+  window.addEventListener("click", onFirstInteraction, { capture: true });
+  window.addEventListener("touchstart", onFirstInteraction, { capture: true });
+  window.addEventListener("keydown", onFirstInteraction, { capture: true });
 }
 
 async function startBgm(

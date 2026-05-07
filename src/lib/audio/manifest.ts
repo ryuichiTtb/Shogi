@@ -48,11 +48,11 @@ export const SFX_FILES: Record<string, string> = {
   // ★ Issue #79 派生: カード使用 3 段階
   // 1) 手札クリック (popup 表示) → カードをめくる音
   card_select: "/sounds/音源/カードをめくる.mp3",
-  // 2) 使用ボタン押下 → 確定音 (piece-capture を流用、重みのある音)
-  card_use_confirm: "/sounds/piece-capture.mp3",
-  // 3) 使用演出発動 (中央 card flight) → サブマシンガンのボルトリリース
-  card_use_animation:
+  // 2) 使用ボタン押下 → サブマシンガンのボルトリリース (確定の重み)
+  card_use_confirm:
     "/sounds/音源/トラップセット/サブマシンガンのボルトリリース.mp3",
+  // 3) 使用演出発動 (中央 card flight) → 刀の素振り (シュピン)
+  card_use_animation: "/sounds/音源/剣/刀の素振り1（シュピン）.mp3",
   // ★ Issue #79 派生: UI 系
   // デッキ編成のカード移動 (所持 ⇄ 編成) → 風のスワッシュ感
   deck_card_move: "/sounds/音源/振る/wind-blowing.mp3",
