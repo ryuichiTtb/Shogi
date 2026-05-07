@@ -70,14 +70,14 @@ export const SFX_FILES: Record<string, string> = {
 //
 // Issue #79 派生のユーザ要望:
 //   - ホーム / 対局相手選択など 対局画面以外: ファンタジー-日常-.mp3 (連続再生)
-//   - 対局中 / 対局終了画面: RPG_Battle_01.mp3
+//   - 対局中 / 対局終了画面: trance2.mp3
 // 同一 path を bgm_home / bgm_match_setup に設定することで、ホーム → /play
 // 遷移で BGM がリスタートしないように useBgm 側で same-path 早期 return する。
 export const BGM_FILES: Record<string, string> = {
   bgm_home: "/sounds/音源/BGM/ファンタジー-日常-.mp3",
   bgm_match_setup: "/sounds/音源/BGM/ファンタジー-日常-.mp3",
-  bgm_game: "/sounds/音源/BGM/RPG_Battle_01.mp3",
-  bgm_game_over: "/sounds/音源/BGM/RPG_Battle_01.mp3",
+  bgm_game: "/sounds/音源/BGM/trance2.mp3",
+  bgm_game_over: "/sounds/音源/BGM/trance2.mp3",
 };
 
 // SFX の物理的な URL リスト (空文字除外 + 重複排除済み)。
