@@ -4,6 +4,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
   useCallback,
   useSyncExternalStore,
@@ -141,14 +142,28 @@ export function ThemeProvider({
   }, []);
 
   // Issue #160 Phase 3f: `.dark` クラスは layout の inline script で初期 paint 前に設定済み。
-  // ThemeProvider 側では「ユーザー操作 (setTheme) / Clerk rehydrate / システムテーマ変化」
-  // の 3 イベントだけで toggle し、ハイドレーション直後の自動 toggle (resolvedTheme 変化由来)
-  // は行わない。これにより SSR 値とハイドレーション後の systemTheme の差分でフラッシュが
-  // 発生する問題を防ぐ。
+  // ThemeProvider 側では「ユーザー操作 (setTheme) / Clerk rehydrate / システムテーマ変化 /
+  // server props 同期」の 4 イベントだけで toggle し、ハイドレーション直後の自動 toggle
+  // (resolvedTheme 変化由来) は行わない。これにより SSR 値とハイドレーション後の systemTheme
+  // の差分でフラッシュが発生する問題を防ぐ。
   // localStorage の userId scoped キーへの同期はこの useEffect で行う。
   useEffect(() => {
     localStorage.setItem(storageKey, theme);
   }, [storageKey, theme]);
+
+  // Issue #160 Phase 4a: server から渡される props (userId / initialTheme) が変化したケース
+  // でも `.dark` クラスを正しく追従させる。render 中 conditional setState で state は
+  // 更新済みだが、`.dark` 操作は副作用のため別途 useEffect で commit 後に実行する。
+  // 初回マウント時は inline script の判定を尊重するため skip する。
+  // 例: ゲスト→ログイン後の RSC refetch / 同一セッション内のユーザー切替で発生する。
+  const initialMountRef = useRef(true);
+  useEffect(() => {
+    if (initialMountRef.current) {
+      initialMountRef.current = false;
+      return;
+    }
+    applyDarkClass(initialTheme);
+  }, [userId, initialTheme]);
 
   // Issue #160 Phase 3f: theme="system" のときだけシステムテーマ変化に追従する。
   // それ以外 (light/dark 確定) のときは matchMedia の変化を無視する。

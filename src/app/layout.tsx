@@ -7,6 +7,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { CardBackProvider } from "@/components/card-back/card-back-provider";
 import { ServiceWorkerRegister } from "@/components/sw-register";
 import { getCurrentUserPreferences } from "@/app/actions/preferences";
+import { isClerkServerConfigured } from "@/lib/auth/config";
 import "./globals.css";
 
 // Issue #160: 初回 SSR で Clerk session 解決が間に合わずゲスト経路に落ちる現象を防ぐため、
@@ -89,7 +90,12 @@ export default async function RootLayout({
   // 現象が観測されたため、layout の冒頭で auth() を await して認証解決を強制する。
   // 同 request 内では cache(...) で memoize されるため getCurrentAppUser 内の auth() は
   // cache hit する。
-  await auth();
+  // Clerk 未設定環境 (NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY や CLERK_SECRET_KEY が無い
+  // ローカル / guest-only 環境) では auth() が落ちる可能性があるため、設定ガードを通す。
+  // 既存の current-user.ts / auth/complete/route.ts / proxy.ts と同様の防御。
+  if (isClerkServerConfigured()) {
+    await auth();
+  }
 
   const preferences = await getCurrentUserPreferences();
 
@@ -101,21 +107,22 @@ export default async function RootLayout({
   // HTML パーサーが本体描画前に同期実行する。Next.js 16 で root layout の `<head>` に
   // 手書き要素を入れた場合の挙動が不確実なため、確実な `<body>` 直下方式に統一する。
   // 優先順位:
-  //   1. SSR が account 経路で取れた preferences.theme (light/dark/system)
-  //   2. SSR がゲスト経路で theme="system" のとき、過去にユーザーが設定した
-  //      `localStorage["shogi-theme:last"]` を userId 非依存のグローバルキーとして
-  //      参照 (= 同一ブラウザで最後に切り替えた値)
+  //   1. SSR が account 経路で取れた preferences.theme (light/dark/system) を尊重
+  //      (= account ユーザーが明示的に system を選んでいた場合は systemTheme 判定)
+  //   2. SSR がゲスト経路で theme="system" の **デフォルト値** のとき、過去にユーザーが
+  //      設定した `localStorage["shogi-theme:last"]` を userId 非依存のグローバルキーとして
+  //      参照 (= 同一ブラウザで最後に切り替えた値) — Clerk SSR cold start でゲスト経路に
+  //      落ちた account ユーザーの救済。account 経路では絶対に saved を優先しない。
   //   3. それも無ければ system → prefers-color-scheme で判定
-  // theme は server actions で 3 値の enum なので JSON.stringify は安全。
-  // Phase 3d: 動作未達確認のため [#160-theme-init] ログを追加。Phase 4 で削除する。
+  // theme/userKind は server actions で enum 化された値のため JSON.stringify は安全。
   const themeInitScript = `(function(){try{
 var ssr=${JSON.stringify(preferences.theme)};
+var kind=${JSON.stringify(preferences.userKind)};
 var saved=null;try{saved=localStorage.getItem("shogi-theme:last");}catch(_){}
-var t=(ssr==="system"&&saved&&(saved==="light"||saved==="dark"))?saved:ssr;
+var t=(kind==="guest"&&ssr==="system"&&saved&&(saved==="light"||saved==="dark"))?saved:ssr;
 var dark=t==="dark"||(t==="system"&&window.matchMedia("(prefers-color-scheme: dark)").matches);
-console.log("[#160-theme-init]",{ssr:ssr,saved:saved,t:t,dark:dark});
 if(dark)document.documentElement.classList.add("dark");else document.documentElement.classList.remove("dark");
-}catch(e){console.error("[#160-theme-init] error",e);}})();`;
+}catch(e){}})();`;
 
   return (
     <html
