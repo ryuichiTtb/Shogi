@@ -95,7 +95,13 @@ export const CapturedPieces = memo(function CapturedPieces({
                 playerColor={playerColor}
               />
               {count > 1 && (
-                <span className="absolute bottom-0 right-0.5 text-xs text-muted-foreground leading-none z-10">
+                <span
+                  className="absolute bottom-0 right-0.5 text-xs font-bold text-foreground leading-none z-10"
+                  style={{
+                    textShadow:
+                      "0 0 2px rgba(255,255,255,0.95), 0 0 2px rgba(255,255,255,0.95), 0 1px 1px rgba(255,255,255,0.85)",
+                  }}
+                >
                   {count}
                 </span>
               )}
