@@ -3,6 +3,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { auth } from "@clerk/nextjs/server";
 import { Geist, Geist_Mono, Noto_Sans_JP } from "next/font/google";
 import localFont from "next/font/local";
+import { Analytics } from "@vercel/analytics/next";
 import { ThemeProvider } from "@/components/theme-provider";
 import { CardBackProvider } from "@/components/card-back/card-back-provider";
 import { ServiceWorkerRegister } from "@/components/sw-register";
@@ -148,6 +149,7 @@ if(dark)document.documentElement.classList.add("dark");else document.documentEle
             </CardBackProvider>
           </ThemeProvider>
         </MaybeClerkProvider>
+        <Analytics />
       </body>
     </html>
   );
