@@ -57,12 +57,12 @@ function getHowlCtor(): Promise<HowlConstructor> {
 // アプリ全体で BGM は 1 つだけ再生される (singleton)。
 let currentHowl: HowlInstance | null = null;
 let currentKey: BgmEventKey | null = null;
-let currentSrcPrimary = ""; // 現在再生中 src (配列の場合は先頭要素) を比較用に保持
+let currentResolvedPath = ""; // 現在再生中 path (dev override 切替検知用)
 let isMuted = false;
 
 // 初回 user gesture を待つフラグ (Safari/iOS の autoplay policy 対策)
 let userGestureReceived = false;
-type PendingState = { key: BgmEventKey | null; src: string | string[] };
+type PendingState = { key: BgmEventKey | null; path: string };
 let pendingState: PendingState | null = null;
 
 if (typeof window !== "undefined") {
@@ -70,9 +70,9 @@ if (typeof window !== "undefined") {
     userGestureReceived = true;
     void prepareAudio(); // AudioContext resume
     if (pendingState !== null) {
-      const { key, src } = pendingState;
+      const { key, path } = pendingState;
       pendingState = null;
-      void startBgm(key, src);
+      void startBgm(key, path);
     }
     window.removeEventListener("click", onFirstGesture);
     window.removeEventListener("touchstart", onFirstGesture);
@@ -83,19 +83,12 @@ if (typeof window !== "undefined") {
   window.addEventListener("keydown", onFirstGesture, { once: true });
 }
 
-function srcPrimary(src: string | string[]): string {
-  return Array.isArray(src) ? src[0] ?? "" : src;
-}
-
 async function startBgm(
   key: BgmEventKey | null,
-  src: string | string[],
+  path: string,
 ): Promise<void> {
-  const desiredPrimary = srcPrimary(src);
-
-  // 同じ key + 同じ primary src なら何もしない
-  // (Strict Mode 二重 effect / 親が character 切替で再 render しても no-op)
-  if (currentKey === key && currentSrcPrimary === desiredPrimary) return;
+  // 同じ key + 同じ path なら何もしない (Strict Mode 二重 effect でも no-op)
+  if (currentKey === key && currentResolvedPath === path) return;
 
   // 旧 BGM を fade out → stop → unload (メモリ解放)
   const prev = currentHowl;
@@ -108,20 +101,17 @@ async function startBgm(
     }, FADE_DURATION_MS + 50);
   }
 
-  if (!desiredPrimary) {
-    // key が null または src が空 → BGM 停止
+  if (!path) {
+    // key が null または path が空 → BGM 停止
     currentHowl = null;
     currentKey = null;
-    currentSrcPrimary = "";
+    currentResolvedPath = "";
     return;
   }
 
   const HowlCtor = await getHowlCtor();
-  // Howler は src 配列で順次フォールバック再生する (例: OGG → MP3)。
-  // 単一 string でも配列にして渡す。
-  const srcs = Array.isArray(src) ? src : [src];
   const next = new HowlCtor({
-    src: srcs,
+    src: [path],
     volume: 0,
     loop: true,
     html5: true, // BGM はストリーミング (decode 軽量、メモリ常駐少)
@@ -129,14 +119,14 @@ async function startBgm(
       if (currentHowl === next) {
         currentHowl = null;
         currentKey = null;
-        currentSrcPrimary = "";
+        currentResolvedPath = "";
       }
     },
     onplayerror: () => {
       if (currentHowl === next) {
         currentHowl = null;
         currentKey = null;
-        currentSrcPrimary = "";
+        currentResolvedPath = "";
       }
     },
   });
@@ -145,23 +135,17 @@ async function startBgm(
   next.fade(0, targetVol, FADE_DURATION_MS);
   currentHowl = next;
   currentKey = key;
-  currentSrcPrimary = desiredPrimary;
+  currentResolvedPath = path;
 }
 
 /**
  * BGM 解決ルール (eventKey が non-null の場合):
- *   1. dev tool でユーザが override 設定済 → その path
+ *   1. dev tool でユーザが override 設定済 → その path (空文字 = 「鳴らさない」)
  *   2. BGM_FILES[eventKey] (manifest 既定) が non-empty → その path
- *   3. options.fallbackPath が指定されていれば → それ (Issue #150 由来の
- *      character.bgmTrack を本 hook に吸収するための fallback 経路)
- *   4. いずれもなければ BGM 停止 (無音)
+ *   3. いずれもなければ BGM 停止 (無音)
  *
  * eventKey が null/undefined → BGM 停止 (sound preference OFF 等)。
  */
-export interface UseBgmOptions {
-  /** event key の override / 既定が両方空のときに使う最終フォールバック path。 */
-  fallbackPath?: string | string[];
-}
 
 /**
  * 各 page で呼ぶ。eventKey が変わると BGM 切替 (クロスフェード)、
@@ -171,21 +155,10 @@ export interface UseBgmOptions {
  * 鳴り続ける (singleton のため)。dev pages 等 BGM 不要な page では
  * `useBgm(null)` で明示停止する。
  */
-export function useBgm(
-  eventKey?: BgmEventKey | null,
-  options?: UseBgmOptions,
-): void {
+export function useBgm(eventKey?: BgmEventKey | null): void {
   // overrides 変化に追従 (dev tool で割当変更時に即座にクロスフェード)
   const overrides = useBgmOverrides();
   const [ready, setReady] = useState(false);
-
-  // fallback の参照 ID 安定化のため primary をキーに deps に渡す。
-  const fallback = options?.fallbackPath;
-  const fallbackKey = fallback === undefined
-    ? ""
-    : Array.isArray(fallback)
-      ? fallback[0] ?? ""
-      : fallback;
 
   useEffect(() => {
     let cancelled = false;
@@ -200,24 +173,15 @@ export function useBgm(
   useEffect(() => {
     if (!ready) return;
     const key = eventKey ?? null;
-    let src: string | string[] = "";
-    if (key) {
-      const eventPath = getEffectiveBgmPath(key);
-      if (eventPath) {
-        src = eventPath;
-      } else if (fallback) {
-        src = fallback;
-      }
-    }
+    const path = key ? getEffectiveBgmPath(key) : "";
     if (!userGestureReceived) {
       // gesture 前は pending に積んでおく、unlock 時に再生開始
-      pendingState = { key, src };
+      pendingState = { key, path };
       return;
     }
-    void startBgm(key, src);
+    void startBgm(key, path);
     // ★ cleanup なし: ページ遷移時に音を切らない (次の useBgm 呼出で自動切替)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, eventKey, overrides, fallbackKey]);
+  }, [ready, eventKey, overrides]);
 }
 
 /**

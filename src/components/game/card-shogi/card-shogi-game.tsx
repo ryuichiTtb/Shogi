@@ -330,12 +330,13 @@ export function CardShogiGame({
   const aiColor: Player = playerColor === "sente" ? "gote" : "sente";
   const isPlayerTurn = gameState.currentPlayer === playerColor;
 
-  // BGM (Issue #79 + #150 統合):
-  //   - useBgm が BGM の単一オーナー。
+  // BGM (Issue #79):
+  //   - useBgm が BGM の単一オーナー。dev tool で event override が設定された
+  //     場合 (もしくは manifest 既定が non-empty) のときに再生される。
   //   - dev page は enableBgm=false で抑止。
-  //   - soundEnabled が false なら null を渡して停止 (#150)。
-  //   - dev tool で event override 未設定 + manifest 既定も空のときは
-  //     character.bgmTrack に fallback (#150 のキャラ別 BGM を残す)。
+  //   - soundEnabled が false → null で停止 (#150 のサウンド ON/OFF ゲート)。
+  //   - キャラクター別 BGM (旧 character.bgmTrack) は撤去済 — 必要なら dev
+  //     tool から bgm_game / bgm_game_over の override を設定する運用に統一。
   //   - status: "active" → bgm_game / それ以外 (resign/checkmate 等) → bgm_game_over
   useBgm(
     !enableBgm || !gameConfig.soundEnabled
@@ -343,7 +344,6 @@ export function CardShogiGame({
       : gameState.status === "active"
         ? "bgm_game"
         : "bgm_game_over",
-    { fallbackPath: character.bgmTrack },
   );
   const isGameActive = gameState.status === "active";
   const inCheck =

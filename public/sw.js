@@ -17,7 +17,7 @@
 // エラーで navigation 全体が Chrome NETERR になる、(b) navigation で 5xx 応答も
 // キャッシュ汚染する、(c) fallback で undefined を返しうる ──の 3 点で起動失敗
 // を引き起こしていた。3 点まとめて修正。
-const CACHE_NAME = "shogi-v5";
+const CACHE_NAME = "shogi-v6";
 
 // プリキャッシュする静的アセット
 const PRECACHE_ASSETS = [

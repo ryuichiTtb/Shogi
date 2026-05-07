@@ -115,19 +115,18 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
   const playerColor = gameConfig.playerColor;
   const aiColor = playerColor === "sente" ? "gote" : "sente";
 
-  // BGM (Issue #79 + #150 統合):
-  //   - useBgm が BGM の単一オーナー。
-  //   - eventKey は対局中 → "bgm_game" / 終局 → "bgm_game_over"。
-  //   - soundEnabled が false なら null を渡して停止 (#150 のサウンド ON/OFF)。
-  //   - dev tool で event override 未設定 + manifest 既定も空のときは
-  //     character.bgmTrack に fallback (#150 のキャラ別 BGM を残す)。
+  // BGM (Issue #79):
+  //   - useBgm が BGM の単一オーナー。dev tool で event override が設定された
+  //     場合 (もしくは manifest 既定が non-empty) のときに再生される。
+  //   - soundEnabled が false → null で停止 (#150 のサウンド ON/OFF ゲート)。
+  //   - キャラクター別 BGM (旧 character.bgmTrack) は撤去済 — 必要なら dev
+  //     tool から bgm_game / bgm_game_over の override を設定する運用に統一。
   useBgm(
     gameConfig.soundEnabled
       ? gameState.status === "active"
         ? "bgm_game"
         : "bgm_game_over"
       : null,
-    { fallbackPath: character.bgmTrack },
   );
   const isPlayerTurn = gameState.currentPlayer === playerColor;
   const isGameActive = gameState.status === "active";
