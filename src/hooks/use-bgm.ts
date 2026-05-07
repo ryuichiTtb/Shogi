@@ -39,7 +39,8 @@ type HowlInstance = {
   fade: (from: number, to: number, duration: number) => HowlInstance;
   // Issue #79 派生 (BGM プールリーク修正): Howler 標準 loop を使うため
   // 動的 setter として loop(value) を呼べる必要がある。
-  loop: (value?: boolean) => boolean | HowlInstance;
+  // value 単独で group default を、(value, id) で特定 sound に loop を設定。
+  loop: (value?: boolean, id?: number) => boolean | HowlInstance;
 };
 
 type HowlConstructor = new (options: {
@@ -50,6 +51,7 @@ type HowlConstructor = new (options: {
   onloaderror?: () => void;
   onplayerror?: () => void;
   onend?: () => void;
+  onplay?: (id: number) => void;
 }) => HowlInstance;
 
 // モジュールレベルで Howler を 1 度だけロード (複数 useBgm 呼び出しで共有)
@@ -173,6 +175,21 @@ async function startBgm(
         currentResolvedPath = "";
       }
     },
+    onplay: (id) => {
+      // Howler の html5: true で内部の audio element に loop 属性が反映されない
+      // ケースの保険。play 開始時に明示的に loop(true, soundId) を呼び、
+      // HTMLAudioElement.loop=true をセットして native loop を確実にする。
+      if (currentHowl !== next) return;
+      try {
+        next.loop(shouldLoopFlag, id);
+      } catch {
+        try {
+          next.loop(shouldLoopFlag);
+        } catch {
+          // 例外は無視 (onend 側のフォールバックが効く)
+        }
+      }
+    },
     onend: () => {
       // 既に新しい Howl に交代済 (= startBgm 呼出による fade out 中) なら無視。
       if (currentHowl !== next) return;
@@ -181,16 +198,18 @@ async function startBgm(
       // shouldLoopFlag を確認して、true なら手動で stop+play 再開する
       // (stop() 経由なので Howler の inactive プールに sound ID が解放され、
       // 連続呼出してもプール枯渇は起きない)。
+      let replayed = false;
       if (shouldLoopFlag) {
         try {
           next.stop();
           next.play();
+          replayed = true;
         } catch {
-          // 万一例外 → 自然停止フローに落とす
+          // 例外時はフォールバック失敗 → 下方の自然停止フローに fall through
         }
-        return;
       }
-      // shouldLoop=false (対局終了等) → 自然停止
+      if (replayed) return;
+      // shouldLoop=false (対局終了等) もしくはフォールバック失敗 → 自然停止
       try {
         next.unload();
       } catch {
