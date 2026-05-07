@@ -346,6 +346,7 @@ export function CardShogiGame({
   // 安全)。詳細は shogi-game.tsx のコメント参照。
   const lastMoveCountRef = useRef(gameState.moveCount);
   const lastStatusRef = useRef(gameState.status);
+  const lastIsPlayingCardRef = useRef(isPlayingCard);
   const gameStartFiredRef = useRef(false);
 
   useEffect(() => {
@@ -365,7 +366,10 @@ export function CardShogiGame({
     } else {
       playSfx("piece_move");
     }
-    if (displayInCheck) {
+    // 二手指し 2手目のように、MAKE_MOVE 完了時点で isPlayingCard=true (カード演出待ち)
+    // のケースは、ここで王手 SFX を鳴らすと下の card-commit effect と二重発火するので
+    // スキップ。COMMIT_PLAY_CARD 後 (isPlayingCard=false) のタイミングで発火させる。
+    if (displayInCheck && !isPlayingCard) {
       playSfx("check");
       setOverlayEvent({ event: "check", key: Date.now() });
     }
@@ -375,6 +379,22 @@ export function CardShogiGame({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState.moveCount]);
+
+  // Issue #173: 二歩指し等、moveCount を増やさず盤面を変えるカード使用で
+  // 王手になったケースの王手演出。COMMIT_PLAY_CARD 完了 (= isPlayingCard true→false)
+  // のタイミングで displayInCheck を評価し、必要なら発火する。
+  // 二手指しの 2手目で isPlayingCard が true→false 遷移するパスにも乗るが、
+  // 上の moveCount effect 側で `!isPlayingCard` ガードを入れているため二重発火しない。
+  useEffect(() => {
+    const wasPlaying = lastIsPlayingCardRef.current;
+    lastIsPlayingCardRef.current = isPlayingCard;
+    if (!wasPlaying || isPlayingCard) return;
+    if (displayInCheck) {
+      playSfx("check");
+      setOverlayEvent({ event: "check", key: Date.now() });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlayingCard]);
 
   useEffect(() => {
     if (lastStatusRef.current === gameState.status) return;
