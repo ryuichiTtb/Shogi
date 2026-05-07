@@ -1,26 +1,33 @@
 "use client";
 
-// Issue #79 (PR 1.7): BGM 再導入。各 page で `useBgm(eventKey)` を呼ぶと
-// 該当 BGM が ループ再生され、page 遷移時に新 BGM へ 500ms クロスフェード。
+// Issue #79 (PR 1.7): BGM 機構。各 page で `useBgm(eventKey)` を呼ぶと
+// 該当 BGM がループ再生され、page 遷移時に新 BGM へクロスフェード。
 //
 // アプリ全体で BGM は 1 つだけ再生 (module-level singleton)。
-// 複数 page が同時に呼んでも最後の eventKey が勝つ。
 //
-// 過去 (issue #79 以前) の BGM 削除は競合バグ (HowlRef.current null +
-// useEffect deps 不変で再実行されない) によるものだった。本実装は:
-//   1. bgmReady state を useEffect deps に含めて Howler ロード完了を待つ
-//   2. module-level Howl Ctor キャッシュで複数 useBgm 間共有
-//   3. 切替時に旧 Howl を unload() で Web Audio buffer 解放 (メモリ蓄積防止)
-//   4. setBgmMuted で SFX mute (toggleMute) と連動可能
+// === 実装方針 (Howler から HTMLAudioElement 直接に移行) ===
 //
-// Issue #79 派生 (BGM スタートラグ解消):
-//   旧実装は明示的な user gesture を window で待ってから BGM 開始していたが、
-//   ホーム画面に着地してもクリックするまで BGM が鳴らないラグがあった。
-//   現在は Howler 内蔵の autoUnlock (default true) に任せ、マウントと同時に
-//   play() を呼ぶ。autoplay policy で blocked される環境でも Howler が次の
-//   user interaction で自動的に再生開始してくれる。
+// 当初は Howler で実装していたが、html5: true モードの autoplay 周りの挙動
+// (autoUnlock 完了タイミング、onplayerror の用途複雑性、pool 管理の不透明性、
+// HTMLAudioElement.loop 属性が伝播しないバグ等) で安定動作させるのが困難
+// だったため、HTMLAudioElement 直接利用に切替えた。
+//
+// 利点:
+//   - audio.play() が Promise を返すため成功/失敗を確実に検知できる
+//   - autoplay block 時は明示的に NotAllowedError で reject される
+//   - audio.loop = true が native に動作し、ended イベント不要で永続 loop
+//   - 状態管理が単純 (audio.paused / audio.currentTime / etc. が直接見える)
+//
+// 設計:
+//   1. play() Promise 成功 → BGM 再生中。fade-in 開始。
+//   2. play() Promise reject (autoplay block) → window で user gesture を listen し
+//      gesture 後に play() リトライ。リトライ成功で listener 撤去。
+//   3. shouldLoop が true→false に変わったら audio.loop=false にし、現在の loop
+//      完了時に ended イベント → 自然停止 + state クリア。
+//   4. eventKey 変化で path が違えば 旧 audio fade-out + 新 audio fade-in。
+//   5. bfcache (pageshow.persisted=true) では既存 audio を破棄して再構築。
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 import {
   getEffectiveBgmPath,
@@ -31,368 +38,273 @@ import {
 const BGM_VOLUME = 0.3;
 const FADE_DURATION_MS = 500;
 
-type HowlInstance = {
-  play: () => number | undefined;
-  stop: () => void;
-  unload: () => void;
-  volume: (vol?: number) => number | HowlInstance;
-  fade: (from: number, to: number, duration: number) => HowlInstance;
-  // Issue #79 派生 (BGM プールリーク修正): Howler 標準 loop を使うため
-  // 動的 setter として loop(value) を呼べる必要がある。
-  // value 単独で group default を、(value, id) で特定 sound に loop を設定。
-  loop: (value?: boolean, id?: number) => boolean | HowlInstance;
-  // 既に再生中かを判定 (autoplay locked 解除リトライで二重再生を防ぐため)
-  playing: (id?: number) => boolean;
-};
-
-type HowlConstructor = new (options: {
-  src: string[];
-  volume?: number;
-  loop?: boolean;
-  html5?: boolean;
-  onloaderror?: () => void;
-  onplayerror?: () => void;
-  onend?: () => void;
-  onplay?: (id: number) => void;
-}) => HowlInstance;
-
-// モジュールレベルで Howler を 1 度だけロード (複数 useBgm 呼び出しで共有)
-let HowlCtorPromise: Promise<HowlConstructor> | null = null;
-function getHowlCtor(): Promise<HowlConstructor> {
-  if (!HowlCtorPromise) {
-    HowlCtorPromise = import("howler").then(
-      ({ Howl }) => Howl as unknown as HowlConstructor,
-    );
-  }
-  return HowlCtorPromise;
-}
-
-// アプリ全体で BGM は 1 つだけ再生される (singleton)。
-let currentHowl: HowlInstance | null = null;
+// =====================
+// シングルトン state
+// =====================
+//
+// 1 アプリ 1 BGM。currentAudio は再生中の HTMLAudioElement。
+let currentAudio: HTMLAudioElement | null = null;
 let currentKey: BgmEventKey | null = null;
-let currentResolvedPath = ""; // 現在再生中 path (dev override 切替検知用)
+let currentResolvedPath = "";
 let isMuted = false;
-
-// shouldLoop の最新値 (mutable ref)。useBgm 呼出毎に更新。
-// 新規 Howl 構築時の loop 初期値として使う。useBgm 内で値が変わったら
-// currentHowl.loop(value) を即時呼び出して Howler に反映する。
 let shouldLoopFlag = true;
 
+// 進行中の fade を識別するトークン (新しい fade で旧 fade を中断するため)
+let activeFadeId = 0;
+
 // =====================
-// bfcache (browser back-forward cache) 復帰時のハンドリング
+// fade ヘルパ
 // =====================
-//
-// 旧来挙動: ページを閉じて戻ると JS module state は保持されるが、HTMLAudioElement
-// は autoplay policy で suspended/locked になり、play() を呼んでも音が出ない
-// ("HTML5 Audio pool exhausted, returning potentially locked audio object" エラー
-// が出る場合あり)。
-//
-// 対策: pageshow イベント (event.persisted=true) を検知して既存 Howl を破棄し、
-// useBgm の次回再評価で新規 Howl を作り直すことでロック状態を解消する。
-function discardCurrentHowl(): void {
-  const cur = currentHowl;
-  if (!cur) return;
+
+function fadeVolume(
+  audio: HTMLAudioElement,
+  from: number,
+  to: number,
+  durationMs: number,
+): void {
+  // 同 audio に対する旧 fade を中断するため id 採番
+  const myId = ++activeFadeId;
+  audio.volume = Math.max(0, Math.min(1, from));
+  if (durationMs <= 0 || from === to) {
+    audio.volume = Math.max(0, Math.min(1, to));
+    return;
+  }
+  const startTs = performance.now();
+  const tick = (now: number): void => {
+    // 別の fade が始まった、または audio が差し替わった → 中断
+    if (myId !== activeFadeId) return;
+    const t = Math.min(1, (now - startTs) / durationMs);
+    audio.volume = Math.max(0, Math.min(1, from + (to - from) * t));
+    if (t < 1) {
+      window.requestAnimationFrame(tick);
+    }
+  };
+  window.requestAnimationFrame(tick);
+}
+
+// =====================
+// 旧 audio の安全な破棄
+// =====================
+
+function destroyAudio(audio: HTMLAudioElement): void {
   try {
-    cur.stop();
-    cur.unload();
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
   } catch {
     // 既に解放済等は無視
   }
-  currentHowl = null;
-  currentKey = null;
-  currentResolvedPath = "";
 }
 
-if (typeof window !== "undefined") {
-  window.addEventListener("pageshow", (e) => {
-    if (!(e as PageTransitionEvent).persisted) return;
-    // bfcache から復帰 → 既存 Howl は autoplay locked の可能性あり。
-    // 旧 Howl の key/path を記憶した上で破棄 → 同じ key/path で再構築する。
-    // (同 path なら useBgm useEffect は値変化なしで効果再発火しないため、
-    //  ここで明示的に startBgm を呼んで再生再開する必要がある)
-    const restoreKey = currentKey;
-    const restorePath = currentResolvedPath;
-    discardCurrentHowl();
-    if (restorePath) {
-      void startBgm(restoreKey, restorePath);
-    }
-  });
+// =====================
+// startBgm: メインの遷移ロジック
+// =====================
 
-  // =====================
-  // user interaction での BGM 強制再生リトライ
-  // =====================
-  //
-  // ホーム着地直後に startBgm が play() を呼んでも、ブラウザ autoplay policy で
-  // 拒否されることがある (Howler は console に "HTML5 Audio pool exhausted,
-  // returning potentially locked audio object" を出力)。Howler の autoUnlock は
-  // pool 全体の HTMLAudioElement をアンロックするが、既に play() を試みて
-  // locked になった Howl の sound は自動再開されない。
-  //
-  // 過去の落とし穴 (順次対応で得た知見):
-  //   (A) capture phase + 即時 play() は Howler autoUnlock より早く走り再失敗
-  //       → bubble + setTimeout 100ms で autoUnlock 完了を待つ
-  //   (B) 既に再生中の Howl に play() を呼ぶと Howler は新 sound ID + 新
-  //       HTMLAudioElement を pool から確保 → 二重再生 + プール圧迫
-  //       → 必ず playing() 判定して skip
-  //   (C) "初回 1 回だけ" ハンドラ実行だと、Howler の dynamic import が遅延した
-  //       環境で「click → handler 起動 → currentHowl=null → no-op → handler 削除」
-  //       となり、その後 Howl が生成されても二度とリトライされない。
-  //       → 成功 (= playing() 確認) するまで listener を保持する。
-  //   (D) play() 失敗で locked sound が currentHowl に貼り付いた場合、再 play()
-  //       を呼んでも同 locked sound が返るケースあり。
-  //       → discard + 再構築で確実に新規 audio element を確保する。
-  //
-  // フロー:
-  //   1. user interaction (click/touch/key) で 100ms 後に retry スケジュール
-  //   2. retry: currentHowl が
-  //        - null → 何もしない (まだ Howl 未生成、次の interaction で再試行)
-  //        - playing → 成功確認 → listener 削除
-  //        - 非 playing → 既存 locked Howl を discard して同 key/path で再構築
-  //   3. 再構築後 500ms で playing() 検証 → 成功なら listener 削除、失敗なら次の
-  //      interaction で再試行
-  let bgmListenersAttached = false;
-  const removeBgmInteractionListeners = (): void => {
-    if (!bgmListenersAttached) return;
-    bgmListenersAttached = false;
-    window.removeEventListener("click", onBgmInteraction);
-    window.removeEventListener("touchstart", onBgmInteraction);
-    window.removeEventListener("keydown", onBgmInteraction);
-  };
-  const tryUnlockBgm = (): void => {
-    window.setTimeout(() => {
-      if (!currentHowl) {
-        // Howl 未生成 (Howler import 中等) → 次の interaction を待つため
-        // listener はそのまま保持
-        return;
-      }
-      try {
-        if (currentHowl.playing()) {
-          // 既に再生中 → 成功扱いで listener 撤去
-          removeBgmInteractionListeners();
-          return;
-        }
-      } catch {
-        // playing() 自体が例外 → 後続の discard+再構築に進む
-      }
-      // currentHowl は autoplay locked で stuck している可能性が高い。
-      // 同 key/path のまま discard + 再構築する (pageshow bfcache 復帰と同手口)。
-      const restoreKey = currentKey;
-      const restorePath = currentResolvedPath;
-      if (!restorePath) return;
-      discardCurrentHowl();
-      void startBgm(restoreKey, restorePath);
-      // 再構築後の再生確認 (autoUnlock 完了済 + Howl 新規 → 大半は成功)
-      window.setTimeout(() => {
-        try {
-          if (currentHowl?.playing()) {
-            removeBgmInteractionListeners();
-          }
-        } catch {
-          // 失敗時は listener 保持 → 次の interaction で再試行
-        }
-      }, 500);
-    }, 100);
-  };
-  function onBgmInteraction(): void {
-    tryUnlockBgm();
-  }
-  bgmListenersAttached = true;
-  window.addEventListener("click", onBgmInteraction);
-  window.addEventListener("touchstart", onBgmInteraction);
-  window.addEventListener("keydown", onBgmInteraction);
-}
+function startBgm(key: BgmEventKey | null, path: string): void {
+  if (typeof window === "undefined") return;
 
-async function startBgm(
-  key: BgmEventKey | null,
-  path: string,
-): Promise<void> {
-  // path が同一なら audio をリスタートせず key のみ更新する。
-  // 例: home (bgm_home) → /play (bgm_match_setup) の遷移で
-  // 同一 BGM_FILES 値が割り当てられていれば連続再生になる。
+  // path が同一なら audio をリスタートせず key/loop のみ更新する。
+  // 例: home (bgm_home) → /play (bgm_match_setup) で同一 BGM_FILES 値を
+  // 設定していれば、audio をそのまま継続再生する (リスタートなし)。
   if (currentResolvedPath === path) {
     currentKey = key;
+    if (currentAudio) {
+      try {
+        currentAudio.loop = shouldLoopFlag;
+      } catch {
+        // ignore
+      }
+    }
     return;
   }
 
-  // 旧 BGM を fade out → stop → unload (メモリ解放)
-  const prev = currentHowl;
+  // 旧 audio を fade out → destroy
+  const prev = currentAudio;
   if (prev) {
-    const currentVol = prev.volume() as number;
-    prev.fade(currentVol, 0, FADE_DURATION_MS);
-    setTimeout(() => {
-      prev.stop();
-      prev.unload();
-    }, FADE_DURATION_MS + 50);
+    fadeVolume(prev, prev.volume, 0, FADE_DURATION_MS);
+    window.setTimeout(() => destroyAudio(prev), FADE_DURATION_MS + 50);
   }
 
   if (!path) {
-    // key が null または path が空 → BGM 停止
-    currentHowl = null;
+    // 停止
+    currentAudio = null;
     currentKey = null;
     currentResolvedPath = "";
     return;
   }
 
-  const HowlCtor = await getHowlCtor();
-  // Issue #79 派生 (BGM プールリーク修正):
-  // 旧: loop:false + onend で next.play() 手動 loop → 反復毎に Howler が新規
-  //     sound ID + HTMLAudioElement をプールから確保 → 数十周で
-  //     "HTML5 Audio pool exhausted" エラーが発生し再生不能に。
-  // 新: Howler 標準 loop:true で構築。Howler 内部で seek(0) リセット再生する
-  //     ためプール非使用。shouldLoop が false に変わったら currentHowl.loop(false)
-  //     を即時呼び、現在の loop 完了で onend 発火 → unload + state クリア。
-  const next = new HowlCtor({
-    src: [path],
-    volume: 0,
-    loop: shouldLoopFlag,
-    html5: true, // BGM はストリーミング (decode 軽量、メモリ常駐少)
-    onloaderror: () => {
-      // ファイル load 失敗 (404 等) → ファイル自体が無効なので state クリア
-      if (currentHowl === next) {
-        currentHowl = null;
-        currentKey = null;
-        currentResolvedPath = "";
-      }
-    },
-    onplayerror: () => {
-      // ★ Issue #79 派生: ここで state を null クリアしてはいけない。
-      //
-      // Howler は autoplay policy で audio.play() Promise が reject した場合も
-      // onplayerror を発火する (= ファイルエラーではなく "一時的に再生できない"
-      // ケース)。ここで currentHowl=null すると user-interaction リトライ
-      // ハンドラ (tryUnlockBgm) が `if (!currentHowl) return;` で何も出来ず
-      // 詰むため、state は保持して retry に任せる。
-      //
-      // 真のファイルエラーは onloaderror が別途発火するためそちらでクリア済。
-    },
-    onplay: (id) => {
-      // Howler の html5: true で内部の audio element に loop 属性が反映されない
-      // ケースの保険。play 開始時に明示的に loop(true, soundId) を呼び、
-      // HTMLAudioElement.loop=true をセットして native loop を確実にする。
-      if (currentHowl !== next) return;
-      try {
-        next.loop(shouldLoopFlag, id);
-      } catch {
-        try {
-          next.loop(shouldLoopFlag);
-        } catch {
-          // 例外は無視 (onend 側のフォールバックが効く)
-        }
-      }
-    },
-    onend: () => {
-      // 既に新しい Howl に交代済 (= startBgm 呼出による fade out 中) なら無視。
-      if (currentHowl !== next) return;
-      // 安全網: Howler の html5: true + loop: true 組合せは一部ブラウザで
-      // HTMLAudioElement.loop が機能せず onend が誤発火するケースがある。
-      // shouldLoopFlag を確認して、true なら手動で stop+play 再開する
-      // (stop() 経由なので Howler の inactive プールに sound ID が解放され、
-      // 連続呼出してもプール枯渇は起きない)。
-      let replayed = false;
-      if (shouldLoopFlag) {
-        try {
-          next.stop();
-          next.play();
-          replayed = true;
-        } catch {
-          // 例外時はフォールバック失敗 → 下方の自然停止フローに fall through
-        }
-      }
-      if (replayed) return;
-      // shouldLoop=false (対局終了等) もしくはフォールバック失敗 → 自然停止
-      try {
-        next.unload();
-      } catch {
-        // 既に unload 済等は無視
-      }
-      if (currentHowl === next) {
-        currentHowl = null;
-        currentKey = null;
-        currentResolvedPath = "";
-      }
-    },
-  });
-  next.play();
-  const targetVol = isMuted ? 0 : BGM_VOLUME;
-  next.fade(0, targetVol, FADE_DURATION_MS);
-  currentHowl = next;
+  // 新 audio 作成
+  const audio = new Audio();
+  // preload はネットワーク負荷を抑えるため metadata まで。play() で自動的に full load。
+  audio.preload = "auto";
+  audio.src = path;
+  audio.loop = shouldLoopFlag;
+  audio.volume = 0;
+
+  // shouldLoop=false で loop 終了時に自然停止 (state クリア)
+  const onEnded = (): void => {
+    if (currentAudio !== audio) return;
+    if (audio.loop) return; // loop 中は fire しないが念のため
+    destroyAudio(audio);
+    if (currentAudio === audio) {
+      currentAudio = null;
+      currentKey = null;
+      currentResolvedPath = "";
+    }
+  };
+  audio.addEventListener("ended", onEnded);
+
+  currentAudio = audio;
   currentKey = key;
   currentResolvedPath = path;
+
+  // 再生試行 (Promise 返却で autoplay block を検知できる)
+  const playPromise = audio.play();
+  const targetVol = isMuted ? 0 : BGM_VOLUME;
+
+  if (playPromise && typeof playPromise.then === "function") {
+    playPromise
+      .then(() => {
+        // 成功: fade-in
+        if (currentAudio === audio) {
+          fadeVolume(audio, 0, targetVol, FADE_DURATION_MS);
+        }
+      })
+      .catch(() => {
+        // autoplay block (NotAllowedError) や読込みエラー
+        // → user gesture リトライハンドラを起動
+        if (currentAudio === audio) {
+          scheduleRetryOnUserGesture();
+        }
+      });
+  }
 }
 
-/**
- * BGM 解決ルール (eventKey が non-null の場合):
- *   1. dev tool でユーザが override 設定済 → その path (空文字 = 「鳴らさない」)
- *   2. BGM_FILES[eventKey] (manifest 既定) が non-empty → その path
- *   3. いずれもなければ BGM 停止 (無音)
- *
- * eventKey が null/undefined → BGM 停止 (sound preference OFF 等)。
- */
+// =====================
+// user gesture でのリトライ
+// =====================
+//
+// audio.play() が autoplay policy で reject された場合、user gesture を待って
+// リトライする。リトライが成功するまで listener を attach し続ける。
+// 成功した時点で listener 撤去。
 
-/**
- * useBgm のオプション。
- */
+let retryListenersAttached = false;
+
+function attemptRetry(): void {
+  if (!currentAudio) return;
+  // 既に再生中なら何もしない (二重 play 防止)
+  if (!currentAudio.paused) {
+    detachRetryListeners();
+    return;
+  }
+  const audio = currentAudio;
+  const targetVol = isMuted ? 0 : BGM_VOLUME;
+  const playPromise = audio.play();
+  if (playPromise && typeof playPromise.then === "function") {
+    playPromise
+      .then(() => {
+        if (currentAudio === audio) {
+          fadeVolume(audio, audio.volume, targetVol, FADE_DURATION_MS);
+        }
+        detachRetryListeners();
+      })
+      .catch(() => {
+        // まだ block されている → listener 保持 (次の gesture で再試行)
+      });
+  } else {
+    // 旧ブラウザ: play が undefined を返す。再生開始したと仮定。
+    fadeVolume(audio, audio.volume, targetVol, FADE_DURATION_MS);
+    detachRetryListeners();
+  }
+}
+
+function onUserGesture(): void {
+  attemptRetry();
+}
+
+function attachRetryListeners(): void {
+  if (retryListenersAttached) return;
+  retryListenersAttached = true;
+  window.addEventListener("click", onUserGesture);
+  window.addEventListener("touchstart", onUserGesture);
+  window.addEventListener("keydown", onUserGesture);
+}
+
+function detachRetryListeners(): void {
+  if (!retryListenersAttached) return;
+  retryListenersAttached = false;
+  window.removeEventListener("click", onUserGesture);
+  window.removeEventListener("touchstart", onUserGesture);
+  window.removeEventListener("keydown", onUserGesture);
+}
+
+function scheduleRetryOnUserGesture(): void {
+  attachRetryListeners();
+}
+
+// =====================
+// bfcache 復帰
+// =====================
+//
+// ページ閉じて戻る (bfcache) で復帰した場合、HTMLAudioElement は autoplay
+// 制約で suspended 状態になるケースがある。同 path で再構築して新 audio で
+// play 試行 (失敗時は user gesture 待ち) する。
+
+if (typeof window !== "undefined") {
+  window.addEventListener("pageshow", (e) => {
+    if (!(e as PageTransitionEvent).persisted) return;
+    const restoreKey = currentKey;
+    const restorePath = currentResolvedPath;
+    if (currentAudio) destroyAudio(currentAudio);
+    currentAudio = null;
+    currentKey = null;
+    currentResolvedPath = "";
+    if (restorePath) {
+      startBgm(restoreKey, restorePath);
+    }
+  });
+}
+
+// =====================
+// useBgm hook
+// =====================
+
 export interface UseBgmOptions {
   /**
-   * BGM の再生終了時に loop するかどうか (default: true)。
-   * - true: 再生終了時に同じ Howl を再 play (永続 loop)
-   * - false: 再生終了時に自然停止 (Howl unload + state クリア)
+   * BGM ループするかどうか (default: true)。
+   * - true: audio.loop = true (永続 loop)
+   * - false: audio.loop = false (1 回再生して ended → 自然停止)
    *
-   * 対局画面で「対局終了したら現在の loop は完了させた上で停止」を
-   * 実現する用途で使う。lobby BGM のような永続 loop 用途では省略可。
+   * 対局画面で「対局終了したら現在の loop 完了で停止」を実現する用途。
    */
   shouldLoop?: boolean;
 }
 
-/**
- * 各 page で呼ぶ。eventKey が変わると BGM 切替 (クロスフェード)、
- * null なら BGM 停止。
- *
- * 全 page で必ず呼ぶこと。呼ばない page があると前 page の BGM が
- * 鳴り続ける (singleton のため)。dev pages 等 BGM 不要な page では
- * `useBgm(null)` で明示停止する。
- */
 export function useBgm(
   eventKey?: BgmEventKey | null,
   options?: UseBgmOptions,
 ): void {
-  // overrides 変化に追従 (dev tool で割当変更時に即座にクロスフェード)
+  // overrides 変化で audio path 切替えるため購読
   const overrides = useBgmOverrides();
-  const [ready, setReady] = useState(false);
   const shouldLoop = options?.shouldLoop ?? true;
 
   useEffect(() => {
-    let cancelled = false;
-    void getHowlCtor().then(() => {
-      if (!cancelled) setReady(true);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!ready) return;
-    // shouldLoopFlag を最新化 (新規 Howl 構築時の loop 初期値として使う)
+    if (typeof window === "undefined") return;
     shouldLoopFlag = shouldLoop;
-    // 既に再生中の Howl があれば loop 属性を即時更新する。
-    // shouldLoop が true→false に変わると Howler が現在の loop 完了時に
-    // onend を発火 → unload + state クリアの自然停止フローに繋がる。
-    if (currentHowl) {
+    // 再生中 audio の loop 属性を即時更新 (true→false で現在の loop 完了で
+    // ended → 自然停止フローへ)
+    if (currentAudio) {
       try {
-        currentHowl.loop(shouldLoop);
+        currentAudio.loop = shouldLoop;
       } catch {
-        // 万一 Howl が既に unload 済等は無視
+        // ignore
       }
     }
     const key = eventKey ?? null;
     const path = key ? getEffectiveBgmPath(key) : "";
-    // Howler の autoUnlock (default true) が autoplay policy を自動ハンドル
-    // するため、user gesture を明示的に待たずに即時 play() を試行する。
-    // 環境により blocked された場合も Howler が次の interaction で resume する。
-    void startBgm(key, path);
+    startBgm(key, path);
     // ★ cleanup なし: ページ遷移時に音を切らない (次の useBgm 呼出で自動切替)
-  }, [ready, eventKey, overrides, shouldLoop]);
+  }, [eventKey, overrides, shouldLoop]);
 }
 
 /**
@@ -400,7 +312,11 @@ export function useBgm(
  */
 export function setBgmMuted(muted: boolean): void {
   isMuted = muted;
-  if (currentHowl) {
-    currentHowl.volume(muted ? 0 : BGM_VOLUME);
+  if (currentAudio) {
+    try {
+      currentAudio.volume = muted ? 0 : BGM_VOLUME;
+    } catch {
+      // ignore
+    }
   }
 }
