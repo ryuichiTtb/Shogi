@@ -2,6 +2,8 @@
 
 import { ShogiGame } from "./shogi-game";
 import { CardShogiGame } from "./card-shogi/card-shogi-game";
+import { BoardTextureProvider } from "./board-texture-context";
+import { BoardTexturePicker } from "./board-texture-picker";
 import { AppBackground } from "@/components/layout/app-background";
 import type { Difficulty, GameState, Player } from "@/lib/shogi/types";
 import type { CardGameState } from "@/lib/shogi/cards/types";
@@ -36,26 +38,28 @@ export function GameLayout({
       throw new Error("card-shogi variant requires initialCardState");
     }
     return (
-      <>
+      <BoardTextureProvider>
         <AppBackground variant="setup" />
+        <BoardTexturePicker />
         <CardShogiGame
           initialGameState={initialGameState}
           initialCardState={initialCardState}
           gameId={gameId}
           gameConfig={gameConfig}
         />
-      </>
+      </BoardTextureProvider>
     );
   }
 
   return (
-    <>
+    <BoardTextureProvider>
       <AppBackground variant="setup" />
+      <BoardTexturePicker />
       <ShogiGame
         initialGameState={initialGameState}
         gameId={gameId}
         gameConfig={gameConfig}
       />
-    </>
+    </BoardTextureProvider>
   );
 }

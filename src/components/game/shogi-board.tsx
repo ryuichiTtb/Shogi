@@ -4,6 +4,7 @@ import { forwardRef, memo, useCallback, useImperativeHandle, useRef } from "reac
 
 import { cn } from "@/lib/utils";
 import { ShogiPiece } from "./shogi-piece";
+import { useBoardTexture } from "./board-texture-context";
 import { useTouchHandler } from "@/hooks/use-touch-handler";
 import {
   SHOGI_BOARD_GAP,
@@ -71,6 +72,9 @@ interface BoardSquareProps {
   dotSize: number;
   playerColor: Player;
   registerRef: RegisterSquareRef;
+  // Issue #177: 木目背景の URL。指定時は state なしの neutral マスのみ
+  // background-image で適用する (state 時は従来通り Tailwind カラーで上書き)。
+  boardTextureUrl: string | null;
 }
 
 // 81 マスの 1 マス分。React.memo でラップし、変わっていないマスの再描画を skip する。
@@ -95,6 +99,7 @@ const BoardSquare = memo(function BoardSquare({
   dotSize,
   playerColor,
   registerRef,
+  boardTextureUrl,
 }: BoardSquareProps) {
   // ref 登録は registerRef + (rowIdx, colIdx) で stabilize。BoardSquare が memo で
   // 再描画 skip されると、ref callback の identity も変わらない。
@@ -132,7 +137,26 @@ const BoardSquare = memo(function BoardSquare({
         // ホバー (dark の通常背景 #5c2a08 から 1 段明るい #76380c で差を確保)
         canHover && "hover:bg-amber-100 dark:hover:bg-[#76380c]"
       )}
-      style={{ width: cellWidth, height: cellHeight }}
+      style={{
+        width: cellWidth,
+        height: cellHeight,
+        // Issue #177: state なし (neutral) マスのみ木目テクスチャを背景画像として適用。
+        // state 時 (selected / lastMove / inCheck 等) は Tailwind カラーで上書きされ
+        // テクスチャが見えなくなるよう、ここで条件分岐する。
+        ...(boardTextureUrl &&
+        !isSelected &&
+        !isLastMoveSq &&
+        !isKingInCheck &&
+        !isLegalTarget &&
+        !isCardTarget &&
+        !isForbiddenMate
+          ? {
+              backgroundImage: `url(${boardTextureUrl})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }
+          : null),
+      }}
     >
       {/* 星目（中央3×3四隅の交差点） */}
       {isStarPoint && (
@@ -236,6 +260,7 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
   forwardedRef,
 ) {
   const squareRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const boardTexture = useBoardTexture();
 
   useImperativeHandle(
     forwardedRef,
@@ -391,6 +416,7 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
                   dotSize={dotSize}
                   playerColor={playerColor}
                   registerRef={registerSquareRef}
+                  boardTextureUrl={boardTexture.url}
                 />
               );
             })
