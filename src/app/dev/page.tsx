@@ -4,7 +4,6 @@
 // /dev/* 配下の各 dev ツールへの導線を集約する。今後 dev ツールが
 // 増えた場合はこの一覧に 1 件追記するだけで discoverable になる。
 
-import Link from "next/link";
 import { ArrowLeft, ChevronRight, Music, Plane, LayoutGrid } from "lucide-react";
 
 import { MaskedLink } from "@/components/navigation/masked-link";
@@ -68,7 +67,7 @@ export default function DevIndexPage() {
 
         <section className="grid gap-2 lg:grid-cols-2">
           {DEV_TOOLS.map(({ href, title, description, Icon }) => (
-            <Link
+            <MaskedLink
               key={href}
               href={href}
               className="group"
@@ -86,7 +85,7 @@ export default function DevIndexPage() {
                   </p>
                 </div>
               </Card>
-            </Link>
+            </MaskedLink>
           ))}
         </section>
       </div>

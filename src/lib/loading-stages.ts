@@ -38,6 +38,27 @@ export const LOADING_STAGES = {
   defaultNavigate: ["読み込み中…"],
   // 履歴 → /game/[id] の SSR 復元中 (棋譜デシリアライズ・盤面再構築・演出準備)
   gameRestore: ["棋譜を読み込み中…", "盤面を再構築中…", "演出を準備中…"],
+  // ホーム → 開発者ツール一覧 (/dev) の遷移
+  devNavigate: ["開発者ツールを開いています…"],
+  // /dev → /dev/piece-flight (駒フライト調整)
+  devPieceFlightNavigate: [
+    "駒フライト調整を開いています…",
+    "パラメータを読み込み中…",
+  ],
+  // /dev → /dev/sound-tuner (音源調整ツール一覧)
+  devSoundTunerNavigate: [
+    "音源調整ツールを開いています…",
+    "音源プールを読み込み中…",
+  ],
+  // /dev/sound-tuner → /dev/sound-tuner/[eventKey] (個別音源調整)
+  devSoundTunerDetailNavigate: [
+    "個別音源調整を開いています…",
+    "音源プールを読み込み中…",
+  ],
+  // /dev → /dev/card-shogi-layout (カード将棋レイアウト検証)
+  devCardShogiLayoutNavigate: ["レイアウト検証を開いています…"],
+  // /dev → /dev/loading-preview (ローディング演出プレビュー)
+  devLoadingPreviewNavigate: ["ローディング演出プレビューを開いています…"],
 } as const;
 
 export type LoadingStageKey = keyof typeof LOADING_STAGES;
@@ -45,6 +66,7 @@ export type LoadingStageKey = keyof typeof LOADING_STAGES;
 // Issue #163: <Link href> クリック時の遷移マスク stages を href から自動解決するヘルパー。
 // MaskedLink および app/page.tsx の navigateTo から共通利用する。
 // /cards/{id} のような動的 segment は cardDetail を返す (前方一致で判定)。
+// /dev 配下は dev ツール毎に専用 stages を返す (前方一致で判定)。
 export function resolveLoadingStages(href: string): readonly string[] {
   if (href === "/") return LOADING_STAGES.homeNavigate;
   if (href === "/play") return LOADING_STAGES.matchNavigate;
@@ -54,5 +76,15 @@ export function resolveLoadingStages(href: string): readonly string[] {
   if (href === "/cards") return LOADING_STAGES.cardsNavigate;
   if (href.startsWith("/cards/")) return LOADING_STAGES.cardDetail;
   if (href === "/card-design") return LOADING_STAGES.cardDesignNavigate;
+  // /dev 配下 (Issue #79 統合): 各 dev ツールへの forward 遷移用 stages
+  if (href === "/dev") return LOADING_STAGES.devNavigate;
+  if (href === "/dev/piece-flight") return LOADING_STAGES.devPieceFlightNavigate;
+  if (href === "/dev/sound-tuner") return LOADING_STAGES.devSoundTunerNavigate;
+  if (href.startsWith("/dev/sound-tuner/"))
+    return LOADING_STAGES.devSoundTunerDetailNavigate;
+  if (href === "/dev/card-shogi-layout")
+    return LOADING_STAGES.devCardShogiLayoutNavigate;
+  if (href === "/dev/loading-preview")
+    return LOADING_STAGES.devLoadingPreviewNavigate;
   return LOADING_STAGES.defaultNavigate;
 }

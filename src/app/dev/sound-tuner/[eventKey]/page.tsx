@@ -13,7 +13,6 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useParams, notFound } from "next/navigation";
-import Link from "next/link";
 import { ArrowLeft, ChevronDown, ChevronRight, Check, Pause, Play, RotateCcw, VolumeX } from "lucide-react";
 
 import { MaskedLink } from "@/components/navigation/masked-link";

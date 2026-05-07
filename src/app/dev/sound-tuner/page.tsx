@@ -9,7 +9,6 @@
 // 一覧本体は flex-1 + overflow-y-auto で独立スクロール。
 
 import { useCallback, useRef, useState } from "react";
-import Link from "next/link";
 import { ArrowLeft, ChevronRight, Music, Pause, Play, RotateCcw, Volume2 } from "lucide-react";
 
 import { MaskedLink } from "@/components/navigation/masked-link";
@@ -175,8 +174,8 @@ function EventRow({
         )}
       </div>
 
-      {/* 右: 変更リンク */}
-      <Link
+      {/* 右: 変更リンク (rich loading mask: forward 遷移) */}
+      <MaskedLink
         href={href}
         aria-label={`${label} の音源を変更`}
         className={cn(
@@ -186,7 +185,7 @@ function EventRow({
       >
         変更
         <ChevronRight className="w-3 h-3 ml-0.5" />
-      </Link>
+      </MaskedLink>
     </Card>
   );
 }
