@@ -1,11 +1,13 @@
 "use client";
 
-import { forwardRef, memo, useCallback, useImperativeHandle, useRef } from "react";
+import { forwardRef, memo, useCallback, useImperativeHandle, useRef, type CSSProperties } from "react";
 
 import { cn } from "@/lib/utils";
 import { ShogiPiece } from "./shogi-piece";
+import { useBoardLayout } from "@/components/board-layout/board-layout-provider";
 import { useTouchHandler } from "@/hooks/use-touch-handler";
 import {
+  SHOGI_BOARD_CELLS,
   SHOGI_BOARD_GAP,
   getShogiBoardCellSize,
   getShogiBoardLabelSize,
@@ -71,6 +73,16 @@ interface BoardSquareProps {
   dotSize: number;
   playerColor: Player;
   registerRef: RegisterSquareRef;
+  // Issue #177: 木目背景の URL。指定時は state なしの neutral マスのみ
+  // background-image で適用する (state 時は従来通り Tailwind カラーで上書き)。
+  boardTextureUrl: string | null;
+  // 視覚上のマス位置 (0..8)。木目テクスチャを盤全体で連続表示させるための
+  // background-position 計算に使う。先手目線/後手目線で row/col の並びは反転するため
+  // 描画時の visual インデックスをそのまま受け取る。
+  visualRow: number;
+  visualCol: number;
+  // 中央 4 隅の星点に使う色 (盤レイアウトごとに切替: light は濃焦茶 / dark は薄い焦茶)。
+  lineColor: string;
 }
 
 // 81 マスの 1 マス分。React.memo でラップし、変わっていないマスの再描画を skip する。
@@ -95,6 +107,10 @@ const BoardSquare = memo(function BoardSquare({
   dotSize,
   playerColor,
   registerRef,
+  boardTextureUrl,
+  visualRow,
+  visualCol,
+  lineColor,
 }: BoardSquareProps) {
   // ref 登録は registerRef + (rowIdx, colIdx) で stabilize。BoardSquare が memo で
   // 再描画 skip されると、ref callback の identity も変わらない。
@@ -103,6 +119,60 @@ const BoardSquare = memo(function BoardSquare({
     [rowIdx, colIdx, registerRef],
   );
 
+  // Issue #177: state 色は木目テクスチャの上に半透明 tint を重ねて表示する。
+  // 単色塗りで盤目を覆い隠さないようにし、light/dark テーマで同じ tint 値を使う
+  // (盤テクスチャが視覚ベースなので OS テーマでの分岐は不要)。
+  // 優先順序は元実装の cn() 出現順に合わせる:
+  //   forbiddenMate > cardTarget > legalTarget(piece) > legalTarget(empty)
+  //   > selected > kingInCheck > lastMove
+  const tint: string | null = isForbiddenMate
+    ? "rgba(220, 38, 38, 0.55)"   // red-600 / 警告
+    : isCardTarget
+      ? "rgba(245, 158, 11, 0.55)" // amber-500 / カード対象
+      : isLegalTarget && piece
+        ? "rgba(220, 38, 38, 0.35)" // red-600 / 取れる相手駒
+        : isLegalTarget
+          ? "rgba(59, 130, 246, 0.30)" // blue-500 / 合法移動先
+          : isSelected
+            ? "rgba(59, 130, 246, 0.50)" // blue-500 / 選択中
+            : isKingInCheck
+              ? "rgba(220, 38, 38, 0.65)" // red-600 / 王手警告
+              : isLastMoveSq
+                ? "rgba(16, 185, 129, 0.40)" // emerald-500 / 直前手
+                : null;
+
+  // 盤全体サイズ (= 9 cell + 8 gap)。各マスはここから visual 位置のオフセットだけ
+  // 切り出すことで、9x9 のマスに 1 枚の木目画像が連続表示される。
+  const totalBoardW =
+    cellWidth * SHOGI_BOARD_CELLS + SHOGI_BOARD_GAP * (SHOGI_BOARD_CELLS - 1);
+  const totalBoardH =
+    cellHeight * SHOGI_BOARD_CELLS + SHOGI_BOARD_GAP * (SHOGI_BOARD_CELLS - 1);
+  const offsetX = visualCol * (cellWidth + SHOGI_BOARD_GAP);
+  const offsetY = visualRow * (cellHeight + SHOGI_BOARD_GAP);
+
+  const cellStyle: CSSProperties = {
+    width: cellWidth,
+    height: cellHeight,
+  };
+  if (boardTextureUrl) {
+    if (tint) {
+      // tint をテクスチャの上に重ねる: 1 枚目が tint (linear-gradient)、
+      // 2 枚目が木目画像。CSS は背景レイヤーを記述順 = 上から下に重ねる。
+      cellStyle.backgroundImage = `linear-gradient(${tint}, ${tint}), url(${boardTextureUrl})`;
+      cellStyle.backgroundSize = `100% 100%, ${totalBoardW}px ${totalBoardH}px`;
+      cellStyle.backgroundPosition = `0 0, -${offsetX}px -${offsetY}px`;
+      cellStyle.backgroundRepeat = "no-repeat, no-repeat";
+    } else {
+      cellStyle.backgroundImage = `url(${boardTextureUrl})`;
+      cellStyle.backgroundSize = `${totalBoardW}px ${totalBoardH}px`;
+      cellStyle.backgroundPosition = `-${offsetX}px -${offsetY}px`;
+    }
+  } else if (tint) {
+    // テクスチャ未設定時のフォールバック (実運用では BoardLayoutProvider が
+    // 常に url を返すため通常は通らないが、防御として単色塗りを適用)。
+    cellStyle.backgroundColor = tint;
+  }
+
   return (
     <div
       ref={setRef}
@@ -110,37 +180,25 @@ const BoardSquare = memo(function BoardSquare({
       className={cn(
         "shogi-square relative flex items-center justify-center",
         "cursor-pointer",
-        // 通常背景 (Issue #155 派生: dark は amber-950 (#451a03) と amber-900
-        // (#78350f) の中間 #5c2a08 を採用。amber-950 は駒輪郭 (#4a2e15) と同化、
-        // amber-900 は明るすぎたため、暗め・濃い茶を保ちつつ駒との差が出る色)
-        "bg-amber-50 dark:bg-[#5c2a08]",
-        // 直前の手（移動前・移動後）
-        isLastMoveSq && !isSelected && "bg-emerald-200 dark:bg-emerald-800/60",
-        // 王手中の王
-        isKingInCheck && "bg-red-300 dark:bg-red-800/70",
-        // 選択マス
-        isSelected && "bg-blue-200 dark:bg-blue-800/60",
-        // 合法手ハイライト
-        isLegalTarget && !piece && "bg-blue-200/70 dark:bg-blue-700/40",
-        isLegalTarget && piece && "bg-red-200/70 dark:bg-red-700/40",
-        // カード効果のターゲット候補(歩戻し等) - 既存の合法手ハイライトより優先
-        isCardTarget && "bg-amber-300/80 dark:bg-amber-500/40 ring-2 ring-inset ring-amber-500 dark:ring-amber-300 animate-pulse",
-        // 二手指し 2手目で禁止された詰み手 (Issue #82) - 合法手ハイライトより優先
-        isForbiddenMate && "bg-red-400/60 dark:bg-red-700/50 ring-2 ring-inset ring-red-600 dark:ring-red-400",
+        // 通常背景 (テクスチャ未設定時のフォールバック色のみ)。
+        // テクスチャ設定時は inline style の background-image が上に被るため見えない。
+        "bg-amber-50",
+        // ring と animate-pulse は state 表示の補助なので Tailwind class のまま残す
+        isCardTarget && "ring-2 ring-inset ring-amber-500 animate-pulse",
+        isForbiddenMate && "ring-2 ring-inset ring-red-600",
         // プレイヤーのターンでない・AI思考中は操作不可
         !canHover && !isCardTarget && "cursor-not-allowed",
-        // ホバー (dark の通常背景 #5c2a08 から 1 段明るい #76380c で差を確保)
-        canHover && "hover:bg-amber-100 dark:hover:bg-[#76380c]"
       )}
-      style={{ width: cellWidth, height: cellHeight }}
+      style={cellStyle}
     >
       {/* 星目（中央3×3四隅の交差点） */}
       {isStarPoint && (
         <div
-          className="absolute z-10 rounded-full bg-amber-900 dark:bg-amber-400 pointer-events-none"
+          className="absolute z-10 rounded-full pointer-events-none"
           style={{
             width: Math.max(4, cellWidth * 0.08),
             height: Math.max(4, cellWidth * 0.08),
+            backgroundColor: lineColor,
             bottom: 0,
             right: 0,
             transform: "translate(50%, 50%)",
@@ -236,6 +294,9 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
   forwardedRef,
 ) {
   const squareRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  // Issue #177: ユーザー選択の盤レイアウト (デフォルト = ライト04)。
+  // url を ShogiBoard 全マスに連続テクスチャとして適用する。
+  const boardLayout = useBoardLayout();
 
   useImperativeHandle(
     forwardedRef,
@@ -340,12 +401,15 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
           data-shogi-board-grid="1"
           role="grid"
           aria-label="将棋盤"
-          className="grid border border-amber-800 dark:border-amber-400 bg-amber-800/60 dark:bg-amber-400/60 relative"
+          className="grid border relative"
           style={{
             gridTemplateColumns: `repeat(9, ${cellSize.width}px)`,
             gridTemplateRows: `repeat(9, ${cellSize.height}px)`,
             gap: SHOGI_BOARD_GAP,
             touchAction: "none",
+            // Issue #177: 線色は盤レイアウトに紐付く (light: 濃焦茶 / dark: 薄い焦茶)。
+            borderColor: boardLayout.lineColor,
+            backgroundColor: boardLayout.lineColor,
           }}
           onClick={(e) => e.stopPropagation()}
           {...pointerHandlers}
@@ -391,6 +455,10 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
                   dotSize={dotSize}
                   playerColor={playerColor}
                   registerRef={registerSquareRef}
+                  boardTextureUrl={boardLayout.url}
+                  visualRow={visualRow}
+                  visualCol={visualCol}
+                  lineColor={boardLayout.lineColor}
                 />
               );
             })

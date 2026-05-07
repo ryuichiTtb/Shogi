@@ -41,6 +41,7 @@ model UserPreference {
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   cardBackStyle String   @default("seigaiha")
   theme         String   @default("system")
+  boardLayout   String   @default("light-2")
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }

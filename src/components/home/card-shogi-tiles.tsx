@@ -8,13 +8,14 @@
 
 import { useEffect, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { Layers, Library, Palette, Sparkles, Lock, Wrench } from "lucide-react";
+import { Layers, Library, Palette, Sparkles, Lock, Wrench, Grid3x3 } from "lucide-react";
 
 import {
   CARD_BACK_STYLES,
   DEFAULT_CARD_BACK_STYLE,
 } from "@/components/card-back/style-options";
 import { useCardBackStyle } from "@/components/card-back/card-back-provider";
+import { useBoardLayout } from "@/components/board-layout/board-layout-provider";
 import { cn } from "@/lib/utils";
 
 interface CardShogiTilesProps {
@@ -29,10 +30,11 @@ interface TileDef {
   Icon: typeof Layers;
 }
 
-// #82 で整理された並び順: デッキ編成 → カードデザイン → カード一覧 → フライト検証用
+// #82 で整理された並び順 + Issue #177: 盤デザインを追加。
 const TILES: TileDef[] = [
   { href: "/decks",            label: "デッキ編成",     description: "デッキを編成する",      Icon: Library },
   { href: "/card-design",      label: "カードデザイン", description: "裏面を選ぶ",            Icon: Palette },
+  { href: "/board-design",     label: "盤デザイン",     description: "盤面の見た目を選ぶ",    Icon: Grid3x3 },
   { href: "/cards",            label: "カード一覧",     description: "全カードを見る",        Icon: Layers },
   { href: "/dev/piece-flight", label: "フライト検証",   description: "演出パラメータ調整",    Icon: Wrench },
 ];
@@ -40,6 +42,7 @@ const TILES: TileDef[] = [
 export function CardShogiTiles({ onNavigate, disabled = false }: CardShogiTilesProps) {
   const reduce = useReducedMotion();
   const { style: liveStyle } = useCardBackStyle();
+  const liveBoardLayout = useBoardLayout();
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -49,13 +52,19 @@ export function CardShogiTiles({ onNavigate, disabled = false }: CardShogiTilesP
   // 「カードデザイン」タイルのサブテキストに現在のスタイル名を表示。
   // hydration 前は default で固定。
   const currentStyleLabel = CARD_BACK_STYLES[mounted ? liveStyle : DEFAULT_CARD_BACK_STYLE].label;
+  const currentBoardLabel = mounted ? liveBoardLayout.name : "";
 
   return (
     <div className="space-y-2">
-      {/* 4 枚なので 2x2 (mobile) / 4 列 (sm 以上) で並べる */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      {/* 5 枚: 2x3 (mobile) / 5 列 (sm 以上) */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
         {TILES.map((tile, idx) => {
-          const subText = tile.href === "/card-design" ? `裏面: ${currentStyleLabel}` : tile.description;
+          const subText =
+            tile.href === "/card-design"
+              ? `裏面: ${currentStyleLabel}`
+              : tile.href === "/board-design" && currentBoardLabel
+                ? `盤面: ${currentBoardLabel}`
+                : tile.description;
           return (
             <motion.button
               key={tile.href}
