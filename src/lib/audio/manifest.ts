@@ -62,6 +62,8 @@ export const SFX_FILES: Record<string, string> = {
   nav_forward: "/sounds/piece-move.mp3",
   // 画面遷移 戻るボタン → ナイフを投げる音
   nav_back: "/sounds/音源/振る/ナイフを投げる.mp3",
+  // ★ Issue #187: デッキ編成 カード長押しでカード詳細ダイアログ open
+  deck_card_detail_open: "/sounds/音源/カードをめくる.mp3",
 };
 
 // BGM (画面/状態別ループ再生される長尺素材)。
