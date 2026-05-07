@@ -96,11 +96,7 @@ export const CapturedPieces = memo(function CapturedPieces({
               />
               {count > 1 && (
                 <span
-                  className="absolute bottom-0 right-0.5 text-xs font-bold text-foreground leading-none z-10"
-                  style={{
-                    textShadow:
-                      "0 0 2px rgba(255,255,255,0.95), 0 0 2px rgba(255,255,255,0.95), 0 1px 1px rgba(255,255,255,0.85)",
-                  }}
+                  className="absolute bottom-0 right-0 text-xs font-bold leading-none z-10 px-1 py-px rounded-sm border border-green-500 bg-background text-foreground"
                 >
                   {count}
                 </span>
