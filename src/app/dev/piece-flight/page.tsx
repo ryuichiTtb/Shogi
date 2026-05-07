@@ -7,7 +7,6 @@
 // 本体の PieceFlight 演出にも反映される。
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { ArrowLeft, Save, RotateCcw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -15,6 +14,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ShogiPiece } from "@/components/game/shogi-piece";
 import { PieceFlight, type PieceFlightSpec } from "@/components/game/card-shogi/piece-flight";
+import { MaskedLink } from "@/components/navigation/masked-link";
 import {
   PIECE_SIZE as DEFAULT_PIECE_SIZE,
 } from "@/components/game/card-shogi/animation-constants";
@@ -187,13 +187,14 @@ export default function PieceFlightDevPage() {
     <main className="min-h-dvh bg-background p-4 sm:p-6">
       <div className="max-w-7xl mx-auto flex flex-col gap-4">
         <header className="flex items-center gap-3 mb-1">
-          <Link
+          <MaskedLink
             href="/"
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+            loadingVariant="spinner"
           >
             <ArrowLeft className="w-4 h-4" />
             ホーム
-          </Link>
+          </MaskedLink>
           <div>
             <h1 className="text-xl sm:text-2xl font-bold">PieceFlight 動作検証</h1>
             <p className="text-xs text-muted-foreground">

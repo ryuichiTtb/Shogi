@@ -4,9 +4,9 @@
 // 透過) にし、保存処理の途中でユーザーが意図せずホームへ抜けるのを防ぐ。
 "use client";
 
-import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { AuthControls } from "@/components/auth/auth-controls";
+import { MaskedLink } from "@/components/navigation/masked-link";
 import { cn } from "@/lib/utils";
 
 interface DecksPageHeaderProps {
@@ -19,10 +19,11 @@ export function DecksPageHeader({ homeDisabled = false }: DecksPageHeaderProps) 
   return (
     <header className="shrink-0 bg-background/90 backdrop-blur-sm border-b border-border/50">
       <div className="max-w-6xl lg:max-w-[1440px] mx-auto px-4 py-3 sm:py-4 w-full flex items-center gap-3">
-        <Link
+        <MaskedLink
           href="/"
           aria-label="ホームへ戻る"
           aria-disabled={homeDisabled || undefined}
+          loadingVariant="spinner"
           // disabled 状態のとき onClick を吸収して遷移を止める。
           // <a> 要素は HTML 仕様上 disabled 属性を持たないため、
           // pointer-events:none + onClick preventDefault で代替する。
@@ -38,7 +39,7 @@ export function DecksPageHeader({ homeDisabled = false }: DecksPageHeaderProps) 
         >
           <ArrowLeft className="w-4 h-4" />
           ホーム
-        </Link>
+        </MaskedLink>
         <div className="flex-1">
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight">デッキ編成</h1>
           <p className="text-xs sm:text-sm text-muted-foreground">

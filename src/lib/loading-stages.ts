@@ -27,6 +27,13 @@ export const LOADING_STAGES = {
   cardsNavigate: ["カード一覧を開いています…"],
   // ホーム → カードデザイン画面の遷移
   cardDesignNavigate: ["カードデザインを開いています…"],
+  // 各画面 → ホーム (/) への戻り遷移 (Issue #163)
+  homeNavigate: ["ホームへ戻っています…"],
+  // 対局終了画面の「もう一局」 (createGame Server Action 後 router.push)。
+  // matchSetup と分けることで、ロビーから新規開始ではなく「次の対局」感を出す。
+  matchRestart: ["次の対局を準備中…", "盤面をセットアップ中…"],
+  // ログインボタン → Clerk OAuth ホストへの外部リダイレクト
+  signIn: ["ログイン画面へ移動中…", "認証サービスに接続中…"],
   // 汎用フォールバック (resolveStages で個別のキーが見つからない場合)
   defaultNavigate: ["読み込み中…"],
   // 履歴 → /game/[id] の SSR 復元中 (棋譜デシリアライズ・盤面再構築・演出準備)
@@ -34,3 +41,18 @@ export const LOADING_STAGES = {
 } as const;
 
 export type LoadingStageKey = keyof typeof LOADING_STAGES;
+
+// Issue #163: <Link href> クリック時の遷移マスク stages を href から自動解決するヘルパー。
+// MaskedLink および app/page.tsx の navigateTo から共通利用する。
+// /cards/{id} のような動的 segment は cardDetail を返す (前方一致で判定)。
+export function resolveLoadingStages(href: string): readonly string[] {
+  if (href === "/") return LOADING_STAGES.homeNavigate;
+  if (href === "/play") return LOADING_STAGES.matchNavigate;
+  if (href === "/classic") return LOADING_STAGES.classicNavigate;
+  if (href === "/history") return LOADING_STAGES.historyNavigate;
+  if (href === "/decks") return LOADING_STAGES.decksNavigate;
+  if (href === "/cards") return LOADING_STAGES.cardsNavigate;
+  if (href.startsWith("/cards/")) return LOADING_STAGES.cardDetail;
+  if (href === "/card-design") return LOADING_STAGES.cardDesignNavigate;
+  return LOADING_STAGES.defaultNavigate;
+}

@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +13,7 @@ import {
 import type { CardId } from "@/lib/shogi/cards/types";
 import { cn } from "@/lib/utils";
 import { AuthControls } from "@/components/auth/auth-controls";
+import { MaskedLink } from "@/components/navigation/masked-link";
 
 interface CardDetailPageProps {
   params: Promise<{ id: string }>;
@@ -45,14 +45,14 @@ export default async function CardDetailPage({ params }: CardDetailPageProps) {
       <div className="max-w-4xl mx-auto px-4 pt-4 sm:pt-6 pb-2 w-full flex flex-col flex-1 min-h-0">
         {/* 戻るリンク + 名前 (固定) */}
         <header className="flex items-center gap-3 mb-3 sm:mb-4 shrink-0">
-          <Link
+          <MaskedLink
             href="/cards"
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
             aria-label="カード一覧へ戻る"
           >
             <ArrowLeft className="w-4 h-4" />
             カード一覧
-          </Link>
+          </MaskedLink>
           <div className="flex-1">
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight">{def.name}</h1>
             <p className="text-xs sm:text-sm text-muted-foreground font-mono">{def.id}</p>

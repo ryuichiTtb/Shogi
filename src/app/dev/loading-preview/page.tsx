@@ -9,10 +9,10 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
 import { LoadingOverlay } from "@/components/loading-overlay";
+import { MaskedLink } from "@/components/navigation/masked-link";
 import {
   LoadingCardVisual,
   LOADING_FACE_PIECE_TYPES,
@@ -33,13 +33,14 @@ export default function LoadingPreviewPage() {
       <AppBackground variant="page" />
 
       <header className="flex items-center gap-3 mb-6">
-        <Link
+        <MaskedLink
           href="/"
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          loadingVariant="spinner"
         >
           <ArrowLeft className="w-4 h-4" />
           ホーム
-        </Link>
+        </MaskedLink>
         <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
           ローディングカード プレビュー
         </h1>
