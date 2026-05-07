@@ -7,7 +7,6 @@
 // CardBackProvider が同パターンで動くため、視覚切り替えは滑らか。
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useReducedMotion } from "framer-motion";
 
@@ -17,6 +16,7 @@ import {
   DEFAULT_CARD_BACK_STYLE,
   type CardBackStyle,
 } from "@/components/card-back/style-options";
+import { MaskedLink } from "@/components/navigation/masked-link";
 import { cn } from "@/lib/utils";
 
 interface HeroCardStackProps {
@@ -40,7 +40,7 @@ export function HeroCardStack({ className }: HeroCardStackProps) {
   const reduce = useReducedMotion();
 
   return (
-    <Link
+    <MaskedLink
       href="/card-design"
       aria-label="カードデザインを変更する"
       className={cn(
@@ -78,6 +78,6 @@ export function HeroCardStack({ className }: HeroCardStackProps) {
 
       {/* スタイル名 (ハイドレーション後にだけ表示して FOUC 回避) */}
       <span className="sr-only">現在の裏面スタイル: {mounted ? styleLabel : ""}</span>
-    </Link>
+    </MaskedLink>
   );
 }
