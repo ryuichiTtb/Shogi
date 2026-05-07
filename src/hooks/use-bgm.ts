@@ -10,13 +10,18 @@
 // useEffect deps 不変で再実行されない) によるものだった。本実装は:
 //   1. bgmReady state を useEffect deps に含めて Howler ロード完了を待つ
 //   2. module-level Howl Ctor キャッシュで複数 useBgm 間共有
-//   3. 初回 user gesture を window で 1 回 listen → AudioContext unlock
-//   4. 切替時に旧 Howl を unload() で Web Audio buffer 解放 (メモリ蓄積防止)
-//   5. setBgmMuted で SFX mute (toggleMute) と連動可能
+//   3. 切替時に旧 Howl を unload() で Web Audio buffer 解放 (メモリ蓄積防止)
+//   4. setBgmMuted で SFX mute (toggleMute) と連動可能
+//
+// Issue #79 派生 (BGM スタートラグ解消):
+//   旧実装は明示的な user gesture を window で待ってから BGM 開始していたが、
+//   ホーム画面に着地してもクリックするまで BGM が鳴らないラグがあった。
+//   現在は Howler 内蔵の autoUnlock (default true) に任せ、マウントと同時に
+//   play() を呼ぶ。autoplay policy で blocked される環境でも Howler が次の
+//   user interaction で自動的に再生開始してくれる。
 
 import { useEffect, useState } from "react";
 
-import { prepareAudio } from "@/hooks/use-sound";
 import {
   getEffectiveBgmPath,
   useBgmOverrides,
@@ -66,29 +71,6 @@ let isMuted = false;
 // Issue #79 派生: 対局画面で「対局中ならループ、対局終了なら現在の loop で
 // 自然停止」を実現する。lobby BGM は永続 loop のため default true。
 let shouldLoopFlag = true;
-
-// 初回 user gesture を待つフラグ (Safari/iOS の autoplay policy 対策)
-let userGestureReceived = false;
-type PendingState = { key: BgmEventKey | null; path: string };
-let pendingState: PendingState | null = null;
-
-if (typeof window !== "undefined") {
-  const onFirstGesture = () => {
-    userGestureReceived = true;
-    void prepareAudio(); // AudioContext resume
-    if (pendingState !== null) {
-      const { key, path } = pendingState;
-      pendingState = null;
-      void startBgm(key, path);
-    }
-    window.removeEventListener("click", onFirstGesture);
-    window.removeEventListener("touchstart", onFirstGesture);
-    window.removeEventListener("keydown", onFirstGesture);
-  };
-  window.addEventListener("click", onFirstGesture, { once: true });
-  window.addEventListener("touchstart", onFirstGesture, { once: true });
-  window.addEventListener("keydown", onFirstGesture, { once: true });
-}
 
 async function startBgm(
   key: BgmEventKey | null,
@@ -230,11 +212,9 @@ export function useBgm(
     shouldLoopFlag = shouldLoop;
     const key = eventKey ?? null;
     const path = key ? getEffectiveBgmPath(key) : "";
-    if (!userGestureReceived) {
-      // gesture 前は pending に積んでおく、unlock 時に再生開始
-      pendingState = { key, path };
-      return;
-    }
+    // Howler の autoUnlock (default true) が autoplay policy を自動ハンドル
+    // するため、user gesture を明示的に待たずに即時 play() を試行する。
+    // 環境により blocked された場合も Howler が次の interaction で resume する。
     void startBgm(key, path);
     // ★ cleanup なし: ページ遷移時に音を切らない (次の useBgm 呼出で自動切替)
   }, [ready, eventKey, overrides, shouldLoop]);

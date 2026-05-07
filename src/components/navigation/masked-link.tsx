@@ -17,10 +17,11 @@
 
 import Link, { useLinkStatus } from "next/link";
 import { createPortal } from "react-dom";
-import { useEffect, useState, type ComponentProps, type ReactNode } from "react";
+import { useEffect, useState, type ComponentProps, type MouseEvent, type ReactNode } from "react";
 
 import { LoadingOverlay } from "@/components/loading-overlay";
 import { resolveLoadingStages } from "@/lib/loading-stages";
+import { playSfxOnce } from "@/hooks/use-sound";
 
 interface MaskedLinkProps extends ComponentProps<typeof Link> {
   // ローディング表示のスタイル。既定は "rich" (回転カード + プログレスバー + ステージ文言)。
@@ -104,6 +105,7 @@ export function MaskedLink({
   delayMs = 80,
   children,
   href,
+  onClick,
   ...linkProps
 }: MaskedLinkProps) {
   // rich モード用 stages の解決: 明示指定がなければ href から自動解決。
@@ -115,8 +117,17 @@ export function MaskedLink({
   // 既定文言は「ホームへ戻っています…」とする。
   const resolvedMessage = loadingMessage ?? "ホームへ戻っています...";
 
+  // Issue #79 派生: forward 遷移 (rich variant) のときだけ画面遷移 SFX を発火。
+  // spinner variant は "ホームへ戻る" 系の back navigation のため SFX は鳴らさない。
+  const handleClick = (e: MouseEvent<HTMLAnchorElement>) => {
+    if (loadingVariant === "rich") {
+      playSfxOnce("nav_forward");
+    }
+    onClick?.(e);
+  };
+
   return (
-    <Link href={href} {...linkProps}>
+    <Link href={href} {...linkProps} onClick={handleClick}>
       <MaskedLinkInner
         variant={loadingVariant}
         stages={resolvedStages}

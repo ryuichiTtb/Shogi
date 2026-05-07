@@ -26,6 +26,7 @@ import { DeckFlightLayer, type DeckFlightItem } from "./deck-flight-layer";
 import { CardDetailDialog } from "./card-detail-dialog";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import { LOADING_STAGES } from "@/lib/loading-stages";
+import { playSfxOnce } from "@/hooks/use-sound";
 
 interface DeckFlight extends DeckFlightItem {
   // 行先タイル (deck 側のとき) の identity。フライト中に重ねる元タイルを
@@ -154,6 +155,8 @@ export function DeckEditorPane({
       if (isPending) return;
       const info = ownership.get(cardId);
       if (!info) return;
+      // Issue #79 派生: デッキ編成のカード移動 SFX (default = piece-capture)
+      playSfxOnce("deck_card_move");
 
       // 追加可否を事前判定 (所持枚数 / レア度合計 / デッキ合計 の3壁)
       const currentEntry = entries.find((e) => e.cardId === cardId);
@@ -221,6 +224,8 @@ export function DeckEditorPane({
   const handleRemoveFromDeck = useCallback(
     (cardId: CardId, slotId: number, fromRect: DOMRect) => {
       if (isPending) return;
+      // Issue #79 派生: デッキ編成のカード移動 SFX (default = piece-capture)
+      playSfxOnce("deck_card_move");
       // 所持タイルは state 変更前後ともに DOM 上に存在するので先に測定。
       // フィルタにより該当カードが非表示の場合はタイルが存在しないので、
       // 所持パネル中央へのフォールバックを使う (適当な位置に飛ばすだけで OK)。

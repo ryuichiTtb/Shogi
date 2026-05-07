@@ -270,6 +270,8 @@ export function CardShogiGame({
   const { playSfx, toggleMute, isMuted, isReady } = useSound();
 
   const handlePlayAgain = useCallback(() => {
+    // Issue #79 派生: forward 遷移 SFX (新規対局画面へ router.push する forward 系)
+    playSfx("nav_forward");
     startTransition(async () => {
       const newGameId = await createGame(
         gameConfig.difficulty,
@@ -279,7 +281,7 @@ export function CardShogiGame({
       );
       router.push(`/game/${newGameId}`);
     });
-  }, [gameConfig.difficulty, gameConfig.playerColor, gameConfig.characterId, router]);
+  }, [gameConfig.difficulty, gameConfig.playerColor, gameConfig.characterId, router, playSfx]);
 
   const handleComment = useCallback((event: string) => {
     setCommentEvent(event as CommentaryEvent);

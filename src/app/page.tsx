@@ -15,6 +15,7 @@ import { LoadingOverlay } from "@/components/loading-overlay";
 import { resolveLoadingStages } from "@/lib/loading-stages";
 import { useAssetPreloader } from "@/hooks/use-asset-preloader";
 import { useBgm } from "@/hooks/use-bgm";
+import { playSfxOnce } from "@/hooks/use-sound";
 import { AppBackground } from "@/components/layout/app-background";
 import { PageMotion } from "@/components/layout/page-motion";
 import { CardShogiTiles } from "@/components/home/card-shogi-tiles";
@@ -35,6 +36,8 @@ export default function Home() {
 
   function navigateTo(href: string, customStages?: readonly string[]) {
     if (isPending) return;
+    // Issue #79 派生: forward 遷移 SFX (CTA / タイル共通)。
+    playSfxOnce("nav_forward");
     setPendingStages(customStages ?? resolveLoadingStages(href));
     router.push(href);
   }

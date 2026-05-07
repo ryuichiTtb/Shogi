@@ -52,6 +52,11 @@ export const SFX_FILES: Record<string, string> = {
   card_use_confirm: "/sounds/piece-capture.mp3",
   // 3) 使用演出発動 (中央 card flight) → 刀の素振り (シュピン)
   card_use_animation: "/sounds/音源/剣/刀の素振り1（シュピン）.mp3",
+  // ★ Issue #79 派生: UI 系
+  // デッキ編成のカード移動 (所持 ⇄ 編成) → 重みのある音
+  deck_card_move: "/sounds/piece-capture.mp3",
+  // 画面遷移ボタン (戻る以外) → 軽い駒移動音
+  nav_forward: "/sounds/piece-move.mp3",
 };
 
 // BGM (画面/状態別ループ再生される長尺素材)。

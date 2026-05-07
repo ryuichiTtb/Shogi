@@ -91,6 +91,8 @@ describe("sound-overrides parseStored (SFX)", () => {
       card_select: "/sounds/piece-move.mp3",
       card_use_confirm: "/sounds/piece-capture.mp3",
       card_use_animation: "/sounds/jump.mp3",
+      deck_card_move: "/sounds/piece-capture.mp3",
+      nav_forward: "/sounds/piece-move.mp3",
     };
     expect(parseStored(JSON.stringify(allValid))).toEqual(allValid);
   });
@@ -146,8 +148,8 @@ describe("isAllowedSoundPath", () => {
 });
 
 describe("SFX_EVENT_KEYS / BGM_EVENT_KEYS integrity", () => {
-  it("has 24 SFX events (21 base + card_select + card_use_confirm + card_use_animation)", () => {
-    expect(SFX_EVENT_KEYS.length).toBe(24);
+  it("has 26 SFX events (24 base + deck_card_move + nav_forward)", () => {
+    expect(SFX_EVENT_KEYS.length).toBe(26);
   });
 
   it("has 4 BGM events", () => {
