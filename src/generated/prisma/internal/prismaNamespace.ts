@@ -1221,6 +1221,7 @@ export const UserPreferenceScalarFieldEnum = {
   userId: 'userId',
   cardBackStyle: 'cardBackStyle',
   theme: 'theme',
+  boardLayout: 'boardLayout',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const

@@ -402,6 +402,11 @@ function applyTurnEndEffects(
   state: CardShogiGameStateInternal,
   player: Player,
 ): CardShogiGameStateInternal {
+  // Issue #170: 詰み・投了など対局終了後はドロー進捗加算と自動ドロー発火を行わない。
+  // 詰ます手で同時にしきい値到達した場合に詰み演出と自動ドロー演出が同時実行される
+  // のを防ぐ。終局後は進捗が動いても UI 上で意味がないため、ここで止めてよい。
+  if (state.gameState.status !== "active") return state;
+
   const current = state.cardState.drawProgress[player];
   const next = current + 1;
   const deck = state.cardState.deck[player];

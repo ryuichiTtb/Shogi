@@ -632,7 +632,24 @@ export function CardShogiGame({
                 setPlayFlight({ card: cardInstance, key: playFlightKeyRef.current, isTrap: false });
               }
             } else if (!pendingPlayFlightRef.current) {
-              // 駒フライト未発火 (= 駒移動なしカード) → 中央カード演出を即発火
+              // 駒フライト未発火 (= 駒移動なしカード or 二歩指し) → 中央カード演出を即発火
+              //
+              // Issue #173: 二歩指し (double_pawn) は moveCount を増やさないため
+              // moveCount useEffect 経由で王手 SFX/演出が発火しない。中央カード演出
+              // より前にここで発火する。
+              // 二手指し (double_move) は moveEvent と paired で moveCount が動くため
+              // moveCount useEffect 側で既に発火済み → effectId で gate して二重発火を回避。
+              if (def.effectId === "double_pawn") {
+                const opponentColor: Player =
+                  playerColor === "sente" ? "gote" : "sente";
+                if (
+                  gameState.status === "active" &&
+                  isInCheck(gameState, opponentColor, CARD_SHOGI_VARIANT)
+                ) {
+                  playSfx("check");
+                  setOverlayEvent({ event: "check", key: Date.now() });
+                }
+              }
               playFlightKeyRef.current += 1;
               setPlayFlight({ card: cardInstance, key: playFlightKeyRef.current, isTrap: false });
             }
@@ -801,12 +818,10 @@ export function CardShogiGame({
         let pieceType: string | null = null;
         let hideTarget: FlightHideTarget | null = null;
 
-        if (def.effectId === "double_pawn") {
-          fromRect = findVisibleCapturedPieceRect(playerColor, "pawn");
-          toRect = getBoardSquareRect(pos.row, pos.col);
-          pieceType = "pawn";
-          hideTarget = { kind: "board", row: pos.row, col: pos.col };
-        } else if (def.effectId === "pawn_return" || def.effectId === "piece_return") {
+        // Issue #173: 二歩指し (double_pawn) は駒フライトを行わず、通常の持駒打ちと
+        // 同じ動きにする (Framer Motion の layout アニメーション任せ)。
+        // pawn_return / piece_return は引き続きフライト演出 (盤上 → 持駒)。
+        if (def.effectId === "pawn_return" || def.effectId === "piece_return") {
           const piece = gameState.board[pos.row]?.[pos.col];
           if (piece) {
             fromRect = getBoardSquareRect(pos.row, pos.col);
@@ -913,8 +928,24 @@ export function CardShogiGame({
   // - cardPlayEvent エフェクト側で「駒フライト or 中央カード演出」のどちらを先に発火するか判断
   // - 駒移動を伴うカードは駒フライトのみ発火し、handlePieceFlightComplete で中央カード演出を予約発火
   // - 中央カード演出完了 (handlePlayFlightComplete) で finalize → COMMIT_PLAY_CARD
+  //
+  // Issue #173: 二歩指し等で相手玉が王手になるケースは、駒フライト完了直後・
+  // 中央カード演出開始前に王手演出を挟む。CONFIRM_PLAY_CARD 時点では
+  // currentPlayer 反転が COMMIT まで保留されるため、ここでは opponent 側を
+  // 直接判定する (gameState.currentPlayer はカード使用者本人)。
   const handlePieceFlightComplete = useCallback(() => {
     setPieceFlight(null);
+
+    const opponentColor: Player =
+      gameState.currentPlayer === "sente" ? "gote" : "sente";
+    if (
+      gameState.status === "active" &&
+      isInCheck(gameState, opponentColor, CARD_SHOGI_VARIANT)
+    ) {
+      playSfx("check");
+      setOverlayEvent({ event: "check", key: Date.now() });
+    }
+
     const pendingPlay = pendingPlayFlightRef.current;
     if (pendingPlay) {
       playFlightKeyRef.current += 1;
@@ -928,7 +959,7 @@ export function CardShogiGame({
       // 中央カード演出が予約されていない異常系: 直接 finalize
       finalizePlayCard();
     }
-  }, [finalizePlayCard]);
+  }, [finalizePlayCard, gameState, playSfx]);
 
   const handlePlayFlightComplete = useCallback(() => {
     setPlayFlight(null);
