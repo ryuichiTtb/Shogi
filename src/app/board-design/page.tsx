@@ -6,11 +6,15 @@
 
 import { ArrowLeft, Check } from "lucide-react";
 
-import { useBoardLayoutControls } from "@/components/board-layout/board-layout-provider";
+import {
+  useAllBoardLayoutsReady,
+  useBoardLayoutControls,
+} from "@/components/board-layout/board-layout-provider";
 import { BOARD_LAYOUTS } from "@/components/board-layout/options";
 import { MaskedLink } from "@/components/navigation/masked-link";
 import { AppBackground } from "@/components/layout/app-background";
 import { AuthControls } from "@/components/auth/auth-controls";
+import { LoadingOverlay } from "@/components/loading-overlay";
 import { cn } from "@/lib/utils";
 
 // 9x9 (n=9) のサムネイル盤面。実際の ShogiBoard と同じく、テクスチャ画像を盤全体で
@@ -80,6 +84,10 @@ function BoardThumbnail({ url, size }: BoardThumbnailProps) {
 
 export default function BoardDesignPage() {
   const { layout: currentLayout, setLayoutId } = useBoardLayoutControls();
+  // Issue #177: 木目テクスチャ画像 4 種すべてのロードが完了するまで一覧を非表示。
+  // BoardLayoutProvider 側で mount 時に一括先読みしているため、初回 visit でも
+  // ほぼ即時に true になる想定 (cold cache の遅延ぶんだけマスクが残る)。
+  const allReady = useAllBoardLayoutsReady();
 
   return (
     <main className="min-h-dvh pb-16">
@@ -106,8 +114,14 @@ export default function BoardDesignPage() {
         </div>
       </header>
 
-      <div className="max-w-3xl mx-auto px-4 py-6 w-full">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+      <div className="max-w-3xl mx-auto px-4 py-6 w-full relative min-h-[260px]">
+        {!allReady && <LoadingOverlay show card />}
+        <div
+          className={cn(
+            "grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 transition-opacity",
+            allReady ? "opacity-100" : "opacity-0",
+          )}
+        >
           {BOARD_LAYOUTS.map((layout) => {
             const selected = currentLayout.id === layout.id;
             return (
