@@ -155,31 +155,34 @@ export function DeckCardTile({
       data-card-id={cardId}
       data-instance-key={instanceKey ?? "single"}
       title={title}
+      // Issue #183: PC でもクリック長押しで詳細を表示できるよう、pointer event を
+      // 親 motion.div で一元的に listen する。pointer event は子 (mobile button /
+      // desktop CardView) から bubble するため、ブレークポイント別 (lg:hidden /
+      // hidden lg:block) の表示切替に関わらず両方で同じ長押しロジックが効く。
+      // user-select / callout 抑止も親で吸収して mobile / desktop 共通に適用。
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={cancelLongPress}
+      onPointerLeave={cancelLongPress}
+      onPointerCancel={cancelLongPress}
+      onContextMenu={(e) => e.preventDefault()}
+      style={{
+        WebkitUserSelect: "none",
+        WebkitTouchCallout: "none",
+        userSelect: "none",
+      }}
     >
       {/* モバイル: コンパクトタイル (cost + icon + name) + 長押し詳細
           注意: 0 枚カードでも長押しで詳細を見せたいので HTML disabled は
           付けず aria-disabled + 見た目だけ無効にする。click は handleClick
-          側で disabled 早期 return。pointerDown (long-press) は受け付ける。 */}
+          側で disabled 早期 return。長押し検出は親 motion.div 側に集約。 */}
       <button
         type="button"
         onClick={handleClick}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={cancelLongPress}
-        onPointerLeave={cancelLongPress}
-        onPointerCancel={cancelLongPress}
-        // 長押し時の text 選択 / iOS Safari の callout (コピー / 共有メニュー) /
-        // Android Chrome の context menu を抑止。
-        onContextMenu={(e) => e.preventDefault()}
         aria-disabled={disabled}
-        style={{
-          WebkitUserSelect: "none",
-          WebkitTouchCallout: "none",
-          userSelect: "none",
-        }}
         className={cn(
           "lg:hidden relative overflow-hidden w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md border-2",
-          "transition-all touch-manipulation select-none",
+          "transition-all touch-manipulation",
           // shine / 動的グラデ背景は relative overflow-hidden が前提。
           COMPACT_RARITY_CLASS[def.rarity],
           !disabled && "cursor-pointer active:scale-95",
