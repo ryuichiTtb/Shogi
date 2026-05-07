@@ -20,6 +20,7 @@ import { CardShogiHistory } from "./card-shogi-history";
 import { GameControls, GAME_CONTROLS_HEIGHT } from "../game-controls";
 import { PromotionDialog } from "../promotion-dialog";
 import { BoardOverlay, type OverlayEvent } from "../board-overlay";
+import { AiErrorModal } from "../ai-error-modal";
 import { CharacterPanel } from "@/components/character/character-panel";
 import { MobileDrawer } from "../mobile-drawer";
 import { ThemeSelector } from "../theme-selector";
@@ -310,6 +311,8 @@ export function CardShogiGame({
     doubleMove,
     undoDoubleMoveFirst,
     cancelDoubleMove,
+    aiError,
+    retryAiMove,
   } = useCardShogiGame({
     initialState: initialGameState,
     initialCardState,
@@ -2011,6 +2014,12 @@ export function CardShogiGame({
         card
         progress
         stages={LOADING_STAGES.matchRestart}
+      />
+      {/* Issue #176: AI 思考が連続失敗した場合のリカバリ UI */}
+      <AiErrorModal
+        open={aiError !== null}
+        onRetry={retryAiMove}
+        onResign={resign}
       />
     </div>
   );

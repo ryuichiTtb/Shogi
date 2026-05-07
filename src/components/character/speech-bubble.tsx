@@ -10,33 +10,29 @@ interface SpeechBubbleProps {
 }
 
 export function SpeechBubble({ text, isVisible, className }: SpeechBubbleProps) {
-  const [displayText, setDisplayText] = useState("");
   const [charIndex, setCharIndex] = useState(0);
 
-  // タイプライター効果
+  // text / isVisible 変化時に charIndex を 0 にリセット。
+  // 依存配列ベースなので変化時のみ 1 回 setState され cascading にはならない。
   useEffect(() => {
-    if (!isVisible || !text) {
-      setDisplayText("");
-      setCharIndex(0);
-      return;
-    }
-
-    setDisplayText("");
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCharIndex(0);
   }, [text, isVisible]);
 
+  // タイプライター効果: 30ms ごとに 1 文字進める。
   useEffect(() => {
-    if (!isVisible || charIndex >= text.length) return;
+    if (!isVisible || !text || charIndex >= text.length) return;
 
     const timer = setTimeout(() => {
-      setDisplayText(text.slice(0, charIndex + 1));
-      setCharIndex(charIndex + 1);
+      setCharIndex((prev) => prev + 1);
     }, 30);
 
     return () => clearTimeout(timer);
   }, [charIndex, text, isVisible]);
 
   if (!isVisible || !text) return null;
+
+  const displayText = text.slice(0, charIndex);
 
   return (
     <div

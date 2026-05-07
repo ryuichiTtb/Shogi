@@ -1,6 +1,6 @@
 "use client";
 
-import { useReducer, useCallback, useEffect, useRef } from "react";
+import { useReducer, useCallback, useEffect, useRef, useState } from "react";
 import type {
   Difficulty,
   GameConfig,
@@ -24,8 +24,8 @@ import {
 import { evaluateGameEnd } from "@/lib/shogi/rules";
 import { moveToNotation } from "@/lib/shogi/notation";
 import { STANDARD_VARIANT } from "@/lib/shogi/variants/standard";
-import { getAiMove } from "@/app/actions/ai";
 import { saveMove, saveResign } from "@/app/actions/game";
+import { useAiRequest, type AiRequestError } from "@/hooks/ai/use-ai-request";
 
 type GameAction =
   | { type: "SELECT_SQUARE"; pos: Position }
@@ -268,6 +268,19 @@ export function useShogiGame({
 
   const aiPlayer: Player = gameConfig.playerColor === "sente" ? "gote" : "sente";
 
+  // Issue #176: AI 思考リクエストを Route Handler 経由に統一する。
+  // - 連続失敗時は aiError をセットして UI でモーダル表示
+  // - retry trigger は aiRetryCounter で effect 再走させる
+  const [aiError, setAiError] = useState<AiRequestError | null>(null);
+  const [aiRetryCounter, setAiRetryCounter] = useState(0);
+  const handleAiError = useCallback((err: AiRequestError) => {
+    setAiError(err);
+    dispatch({ type: "SET_AI_THINKING", thinking: false });
+  }, []);
+  const { requestMove: aiRequestMove, cancel: cancelAiRequest } = useAiRequest({
+    onError: handleAiError,
+  });
+
   // AI自動応手
   useEffect(() => {
     const { gameState } = state;
@@ -281,31 +294,56 @@ export function useShogiGame({
 
     dispatch({ type: "SET_AI_THINKING", thinking: true });
 
-    getAiMove({
-      gameState,
-      player: aiPlayer,
-      difficulty: gameConfig.difficulty,
-      variantId: gameConfig.variant.id,
-    }).then((move) => {
+    void (async () => {
+      const result = await aiRequestMove({
+        gameId,
+        gameState,
+        player: aiPlayer,
+        difficulty: gameConfig.difficulty,
+        variantId: gameConfig.variant.id,
+        clientMoveCount: gameState.moveCount,
+      });
+      if (result.stale) {
+        // 待った / 終局 / unmount / 上書きで stale 化、あるいは onError で
+        // 既に setAiError 済み。ここでは isAiThinking のクリーンアップのみ。
+        // aiError がセットされていない場合は単純に終局済 / cancel 経由。
+        dispatch({ type: "SET_AI_THINKING", thinking: false });
+        return;
+      }
+      const move = result.response.move;
       if (!move) {
         dispatch({ type: "SET_AI_THINKING", thinking: false });
         return;
       }
+      // Issue #176: 旧実装にあった固定 500ms 待ちを撤廃。Route Handler 化により
+      // AI 応答が独立したため、追加待機は体感を悪化させるだけ。
+      dispatch({ type: "MAKE_MOVE", move });
+      dispatch({ type: "SET_AI_THINKING", thinking: false });
+      const nextState = applyMove(gameState, move);
+      const notation = moveToNotation(move, gameState.moveHistory.slice(-1)[0]?.to);
+      moveCountRef.current = nextState.moveCount;
+      // Issue #117 / #176: saveMove の失敗を unhandled rejection にしない。
+      saveMove(gameId, move, nextState, notation, nextState.moveCount).catch((err) => {
+        console.error("[use-shogi-game] saveMove (AI) failed", err);
+      });
+      onComment?.("ai_move");
+    })();
+    // aiRetryCounter を deps に含め、retry callback で effect を再走させる。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.gameState.currentPlayer, state.gameState.status, aiRetryCounter]);
 
-      // 少し遅延（思考中感）
-      setTimeout(() => {
-        dispatch({ type: "MAKE_MOVE", move });
-        dispatch({ type: "SET_AI_THINKING", thinking: false });
+  // unmount / 終局時に in-flight を必ず止める
+  useEffect(() => {
+    if (state.gameState.status !== "active") {
+      cancelAiRequest();
+    }
+  }, [state.gameState.status, cancelAiRequest]);
 
-        // DB保存
-        const nextState = applyMove(gameState, move);
-        const notation = moveToNotation(move, gameState.moveHistory.slice(-1)[0]?.to);
-        moveCountRef.current = nextState.moveCount;
-        saveMove(gameId, move, nextState, notation, nextState.moveCount);
-        onComment?.("ai_move");
-      }, 500);
-    });
-  }, [state.gameState.currentPlayer, state.gameState.status]);
+  const dismissAiError = useCallback(() => setAiError(null), []);
+  const retryAiMove = useCallback(() => {
+    setAiError(null);
+    setAiRetryCounter((c) => c + 1);
+  }, []);
 
   // プレイヤーの手を指す
   const makePlayerMove = useCallback(
@@ -314,7 +352,10 @@ export function useShogiGame({
 
       const nextState = applyMove(state.gameState, move);
       const notation = moveToNotation(move, state.gameState.moveHistory.slice(-1)[0]?.to);
-      saveMove(gameId, move, nextState, notation, nextState.moveCount);
+      // Issue #117 / #176: プレイヤー側の saveMove も unhandled rejection を防ぐ。
+      saveMove(gameId, move, nextState, notation, nextState.moveCount).catch((err) => {
+        console.error("[use-shogi-game] saveMove (player) failed", err);
+      });
 
       if (move.captured && ["rook", "bishop", "promoted_rook", "promoted_bishop"].includes(move.captured)) {
         onComment?.("capture_major");
@@ -457,6 +498,7 @@ export function useShogiGame({
     legalMoves: state.legalMoves,
     isAiThinking: state.isAiThinking,
     promotionPendingMove: state.promotionPendingMove,
+    aiError,
     selectSquare,
     selectHandPiece,
     confirmPromotion,
@@ -464,5 +506,7 @@ export function useShogiGame({
     resign,
     undo,
     deselect,
+    dismissAiError,
+    retryAiMove,
   };
 }
