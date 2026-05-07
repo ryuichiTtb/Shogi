@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -35,6 +35,13 @@ function computeDialogInnerWidth(vw: number): number {
 
 // 本文スクロール領域のため詳細カードはヘッダに固定。縦幅を抑えるための係数。
 const CARD_HEIGHT_FACTOR = 0.85;
+
+// Issue #183: 長押し → ダイアログ open → ユーザーが指/マウスを離した瞬間、
+// 押下位置が overlay 上だった場合に Base UI Dialog の outside-press 検出が
+// 反応してダイアログが即閉じてしまう。これを防ぐため、open 直後はこの時間内
+// の outside-press 由来 close を無視する。close ボタン / Escape / focus-out
+// は通常通り即閉じる (理由を区別して cancel するため)。
+const OUTSIDE_DISMISS_GRACE_MS = 500;
 
 // xl カード (576×352) を Dialog 内側幅に合わせて transform: scale で縮小する。
 // container 測定 (clientWidth) は grid auto-track の挙動でうまく行かない
@@ -95,25 +102,49 @@ export function CardDetailDialog({ cardId, onClose }: CardDetailDialogProps) {
   // 長押し終端で指が dialog 内テキスト上にあると、ブラウザの「単語選択」が
   // 走ってしまうため。300ms 後に解除して通常のテキスト選択 / コピーは可。
   const [selectable, setSelectable] = useState(false);
+  // Issue #183: open 直後 OUTSIDE_DISMISS_GRACE_MS 中の outside-press 由来
+  // close を無視するためのフラグ。state ではなく ref にしているのは
+  // onOpenChange callback が closure で古い値を掴むのを避けるため。
+  const dismissAllowedRef = useRef(false);
+
   useEffect(() => {
     if (cardId === null) {
       setSelectable(false);
+      dismissAllowedRef.current = false;
       return;
     }
     setSelectable(false);
+    dismissAllowedRef.current = false;
     // open 起点の意図しない範囲選択をクリア
     if (typeof window !== "undefined") {
       window.getSelection()?.removeAllRanges();
     }
-    const t = window.setTimeout(() => setSelectable(true), 300);
-    return () => window.clearTimeout(t);
+    const tSel = window.setTimeout(() => setSelectable(true), 300);
+    const tDismiss = window.setTimeout(() => {
+      dismissAllowedRef.current = true;
+    }, OUTSIDE_DISMISS_GRACE_MS);
+    return () => {
+      window.clearTimeout(tSel);
+      window.clearTimeout(tDismiss);
+    };
   }, [cardId]);
 
   return (
     <Dialog
       open={cardId !== null}
-      onOpenChange={(o) => {
-        if (!o) onClose();
+      onOpenChange={(o, details) => {
+        if (o) return;
+        // 長押し終端で発生する outside-press のみ grace 中は無視する。
+        // close ボタン (close-press) / Escape (escape-key) / focus-out
+        // 等は通常通り即閉じる。
+        if (
+          details.reason === "outside-press" &&
+          !dismissAllowedRef.current
+        ) {
+          details.cancel();
+          return;
+        }
+        onClose();
       }}
     >
       <DialogContent
