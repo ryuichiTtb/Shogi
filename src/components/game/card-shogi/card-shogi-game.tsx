@@ -346,7 +346,6 @@ export function CardShogiGame({
   // 安全)。詳細は shogi-game.tsx のコメント参照。
   const lastMoveCountRef = useRef(gameState.moveCount);
   const lastStatusRef = useRef(gameState.status);
-  const lastIsPlayingCardRef = useRef(isPlayingCard);
   const gameStartFiredRef = useRef(false);
 
   useEffect(() => {
@@ -366,10 +365,7 @@ export function CardShogiGame({
     } else {
       playSfx("piece_move");
     }
-    // 二手指し 2手目のように、MAKE_MOVE 完了時点で isPlayingCard=true (カード演出待ち)
-    // のケースは、ここで王手 SFX を鳴らすと下の card-commit effect と二重発火するので
-    // スキップ。COMMIT_PLAY_CARD 後 (isPlayingCard=false) のタイミングで発火させる。
-    if (displayInCheck && !isPlayingCard) {
+    if (displayInCheck) {
       playSfx("check");
       setOverlayEvent({ event: "check", key: Date.now() });
     }
@@ -379,22 +375,6 @@ export function CardShogiGame({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState.moveCount]);
-
-  // Issue #173: 二歩指し等、moveCount を増やさず盤面を変えるカード使用で
-  // 王手になったケースの王手演出。COMMIT_PLAY_CARD 完了 (= isPlayingCard true→false)
-  // のタイミングで displayInCheck を評価し、必要なら発火する。
-  // 二手指しの 2手目で isPlayingCard が true→false 遷移するパスにも乗るが、
-  // 上の moveCount effect 側で `!isPlayingCard` ガードを入れているため二重発火しない。
-  useEffect(() => {
-    const wasPlaying = lastIsPlayingCardRef.current;
-    lastIsPlayingCardRef.current = isPlayingCard;
-    if (!wasPlaying || isPlayingCard) return;
-    if (displayInCheck) {
-      playSfx("check");
-      setOverlayEvent({ event: "check", key: Date.now() });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPlayingCard]);
 
   useEffect(() => {
     if (lastStatusRef.current === gameState.status) return;
@@ -903,8 +883,24 @@ export function CardShogiGame({
   // - cardPlayEvent エフェクト側で「駒フライト or 中央カード演出」のどちらを先に発火するか判断
   // - 駒移動を伴うカードは駒フライトのみ発火し、handlePieceFlightComplete で中央カード演出を予約発火
   // - 中央カード演出完了 (handlePlayFlightComplete) で finalize → COMMIT_PLAY_CARD
+  //
+  // Issue #173: 二歩指し等で相手玉が王手になるケースは、駒フライト完了直後・
+  // 中央カード演出開始前に王手演出を挟む。CONFIRM_PLAY_CARD 時点では
+  // currentPlayer 反転が COMMIT まで保留されるため、ここでは opponent 側を
+  // 直接判定する (gameState.currentPlayer はカード使用者本人)。
   const handlePieceFlightComplete = useCallback(() => {
     setPieceFlight(null);
+
+    const opponentColor: Player =
+      gameState.currentPlayer === "sente" ? "gote" : "sente";
+    if (
+      gameState.status === "active" &&
+      isInCheck(gameState, opponentColor, CARD_SHOGI_VARIANT)
+    ) {
+      playSfx("check");
+      setOverlayEvent({ event: "check", key: Date.now() });
+    }
+
     const pendingPlay = pendingPlayFlightRef.current;
     if (pendingPlay) {
       playFlightKeyRef.current += 1;
@@ -918,7 +914,7 @@ export function CardShogiGame({
       // 中央カード演出が予約されていない異常系: 直接 finalize
       finalizePlayCard();
     }
-  }, [finalizePlayCard]);
+  }, [finalizePlayCard, gameState, playSfx]);
 
   const handlePlayFlightComplete = useCallback(() => {
     setPlayFlight(null);
