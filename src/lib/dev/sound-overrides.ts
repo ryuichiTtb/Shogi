@@ -49,7 +49,9 @@ export type SfxEventKey =
   | "deck_card_move"
   | "deck_save"
   | "nav_forward"
-  | "nav_back";
+  | "nav_back"
+  // ★ Issue #187: デッキ編成 カード長押しで詳細ダイアログ open
+  | "deck_card_detail_open";
 
 export const SFX_EVENT_KEYS: readonly SfxEventKey[] = [
   // 駒系
@@ -81,6 +83,7 @@ export const SFX_EVENT_KEYS: readonly SfxEventKey[] = [
   "trap_trigger",
   // UI 系 (デッキ編成 / 画面遷移)
   "deck_card_move",
+  "deck_card_detail_open",
   "deck_save",
   "nav_forward",
   "nav_back",
@@ -113,6 +116,7 @@ export const SFX_EVENT_LABELS: Record<SfxEventKey, string> = {
   card_use_confirm: "カード使用確定 (使用ボタン押下)",
   card_use_animation: "カード使用演出 (中央演出開始)",
   deck_card_move: "デッキ編成 カード移動",
+  deck_card_detail_open: "デッキ編成 カード詳細表示 (長押し)",
   deck_save: "デッキ編成 保存ボタン",
   nav_forward: "画面遷移 (戻る以外のボタン)",
   nav_back: "画面遷移 (戻る系ボタン)",

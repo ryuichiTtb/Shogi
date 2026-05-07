@@ -75,6 +75,8 @@ export function DeckEditorPane({
   // 長押しで開くカード詳細 dialog。null=非表示。
   const [detailCardId, setDetailCardId] = useState<CardId | null>(null);
   const handleLongPressDetail = useCallback((cardId: CardId) => {
+    // Issue #187: デッキ編成 カード長押し詳細表示 SFX (default = カードをめくる)
+    playSfxOnce("deck_card_detail_open");
     setDetailCardId(cardId);
   }, []);
 
