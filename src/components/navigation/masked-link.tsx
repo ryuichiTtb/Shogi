@@ -117,10 +117,13 @@ export function MaskedLink({
   // 既定文言は「ホームへ戻っています…」とする。
   const resolvedMessage = loadingMessage ?? "ホームへ戻っています...";
 
-  // Issue #79 派生: forward 遷移 (rich variant) のときだけ画面遷移 SFX を発火。
-  // spinner variant は "ホームへ戻る" 系の back navigation のため SFX は鳴らさない。
+  // Issue #79 派生: 画面遷移 SFX
+  // - rich variant (= forward navigation): nav_forward
+  // - spinner variant (= back navigation, ホームへ戻る等): nav_back
   const handleClick = (e: MouseEvent<HTMLAnchorElement>) => {
-    if (loadingVariant === "rich") {
+    if (loadingVariant === "spinner") {
+      playSfxOnce("nav_back");
+    } else {
       playSfxOnce("nav_forward");
     }
     onClick?.(e);

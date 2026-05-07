@@ -175,9 +175,22 @@ async function startBgm(
     },
     onend: () => {
       // 既に新しい Howl に交代済 (= startBgm 呼出による fade out 中) なら無視。
-      // loop:true 中は Howler 内部で自動 loop され、onend は呼ばれない。
-      // shouldLoop=false に切替えた後の最終 end でここに到達 → 自然停止。
       if (currentHowl !== next) return;
+      // 安全網: Howler の html5: true + loop: true 組合せは一部ブラウザで
+      // HTMLAudioElement.loop が機能せず onend が誤発火するケースがある。
+      // shouldLoopFlag を確認して、true なら手動で stop+play 再開する
+      // (stop() 経由なので Howler の inactive プールに sound ID が解放され、
+      // 連続呼出してもプール枯渇は起きない)。
+      if (shouldLoopFlag) {
+        try {
+          next.stop();
+          next.play();
+        } catch {
+          // 万一例外 → 自然停止フローに落とす
+        }
+        return;
+      }
+      // shouldLoop=false (対局終了等) → 自然停止
       try {
         next.unload();
       } catch {

@@ -102,6 +102,8 @@ export function DeckEditorPane({
   }, [entries, deck.entries]);
 
   function handleSave() {
+    // Issue #79 派生: デッキ編成 保存ボタン SFX (default = 小鼓)
+    playSfxOnce("deck_save");
     setActionError(null);
     startTransition(async () => {
       try {
