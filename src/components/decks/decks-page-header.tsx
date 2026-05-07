@@ -23,7 +23,6 @@ export function DecksPageHeader({ homeDisabled = false }: DecksPageHeaderProps) 
           href="/"
           aria-label="ホームへ戻る"
           aria-disabled={homeDisabled || undefined}
-          loadingMessage="ホームへ戻っています..."
           // disabled 状態のとき onClick を吸収して遷移を止める。
           // <a> 要素は HTML 仕様上 disabled 属性を持たないため、
           // pointer-events:none + onClick preventDefault で代替する。

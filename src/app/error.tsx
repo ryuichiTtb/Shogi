@@ -38,7 +38,7 @@ export default function GlobalError({
             <RefreshCw className="w-4 h-4 mr-1.5" />
             再試行
           </Button>
-          <MaskedLink href="/" loadingMessage="ホームへ戻っています...">
+          <MaskedLink href="/">
             <Button variant="outline">
               <Home className="w-4 h-4 mr-1.5" />
               ホームへ

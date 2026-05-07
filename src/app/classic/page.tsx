@@ -24,7 +24,6 @@ export default function ClassicPage() {
               href="/"
               className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
               aria-label="ホームへ戻る"
-              loadingMessage="ホームへ戻っています..."
             >
               <ArrowLeft className="w-4 h-4" />
               ホーム
@@ -45,7 +44,6 @@ export default function ClassicPage() {
           <MaskedLink
             href="/history"
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-            loadingMessage="対局履歴を読み込み中..."
           >
             <History className="w-4 h-4" />
             対局履歴を見る
