@@ -8,6 +8,7 @@ import { createPortal } from "react-dom";
 
 import { Button } from "@/components/ui/button";
 import { LoadingOverlay } from "@/components/loading-overlay";
+import { LOADING_STAGES } from "@/lib/loading-stages";
 
 // Issue #150: ログイン後の戻り先を「現在のページ」にするため、相対パス + 検索クエリを
 // next にエンコードして /auth/complete?next=... として渡す。
@@ -151,7 +152,13 @@ function SignInButtonWithMask({ completeUrl }: { completeUrl: string }) {
       {mounted &&
         typeof document !== "undefined" &&
         createPortal(
-          <LoadingOverlay show={isSigningIn} fullScreen message="ログイン画面へ移動中..." />,
+          <LoadingOverlay
+            show={isSigningIn}
+            fullScreen
+            card
+            progress
+            stages={LOADING_STAGES.signIn}
+          />,
           document.body,
         )}
     </>

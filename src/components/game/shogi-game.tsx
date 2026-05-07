@@ -28,6 +28,7 @@ import type { CommentaryEvent } from "@/app/actions/commentary";
 import { createGame } from "@/app/actions/game";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import { MaskedLink } from "@/components/navigation/masked-link";
+import { LOADING_STAGES } from "@/lib/loading-stages";
 import { useRouter } from "next/navigation";
 
 // Server→Client props に関数を含められないため、シリアライズ可能な型を定義
@@ -304,7 +305,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
                 {gameResultText(gameState.status, gameState.winner)}
               </p>
               <div className="flex gap-2 justify-center">
-                <MaskedLink href="/classic" loadingMessage="ホームへ戻っています...">
+                <MaskedLink href="/classic">
                   <Button size="sm" variant="outline">
                     ホームへ
                   </Button>
@@ -343,8 +344,15 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
       />
     </div>
     {/* Issue #163: 「もう一局」(=createGame Server Action 後 router.push) 中のローディングマスク。
-        PC/モバイル両方の同 isPending を共有しているため Overlay 1 つで両ボタンをカバー。 */}
-    <LoadingOverlay show={isPending} fullScreen message="次の対局を準備中..." />
+        PC/モバイル両方の同 isPending を共有しているため Overlay 1 つで両ボタンをカバー。
+        ビジュアルは他のリッチローディング (回転カード + プログレスバー + ステージ文言) に統一。 */}
+    <LoadingOverlay
+      show={isPending}
+      fullScreen
+      card
+      progress
+      stages={LOADING_STAGES.matchRestart}
+    />
     </>
   );
 }
