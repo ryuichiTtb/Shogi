@@ -89,7 +89,8 @@ export default function BoardDesignPage() {
           <MaskedLink
             href="/"
             className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
-            aria-label="ホームに戻る"
+            aria-label="ホームへ戻る"
+            loadingVariant="spinner"
           >
             <ArrowLeft className="w-4 h-4" />
             ホーム
