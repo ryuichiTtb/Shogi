@@ -9,8 +9,12 @@
 //   1024 node ごとに抑える。abort signal は同期チェックなので毎回見て良い
 // - 停止後の探索結果は TT / killer / history に保存しない (上位で「未完了 depth は
 //   採用しない」を実現するため、ノイズ書き戻しを避ける必要がある)
+// - TT / killer / history はすべて per-request にする (Stage C)。Vercel の同一 Node
+//   プロセスで複数 user が同時に AI 思考をトリガしたとき、相互上書き / 非決定性 /
+//   メモリ膨張を避けるため
 
 import type { Move } from "../types";
+import { TranspositionTable } from "./transpositionTable";
 
 export const MAX_DEPTH = 64;
 
@@ -34,7 +38,8 @@ export interface SearchContext {
   stoppedBy: StopReason;      // 停止理由
   depthCompleted: number;     // root で完全に終わった最大 depth
   signal?: AbortSignal;       // client abort 用
-  // per-request 探索状態 (Stage C で globalTT 等から移行)
+  // per-request 探索状態 (Stage C: globalTT 等を ctx 配下へ移行)
+  tt: TranspositionTable;
   killerMoves: (Move | null)[][];
   historyTable: number[][];
 }
@@ -54,6 +59,7 @@ export function createSearchContext(opts: CreateSearchContextOptions): SearchCon
     stoppedBy: "none",
     depthCompleted: 0,
     signal: opts.signal,
+    tt: new TranspositionTable(),
     killerMoves: Array.from({ length: MAX_DEPTH }, () => [null, null] as [Move | null, Move | null]),
     historyTable: Array.from({ length: 81 }, () => new Array<number>(81).fill(0)),
   };

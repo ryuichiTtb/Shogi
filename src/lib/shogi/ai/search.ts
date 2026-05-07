@@ -3,7 +3,6 @@ import { STANDARD_VARIANT } from "../variants/standard";
 import { getFullLegalMoves, isInCheck } from "../moves";
 import { applyMoveForSearch } from "../board";
 import { evaluate, scoreMoveForOrdering } from "./evaluate";
-import { TranspositionTable } from "./transpositionTable";
 import {
   computeHash,
   PIECE_KEYS, PIECE_KEYS_HI,
@@ -32,27 +31,9 @@ interface SearchOptions {
   nearEqualThreshold: number; // 接戦時ランダム選択の閾値（cp）
 }
 
-// TT: モジュールレベルのシングルトン（手番間で再利用）
-const globalTT = new TranspositionTable();
-
-// キラームーブ: 深さごとに2手保存
-const killerMoves: (Move | null)[][] = Array.from({ length: MAX_DEPTH }, () => [null, null]);
-
-// ヒストリーテーブル: history[from_index][to_index]
-const historyTable: number[][] = Array.from({ length: 81 }, () => new Array(81).fill(0));
-
-// ヒストリーテーブルをリセット
-function resetSearchTables(): void {
-  for (let i = 0; i < MAX_DEPTH; i++) {
-    killerMoves[i][0] = null;
-    killerMoves[i][1] = null;
-  }
-  for (let i = 0; i < 81; i++) {
-    for (let j = 0; j < 81; j++) {
-      historyTable[i][j] = 0;
-    }
-  }
-}
+// Issue #176 Stage C: globalTT / killerMoves / historyTable はモジュールスコープ
+// から削除し、SearchContext (per-request) 配下の ctx.tt / ctx.killerMoves /
+// ctx.historyTable を使う。複数 AI request が同時に走っても探索状態が混線しない。
 
 // 手のインデックス（ヒストリー用）
 function moveFromIndex(move: Move): number {
@@ -64,25 +45,25 @@ function moveToIndex(move: Move): number {
   return move.to.row * 9 + move.to.col;
 }
 
-// キラームーブかどうか
-function isKillerMove(move: Move, ply: number): boolean {
+// キラームーブかどうか (ctx.killerMoves から読む)
+function isKillerMove(move: Move, ply: number, ctx: SearchContext): boolean {
   if (ply >= MAX_DEPTH) return false;
-  const k0 = killerMoves[ply][0];
-  const k1 = killerMoves[ply][1];
+  const k0 = ctx.killerMoves[ply][0];
+  const k1 = ctx.killerMoves[ply][1];
   return (
     (k0 !== null && movesEqual(move, k0)) ||
     (k1 !== null && movesEqual(move, k1))
   );
 }
 
-// キラームーブを更新
-function updateKillerMove(move: Move, ply: number): void {
+// キラームーブを更新 (ctx.killerMoves に書く)
+function updateKillerMove(move: Move, ply: number, ctx: SearchContext): void {
   if (ply >= MAX_DEPTH) return;
   if (move.captured) return;
-  const k0 = killerMoves[ply][0];
+  const k0 = ctx.killerMoves[ply][0];
   if (k0 === null || !movesEqual(move, k0)) {
-    killerMoves[ply][1] = killerMoves[ply][0];
-    killerMoves[ply][0] = move;
+    ctx.killerMoves[ply][1] = ctx.killerMoves[ply][0];
+    ctx.killerMoves[ply][0] = move;
   }
 }
 
@@ -199,11 +180,12 @@ const ORDER_PIECE_VALUES: Record<string, number> = {
   promoted_rook: 1300, king: 10000,
 };
 
-// 手の順序付けスコア
+// 手の順序付けスコア (ctx.killerMoves / ctx.historyTable を参照)
 function scoreMove(
   move: Move,
   ttMove: Move | null,
-  ply: number
+  ply: number,
+  ctx: SearchContext
 ): number {
   // TT手は最優先
   if (ttMove !== null && movesEqual(move, ttMove)) return 1000000;
@@ -217,16 +199,16 @@ function scoreMove(
   if (move.promote) return 50000;
 
   // キラームーブ
-  if (isKillerMove(move, ply)) return 10000;
+  if (isKillerMove(move, ply, ctx)) return 10000;
 
   // ヒストリーヒューリスティック
   const fromIdx = moveFromIndex(move);
   const toIdx = moveToIndex(move);
-  return historyTable[fromIdx][toIdx];
+  return ctx.historyTable[fromIdx][toIdx];
 }
 
 // 静止探索（取り駒 + 成り手 + 王手回避）。
-// Issue #176: deadline / abort 貫通のため SearchContext を受け取る。
+// Issue #176: deadline / abort / per-request TT は SearchContext を経由する。
 // 停止後の score は上位で破棄されるが、念のため早期 return で探索爆発を抑える。
 function quiescence(
   state: GameState,
@@ -234,7 +216,6 @@ function quiescence(
   beta: number,
   player: Player,
   variant: RuleVariant,
-  tt: TranspositionTable,
   hash: ZobristHash,
   qDepth: number,
   ctx: SearchContext
@@ -264,7 +245,7 @@ function quiescence(
       if (shouldStop(ctx)) return 0;
       const nextState = applyMoveForSearch(state, move);
       const nextHash = updateHash(hash, state, move, nextState);
-      const score = -quiescence(nextState, -beta, -alpha, opponent, variant, tt, nextHash, qDepth + 1, ctx);
+      const score = -quiescence(nextState, -beta, -alpha, opponent, variant, nextHash, qDepth + 1, ctx);
 
       if (score > bestScore) bestScore = score;
       if (score > alpha) alpha = score;
@@ -291,7 +272,7 @@ function quiescence(
 
     const nextState = applyMoveForSearch(state, move);
     const nextHash = updateHash(hash, state, move, nextState);
-    const score = -quiescence(nextState, -beta, -currentAlpha, opponent, variant, tt, nextHash, qDepth + 1, ctx);
+    const score = -quiescence(nextState, -beta, -currentAlpha, opponent, variant, nextHash, qDepth + 1, ctx);
 
     if (score >= beta) return beta;
     if (score > currentAlpha) currentAlpha = score;
@@ -303,7 +284,7 @@ function quiescence(
     if (shouldStop(ctx)) return 0;
     const nextState = applyMoveForSearch(state, move);
     const nextHash = updateHash(hash, state, move, nextState);
-    const score = -quiescence(nextState, -beta, -currentAlpha, opponent, variant, tt, nextHash, qDepth + 1, ctx);
+    const score = -quiescence(nextState, -beta, -currentAlpha, opponent, variant, nextHash, qDepth + 1, ctx);
 
     if (score >= beta) return beta;
     if (score > currentAlpha) currentAlpha = score;
@@ -313,7 +294,7 @@ function quiescence(
 }
 
 // Negamax with alpha-beta, TT, null-move pruning, LMR, PVS, futility, killers, history
-// Issue #176: deadline / abort 貫通のため SearchContext を受け取る。
+// Issue #176: deadline / abort / per-request TT は SearchContext を経由する。
 function negamax(
   state: GameState,
   depth: number,
@@ -321,7 +302,6 @@ function negamax(
   beta: number,
   player: Player,
   variant: RuleVariant,
-  tt: TranspositionTable,
   hash: ZobristHash,
   ply: number,
   isNullMoveAllowed: boolean,
@@ -330,7 +310,8 @@ function negamax(
   ctx.nodes++;
   if (shouldStop(ctx)) return 0;
 
-  // TT probe (dual hash)
+  // TT probe (dual hash) — per-request TT
+  const tt = ctx.tt;
   const ttEntry = tt.probe(hash.lo, hash.hi);
   let ttMove: Move | null = null;
   if (ttEntry && ttEntry.depth >= depth) {
@@ -351,7 +332,7 @@ function negamax(
 
   // Quiescence search at depth 0
   if (depth <= 0) {
-    return quiescence(state, alpha, beta, player, variant, tt, hash, 0, ctx);
+    return quiescence(state, alpha, beta, player, variant, hash, 0, ctx);
   }
 
   // 合法手生成
@@ -389,7 +370,6 @@ function negamax(
       -beta + 1,
       opponent,
       variant,
-      tt,
       nullHash,
       ply + 1,
       false,
@@ -405,7 +385,7 @@ function negamax(
 
   // 手の順序付け
   const sortedMoves = [...moves].sort(
-    (a, b) => scoreMove(b, ttMove, ply) - scoreMove(a, ttMove, ply)
+    (a, b) => scoreMove(b, ttMove, ply, ctx) - scoreMove(a, ttMove, ply, ctx)
   );
 
   let maxScore = NEG_INF;
@@ -416,7 +396,7 @@ function negamax(
     const move = sortedMoves[i];
     const isCapture = move.captured !== undefined;
     const isPromotion = move.promote === true;
-    const isKiller = isKillerMove(move, ply);
+    const isKiller = isKillerMove(move, ply, ctx);
 
     // Futility Pruning（depth 1-2で非戦術手をスキップ、王手中は除外���
     if (depth <= 2 && !isCapture && !isPromotion && !inCheck && i > 0) {
@@ -441,7 +421,6 @@ function negamax(
         -alpha,
         opponent,
         variant,
-        tt,
         nextHash,
         ply + 1,
         true,
@@ -462,7 +441,6 @@ function negamax(
         -alpha,
         opponent,
         variant,
-        tt,
         nextHash,
         ply + 1,
         true,
@@ -477,7 +455,6 @@ function negamax(
           -alpha,
           opponent,
           variant,
-          tt,
           nextHash,
           ply + 1,
           true,
@@ -496,10 +473,10 @@ function negamax(
     if (alpha >= beta) {
       // Issue #176: 停止後は killer / history を更新しない (途中値で汚染しないため)
       if (!ctx.stopped) {
-        updateKillerMove(move, ply);
+        updateKillerMove(move, ply, ctx);
         const fromIdx = moveFromIndex(move);
         const toIdx = moveToIndex(move);
-        historyTable[fromIdx][toIdx] += depth * depth;
+        ctx.historyTable[fromIdx][toIdx] += depth * depth;
       }
       break;
     }
@@ -539,8 +516,9 @@ export function findBestMove(
   const searchCtx: SearchContext =
     ctx ?? createSearchContext({ timeLimitMs: options.timeLimitMs });
 
-  globalTT.newSearch(); // 手番ごとに1回だけ（ループ内では呼ばない）
-  resetSearchTables();
+  // per-request TT。ctx を新規作成した場合は空の TT、ctx を受け取った場合は
+  // 上位 (engine.ts) が用意した TT (= 同 request 内では 1 回限りの newSearch)。
+  searchCtx.tt.newSearch();
 
   let bestMove = moves[0];
   let bestScore = NEG_INF;
@@ -555,11 +533,11 @@ export function findBestMove(
     const elapsedFromStart = performance.now() - searchCtx.startedAt;
     if (elapsedFromStart > options.timeLimitMs * 0.55) break;
 
-    const ttEntry = globalTT.probe(initialHash.lo, initialHash.hi);
+    const ttEntry = searchCtx.tt.probe(initialHash.lo, initialHash.hi);
     const ttMove = ttEntry?.bestMove ?? null;
 
     const sortedMoves = [...moves].sort(
-      (a, b) => scoreMove(b, ttMove, 0) - scoreMove(a, ttMove, 0)
+      (a, b) => scoreMove(b, ttMove, 0, searchCtx) - scoreMove(a, ttMove, 0, searchCtx)
     );
 
     const opponent: Player = player === "sente" ? "gote" : "sente";
@@ -596,7 +574,6 @@ export function findBestMove(
             -alpha,
             opponent,
             variant,
-            globalTT,
             nextHash,
             1,
             true,
@@ -611,7 +588,6 @@ export function findBestMove(
             -alpha,
             opponent,
             variant,
-            globalTT,
             nextHash,
             1,
             true,
@@ -625,7 +601,6 @@ export function findBestMove(
               -alpha,
               opponent,
               variant,
-              globalTT,
               nextHash,
               1,
               true,
