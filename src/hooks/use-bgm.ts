@@ -37,6 +37,9 @@ type HowlInstance = {
   unload: () => void;
   volume: (vol?: number) => number | HowlInstance;
   fade: (from: number, to: number, duration: number) => HowlInstance;
+  // Issue #79 派生 (BGM プールリーク修正): Howler 標準 loop を使うため
+  // 動的 setter として loop(value) を呼べる必要がある。
+  loop: (value?: boolean) => boolean | HowlInstance;
 };
 
 type HowlConstructor = new (options: {
@@ -67,10 +70,50 @@ let currentResolvedPath = ""; // 現在再生中 path (dev override 切替検知
 let isMuted = false;
 
 // shouldLoop の最新値 (mutable ref)。useBgm 呼出毎に更新。
-// onend ハンドラ内でこの値を read して loop 継続判定する。
-// Issue #79 派生: 対局画面で「対局中ならループ、対局終了なら現在の loop で
-// 自然停止」を実現する。lobby BGM は永続 loop のため default true。
+// 新規 Howl 構築時の loop 初期値として使う。useBgm 内で値が変わったら
+// currentHowl.loop(value) を即時呼び出して Howler に反映する。
 let shouldLoopFlag = true;
+
+// =====================
+// bfcache (browser back-forward cache) 復帰時のハンドリング
+// =====================
+//
+// 旧来挙動: ページを閉じて戻ると JS module state は保持されるが、HTMLAudioElement
+// は autoplay policy で suspended/locked になり、play() を呼んでも音が出ない
+// ("HTML5 Audio pool exhausted, returning potentially locked audio object" エラー
+// が出る場合あり)。
+//
+// 対策: pageshow イベント (event.persisted=true) を検知して既存 Howl を破棄し、
+// useBgm の次回再評価で新規 Howl を作り直すことでロック状態を解消する。
+function discardCurrentHowl(): void {
+  const cur = currentHowl;
+  if (!cur) return;
+  try {
+    cur.stop();
+    cur.unload();
+  } catch {
+    // 既に解放済等は無視
+  }
+  currentHowl = null;
+  currentKey = null;
+  currentResolvedPath = "";
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("pageshow", (e) => {
+    if (!(e as PageTransitionEvent).persisted) return;
+    // bfcache から復帰 → 既存 Howl は autoplay locked の可能性あり。
+    // 旧 Howl の key/path を記憶した上で破棄 → 同じ key/path で再構築する。
+    // (同 path なら useBgm useEffect は値変化なしで効果再発火しないため、
+    //  ここで明示的に startBgm を呼んで再生再開する必要がある)
+    const restoreKey = currentKey;
+    const restorePath = currentResolvedPath;
+    discardCurrentHowl();
+    if (restorePath) {
+      void startBgm(restoreKey, restorePath);
+    }
+  });
+}
 
 async function startBgm(
   key: BgmEventKey | null,
@@ -104,13 +147,17 @@ async function startBgm(
   }
 
   const HowlCtor = await getHowlCtor();
-  // Issue #79: 自前で loop 制御するため Howler の loop は false 固定。
-  // onend で shouldLoopFlag を確認して replay or stop を選択する。
-  // これにより「対局終了 → 現在の loop は完了させてから停止」の挙動が可能。
+  // Issue #79 派生 (BGM プールリーク修正):
+  // 旧: loop:false + onend で next.play() 手動 loop → 反復毎に Howler が新規
+  //     sound ID + HTMLAudioElement をプールから確保 → 数十周で
+  //     "HTML5 Audio pool exhausted" エラーが発生し再生不能に。
+  // 新: Howler 標準 loop:true で構築。Howler 内部で seek(0) リセット再生する
+  //     ためプール非使用。shouldLoop が false に変わったら currentHowl.loop(false)
+  //     を即時呼び、現在の loop 完了で onend 発火 → unload + state クリア。
   const next = new HowlCtor({
     src: [path],
     volume: 0,
-    loop: false,
+    loop: shouldLoopFlag,
     html5: true, // BGM はストリーミング (decode 軽量、メモリ常駐少)
     onloaderror: () => {
       if (currentHowl === next) {
@@ -127,23 +174,19 @@ async function startBgm(
       }
     },
     onend: () => {
-      // 既に新しい Howl に交代済 (= startBgm 呼出による fade out 中) なら無視
+      // 既に新しい Howl に交代済 (= startBgm 呼出による fade out 中) なら無視。
+      // loop:true 中は Howler 内部で自動 loop され、onend は呼ばれない。
+      // shouldLoop=false に切替えた後の最終 end でここに到達 → 自然停止。
       if (currentHowl !== next) return;
-      if (shouldLoopFlag) {
-        // loop 継続: 同じ Howl をもう一度 play (volume はそのまま)
-        next.play();
-      } else {
-        // 自然停止: state クリア + リソース解放
-        try {
-          next.unload();
-        } catch {
-          // 既に unload 済等は無視
-        }
-        if (currentHowl === next) {
-          currentHowl = null;
-          currentKey = null;
-          currentResolvedPath = "";
-        }
+      try {
+        next.unload();
+      } catch {
+        // 既に unload 済等は無視
+      }
+      if (currentHowl === next) {
+        currentHowl = null;
+        currentKey = null;
+        currentResolvedPath = "";
       }
     },
   });
@@ -208,8 +251,18 @@ export function useBgm(
 
   useEffect(() => {
     if (!ready) return;
-    // shouldLoopFlag を最新化 (onend が読む module-level singleton)
+    // shouldLoopFlag を最新化 (新規 Howl 構築時の loop 初期値として使う)
     shouldLoopFlag = shouldLoop;
+    // 既に再生中の Howl があれば loop 属性を即時更新する。
+    // shouldLoop が true→false に変わると Howler が現在の loop 完了時に
+    // onend を発火 → unload + state クリアの自然停止フローに繋がる。
+    if (currentHowl) {
+      try {
+        currentHowl.loop(shouldLoop);
+      } catch {
+        // 万一 Howl が既に unload 済等は無視
+      }
+    }
     const key = eventKey ?? null;
     const path = key ? getEffectiveBgmPath(key) : "";
     // Howler の autoUnlock (default true) が autoplay policy を自動ハンドル
