@@ -112,6 +112,9 @@ export function ThemeProvider({
   const setTheme = useCallback((t: Theme) => {
     setThemeState(t);
     localStorage.setItem(storageKey, t);
+    // Issue #160: 初期 paint flash 防止のため、layout の inline script から参照される
+    // userId 非依存のグローバルキーにも保存する (最後に切り替えたテーマ)。
+    localStorage.setItem("shogi-theme:last", t);
     saveThemePreference(t).catch((error) => {
       console.error("Failed to save theme preference", error);
     });
@@ -119,6 +122,9 @@ export function ThemeProvider({
 
   const handleClerkSync = useCallback((newTheme: Theme) => {
     setThemeState((prev) => (prev === newTheme ? prev : newTheme));
+    // Issue #160: rehydrate 結果も "last" に書き戻して、次回ロード時の初期 paint で
+    // 同じ値が即時反映されるようにする。
+    localStorage.setItem("shogi-theme:last", newTheme);
   }, []);
 
   // 初期化: DB の現在値を反映し、端末キャッシュは userId ごとに名前空間を分ける。

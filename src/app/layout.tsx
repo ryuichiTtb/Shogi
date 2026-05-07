@@ -93,12 +93,34 @@ export default async function RootLayout({
 
   const preferences = await getCurrentUserPreferences();
 
+  // Issue #160: 初期 paint flash 防止のための inline script。
+  // SSR 段階で `<html>` の class はテーマ未確定だが、CSS は `:root` (light) と
+  // `.dark` のみで切り替わるため、初期 paint で `.dark` クラスを正しく付与すれば
+  // フラッシュなしで描画できる。
+  // 優先順位:
+  //   1. SSR が account 経路で取れた preferences.theme (light/dark/system)
+  //   2. SSR がゲスト経路で theme="system" のとき、過去にユーザーが設定した
+  //      `localStorage["shogi-theme:last"]` を userId 非依存のグローバルキーとして
+  //      参照 (= 同一ブラウザで最後に切り替えた値)
+  //   3. それも無ければ system → prefers-color-scheme で判定
+  // theme は server actions で 3 値の enum なので JSON.stringify は安全。
+  const themeInitScript = `(function(){try{
+var ssr=${JSON.stringify(preferences.theme)};
+var saved=null;try{saved=localStorage.getItem("shogi-theme:last");}catch(_){}
+var t=(ssr==="system"&&saved&&(saved==="light"||saved==="dark"))?saved:ssr;
+var dark=t==="dark"||(t==="system"&&window.matchMedia("(prefers-color-scheme: dark)").matches);
+if(dark)document.documentElement.classList.add("dark");
+}catch(e){}})();`;
+
   return (
     <html
       lang="ja"
       suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} ${notoSansJP.variable} ${yujiBoku.variable} h-full antialiased`}
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
       <body className="min-h-full flex flex-col bg-background text-foreground">
         <MaybeClerkProvider>
           <ThemeProvider
