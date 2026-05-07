@@ -6,7 +6,6 @@ import {
   useEffect,
   useState,
   useCallback,
-  useRef,
   useSyncExternalStore,
 } from "react";
 import { useAuth } from "@clerk/nextjs";
@@ -46,6 +45,17 @@ function subscribeSystemTheme(onChange: () => void) {
   const mq = window.matchMedia("(prefers-color-scheme: dark)");
   mq.addEventListener("change", onChange);
   return () => mq.removeEventListener("change", onChange);
+}
+
+// Issue #160 Phase 3f: theme から `.dark` クラス適用要否を計算し、`<html>` を更新する。
+// systemTheme 変化への即時追従が必要なため、setTheme / handleClerkSync / 別途の matchMedia
+// listener から呼び分けて使う。ハイドレーション直後の自動 toggle を避けるため、
+// useEffect の依存配列由来の不要な再起動からは呼ばない。
+function applyDarkClass(theme: Theme): void {
+  if (typeof document === "undefined") return;
+  const isDark =
+    theme === "dark" || (theme === "system" && getSystemTheme() === "dark");
+  document.documentElement.classList.toggle("dark", isDark);
 }
 
 // Issue #160: SSR で Clerk session 解決が間に合わずゲスト経路に落ちた場合の救済策。
@@ -116,6 +126,7 @@ export function ThemeProvider({
     // Issue #160: 初期 paint flash 防止のため、layout の inline script から参照される
     // userId 非依存のグローバルキーにも保存する (最後に切り替えたテーマ)。
     localStorage.setItem("shogi-theme:last", t);
+    applyDarkClass(t);
     saveThemePreference(t).catch((error) => {
       console.error("Failed to save theme preference", error);
     });
@@ -126,23 +137,31 @@ export function ThemeProvider({
     // Issue #160: rehydrate 結果も "last" に書き戻して、次回ロード時の初期 paint で
     // 同じ値が即時反映されるようにする。
     localStorage.setItem("shogi-theme:last", newTheme);
+    applyDarkClass(newTheme);
   }, []);
 
-  // Issue #160 Phase 3e: 初回マウント時の `.dark` toggle は layout の inline script の
-  // 判定 (= localStorage["shogi-theme:last"] を踏まえた本来のテーマ) を尊重するため skip する。
-  // SSR で initialTheme="system" になっていても、inline script が `<body>` 描画前に
-  // `.dark` クラスを正しく設定済みのため、ThemeProvider が systemTheme=dark で再付与すると
-  // 一瞬のフラッシュ (システムテーマ → 本来のテーマ) が発生してしまう。
-  // 2回目以降の useEffect (ユーザーの setTheme・systemTheme 変化・rehydrate) は通常通り toggle する。
-  const initialMountRef = useRef(true);
+  // Issue #160 Phase 3f: `.dark` クラスは layout の inline script で初期 paint 前に設定済み。
+  // ThemeProvider 側では「ユーザー操作 (setTheme) / Clerk rehydrate / システムテーマ変化」
+  // の 3 イベントだけで toggle し、ハイドレーション直後の自動 toggle (resolvedTheme 変化由来)
+  // は行わない。これにより SSR 値とハイドレーション後の systemTheme の差分でフラッシュが
+  // 発生する問題を防ぐ。
+  // localStorage の userId scoped キーへの同期はこの useEffect で行う。
   useEffect(() => {
     localStorage.setItem(storageKey, theme);
-    if (initialMountRef.current) {
-      initialMountRef.current = false;
-      return;
-    }
-    document.documentElement.classList.toggle("dark", resolvedTheme === "dark");
-  }, [resolvedTheme, storageKey, theme]);
+  }, [storageKey, theme]);
+
+  // Issue #160 Phase 3f: theme="system" のときだけシステムテーマ変化に追従する。
+  // それ以外 (light/dark 確定) のときは matchMedia の変化を無視する。
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (theme !== "system") return;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = () => {
+      document.documentElement.classList.toggle("dark", mq.matches);
+    };
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, [theme]);
 
   return (
     <ThemeContext value={{ theme, setTheme, resolvedTheme }}>
