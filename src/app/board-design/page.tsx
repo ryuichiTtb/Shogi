@@ -57,15 +57,17 @@ interface OptionRowProps {
   onSelect: () => void;
 }
 
-// 選択肢 1 行: 木目サムネ + 名前 + チェックマーク。
+// 選択肢 1 マス。モバイルは縦並び (サムネ上 / 名前下) のカード、PC は横並び。
+// チェックマークは方向に依存しないよう絶対配置で右上に置く。
 function OptionRow({ layout, selected, onSelect }: OptionRowProps) {
   return (
     <button
       type="button"
       onClick={onSelect}
       className={cn(
-        "w-full flex items-center gap-3 p-2.5 rounded-lg border-2 bg-card/85 backdrop-blur-sm",
-        "cursor-pointer card-hover-lift transition-colors text-left",
+        "relative flex flex-col sm:flex-row items-center gap-2 sm:gap-3",
+        "p-2 sm:p-2.5 rounded-lg border-2 bg-card/85 backdrop-blur-sm",
+        "cursor-pointer card-hover-lift transition-colors text-center sm:text-left",
         selected
           ? "border-primary ring-2 ring-primary/40"
           : "border-border hover:border-primary/40",
@@ -73,15 +75,17 @@ function OptionRow({ layout, selected, onSelect }: OptionRowProps) {
       aria-pressed={selected}
     >
       <div
-        className="w-12 h-12 shrink-0 rounded border-2 bg-cover bg-center"
+        className="w-10 h-10 sm:w-12 sm:h-12 shrink-0 rounded border-2 bg-cover bg-center"
         style={{
           backgroundImage: `url(${layout.url})`,
           borderColor: layout.lineColor,
         }}
         aria-hidden
       />
-      <span className="flex-1 text-sm font-medium">{layout.name}</span>
-      {selected && <Check className="w-4 h-4 text-primary shrink-0" />}
+      <span className="flex-1 text-xs sm:text-sm font-medium">{layout.name}</span>
+      {selected && (
+        <Check className="absolute top-1.5 right-1.5 w-4 h-4 text-primary" />
+      )}
     </button>
   );
 }
@@ -122,21 +126,37 @@ export default function BoardDesignPage() {
         {!allReady && <LoadingOverlay show card />}
         <div
           className={cn(
-            "grid gap-6 transition-opacity",
+            "grid gap-3 sm:gap-6 transition-opacity",
             // モバイル: 縦並び (上にプレビュー、下に選択肢)
             // sm 以上: 左にプレビュー (auto)、右に選択肢 (1fr)
             "grid-cols-1 sm:grid-cols-[auto_1fr]",
             allReady ? "opacity-100" : "opacity-0",
           )}
         >
-          {/* 左: プレビュー (PC で sticky 化してスクロール時も追従) */}
-          <div className="sm:sticky sm:top-32 sm:self-start flex justify-center">
+          {/* プレビュー: モバイルはヘッダ的に sticky (スクロール時も常時表示)
+              PC は左カラムで sticky 追従。z-30 < ページヘッダ z-40。
+              モバイルでは半透明 bg + blur で背面の選択肢が透けないように、
+              さらに -mx-4 px-4 で画面端まで bg を広げて「ヘッダ」感を出す。 */}
+          <div
+            className={cn(
+              "sticky top-32 z-30 self-start flex justify-center",
+              "bg-background/95 backdrop-blur-sm py-2 -mx-4 px-4",
+              "sm:bg-transparent sm:backdrop-blur-none sm:py-0 sm:mx-0 sm:px-0",
+            )}
+          >
             <BoardPreview />
           </div>
 
-          {/* 右: 縦スクロール選択リスト。max-height をスクリーン依存にし、
-              選択肢が増えても常時ホーム導線が見えるようにする。 */}
-          <div className="space-y-2 sm:max-h-[calc(100dvh-220px)] sm:overflow-y-auto sm:pr-1">
+          {/* 選択肢:
+              - モバイル: 2 列グリッドの縦カード。ページ全体スクロールに乗る。
+              - PC: 1 列縦リストで右側を独自スクロール (max-h で常時ホーム導線が見える)。 */}
+          <div
+            className={cn(
+              "grid gap-2",
+              "grid-cols-2 sm:grid-cols-1",
+              "sm:max-h-[calc(100dvh-220px)] sm:overflow-y-auto sm:pr-1",
+            )}
+          >
             {BOARD_LAYOUTS.map((layout) => (
               <OptionRow
                 key={layout.id}
