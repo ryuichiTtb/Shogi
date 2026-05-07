@@ -2,8 +2,8 @@
 
 import { ShogiGame } from "./shogi-game";
 import { CardShogiGame } from "./card-shogi/card-shogi-game";
-import { BoardTextureProvider } from "./board-texture-context";
-import { BoardTexturePicker } from "./board-texture-picker";
+import { ScreenTextureProvider } from "./board-texture-context";
+import { ScreenBackgroundPicker } from "./board-texture-picker";
 import { PreviewScreenBackground } from "./preview-screen-background";
 import type { Difficulty, GameState, Player } from "@/lib/shogi/types";
 import type { CardGameState } from "@/lib/shogi/cards/types";
@@ -27,6 +27,10 @@ interface GameLayoutProps {
 // variantId に応じて適切なゲーム画面コンポーネントをレンダリングする。
 // 標準将棋(standard)は既存の <ShogiGame> を無修正で呼ぶ(回帰防止)。
 // カード将棋(card-shogi)は新規 <CardShogiGame> を呼ぶ。
+//
+// Issue #177: 対局画面全体背景はプレビュー用 ScreenTextureProvider で管理する
+// (Picker = 永続化なし)。将棋盤マス背景は app/layout.tsx で挿入された
+// BoardLayoutProvider (永続設定 / /board-design ページから設定) で管理する。
 export function GameLayout({
   initialGameState,
   initialCardState,
@@ -38,28 +42,28 @@ export function GameLayout({
       throw new Error("card-shogi variant requires initialCardState");
     }
     return (
-      <BoardTextureProvider>
+      <ScreenTextureProvider>
         <PreviewScreenBackground />
-        <BoardTexturePicker />
+        <ScreenBackgroundPicker />
         <CardShogiGame
           initialGameState={initialGameState}
           initialCardState={initialCardState}
           gameId={gameId}
           gameConfig={gameConfig}
         />
-      </BoardTextureProvider>
+      </ScreenTextureProvider>
     );
   }
 
   return (
-    <BoardTextureProvider>
+    <ScreenTextureProvider>
       <PreviewScreenBackground />
-      <BoardTexturePicker />
+      <ScreenBackgroundPicker />
       <ShogiGame
         initialGameState={initialGameState}
         gameId={gameId}
         gameConfig={gameConfig}
       />
-    </BoardTextureProvider>
+    </ScreenTextureProvider>
   );
 }

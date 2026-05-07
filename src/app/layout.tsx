@@ -5,6 +5,7 @@ import { Geist, Geist_Mono, Noto_Sans_JP } from "next/font/google";
 import localFont from "next/font/local";
 import { ThemeProvider } from "@/components/theme-provider";
 import { CardBackProvider } from "@/components/card-back/card-back-provider";
+import { BoardLayoutProvider } from "@/components/board-layout/board-layout-provider";
 import { ServiceWorkerRegister } from "@/components/sw-register";
 import { getCurrentUserPreferences } from "@/app/actions/preferences";
 import { isClerkServerConfigured } from "@/lib/auth/config";
@@ -143,8 +144,10 @@ if(dark)document.documentElement.classList.add("dark");else document.documentEle
               userKind={preferences.userKind}
               initialStyle={preferences.cardBackStyle}
             >
-              {children}
-              <ServiceWorkerRegister />
+              <BoardLayoutProvider>
+                {children}
+                <ServiceWorkerRegister />
+              </BoardLayoutProvider>
             </CardBackProvider>
           </ThemeProvider>
         </MaybeClerkProvider>

@@ -1,18 +1,20 @@
 "use client";
 
+// Issue #177: 対局画面 (画面全体) 背景の素材確認用 Context。
+// 将棋盤の背景は別途 BoardLayoutProvider (= 永続化された設定) で管理されるため
+// ここでは扱わない。本 Context はあくまでプレビュー (永続化なし) 用。
 import { createContext, useContext, useState, type ReactNode } from "react";
 
-export interface BoardTexture {
+export interface ScreenTexture {
   id: string;
   name: string;
-  // null = テクスチャなし (従来の amber カラー)
+  // null = テクスチャなし (従来の AppBackground を表示)
   url: string | null;
 }
 
-// public/img/wood 配下の素材候補。Issue #177 動作確認用。
-// 本実装でカード背景同様に永続化する場合はここを基にカタログ化する想定。
-export const BOARD_TEXTURES: readonly BoardTexture[] = [
-  { id: "default", name: "デフォルト (無地)", url: null },
+// public/img/wood 配下の素材候補 + デフォルト (AppBackground)。
+export const SCREEN_TEXTURES: readonly ScreenTexture[] = [
+  { id: "default", name: "デフォルト (青海波)", url: null },
   { id: "natural-1", name: "ナチュラル 01", url: "/img/wood/mokume_natural01.png" },
   { id: "natural-2", name: "ナチュラル 02", url: "/img/wood/mokume_natural02.png" },
   { id: "natural-3", name: "ナチュラル 03", url: "/img/wood/mokume_natural03.png" },
@@ -27,48 +29,37 @@ export const BOARD_TEXTURES: readonly BoardTexture[] = [
   { id: "dark-4", name: "ダーク 04", url: "/img/wood/mokume_dark04.png" },
 ];
 
-interface BoardTextureContextValue {
-  // 将棋盤マス背景
-  boardTexture: BoardTexture;
-  setBoardTextureById: (id: string) => void;
-  // 対局画面全体背景 (AppBackground の代替)
-  screenTexture: BoardTexture;
-  setScreenTextureById: (id: string) => void;
+interface ScreenTextureContextValue {
+  texture: ScreenTexture;
+  setTextureById: (id: string) => void;
 }
 
-const BoardTextureContext = createContext<BoardTextureContextValue | null>(null);
+const ScreenTextureContext = createContext<ScreenTextureContextValue | null>(null);
 
-function findById(id: string): BoardTexture {
-  return BOARD_TEXTURES.find((t) => t.id === id) ?? BOARD_TEXTURES[0];
+function findById(id: string): ScreenTexture {
+  return SCREEN_TEXTURES.find((t) => t.id === id) ?? SCREEN_TEXTURES[0];
 }
 
-export function BoardTextureProvider({ children }: { children: ReactNode }) {
-  const [boardId, setBoardId] = useState<string>("default");
-  const [screenId, setScreenId] = useState<string>("default");
-  const value: BoardTextureContextValue = {
-    boardTexture: findById(boardId),
-    setBoardTextureById: setBoardId,
-    screenTexture: findById(screenId),
-    setScreenTextureById: setScreenId,
-  };
+export function ScreenTextureProvider({ children }: { children: ReactNode }) {
+  const [textureId, setTextureId] = useState<string>("default");
   return (
-    <BoardTextureContext.Provider value={value}>
+    <ScreenTextureContext.Provider
+      value={{
+        texture: findById(textureId),
+        setTextureById: setTextureId,
+      }}
+    >
       {children}
-    </BoardTextureContext.Provider>
+    </ScreenTextureContext.Provider>
   );
 }
 
-// Provider が無い文脈 (テスト・Storybook 等) でもクラッシュさせないため null 許容で扱う。
-export function useBoardTexture(): BoardTexture {
-  const ctx = useContext(BoardTextureContext);
-  return ctx?.boardTexture ?? BOARD_TEXTURES[0];
+// Provider が無い文脈でもクラッシュしないよう null 許容で扱う。
+export function useScreenTexture(): ScreenTexture {
+  const ctx = useContext(ScreenTextureContext);
+  return ctx?.texture ?? SCREEN_TEXTURES[0];
 }
 
-export function useScreenTexture(): BoardTexture {
-  const ctx = useContext(BoardTextureContext);
-  return ctx?.screenTexture ?? BOARD_TEXTURES[0];
-}
-
-export function useBoardTextureControls(): BoardTextureContextValue | null {
-  return useContext(BoardTextureContext);
+export function useScreenTextureControls(): ScreenTextureContextValue | null {
+  return useContext(ScreenTextureContext);
 }

@@ -4,7 +4,7 @@ import { forwardRef, memo, useCallback, useImperativeHandle, useRef } from "reac
 
 import { cn } from "@/lib/utils";
 import { ShogiPiece } from "./shogi-piece";
-import { useBoardTexture } from "./board-texture-context";
+import { useBoardLayout } from "@/components/board-layout/board-layout-provider";
 import { useTouchHandler } from "@/hooks/use-touch-handler";
 import {
   SHOGI_BOARD_CELLS,
@@ -181,7 +181,7 @@ const BoardSquare = memo(function BoardSquare({
       {/* 星目（中央3×3四隅の交差点） */}
       {isStarPoint && (
         <div
-          className="absolute z-10 rounded-full bg-amber-900 dark:bg-amber-400 pointer-events-none"
+          className="absolute z-10 rounded-full bg-[#3a1f0a] pointer-events-none"
           style={{
             width: Math.max(4, cellWidth * 0.08),
             height: Math.max(4, cellWidth * 0.08),
@@ -280,7 +280,9 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
   forwardedRef,
 ) {
   const squareRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const boardTexture = useBoardTexture();
+  // Issue #177: ユーザー選択の盤レイアウト (デフォルト = ライト04)。
+  // url を ShogiBoard 全マスに連続テクスチャとして適用する。
+  const boardLayout = useBoardLayout();
 
   useImperativeHandle(
     forwardedRef,
@@ -385,7 +387,7 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
           data-shogi-board-grid="1"
           role="grid"
           aria-label="将棋盤"
-          className="grid border border-amber-800 dark:border-amber-400 bg-amber-800/60 dark:bg-amber-400/60 relative"
+          className="grid border border-[#3a1f0a] bg-[#3a1f0a] relative"
           style={{
             gridTemplateColumns: `repeat(9, ${cellSize.width}px)`,
             gridTemplateRows: `repeat(9, ${cellSize.height}px)`,
@@ -436,7 +438,7 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
                   dotSize={dotSize}
                   playerColor={playerColor}
                   registerRef={registerSquareRef}
-                  boardTextureUrl={boardTexture.url}
+                  boardTextureUrl={boardLayout.url}
                   visualRow={visualRow}
                   visualCol={visualCol}
                 />
