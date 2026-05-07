@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, memo, useCallback, useImperativeHandle, useRef } from "react";
+import { forwardRef, memo, useCallback, useImperativeHandle, useRef, type CSSProperties } from "react";
 
 import { cn } from "@/lib/utils";
 import { ShogiPiece } from "./shogi-piece";
@@ -116,6 +116,60 @@ const BoardSquare = memo(function BoardSquare({
     [rowIdx, colIdx, registerRef],
   );
 
+  // Issue #177: state 色は木目テクスチャの上に半透明 tint を重ねて表示する。
+  // 単色塗りで盤目を覆い隠さないようにし、light/dark テーマで同じ tint 値を使う
+  // (盤テクスチャが視覚ベースなので OS テーマでの分岐は不要)。
+  // 優先順序は元実装の cn() 出現順に合わせる:
+  //   forbiddenMate > cardTarget > legalTarget(piece) > legalTarget(empty)
+  //   > selected > kingInCheck > lastMove
+  const tint: string | null = isForbiddenMate
+    ? "rgba(220, 38, 38, 0.55)"   // red-600 / 警告
+    : isCardTarget
+      ? "rgba(245, 158, 11, 0.55)" // amber-500 / カード対象
+      : isLegalTarget && piece
+        ? "rgba(220, 38, 38, 0.35)" // red-600 / 取れる相手駒
+        : isLegalTarget
+          ? "rgba(59, 130, 246, 0.30)" // blue-500 / 合法移動先
+          : isSelected
+            ? "rgba(59, 130, 246, 0.50)" // blue-500 / 選択中
+            : isKingInCheck
+              ? "rgba(220, 38, 38, 0.65)" // red-600 / 王手警告
+              : isLastMoveSq
+                ? "rgba(16, 185, 129, 0.40)" // emerald-500 / 直前手
+                : null;
+
+  // 盤全体サイズ (= 9 cell + 8 gap)。各マスはここから visual 位置のオフセットだけ
+  // 切り出すことで、9x9 のマスに 1 枚の木目画像が連続表示される。
+  const totalBoardW =
+    cellWidth * SHOGI_BOARD_CELLS + SHOGI_BOARD_GAP * (SHOGI_BOARD_CELLS - 1);
+  const totalBoardH =
+    cellHeight * SHOGI_BOARD_CELLS + SHOGI_BOARD_GAP * (SHOGI_BOARD_CELLS - 1);
+  const offsetX = visualCol * (cellWidth + SHOGI_BOARD_GAP);
+  const offsetY = visualRow * (cellHeight + SHOGI_BOARD_GAP);
+
+  const cellStyle: CSSProperties = {
+    width: cellWidth,
+    height: cellHeight,
+  };
+  if (boardTextureUrl) {
+    if (tint) {
+      // tint をテクスチャの上に重ねる: 1 枚目が tint (linear-gradient)、
+      // 2 枚目が木目画像。CSS は背景レイヤーを記述順 = 上から下に重ねる。
+      cellStyle.backgroundImage = `linear-gradient(${tint}, ${tint}), url(${boardTextureUrl})`;
+      cellStyle.backgroundSize = `100% 100%, ${totalBoardW}px ${totalBoardH}px`;
+      cellStyle.backgroundPosition = `0 0, -${offsetX}px -${offsetY}px`;
+      cellStyle.backgroundRepeat = "no-repeat, no-repeat";
+    } else {
+      cellStyle.backgroundImage = `url(${boardTextureUrl})`;
+      cellStyle.backgroundSize = `${totalBoardW}px ${totalBoardH}px`;
+      cellStyle.backgroundPosition = `-${offsetX}px -${offsetY}px`;
+    }
+  } else if (tint) {
+    // テクスチャ未設定時のフォールバック (実運用では BoardLayoutProvider が
+    // 常に url を返すため通常は通らないが、防御として単色塗りを適用)。
+    cellStyle.backgroundColor = tint;
+  }
+
   return (
     <div
       ref={setRef}
@@ -123,60 +177,16 @@ const BoardSquare = memo(function BoardSquare({
       className={cn(
         "shogi-square relative flex items-center justify-center",
         "cursor-pointer",
-        // 通常背景 (Issue #155 派生: dark は amber-950 (#451a03) と amber-900
-        // (#78350f) の中間 #5c2a08 を採用。amber-950 は駒輪郭 (#4a2e15) と同化、
-        // amber-900 は明るすぎたため、暗め・濃い茶を保ちつつ駒との差が出る色)
-        "bg-amber-50 dark:bg-[#5c2a08]",
-        // 直前の手（移動前・移動後）
-        isLastMoveSq && !isSelected && "bg-emerald-200 dark:bg-emerald-800/60",
-        // 王手中の王
-        isKingInCheck && "bg-red-300 dark:bg-red-800/70",
-        // 選択マス
-        isSelected && "bg-blue-200 dark:bg-blue-800/60",
-        // 合法手ハイライト
-        isLegalTarget && !piece && "bg-blue-200/70 dark:bg-blue-700/40",
-        isLegalTarget && piece && "bg-red-200/70 dark:bg-red-700/40",
-        // カード効果のターゲット候補(歩戻し等) - 既存の合法手ハイライトより優先
-        isCardTarget && "bg-amber-300/80 dark:bg-amber-500/40 ring-2 ring-inset ring-amber-500 dark:ring-amber-300 animate-pulse",
-        // 二手指し 2手目で禁止された詰み手 (Issue #82) - 合法手ハイライトより優先
-        isForbiddenMate && "bg-red-400/60 dark:bg-red-700/50 ring-2 ring-inset ring-red-600 dark:ring-red-400",
+        // 通常背景 (テクスチャ未設定時のフォールバック色のみ)。
+        // テクスチャ設定時は inline style の background-image が上に被るため見えない。
+        "bg-amber-50",
+        // ring と animate-pulse は state 表示の補助なので Tailwind class のまま残す
+        isCardTarget && "ring-2 ring-inset ring-amber-500 animate-pulse",
+        isForbiddenMate && "ring-2 ring-inset ring-red-600",
         // プレイヤーのターンでない・AI思考中は操作不可
         !canHover && !isCardTarget && "cursor-not-allowed",
-        // ホバー (dark の通常背景 #5c2a08 から 1 段明るい #76380c で差を確保)
-        canHover && "hover:bg-amber-100 dark:hover:bg-[#76380c]"
       )}
-      style={{
-        width: cellWidth,
-        height: cellHeight,
-        // Issue #177: state なし (neutral) マスのみ木目テクスチャを背景画像として適用。
-        // state 時 (selected / lastMove / inCheck 等) は Tailwind カラーで上書きされ
-        // テクスチャが見えなくなるよう、ここで条件分岐する。
-        // 盤全体で 1 枚の画像が連続して見えるよう、各マスは「盤全体サイズ」の画像から
-        // 自分の visual 位置の切片を表示する (background-size = 盤全体 / position =
-        // -自分のオフセット)。マス間の gap には grid container の bg が見えるため
-        // 盤線も従来通り保持される。
-        ...(boardTextureUrl &&
-        !isSelected &&
-        !isLastMoveSq &&
-        !isKingInCheck &&
-        !isLegalTarget &&
-        !isCardTarget &&
-        !isForbiddenMate
-          ? {
-              backgroundImage: `url(${boardTextureUrl})`,
-              backgroundSize: `${
-                cellWidth * SHOGI_BOARD_CELLS +
-                SHOGI_BOARD_GAP * (SHOGI_BOARD_CELLS - 1)
-              }px ${
-                cellHeight * SHOGI_BOARD_CELLS +
-                SHOGI_BOARD_GAP * (SHOGI_BOARD_CELLS - 1)
-              }px`,
-              backgroundPosition: `-${
-                visualCol * (cellWidth + SHOGI_BOARD_GAP)
-              }px -${visualRow * (cellHeight + SHOGI_BOARD_GAP)}px`,
-            }
-          : null),
-      }}
+      style={cellStyle}
     >
       {/* 星目（中央3×3四隅の交差点） */}
       {isStarPoint && (
