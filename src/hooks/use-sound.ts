@@ -15,8 +15,14 @@
 // 既存呼出 API (playSfx / toggleMute / isMuted / prepareAudio / playSfxOnce /
 // useSound の戻り値) は維持しているため、shogi-game / card-shogi-game /
 // deck-editor-pane / masked-link / page / match-setup の書換は不要。
+//
+// Issue #189 Phase 3-1: ミュート設定を localStorage で永続化する。
+// 既存 sound-overrides.ts のパターン (useSyncExternalStore + storage event)
+// に倣う。SSR では false 固定、Hydration 後に storage 値で更新。
+// 同一タブ・別タブいずれの変更も singleton (setBgmMuted / setSfxMuted) に
+// 即時反映する。
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 
 import { setBgmMuted } from "@/hooks/use-bgm";
 import {
@@ -54,9 +60,82 @@ export function playSfxOnce(soundKey: keyof typeof SFX_FILES): void {
   playSfxBufferOnce(src);
 }
 
+// =====================
+// mute 状態の永続化 (Issue #189 Phase 3-1)
+// =====================
+
+const MUTED_STORAGE_KEY = "shogi-sound:muted";
+
+let cachedMuted: boolean | null = null;
+const mutedListeners = new Set<() => void>();
+
+function readMutedStorage(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return localStorage.getItem(MUTED_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function getMutedSnapshot(): boolean {
+  if (cachedMuted === null) cachedMuted = readMutedStorage();
+  return cachedMuted;
+}
+
+function getMutedServerSnapshot(): boolean {
+  // SSR では mute 状態を持たない (UI 上は音あり扱いで render し、Hydration 後に
+  // storage 値で再レンダリングする)
+  return false;
+}
+
+function subscribeMuted(listener: () => void): () => void {
+  mutedListeners.add(listener);
+  return () => {
+    mutedListeners.delete(listener);
+  };
+}
+
+function applyMutedToSingletons(muted: boolean): void {
+  setBgmMuted(muted);
+  setSfxMuted(muted);
+}
+
+function persistMutedAndNotify(next: boolean): void {
+  cachedMuted = next;
+  if (typeof window !== "undefined") {
+    try {
+      if (next) {
+        localStorage.setItem(MUTED_STORAGE_KEY, "true");
+      } else {
+        // false は明示保存しない (デフォルトと同じため、storage を削減)
+        localStorage.removeItem(MUTED_STORAGE_KEY);
+      }
+    } catch {
+      // quota / private mode 等は無視
+    }
+  }
+  applyMutedToSingletons(next);
+  mutedListeners.forEach((l) => l());
+}
+
+// 別タブからの storage event 購読 (sound-overrides.ts と同じパターン)
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (e) => {
+    if (e.key !== MUTED_STORAGE_KEY && e.key !== null) return;
+    const fresh = readMutedStorage();
+    cachedMuted = fresh;
+    applyMutedToSingletons(fresh);
+    mutedListeners.forEach((l) => l());
+  });
+}
+
 export function useSound() {
-  const [isMuted, setIsMutedState] = useState(false);
-  const [isReady, setIsReady] = useState(false);
+  const isMuted = useSyncExternalStore(
+    subscribeMuted,
+    getMutedSnapshot,
+    getMutedServerSnapshot,
+  );
 
   // mount 時に SFX を AudioBuffer にプリ decode する。useAssetPreloader が
   // ロビーで HTTP fetch までは終わらせている前提で、ここでは cache hit +
@@ -68,13 +147,18 @@ export function useSound() {
         .filter(Boolean)
         .map((p) => loadSfxBuffer(p));
       await Promise.allSettled(tasks);
-      if (!cancelled) {
-        setIsReady(true);
-      }
+      if (cancelled) return;
     })();
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // 初回 mount で localStorage の mute 値を singleton (audio-engine / use-bgm)
+  // に反映する。Hydration 直後に既に mute=true で永続化されていれば、SFX/BGM
+  // が即座に消音される。useEffect mount は 1 回だけ。
+  useEffect(() => {
+    applyMutedToSingletons(getMutedSnapshot());
   }, []);
 
   const playSfx = useCallback((sound: keyof typeof SFX_FILES) => {
@@ -84,14 +168,34 @@ export function useSound() {
   }, []);
 
   const toggleMute = useCallback(() => {
-    setIsMutedState((prev) => {
-      const next = !prev;
-      // BGM (use-bgm.ts) と SFX (audio-engine.ts) の singleton にも反映
-      setBgmMuted(next);
-      setSfxMuted(next);
-      return next;
-    });
+    persistMutedAndNotify(!getMutedSnapshot());
   }, []);
+
+  // SFX のプリロードは mount 時に走るため、ここでは「ハンドル取得時点で
+  // 呼び出せる」ことを示す互換フラグとして常に true を返す (Howler 時代は
+  // 動的 import の完了を待っていたが Web Audio 直接実装ではその必要がない)
+  const isReady = true;
 
   return { playSfx, toggleMute, isMuted, isReady };
 }
+
+// =====================
+// test-only
+// =====================
+
+export const __forTest = {
+  resetMuted: (): void => {
+    cachedMuted = null;
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.removeItem(MUTED_STORAGE_KEY);
+      } catch {
+        // ignore
+      }
+    }
+  },
+  getMutedSnapshot,
+  persistMutedAndNotify,
+  readMutedStorage,
+  MUTED_STORAGE_KEY,
+};

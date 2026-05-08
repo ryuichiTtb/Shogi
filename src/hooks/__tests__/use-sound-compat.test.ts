@@ -38,14 +38,21 @@ import {
   setSfxMuted,
   unlockAudio,
 } from "@/lib/audio/audio-engine";
-import { playSfxOnce, prepareAudio, useSound } from "../use-sound";
+import {
+  __forTest as soundForTest,
+  playSfxOnce,
+  prepareAudio,
+  useSound,
+} from "../use-sound";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  soundForTest.resetMuted();
 });
 
 afterEach(() => {
   vi.clearAllMocks();
+  soundForTest.resetMuted();
 });
 
 // ---- module-level API ----
@@ -146,6 +153,61 @@ describe("useSound: 互換 API", () => {
     expect(setBgmMuted).toHaveBeenLastCalledWith(false);
     expect(setSfxMuted).toHaveBeenLastCalledWith(false);
     expect(handle.result.isMuted).toBe(false);
+    unmount();
+  });
+});
+
+// ---- mute 永続化 (Phase 3-1) ----
+
+describe("useSound: mute の localStorage 永続化", () => {
+  it("toggleMute で localStorage に true が書かれ、再 toggle で削除される", () => {
+    const handle = {} as HookHandle;
+    const { unmount } = renderUseSound(handle);
+    act(() => {
+      handle.result.toggleMute();
+    });
+    expect(localStorage.getItem(soundForTest.MUTED_STORAGE_KEY)).toBe("true");
+    act(() => {
+      handle.result.toggleMute();
+    });
+    expect(localStorage.getItem(soundForTest.MUTED_STORAGE_KEY)).toBeNull();
+    unmount();
+  });
+
+  it("localStorage に true が保存されている状態で mount すると isMuted=true で開始する", () => {
+    localStorage.setItem(soundForTest.MUTED_STORAGE_KEY, "true");
+    soundForTest.resetMuted();
+    // 改めて値を保存 (resetMuted が removeItem するため)
+    localStorage.setItem(soundForTest.MUTED_STORAGE_KEY, "true");
+
+    const handle = {} as HookHandle;
+    const { unmount } = renderUseSound(handle);
+    expect(handle.result.isMuted).toBe(true);
+    // 初回 mount の useEffect で singleton にも反映される
+    expect(setBgmMuted).toHaveBeenCalledWith(true);
+    expect(setSfxMuted).toHaveBeenCalledWith(true);
+    unmount();
+  });
+
+  it("storage event (他タブからの変更) で isMuted が更新される", () => {
+    const handle = {} as HookHandle;
+    const { unmount } = renderUseSound(handle);
+    expect(handle.result.isMuted).toBe(false);
+
+    // 他タブが localStorage を更新したとして storage event を発火
+    act(() => {
+      localStorage.setItem(soundForTest.MUTED_STORAGE_KEY, "true");
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: soundForTest.MUTED_STORAGE_KEY,
+          newValue: "true",
+          oldValue: null,
+        }),
+      );
+    });
+    expect(handle.result.isMuted).toBe(true);
+    expect(setBgmMuted).toHaveBeenLastCalledWith(true);
+    expect(setSfxMuted).toHaveBeenLastCalledWith(true);
     unmount();
   });
 });
