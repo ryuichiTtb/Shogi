@@ -14,6 +14,7 @@ import { Swords } from "lucide-react";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import { LOADING_STAGES } from "@/lib/loading-stages";
 import { useAssetPreloader } from "@/hooks/use-asset-preloader";
+import { prepareBgmForNavigation } from "@/hooks/use-bgm";
 import { prepareAudio } from "@/hooks/use-sound";
 
 const DIFFICULTY_INFO: Record<Difficulty, { label: string; description: string; color: string }> = {
@@ -71,6 +72,11 @@ export function MatchSetup({ mode }: MatchSetupProps) {
     try {
       // Safari の autoplay policy 対策で AudioContext を resume させる。
       await prepareAudio();
+      // Issue #189 派生: モバイル Safari で navigation 後に対局画面の BGM が
+      // autoplay block されないよう、user gesture 内で次画面 (= /game/[id])
+      // 用 BGM を先行起動する。createGame 完了前に BGM 切替を始めることで、
+      // gameId 確定後の router.push までに gesture chain が維持される。
+      prepareBgmForNavigation("/game/_");
 
       const color: Player =
         selectedColor === "random"
