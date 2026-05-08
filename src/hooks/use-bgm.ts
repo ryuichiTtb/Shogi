@@ -60,6 +60,14 @@ let activeFadeId = 0;
 // 既に止まっていたのかを区別するために必要。
 let wasPlayingBeforeHidden = false;
 
+// Issue #189 派生: モバイル Safari で navigation 後に autoplay block されない
+// よう、画面遷移ボタンの user gesture 内で「次画面 BGM の audio element を
+// 一度 play() して unlock 済み状態にした後 pause しておく」仕組み。
+// 遷移後の useBgm が startBgm を呼ぶ時に preparedAudio を再利用すれば、その
+// 再 play() は同 audio element の 2 回目以降の呼出のため autoplay block されない。
+let preparedAudio: HTMLAudioElement | null = null;
+let preparedPath = "";
+
 // =====================
 // fade ヘルパ
 // =====================
@@ -141,13 +149,29 @@ function startBgm(key: BgmEventKey | null, path: string): void {
     return;
   }
 
-  // 新 audio 作成
-  const audio = new Audio();
-  // preload はネットワーク負荷を抑えるため metadata まで。play() で自動的に full load。
-  audio.preload = "auto";
-  audio.src = path;
-  audio.loop = shouldLoopFlag;
-  audio.volume = 0;
+  // 新 audio 作成 (prepared audio が同 path で残っていれば再利用)
+  let audio: HTMLAudioElement;
+  if (preparedPath === path && preparedAudio) {
+    // user gesture 内で 1 度 play() 経験済みの audio。再 play() は autoplay block
+    // されにくい。currentTime は 0 のまま (まだ実音は流れていない)。
+    audio = preparedAudio;
+    preparedAudio = null;
+    preparedPath = "";
+    try {
+      audio.loop = shouldLoopFlag;
+      audio.volume = 0;
+      audio.currentTime = 0;
+    } catch {
+      // ignore
+    }
+  } else {
+    audio = new Audio();
+    // preload はネットワーク負荷を抑えるため metadata まで。play() で自動的に full load。
+    audio.preload = "auto";
+    audio.src = path;
+    audio.loop = shouldLoopFlag;
+    audio.volume = 0;
+  }
 
   // shouldLoop=false で loop 終了時に自然停止 (state クリア)
   const onEnded = (): void => {
@@ -466,7 +490,14 @@ function resolveBgmKeyForHref(href: string): BgmEventKey | null {
 
 /**
  * 画面遷移ボタンの onClick から user gesture 内で呼ぶ。
- * 遷移先 BGM を先行起動して、モバイル Safari の autoplay block を回避する。
+ *
+ * 重要: 現 currentAudio は一切触らない (= ローディング中の BGM 切替防止)。
+ * 違う path への遷移の場合、user gesture 内で「次画面 BGM の audio element
+ * を muted+0 volume で 1 度 play() してすぐ pause する」処理を行い、その
+ * audio を preparedAudio として保持する。遷移後の useBgm 経由で startBgm が
+ * 呼ばれた時、preparedAudio を再利用して再生する (autoplay block されない)。
+ *
+ * 同 path の場合は何もしない (visibility 連動 / 既存の useBgm が対応する)。
  */
 export function prepareBgmForNavigation(href: string): void {
   if (typeof window === "undefined") return;
@@ -474,34 +505,50 @@ export function prepareBgmForNavigation(href: string): void {
   if (!nextKey) return;
   const path = getEffectiveBgmPath(nextKey);
   if (!path) return;
-  // 同 path なら現状の useBgm 早期 return と整合させて何もしない
-  // (ただし pause 中なら resume したいので audio.paused を見る)
-  if (currentResolvedPath === path && currentAudio && !currentAudio.paused) {
-    return;
+  // 同 path → 何もしない (現 audio を触らない / 既存 BGM 継続)
+  if (currentResolvedPath === path) return;
+  // 既に prepared 済みの同 path なら no-op
+  if (preparedPath === path && preparedAudio) return;
+  // 古い prepared を破棄
+  if (preparedAudio) {
+    destroyAudio(preparedAudio);
+    preparedAudio = null;
+    preparedPath = "";
   }
-  // pause 中の audio が同 path なら user gesture 内で play() リトライ
-  if (currentResolvedPath === path && currentAudio && currentAudio.paused) {
-    const a = currentAudio;
-    const targetVol = isMuted ? 0 : BGM_VOLUME;
-    const playPromise = a.play();
+  // user gesture 内で audio element を 1 度 play() して unlock 状態にする
+  try {
+    const audio = new Audio();
+    audio.preload = "auto";
+    audio.src = path;
+    audio.loop = true;
+    audio.volume = 0;
+    const playPromise = audio.play();
     if (playPromise && typeof playPromise.then === "function") {
       playPromise
         .then(() => {
-          if (currentAudio === a) {
-            fadeVolume(a, a.volume, targetVol, FADE_DURATION_MS);
+          // 再生は不要なので即 pause。currentTime は 0 のまま保持。
+          try {
+            audio.pause();
+            audio.currentTime = 0;
+          } catch {
+            // ignore
           }
+          preparedAudio = audio;
+          preparedPath = path;
         })
         .catch(() => {
-          // 復帰 reject 時は user gesture 待ち
-          if (currentAudio === a) {
-            scheduleRetryOnUserGesture();
-          }
+          // autoplay block 等で失敗。prepared にしない (= 遷移後に通常フローで
+          // 再試行される。失敗しても既存挙動と同等)
+          destroyAudio(audio);
         });
+    } else {
+      // 旧ブラウザ: play() が undefined を返す。prepared として扱う。
+      preparedAudio = audio;
+      preparedPath = path;
     }
-    return;
+  } catch {
+    // ignore
   }
-  // 違う path → 標準フローで切替 (user gesture 内なので play() reject されにくい)
-  startBgm(nextKey, path);
 }
 
 // =====================
@@ -528,11 +575,22 @@ export const __forTest = {
         // ignore
       }
     }
+    if (preparedAudio) {
+      try {
+        preparedAudio.pause();
+      } catch {
+        // ignore
+      }
+    }
     currentAudio = null;
     currentKey = null;
     currentResolvedPath = "";
+    preparedAudio = null;
+    preparedPath = "";
     isMuted = false;
     wasPlayingBeforeHidden = false;
     activeFadeId++;
   },
+  getPreparedAudio: (): HTMLAudioElement | null => preparedAudio,
+  getPreparedPath: (): string => preparedPath,
 };

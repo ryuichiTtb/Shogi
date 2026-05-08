@@ -2,7 +2,8 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { __forTest, setBgmMuted } from "../use-bgm";
+import { BGM_FILES } from "@/lib/audio/manifest";
+import { __forTest, prepareBgmForNavigation, setBgmMuted } from "../use-bgm";
 
 // Issue #189: visibilitychange / pagehide / pageshow による BGM 自動 pause / resume
 // の挙動を検証する。HTMLMediaElement.play / pause は jsdom で実装されないため
@@ -224,5 +225,64 @@ describe("use-bgm: ページ可視性連動", () => {
     fireVisibilityChange();
     expect(playMock).toHaveBeenCalledTimes(2);
     expect(__forTest.getWasPlayingBeforeHidden()).toBe(false);
+  });
+});
+
+describe("use-bgm: prepareBgmForNavigation の prepared audio フロー", () => {
+  it("同 path への遷移準備では prepared audio を作らず currentAudio も触らない", async () => {
+    const matchPath = BGM_FILES.bgm_match_setup!;
+    __forTest.startBgm("bgm_match_setup", matchPath);
+    await vi.runOnlyPendingTimersAsync();
+    const before = __forTest.getCurrentAudio();
+    const playCallsBefore = playMock.mock.calls.length;
+
+    // /play は bgm_match_setup と同 path のため何もすべきでない
+    prepareBgmForNavigation("/play");
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(__forTest.getCurrentAudio()).toBe(before);
+    expect(__forTest.getPreparedAudio()).toBeNull();
+    expect(playMock).toHaveBeenCalledTimes(playCallsBefore);
+  });
+
+  it("違う path への遷移準備で prepared audio が作られ、currentAudio は変化しない", async () => {
+    const matchPath = BGM_FILES.bgm_match_setup!;
+    const gamePath = BGM_FILES.bgm_game!;
+    __forTest.startBgm("bgm_match_setup", matchPath);
+    await vi.runOnlyPendingTimersAsync();
+    const before = __forTest.getCurrentAudio();
+
+    prepareBgmForNavigation("/game/abc");
+    await vi.runOnlyPendingTimersAsync();
+
+    // ローディング中は currentAudio (= bgm_match_setup) を維持
+    expect(__forTest.getCurrentAudio()).toBe(before);
+    // 裏で prepared audio が unlock 済み状態で作られている
+    expect(__forTest.getPreparedAudio()).not.toBeNull();
+    expect(__forTest.getPreparedPath()).toBe(gamePath);
+    // prepared audio は play() 後に pause されている
+    expect(pauseMock).toHaveBeenCalled();
+  });
+
+  it("画面遷移後の startBgm 呼出で prepared audio が再利用される", async () => {
+    const matchPath = BGM_FILES.bgm_match_setup!;
+    const gamePath = BGM_FILES.bgm_game!;
+    __forTest.startBgm("bgm_match_setup", matchPath);
+    await vi.runOnlyPendingTimersAsync();
+
+    prepareBgmForNavigation("/game/abc");
+    await vi.runOnlyPendingTimersAsync();
+    const prepared = __forTest.getPreparedAudio();
+    expect(prepared).not.toBeNull();
+
+    // 画面遷移後の useBgm が startBgm を呼ぶシナリオ
+    __forTest.startBgm("bgm_game", gamePath);
+    await vi.runOnlyPendingTimersAsync();
+
+    // prepared が currentAudio として再利用される
+    expect(__forTest.getCurrentAudio()).toBe(prepared);
+    // prepared スロットは消費されて空になる
+    expect(__forTest.getPreparedAudio()).toBeNull();
+    expect(__forTest.getPreparedPath()).toBe("");
   });
 });
