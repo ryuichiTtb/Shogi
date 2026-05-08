@@ -14,17 +14,30 @@ import { AUDIO_MANIFEST } from "@/lib/audio/manifest";
 //   対局画面で Howler が改めて Howl({ src: [...], preload: true }) を呼ぶ
 //   ときには HTTP cache 経由でほぼ即時に decode できる。
 // - 同じ URL を二重に load しないよう Map で重複排除。
-// - BGM 先読みは廃止 (#79: キャラ別 BGM 撤去 + dev tool override 設計に統一)。
+// - BGM: Issue #189 でホーム到達直後の BGM 初回再生ラグを短縮するため
+//   bgm_home / bgm_match_setup の URL も同じく先読みする (現状この 2 つは
+//   同一ファイル `ファンタジー-日常-.mp3` を共有しているため Set で重複排除)。
+//   対局中の BGM (bgm_game / bgm_game_over) はロビー段階では不要なので含めない。
+const PRELOAD_BGM_KEYS = ["bgm_home", "bgm_match_setup"] as const;
+
 export function useAssetPreloader() {
   // URL → HTMLAudioElement の Map。重複ロードを防ぐためコンポーネント
   // ライフサイクル全体で保持。
   const loadedRef = useRef<Map<string, HTMLAudioElement>>(new Map());
 
-  // SFX 一括先読み (mount 時に 1 回)。
+  // SFX + ロビー BGM の一括先読み (mount 時に 1 回)。
   useEffect(() => {
     if (typeof window === "undefined") return;
     const map = loadedRef.current;
-    for (const url of AUDIO_MANIFEST.sfxUrls) {
+
+    const urls = new Set<string>();
+    for (const url of AUDIO_MANIFEST.sfxUrls) urls.add(url);
+    for (const key of PRELOAD_BGM_KEYS) {
+      const path = AUDIO_MANIFEST.bgm[key];
+      if (path) urls.add(path);
+    }
+
+    for (const url of urls) {
       if (map.has(url)) continue;
       try {
         const audio = new Audio();
