@@ -20,38 +20,43 @@ export interface DifficultyParams {
 }
 
 // 難易度別探索パラメータ。
-// Issue #176: hard stop は 4000ms 以内に収める方針。Phase 0 ベンチで現行値の
-// expert 4500ms / advanced 4000ms が timeLimitMs を最大 7s 級まで踏み抜く挙動が
-// 確認されたため、deadline 厳格化 (Stage A) と組み合わせて以下に揃える。
-// 仮置きの目安。Stage C 完了後の bench 結果でさらに微調整する。
+// Issue #176 timeout-fix: hard stop 4.0 秒以内に揃え、Vercel maxDuration=10 と
+// blunder guard 200ms budget (fix-PR2 で導入予定) を加味して以下に確定。
+// (旧 PR #185: beginner 1000 / intermediate 2000 / advanced 4000 / expert 4500、
+//  expert で hard stop 4.0 秒を踏み超していたため本番で 504 多発)
+//
+// PR #185 Stage C bench で expert/midgame_30 max が 3.8s に張り付く =
+// 既存実装でも 3.8s で打ち切られていたため、3.5s でも結果は近い。
+// fix-PR2 で導入予定の 200ms blunder guard budget と合わせて「探索 3.3s +
+// blunder guard 200ms = 計 3.5s」という二重保護も成立。
 export const DIFFICULTY_PARAMS: Record<Difficulty, DifficultyParams> = {
   beginner: {
     maxDepth: 3,
-    timeLimitMs: 1000,
-    addNoise: 0.50,       // 高ノイズ: 半分の確率でランダムな手
+    timeLimitMs: 800,      // 旧 1000ms。0.8s 程度で計画書 issue-176.md L67 目安に整合
+    addNoise: 0.50,        // 高ノイズ: 半分の確率でランダムな手
     useBook: false,        // 定石なし: 自然な弱さを演出
     nearEqualThreshold: 200, // 広い閾値: 大きくブレる
   },
   intermediate: {
     maxDepth: 6,
-    timeLimitMs: 2000,
-    addNoise: 0.10,       // 10%のノイズ
+    timeLimitMs: 1800,     // 旧 2000ms。
+    addNoise: 0.10,        // 10%のノイズ
     useBook: true,
     nearEqualThreshold: 80, // 中程度の閾値
   },
   advanced: {
     maxDepth: 16,          // 反復深化で到達できる限り深く
-    timeLimitMs: 4000,     // 4秒（品質優先）
+    timeLimitMs: 3000,     // 旧 4000ms。hard stop 4s 以内、余白拡大
     addNoise: 0,           // ノイズなし: ブランダー排除
     useBook: true,
-    nearEqualThreshold: 0,  // 常に最善手を選択
+    nearEqualThreshold: 0, // 常に最善手を選択
   },
   expert: {
     maxDepth: 24,          // 反復深化で到達できる限り深く
-    timeLimitMs: 4500,     // 4.5秒（品質最優先）
+    timeLimitMs: 3500,     // 旧 4500ms。Stage C bench で max 3.8s 観測 = 3.5s 切詰可
     addNoise: 0,           // ノイズなし: ブランダー排除
     useBook: true,
-    nearEqualThreshold: 0,  // 常に最善手を選択
+    nearEqualThreshold: 0, // 常に最善手を選択
   },
 };
 

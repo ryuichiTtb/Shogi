@@ -385,6 +385,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
     {/* Issue #176: AI 思考が連続失敗した場合のリカバリ UI */}
     <AiErrorModal
       open={aiError !== null}
+      error={aiError}
       onRetry={retryAiMove}
       onResign={resign}
     />
