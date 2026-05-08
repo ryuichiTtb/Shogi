@@ -426,6 +426,85 @@ export function setBgmMuted(muted: boolean): void {
 }
 
 // =====================
+// 画面遷移時の BGM 先行起動 (Issue #189 派生)
+// =====================
+//
+// モバイル Safari は SPA 内 navigation の前後で user gesture 権限を切ることが
+// あり、遷移先で改めて useBgm が play() を呼んでも autoplay block で reject
+// される現象が報告されていた (PC では引き継がれるが、モバイルだと対局画面で
+// 自動再生されない症状)。
+//
+// これを防ぐため、画面遷移ボタンの onClick (= 確実に user gesture 内) で
+// 次画面の BGM key を解決し、即時 startBgm() を呼ぶ。これにより:
+//   - 同 path (例: bgm_home → bgm_match_setup は同一ファイル) なら no-op で
+//     現在の audio を継続使用 (リスタートしない)
+//   - 違う path (例: bgm_match_setup → bgm_game) なら gesture 内で play() が
+//     開始され、遷移後の useBgm は早期 return で同 audio を継続再生
+//
+// なお、初回ホーム着地時の BGM 自動再生はブラウザ仕様 (autoplay policy) 上
+// 不可能で、最初の任意操作後に scheduleRetryOnUserGesture 経由で開始される。
+
+function resolveBgmKeyForHref(href: string): BgmEventKey | null {
+  // クエリ・ハッシュを除去
+  const path = href.split(/[?#]/)[0] ?? "";
+  if (path === "/" || path === "") return "bgm_home";
+  if (path === "/play" || path === "/classic") return "bgm_match_setup";
+  if (path.startsWith("/game/")) return "bgm_game";
+  // 履歴 / カード / デッキ / 各 design ページはホーム BGM 継続
+  if (
+    path === "/history" ||
+    path.startsWith("/cards") ||
+    path === "/decks" ||
+    path === "/card-design" ||
+    path === "/board-design"
+  ) {
+    return "bgm_home";
+  }
+  // dev tool 等は BGM 切替なし
+  return null;
+}
+
+/**
+ * 画面遷移ボタンの onClick から user gesture 内で呼ぶ。
+ * 遷移先 BGM を先行起動して、モバイル Safari の autoplay block を回避する。
+ */
+export function prepareBgmForNavigation(href: string): void {
+  if (typeof window === "undefined") return;
+  const nextKey = resolveBgmKeyForHref(href);
+  if (!nextKey) return;
+  const path = getEffectiveBgmPath(nextKey);
+  if (!path) return;
+  // 同 path なら現状の useBgm 早期 return と整合させて何もしない
+  // (ただし pause 中なら resume したいので audio.paused を見る)
+  if (currentResolvedPath === path && currentAudio && !currentAudio.paused) {
+    return;
+  }
+  // pause 中の audio が同 path なら user gesture 内で play() リトライ
+  if (currentResolvedPath === path && currentAudio && currentAudio.paused) {
+    const a = currentAudio;
+    const targetVol = isMuted ? 0 : BGM_VOLUME;
+    const playPromise = a.play();
+    if (playPromise && typeof playPromise.then === "function") {
+      playPromise
+        .then(() => {
+          if (currentAudio === a) {
+            fadeVolume(a, a.volume, targetVol, FADE_DURATION_MS);
+          }
+        })
+        .catch(() => {
+          // 復帰 reject 時は user gesture 待ち
+          if (currentAudio === a) {
+            scheduleRetryOnUserGesture();
+          }
+        });
+    }
+    return;
+  }
+  // 違う path → 標準フローで切替 (user gesture 内なので play() reject されにくい)
+  startBgm(nextKey, path);
+}
+
+// =====================
 // test-only: 内部 state へのアクセス API
 // =====================
 //

@@ -22,6 +22,7 @@ import { useEffect, useState, type ComponentProps, type MouseEvent, type ReactNo
 import { LoadingOverlay } from "@/components/loading-overlay";
 import { resolveLoadingStages } from "@/lib/loading-stages";
 import { playSfxOnce } from "@/hooks/use-sound";
+import { prepareBgmForNavigation } from "@/hooks/use-bgm";
 
 interface MaskedLinkProps extends ComponentProps<typeof Link> {
   // ローディング表示のスタイル。既定は "rich" (回転カード + プログレスバー + ステージ文言)。
@@ -120,12 +121,16 @@ export function MaskedLink({
   // Issue #79 派生: 画面遷移 SFX
   // - rich variant (= forward navigation): nav_forward
   // - spinner variant (= back navigation, ホームへ戻る等): nav_back
+  // Issue #189 派生: モバイル Safari で navigation 後の useBgm が autoplay
+  // block されないよう、user gesture 内で次画面 BGM を先行起動する。
   const handleClick = (e: MouseEvent<HTMLAnchorElement>) => {
     if (loadingVariant === "spinner") {
       playSfxOnce("nav_back");
     } else {
       playSfxOnce("nav_forward");
     }
+    const hrefStr = typeof href === "string" ? href : (href.pathname ?? "");
+    prepareBgmForNavigation(hrefStr);
     onClick?.(e);
   };
 

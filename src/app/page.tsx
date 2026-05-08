@@ -14,7 +14,7 @@ import { AuthControls } from "@/components/auth/auth-controls";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import { resolveLoadingStages } from "@/lib/loading-stages";
 import { useAssetPreloader } from "@/hooks/use-asset-preloader";
-import { useBgm } from "@/hooks/use-bgm";
+import { prepareBgmForNavigation, useBgm } from "@/hooks/use-bgm";
 import { playSfxOnce } from "@/hooks/use-sound";
 import { AppBackground } from "@/components/layout/app-background";
 import { PageMotion } from "@/components/layout/page-motion";
@@ -38,6 +38,9 @@ export default function Home() {
     if (isPending) return;
     // Issue #79 派生: forward 遷移 SFX (CTA / タイル共通)。
     playSfxOnce("nav_forward");
+    // Issue #189 派生: モバイル Safari の autoplay block 回避のため、
+    // 次画面 BGM を user gesture 内で先行起動する。
+    prepareBgmForNavigation(href);
     setPendingStages(customStages ?? resolveLoadingStages(href));
     router.push(href);
   }
