@@ -144,16 +144,17 @@ describe("useAiRequest - F1 abort reason 経路区別", () => {
     expect(onError).not.toHaveBeenCalled();
   });
 
-  it("supersede (連続 requestMove) は前 request の onError を発火させない", async () => {
+  it("supersede (連続 requestMove) は前 request の onError を発火させず、前 signal.reason は SUPERSEDE になる (M-1)", async () => {
     const onError = vi.fn();
     const { result } = renderHook(() => useAiRequest({ onError }));
 
-    let firstResolveAbortReject!: (e: Error) => void;
+    // 1 回目 fetch の signal を保持して、後で reason を inspect する
+    let firstSignal: AbortSignal | undefined;
     fetchSpy
       .mockImplementationOnce(
         (_url: string, init: RequestInit) =>
           new Promise<Response>((_resolve, reject) => {
-            firstResolveAbortReject = reject;
+            firstSignal = init.signal ?? undefined;
             init.signal?.addEventListener("abort", () => {
               reject(new DOMException("Aborted", "AbortError"));
             });
@@ -175,7 +176,15 @@ describe("useAiRequest - F1 abort reason 経路区別", () => {
     const r1 = await firstPromise;
     expect(r1.stale).toBe(true);
     expect(onError).not.toHaveBeenCalled();
-    void firstResolveAbortReject;
+
+    // M-1: 前 controller の signal.reason が SUPERSEDE であることを直接検証。
+    // 将来この reason 文字列が誤って TIMEOUT 等に書き換わると onError 誤発火を
+    // 引き起こすため、reason の物理紐付けを確認する。
+    expect(firstSignal?.aborted).toBe(true);
+    expect(firstSignal?.reason).toBeInstanceOf(DOMException);
+    expect((firstSignal?.reason as DOMException).message).toBe(
+      ABORT_REASONS.SUPERSEDE,
+    );
 
     const r2 = await secondPromise;
     expect(r2.stale).toBe(false);
@@ -297,6 +306,110 @@ describe("useAiRequest - HTTP / network retry 経路", () => {
       expect.objectContaining({ kind: "http", status: 400 }),
     );
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ----------------------- race / 並走系 (R-1, 計画書 L388-392 ケース 7-9) -----------------------
+
+describe("useAiRequest - race / 並走系 (F1 reason 区別の物理保証)", () => {
+  // ケース 8: backoff delay() 中に overall timeout 発火 → onError({ kind: "timeout" }) 発火。
+  // F1 で delay() catch 内に追加した handleAbort() の直接検証 (回帰防止上の核心)。
+  // overallTimeoutMs (250ms) < backoff (300ms) で、delay の中で overall timer fire を起こす。
+  it("ケース 8: backoff delay() 中に overall timeout が発火すると onError({ kind: 'timeout' }) を発火", async () => {
+    const onError = vi.fn<(e: AiRequestError) => void>();
+    const { result } = renderHook(() =>
+      useAiRequest({ onError, overallTimeoutMs: 250, maxRetries: 1 }),
+    );
+
+    // 1 回目は 504 で即返し → backoff (300ms) 突入。
+    // overall timer (250ms) が backoff 中に fire するため、2 回目 fetch には到達しない。
+    fetchSpy
+      .mockResolvedValueOnce(jsonResponse({ error: "timeout" }, { status: 504 }))
+      .mockImplementation(
+        // 2 回目以降は呼ばれないはずだが、万一呼ばれても abort で reject される形に
+        (_url: string, init: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init.signal?.addEventListener("abort", () => {
+              reject(new DOMException("Aborted", "AbortError"));
+            });
+          }),
+      );
+
+    let promise!: ReturnType<ReturnType<typeof useAiRequest>["requestMove"]>;
+    await act(async () => {
+      promise = result.current.requestMove(makeParams());
+    });
+    await act(async () => {
+      // 504 resolve → continue → backoff 300ms 開始 → 250ms 時点で overall timer fire
+      // → delay の onAbort が reject → catch で handleAbort → onError({kind:"timeout"})
+      await vi.advanceTimersByTimeAsync(400);
+    });
+
+    const r = await promise;
+    expect(r.stale).toBe(true);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "timeout" }),
+    );
+    // 1 回目だけ呼ばれて、backoff 中に abort されたので 2 回目には到達していない
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  // ケース 7: 「supersede 後に前 controller を再度 abort しても reason は変わらない」
+  // という Web 標準の controller↔reason 物理紐付けを直接検証する。
+  // useAiRequest の動的 race (= 1 回目 supersede 後に 1 回目 overall timer が遅れて発火)
+  // でも前 controller の reason が SUPERSEDE のまま不変なため、後続 controller の
+  // reason が誤って TIMEOUT に書き換わることはない、ということを示す原理レベルテスト。
+  it("ケース 7: SUPERSEDE で abort 済 controller を再度 abort しても reason は SUPERSEDE のまま (Web 標準の物理紐付け)", () => {
+    const controller = new AbortController();
+    controller.abort(
+      new DOMException(ABORT_REASONS.SUPERSEDE, "AbortError"),
+    );
+
+    // この controller を再度 abort しても、Web 標準では reason は最初の abort で固定される。
+    // useAiRequest の race で 1 回目 supersede 後に 1 回目 overall timer が遅れて発火しても、
+    // 前 controller の reason は SUPERSEDE のまま ≠ TIMEOUT で onError は発火しない。
+    controller.abort(
+      new DOMException(ABORT_REASONS.TIMEOUT, "AbortError"),
+    );
+
+    expect(controller.signal.aborted).toBe(true);
+    expect(controller.signal.reason).toBeInstanceOf(DOMException);
+    expect((controller.signal.reason as DOMException).message).toBe(
+      ABORT_REASONS.SUPERSEDE,
+    );
+    // → このため、別 controller (= 後続 request) の reason には混線しない
+  });
+
+  // ケース 9: requestMove 中に cancel() が呼ばれた場合、fetch は abort で reject され、
+  // catch 経由の handleAbort で silent stale (CANCEL は onError 不発)。
+  // 既に aborted な signal を fetch が同期的に観測する経路 (ループ先頭の早期 return も
+  // 含む) で onError 不発が崩れないことを確認するエッジケース。
+  it("ケース 9: requestMove 中に cancel() を呼ぶと AbortError 経路で silent stale (CANCEL は onError 不発)", async () => {
+    const onError = vi.fn();
+    const { result } = renderHook(() => useAiRequest({ onError }));
+
+    // fetch は abort listener 付きで、abort 時に reject する
+    fetchSpy.mockImplementation(
+      (_url: string, init: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => {
+            reject(new DOMException("Aborted", "AbortError"));
+          });
+        }),
+    );
+
+    let promise!: ReturnType<ReturnType<typeof useAiRequest>["requestMove"]>;
+    await act(async () => {
+      promise = result.current.requestMove(makeParams());
+      // microtask flush 前に cancel → controller.signal.aborted = true (reason=CANCEL)
+      result.current.cancel();
+    });
+
+    const r = await promise;
+    expect(r.stale).toBe(true);
+    expect(onError).not.toHaveBeenCalled();
+    // CANCEL 経路は silent stale で破棄、TIMEOUT のみ onError 発火するという F1 設計通り
   });
 });
 

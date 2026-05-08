@@ -5,7 +5,7 @@
 // 確認する。
 
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { AiErrorModal } from "../ai-error-modal";
 
 afterEach(() => {
@@ -115,5 +115,28 @@ describe("AiErrorModal - retry / resign ボタン", () => {
     resignBtn.click();
     expect(onResign).toHaveBeenCalledTimes(1);
     expect(onRetry).not.toHaveBeenCalled();
+  });
+});
+
+describe("AiErrorModal - dismiss 抑制 (L-1, L-2 回帰防止)", () => {
+  // ai-error-modal.tsx:29 の `onOpenChange={() => {}}` で Esc / 外クリック dismiss を
+  // 抑制している。card-shogi の進行不能状態を救済するためで、必ず Retry/Resign の
+  // どちらかを選ばせる設計。回帰防止のためテスト。
+  it("Esc キーでは dismiss されない (進行不能状態の救済)", () => {
+    render(
+      <AiErrorModal
+        open
+        error={{ kind: "timeout", message: "timeout" }}
+        onRetry={vi.fn()}
+        onResign={vi.fn()}
+      />,
+    );
+    // dismiss されないことの観測には dialog が DOM に残ることを確認すれば十分
+    fireEvent.keyDown(document.activeElement ?? document.body, {
+      key: "Escape",
+    });
+    expect(
+      screen.getByText(/AI が時間内に手を返せませんでした/),
+    ).toBeTruthy();
   });
 });
