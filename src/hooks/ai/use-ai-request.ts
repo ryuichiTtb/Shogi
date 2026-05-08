@@ -50,9 +50,16 @@ export interface AiMoveResponse {
 export interface UseAiRequestOptions {
   // 連続失敗時に呼ばれる。ユーザー向けエラーモーダルを表示する想定。
   onError?: (err: AiRequestError) => void;
-  // 全体タイムアウト (ms)。リトライを含む overall 上限。デフォルト 15000。
+  // 全体タイムアウト (ms)。リトライを含む overall 上限。
+  // Issue #176 timeout-fix F4: maxDuration=10s × 2 試行 + backoff 300ms = 20.3s が
+  // 最悪論理累積だが、overallTimeoutMs はその外側に来る hard deadline で 12s に
+  // 設定 (1 試行 10s + backoff 300ms + 2 試行目 1.7s で打切 → modal 提示)。
+  // デフォルト 12000ms。
   overallTimeoutMs?: number;
-  // 自動リトライ回数 (これ以外に最初の試行 1 回がある)。デフォルト 2。
+  // 自動リトライ回数 (これ以外に最初の試行 1 回がある)。デフォルト 1。
+  // Issue #176 timeout-fix F4: 旧 default=2 では (1 試行 5s × 3 + backoff 累積)
+  // が 15s を踏み超え overall timer が retry 中に発火 → 永久停止の誘発要因と
+  // なっていた。retry=1 + backoff 短縮で累積 10.3s ≪ 12s に整合。
   maxRetries?: number;
 }
 
@@ -96,9 +103,17 @@ function generateRequestId(): string {
   return `req-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-// 指数バックオフ (600ms, 1500ms, ...)
+// Issue #176 timeout-fix F4: 指数バックオフを 300ms 起点 (cap 1500ms) に縮小。
+// maxRetries=1 + overallTimeoutMs=12000ms と組み合わせ、最悪累積 (10s + 0.3s
+// + 10s = 10.3s) ≪ 12s で overall timer が retry 中に発火しないよう整合させる。
+//
+// 504 原因別 retry 効果見積もり:
+//   A: maxDuration 超過        → retry 効果薄 (warm 再走でも同遅延)
+//   B: cold start spike        → retry 効果中 (2 回目 warm 直行で復旧)
+//   C: Neon DB 一時遅延 (resume) → retry 効果大 (2 回目 warm DB 直行)
+// A は modal 経由のユーザー手動リトライで救済、B/C は retry で自動復旧。
 function backoffMs(attempt: number): number {
-  return Math.min(600 * Math.pow(2.5, attempt - 1), 4000);
+  return Math.min(300 * Math.pow(2, attempt - 1), 1500);
 }
 
 // signal が aborted になった時、reject を「signal.reason 自体」を保持した
@@ -125,7 +140,7 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 export function useAiRequest(options: UseAiRequestOptions = {}) {
-  const { onError, overallTimeoutMs = 15000, maxRetries = 2 } = options;
+  const { onError, overallTimeoutMs = 12000, maxRetries = 1 } = options;
 
   // 現在 in-flight な AbortController。新規 request で前回を abort し、stale 応答
   // を確実に捨てる。
