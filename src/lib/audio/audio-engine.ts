@@ -22,6 +22,17 @@ interface AudioCtxConstructor {
   new (): AudioContext;
 }
 
+// AudioContext.state の標準型は "suspended" | "running" | "closed" のみだが、
+// iOS Safari は "interrupted" 状態 (通話着信等) を返す。文字列比較に揃える。
+function isRunning(state: AudioContext["state"]): boolean {
+  return (state as string) === "running";
+}
+
+function needsResume(state: AudioContext["state"]): boolean {
+  const s = state as string;
+  return s === "suspended" || s === "interrupted";
+}
+
 // =====================
 // AudioContext シングルトン
 // =====================
@@ -77,7 +88,7 @@ function attachUnlockRetry(): void {
       detachUnlockRetry();
       return;
     }
-    if (audioCtx.state === "suspended") {
+    if (needsResume(audioCtx.state)) {
       audioCtx.resume().catch(() => {
         // まだ block されている → listener 保持
       });
@@ -111,11 +122,11 @@ function attachStateChangeHandler(): void {
     if (!audioCtx) return;
     // iOS の interrupted (通話着信等) や suspended に落ちた場合は resume を試行。
     // 即時失敗しても次の user gesture 待ちフォールバックに乗せる。
-    if (audioCtx.state === "suspended" || audioCtx.state === "interrupted") {
+    if (needsResume(audioCtx.state)) {
       audioCtx
         .resume()
         .then(() => {
-          if (audioCtx?.state === "running") {
+          if (audioCtx && isRunning(audioCtx.state)) {
             detachUnlockRetry();
           } else {
             attachUnlockRetry();
@@ -136,10 +147,10 @@ function attachStateChangeHandler(): void {
 export async function unlockAudio(): Promise<void> {
   const ctx = ensureCtx();
   if (!ctx) return;
-  if (ctx.state === "running") return;
+  if (isRunning(ctx.state)) return;
   try {
     await ctx.resume();
-    if (ctx.state === "running") {
+    if (isRunning(ctx.state)) {
       detachUnlockRetry();
     } else {
       attachUnlockRetry();

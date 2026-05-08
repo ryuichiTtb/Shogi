@@ -88,20 +88,38 @@ import { createRoot } from "react-dom/client";
 import { act } from "react";
 
 interface HookHandle {
-  result: ReturnType<typeof useSound>;
+  readonly result: ReturnType<typeof useSound>;
+  unmount: () => void;
 }
 
-function renderUseSound(handle: HookHandle): { unmount: () => void } {
-  function Probe(): null {
-    handle.result = useSound();
+function renderUseSound(): HookHandle {
+  let captured: ReturnType<typeof useSound> | null = null;
+  const setCaptured = (r: ReturnType<typeof useSound>): void => {
+    captured = r;
+  };
+  function Probe({
+    onCapture,
+  }: {
+    onCapture: (r: ReturnType<typeof useSound>) => void;
+  }): null {
+    const result = useSound();
+    React.useEffect(() => {
+      onCapture(result);
+    });
     return null;
   }
   const container = document.createElement("div");
   const root = createRoot(container);
   act(() => {
-    root.render(React.createElement(Probe));
+    root.render(React.createElement(Probe, { onCapture: setCaptured }));
   });
   return {
+    get result(): ReturnType<typeof useSound> {
+      if (!captured) {
+        throw new Error("Probe has not captured a result yet");
+      }
+      return captured;
+    },
     unmount: () => {
       act(() => {
         root.unmount();
@@ -112,8 +130,8 @@ function renderUseSound(handle: HookHandle): { unmount: () => void } {
 
 describe("useSound: 互換 API", () => {
   it("戻り値に playSfx / toggleMute / isMuted / isReady を含む", () => {
-    const handle = {} as HookHandle;
-    const { unmount } = renderUseSound(handle);
+    const handle = renderUseSound();
+    const { unmount } = handle;
     expect(typeof handle.result.playSfx).toBe("function");
     expect(typeof handle.result.toggleMute).toBe("function");
     expect(typeof handle.result.isMuted).toBe("boolean");
@@ -122,24 +140,24 @@ describe("useSound: 互換 API", () => {
   });
 
   it("playSfx は audio-engine.playSfxBuffer に委譲する", () => {
-    const handle = {} as HookHandle;
-    const { unmount } = renderUseSound(handle);
+    const handle = renderUseSound();
+    const { unmount } = handle;
     handle.result.playSfx("piece_move");
     expect(playSfxBuffer).toHaveBeenCalledWith("/sounds/piece-move.mp3");
     unmount();
   });
 
   it("playSfx は dev override で空文字のとき no-op", () => {
-    const handle = {} as HookHandle;
-    const { unmount } = renderUseSound(handle);
+    const handle = renderUseSound();
+    const { unmount } = handle;
     handle.result.playSfx("missing" as Parameters<typeof handle.result.playSfx>[0]);
     expect(playSfxBuffer).not.toHaveBeenCalled();
     unmount();
   });
 
   it("toggleMute で setBgmMuted と setSfxMuted の両方を呼び、isMuted が反転する", () => {
-    const handle = {} as HookHandle;
-    const { unmount } = renderUseSound(handle);
+    const handle = renderUseSound();
+    const { unmount } = handle;
     expect(handle.result.isMuted).toBe(false);
     act(() => {
       handle.result.toggleMute();
@@ -161,8 +179,8 @@ describe("useSound: 互換 API", () => {
 
 describe("useSound: mute の localStorage 永続化", () => {
   it("toggleMute で localStorage に true が書かれ、再 toggle で削除される", () => {
-    const handle = {} as HookHandle;
-    const { unmount } = renderUseSound(handle);
+    const handle = renderUseSound();
+    const { unmount } = handle;
     act(() => {
       handle.result.toggleMute();
     });
@@ -180,8 +198,8 @@ describe("useSound: mute の localStorage 永続化", () => {
     // 改めて値を保存 (resetMuted が removeItem するため)
     localStorage.setItem(soundForTest.MUTED_STORAGE_KEY, "true");
 
-    const handle = {} as HookHandle;
-    const { unmount } = renderUseSound(handle);
+    const handle = renderUseSound();
+    const { unmount } = handle;
     expect(handle.result.isMuted).toBe(true);
     // 初回 mount の useEffect で singleton にも反映される
     expect(setBgmMuted).toHaveBeenCalledWith(true);
@@ -190,8 +208,8 @@ describe("useSound: mute の localStorage 永続化", () => {
   });
 
   it("storage event (他タブからの変更) で isMuted が更新される", () => {
-    const handle = {} as HookHandle;
-    const { unmount } = renderUseSound(handle);
+    const handle = renderUseSound();
+    const { unmount } = handle;
     expect(handle.result.isMuted).toBe(false);
 
     // 他タブが localStorage を更新したとして storage event を発火
