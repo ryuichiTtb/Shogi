@@ -37,6 +37,9 @@ import {
 
 const BGM_VOLUME = 0.3;
 const FADE_DURATION_MS = 500;
+// Issue #189: バックグラウンド遷移時の fade-out は短め (ページが unload される
+// ケースでも完了する時間)。
+const HIDE_FADE_MS = 200;
 
 // =====================
 // シングルトン state
@@ -51,6 +54,11 @@ let shouldLoopFlag = true;
 
 // 進行中の fade を識別するトークン (新しい fade で旧 fade を中断するため)
 let activeFadeId = 0;
+
+// Issue #189: hidden に入る直前に再生中だったかを記録し、visible 復帰で
+// 自動的に再開するためのフラグ。pause を能動的に呼んだのか、ユーザー操作で
+// 既に止まっていたのかを区別するために必要。
+let wasPlayingBeforeHidden = false;
 
 // =====================
 // fade ヘルパ
@@ -243,6 +251,97 @@ function scheduleRetryOnUserGesture(): void {
 }
 
 // =====================
+// ページ可視性: バックグラウンド時 BGM 停止 / 復帰時 自動フェードイン
+// =====================
+//
+// Issue #189: モバイル iPhone Safari で別タブを開いたり、ホーム画面に戻ったり、
+// 画面ロックした時に BGM が再生され続けてしまうのを防ぐ。
+//
+// 設計:
+// - visibilitychange (hidden) → 200ms フェードアウト後に pause
+// - visibilitychange (visible) → play() → 500ms フェードインで再開 (currentTime 維持)
+// - pagehide (persisted=false) → 即時 pause (unload 直前なので fade を待たない)
+// - bfcache 復帰 (pageshow.persisted=true) → 既存の audio 再構築経路に任せる
+//
+// mute=true 状態で hidden に入った場合: audio.paused === false (volume=0 で再生
+// 継続中) → 「再生中扱い」と判定して pause、復帰時に fade 0→0 で再生継続する
+// (ユーザーが mute を解除したら正しく音が鳴る状態を維持)。
+
+function pauseForHidden(): void {
+  if (!currentAudio) return;
+  if (currentAudio.paused) return; // 既に停止
+  wasPlayingBeforeHidden = true;
+  const a = currentAudio;
+  fadeVolume(a, a.volume, 0, HIDE_FADE_MS);
+  // フェードアウト完了後に pause。途中で visible に戻ったら setTimeout 内で
+  // visibilityState を再チェックして no-op にする。
+  window.setTimeout(() => {
+    if (currentAudio !== a) return;
+    if (typeof document !== "undefined" && document.visibilityState !== "hidden") {
+      return;
+    }
+    try {
+      a.pause();
+    } catch {
+      // ignore
+    }
+  }, HIDE_FADE_MS + 30);
+}
+
+function resumeFromVisible(): void {
+  if (!wasPlayingBeforeHidden) return;
+  wasPlayingBeforeHidden = false;
+  if (!currentAudio) return;
+  const a = currentAudio;
+  const targetVol = isMuted ? 0 : BGM_VOLUME;
+  // フェードイン用に音量を 0 から開始 (HIDE_FADE_MS 完了前に visible 復帰した
+  // 場合は volume が中途半端なので 0 にリセットして再 fade-in)。
+  a.volume = 0;
+  const playPromise = a.play();
+  if (playPromise && typeof playPromise.then === "function") {
+    playPromise
+      .then(() => {
+        if (currentAudio === a) {
+          fadeVolume(a, 0, targetVol, FADE_DURATION_MS);
+        }
+      })
+      .catch(() => {
+        // 復帰時 autoplay block (iOS で起こり得る) → user gesture 待ちリトライへ
+        if (currentAudio === a) {
+          scheduleRetryOnUserGesture();
+        }
+      });
+  } else {
+    // 旧ブラウザ: play() が undefined を返す
+    fadeVolume(a, 0, targetVol, FADE_DURATION_MS);
+  }
+}
+
+function handleVisibilityChange(): void {
+  if (typeof document === "undefined") return;
+  if (document.visibilityState === "hidden") {
+    pauseForHidden();
+  } else if (document.visibilityState === "visible") {
+    resumeFromVisible();
+  }
+}
+
+function handlePageHide(e: PageTransitionEvent): void {
+  // bfcache に入る経路 (persisted=true) は pageshow.persisted で audio を
+  // 完全再構築するので、こちらでは何もしない。
+  if (e.persisted) return;
+  if (!currentAudio) return;
+  if (currentAudio.paused) return;
+  wasPlayingBeforeHidden = true;
+  // unload 直前なので fade を待たず即時 pause (fade 中に process が落ちると音が残る)
+  try {
+    currentAudio.pause();
+  } catch {
+    // ignore
+  }
+}
+
+// =====================
 // bfcache 復帰
 // =====================
 //
@@ -253,6 +352,9 @@ function scheduleRetryOnUserGesture(): void {
 if (typeof window !== "undefined") {
   window.addEventListener("pageshow", (e) => {
     if (!(e as PageTransitionEvent).persisted) return;
+    // bfcache 復帰経路は audio を完全再構築する。visibilitychange visible との
+    // 競合 (二重 play) を避けるため、復帰前のフラグはここでリセットする。
+    wasPlayingBeforeHidden = false;
     const restoreKey = currentKey;
     const restorePath = currentResolvedPath;
     if (currentAudio) destroyAudio(currentAudio);
@@ -263,6 +365,8 @@ if (typeof window !== "undefined") {
       startBgm(restoreKey, restorePath);
     }
   });
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  window.addEventListener("pagehide", handlePageHide);
 }
 
 // =====================
@@ -320,3 +424,36 @@ export function setBgmMuted(muted: boolean): void {
     }
   }
 }
+
+// =====================
+// test-only: 内部 state へのアクセス API
+// =====================
+//
+// Issue #189: useBgm は React hook + module-level singleton で構成されているため
+// 単体テストから内部状態を観測しづらい。startBgm を直接呼んで audio を生成し
+// 可視性ハンドラの動きを検証するための薄い窓口を提供する。本番コードから
+// 使用してはならない (一覧の `__forTest` プロパティ名を grep で見つけたら
+// 即座にレビュー指摘する想定)。
+export const __forTest = {
+  startBgm,
+  getCurrentAudio: (): HTMLAudioElement | null => currentAudio,
+  getWasPlayingBeforeHidden: (): boolean => wasPlayingBeforeHidden,
+  setMutedFlag: (muted: boolean): void => {
+    isMuted = muted;
+  },
+  resetState: (): void => {
+    if (currentAudio) {
+      try {
+        currentAudio.pause();
+      } catch {
+        // ignore
+      }
+    }
+    currentAudio = null;
+    currentKey = null;
+    currentResolvedPath = "";
+    isMuted = false;
+    wasPlayingBeforeHidden = false;
+    activeFadeId++;
+  },
+};
