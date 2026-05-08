@@ -4,9 +4,12 @@
 // - 純粋計算なので Server Action ではなく Route Handler に切り出し、保存系
 //   Server Action との直列化や cold-start 待ち合わせを避ける
 // - runtime: nodejs (重い CPU 計算 + Prisma 利用のため Node 必須)
-// - maxDuration: 5 秒 (Vercel 側 hard stop)。内部探索 deadline (engine.ts の
-//   timeLimitMs) は 4 秒以内に収め、JSON serialize / 通信 / cold start の余白
-//   を残す
+// - maxDuration: 10 秒 (Vercel Hobby 上限 60s に対する余裕大)。
+//   Issue #176 timeout-fix で 5→10 に拡大し、cold start spike + Neon DB resume
+//   + Prisma init + TT alloc の累積を 5s 以内に詰め込めない問題を解消。
+//   内部探索 deadline (engine.ts の timeLimitMs) は最大 3500ms (expert) で、
+//   blunder guard 200ms budget と合わせても hard stop 4.0 秒以内に収まる。
+//   Vercel Pro upgrade 後 (Issue #190) は 15〜30s に再調整可。
 // - request.signal を SearchContext.signal に伝播し、client abort (待った /
 //   終局 / unmount) を即時に探索へ伝える
 // - 同 user × gameId の多重 request は in-memory map で抑制 (新 request 到着
@@ -23,7 +26,7 @@ import { getVariantById } from "@/lib/shogi/variants";
 import type { Difficulty, GameState, Player } from "@/lib/shogi/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 5;
+export const maxDuration = 10;
 
 const VALID_DIFFICULTIES = new Set<Difficulty>([
   "beginner",
