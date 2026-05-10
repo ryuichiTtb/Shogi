@@ -10,8 +10,8 @@ import { LOADING_STAGES } from "@/lib/loading-stages";
 import { ChevronUp, ChevronDown, Volume2, VolumeX } from "lucide-react";
 
 import { useCardShogiGame } from "@/hooks/use-card-shogi-game";
-import { useSound } from "@/hooks/use-sound";
-import { useBgm } from "@/hooks/use-bgm";
+import { useSound, playSfxOnce } from "@/hooks/use-sound";
+import { useBgm, prepareBgmForNavigation } from "@/hooks/use-bgm";
 import { useCardBoardSize } from "@/hooks/use-card-board-size";
 
 import { ShogiBoard, type ShogiBoardHandle } from "../shogi-board";
@@ -377,7 +377,9 @@ export function CardShogiGame({
   const handleConfirmExit = useCallback(() => {
     setShowExitDialog(false);
     setIsExitingHome(true);
-    // ローディングマスクを 1 frame 描画してから遷移 (体感的な滑らかさのため)。
+    // 他画面のホーム戻りリンク (MaskedLink) と効果音 / BGM 切替を統一する。
+    playSfxOnce("nav_back");
+    prepareBgmForNavigation("/");
     router.push("/");
   }, [router]);
 
