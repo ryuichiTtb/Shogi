@@ -58,6 +58,11 @@ export function useCardShogiGame({
     doubleMove: null,
     forbiddenMateMoves: [],
     undoSnapshots: [],
+    // Issue #193 / PR1a: gameConfig に spectatorMode が含まれる場合 (CPU vs CPU 観戦)
+    // のみ true、人間プレイ時は false で完全に従来挙動を保持。段階7 で gameConfig 型を
+    // 拡張して観戦モード createGame 経路を整備する想定 (現時点では未指定なら false)。
+    spectatorMode: gameConfig.spectatorMode ?? false,
+    isPaused: false,
   });
 
   const aiPlayer: Player = gameConfig.playerColor === "sente" ? "gote" : "sente";

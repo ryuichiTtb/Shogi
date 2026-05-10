@@ -114,6 +114,20 @@ export interface GameConfig {
   // false → useBgm に null を渡し BGM 停止 (#79 統合)。
   soundEnabled: boolean;
   commentaryEnabled: boolean;
+  // Issue #193 / PR1a: CPU vs CPU 観戦モード。true のとき:
+  // - 両プレイヤー AI 駆動 (use-card-shogi-game の AI 自動応手 useEffect が currentPlayer を
+  //   見て該当 difficulty で request)
+  // - reducer の spectatorMode フラグ → 早指しボーナス無効化
+  // - DB 保存スキップ (useDbPersistenceGuard)
+  // - timeLimitMs 1500ms 短縮 (route.ts → findBestMoveWithStats)
+  // - 200 手強制引き分け / カードアクション上限の終局判定追加
+  // 段階7 で createGame の揮発モード経路と合わせて活用、PR1a の人間プレイ画面では未使用 (= false)。
+  spectatorMode?: boolean;
+  // 観戦モード時の後手側 (gote) 難易度・キャラ。spectatorMode === true のときに使用。
+  // useCardShogiGame は gameState.currentPlayer === "sente" なら difficulty、
+  // gameState.currentPlayer === "gote" なら difficultyB (or fallback で difficulty) を使う。
+  difficultyB?: Difficulty;
+  characterIdB?: string;
 }
 
 // 手の種類
