@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import { MaskedLink } from "@/components/navigation/masked-link";
 import { LOADING_STAGES } from "@/lib/loading-stages";
-import { ChevronUp, ChevronDown, Volume2, VolumeX } from "lucide-react";
+import { ChevronUp, ChevronDown, Pause, Volume2, VolumeX } from "lucide-react";
 
 import { useCardShogiGame } from "@/hooks/use-card-shogi-game";
 import { useSound, playSfxOnce } from "@/hooks/use-sound";
@@ -2138,6 +2138,22 @@ export function CardShogiGame({
 
       {/* Issue #81: 早指し時に駒の少し下に表示するバッジ */}
       <FastMoveBadgeLayer items={fastMoveBadges} onComplete={removeFastMoveBadge} />
+
+      {/* Issue #193 / PR1a: 観戦モード一時停止中の中央インジケータ。
+          spectatorMode && isPaused のときに半透明オーバーレイで Pause アイコンを
+          画面中央に表示。pointer-events-none で背後の操作 (GameControls の再開ボタン) は
+          引き続き反応するため、ユーザーは再開を即実行できる。 */}
+      {spectatorMode && isPaused && !isExitingHome && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center pointer-events-none bg-background/40 backdrop-blur-[2px]">
+          <div className="flex flex-col items-center gap-2 bg-card/95 px-6 py-5 sm:px-8 sm:py-6 rounded-2xl shadow-xl border-2 border-primary/30">
+            <Pause className="w-12 h-12 sm:w-16 sm:h-16 text-primary" strokeWidth={2.5} />
+            <div className="text-base sm:text-lg font-bold">一時停止中</div>
+            <div className="text-xs text-muted-foreground text-center">
+              再開ボタンで観戦を続けられます
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Issue #193 / PR1a: 観戦モードのホーム戻り確認ダイアログ。
           ダイアログ表示中は CPU を pause した状態を維持し、確認 OK で
