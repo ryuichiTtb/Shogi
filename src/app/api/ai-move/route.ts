@@ -160,13 +160,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   // ---- 所有者 + active 確認 (最小 DB read) ----
-  const game = await prisma.game.findUnique({
-    where: { id: body.gameId },
-    select: { id: true, playerId: true, status: true },
-  });
-  if (!game) return jsonError(404, "Game not found");
-  if (game.playerId !== userId) return jsonError(403, "Forbidden");
-  if (game.status !== "active") return jsonError(409, "Game not active");
+  // Issue #193 / PR1a (E-1): 観戦モード (CPU vs CPU) は揮発モードのため Game レコードが
+  // DB に存在しない。spectatorMode=true の場合は DB lookup と所有者検証をスキップする
+  // (gameId は "spectator-{uuid}" 形式の揮発 ID)。
+  // セキュリティ: 観戦モードは DB 書き込みなしのため悪用リスクは AI 計算リソース消費のみ。
+  // 1 ユーザー 1 観戦のレートリミットは next.config.mjs で別途実装予定 (進行中チェックリスト)。
+  // 認証 (userId 取得) は前段で完了済のため、ログインユーザーのみ観戦可能。
+  if (!body.spectatorMode) {
+    const game = await prisma.game.findUnique({
+      where: { id: body.gameId },
+      select: { id: true, playerId: true, status: true },
+    });
+    if (!game) return jsonError(404, "Game not found");
+    if (game.playerId !== userId) return jsonError(403, "Forbidden");
+    if (game.status !== "active") return jsonError(409, "Game not active");
+  }
 
   // ---- 多重 request 抑制 ----
   const flightKey = `${userId}:${body.gameId}`;
