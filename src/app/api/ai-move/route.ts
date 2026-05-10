@@ -22,7 +22,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getCurrentAppUser } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/prisma";
 import { findBestMoveWithStats } from "@/lib/shogi/ai/engine";
+import { SPECTATOR_TIME_LIMIT_MS } from "@/lib/shogi/ai/strategy";
 import { getVariantById } from "@/lib/shogi/variants";
+import type { CardGameState } from "@/lib/shogi/cards/types";
 import type { Difficulty, GameState, Player } from "@/lib/shogi/types";
 
 export const runtime = "nodejs";
@@ -46,6 +48,13 @@ interface AiMoveRequestBody {
   difficulty: Difficulty;
   variantId: string;
   clientMoveCount: number;
+  // PR1a (E-2): cardState は optional。PR1a では受け取るだけで使わない (silent ignore)。
+  // 不正な構造でも 400 にはせず、cardState なし扱いとして扱う。深い検証は PR1d で導入。
+  cardState?: CardGameState;
+  // PR1a (E-1): CPU vs CPU 観戦モード。client 側 (useCardShogiGame) で両プレイヤー
+  // それぞれに正しい difficulty / spectatorMode を渡す前提で、route 側は spectatorMode
+  // フラグを受け取り timeLimitMs を SPECTATOR_TIME_LIMIT_MS で短縮する。
+  spectatorMode?: boolean;
 }
 
 // 同 user × gameId の探索を 1 本に制限する。新 request 到着で既存を abort。
@@ -70,7 +79,30 @@ function validateBody(raw: unknown): AiMoveRequestBody | null {
   if (typeof gs.currentPlayer !== "string" || !VALID_PLAYERS.has(gs.currentPlayer as Player)) return null;
   if (typeof gs.moveCount !== "number") return null;
   if (typeof gs.status !== "string") return null;
-  return raw as unknown as AiMoveRequestBody;
+
+  // PR1a (E-2): cardState は浅い検査のみで silent ignore。型不一致 / 構造欠落でも
+  // 400 返却せず undefined として扱う (= cardState なしリクエストと同等)。
+  // 深い検証は PR1d 着手時に src/lib/shogi/cards/validate.ts で zod-like に整備し、
+  // 不正時は 400 返却に格上げする。
+  const cardState =
+    raw.cardState !== undefined && isObject(raw.cardState)
+      ? (raw.cardState as unknown as CardGameState)
+      : undefined;
+
+  // PR1a (E-1): spectatorMode は boolean のみ許容、それ以外は false 扱い (silent ignore)。
+  const spectatorMode = raw.spectatorMode === true;
+
+  return {
+    gameId: raw.gameId as string,
+    requestId: raw.requestId as string,
+    gameState: raw.gameState as unknown as GameState,
+    player: raw.player as Player,
+    difficulty: raw.difficulty as Difficulty,
+    variantId: raw.variantId as string,
+    clientMoveCount: raw.clientMoveCount as number,
+    cardState,
+    spectatorMode,
+  };
 }
 
 function jsonError(status: number, error: string): NextResponse {
@@ -149,12 +181,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   try {
     const variant = getVariantById(body.variantId);
+    // PR1a (E-1): 観戦モード時のみ timeLimitMs を SPECTATOR_TIME_LIMIT_MS で短縮。
+    // それ以外は既存挙動 (DIFFICULTY_PARAMS[difficulty].timeLimitMs)。
     const result = findBestMoveWithStats(
       body.gameState,
       body.player,
       body.difficulty,
       variant,
-      { signal: controller.signal },
+      {
+        signal: controller.signal,
+        timeLimitMs: body.spectatorMode ? SPECTATOR_TIME_LIMIT_MS : undefined,
+      },
     );
     // client abort の場合は 499 相当だが、Next.js では client がもう listen して
     // いないので status は意味を持たない。fallback で 200 を返す。
