@@ -151,7 +151,10 @@ export type GameStatus =
   | "perpetual_check"
   | "impasse"
   | "timeout"
-  | "stalemate";
+  | "stalemate"
+  // Issue #193 / PR1a: CPU vs CPU 観戦モードでの強制終了 (SPECTATOR_MAX_MOVES=200 手到達)。
+  // winner は "draw" 扱い。spectatorMode === false の人間プレイでは発生しない。
+  | "spectator_max_moves";
 
 export interface GameState {
   board: Board;

@@ -76,7 +76,12 @@ export type ShogiAction =
   // フラグを更新するだけで、AI 自動応手 useEffect 側がフラグを見て request abort と
   // dispatch ガードを行う。
   | { type: "PAUSE_GAME" }
-  | { type: "RESUME_GAME" };
+  | { type: "RESUME_GAME" }
+  // Issue #193 / PR1a (C-5): 観戦モード固有の終局判定。SPECTATOR_MAX_MOVES (200 手)
+  // 到達時に use-card-shogi-game の useEffect が dispatch する。spectatorMode === false の
+  // 人間プレイ時は no-op (= 強制終了は観戦モード専用)。終了条件優先順位: 千日手 (最優先、
+  // 既存 status="draw" 判定) → カードアクション上限 → 200 手到達の順。
+  | { type: "END_SPECTATOR_GAME" };
 
 export type Action = ShogiAction | CardAction;
 
@@ -1466,6 +1471,17 @@ export function reducer(
     case "RESUME_GAME":
       if (!state.spectatorMode) return state;
       return { ...state, isPaused: false };
+
+    // Issue #193 / PR1a (C-5): 観戦モード固有の強制引き分け終局。
+    // SPECTATOR_MAX_MOVES 到達で use-card-shogi-game の useEffect から dispatch される。
+    // GameStatus に "spectator_max_moves" を追加し winner="draw" 扱い。
+    case "END_SPECTATOR_GAME":
+      if (!state.spectatorMode) return state;
+      if (state.gameState.status !== "active") return state;
+      return {
+        ...state,
+        gameState: { ...state.gameState, status: "spectator_max_moves", winner: "draw" },
+      };
 
     default:
       return state;

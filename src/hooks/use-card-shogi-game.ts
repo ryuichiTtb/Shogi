@@ -20,6 +20,9 @@ import { isValidCardTargetSquare } from "@/lib/shogi/cards/effects";
 // useReducer + useEffect + useCallback の薄いフックとして公開 API のみを担う。
 import { reducer } from "./card-shogi/reducer";
 import { canUndoFromState } from "./card-shogi/undo-policy";
+import { useDbPersistenceGuard } from "./card-shogi/use-db-persistence-guard";
+import { SPECTATOR_MAX_MOVES } from "@/lib/shogi/ai/strategy";
+import type { Difficulty } from "@/lib/shogi/types";
 
 interface UseCardShogiGameOptions {
   initialState: GameState;
@@ -65,7 +68,14 @@ export function useCardShogiGame({
     isPaused: false,
   });
 
+  // Issue #193 / PR1a: 観戦モードでは playerColor が意味を持たないため、useEffect 内で
+  // gameState.currentPlayer に応じて動的に aiPlayer を計算する (E-1 対応)。
+  // ここでの aiPlayer 変数は通常モード用 (= 後方互換ガード)。
   const aiPlayer: Player = gameConfig.playerColor === "sente" ? "gote" : "sente";
+
+  // PR1a: 観戦モード時の DB 保存スキップ判定 (B-1 対応)。spectatorMode=false の人間プレイ時は
+  // 常に canPersist=true で従来挙動を保持。
+  const { canPersist } = useDbPersistenceGuard(state.spectatorMode);
 
   // 番が回ってきた時点で早指しタイマーを開始する。
   // 自分・AI 双方に適用しないと AI 側だけ常に通常チャージ(+1)扱いになる。
@@ -93,9 +103,23 @@ export function useCardShogiGame({
   // AI 自動応手
   useEffect(() => {
     const { gameState } = state;
+    // Issue #193 / PR1a: 観戦モードでは両プレイヤー AI 駆動。currentPlayer に応じて
+    // 該当する difficulty で request する (E-1 対応)。先手=difficulty、後手=difficultyB
+    // (未指定なら difficulty にフォールバック)。
+    const effectiveAiPlayer: Player = state.spectatorMode
+      ? gameState.currentPlayer
+      : aiPlayer;
+    const effectiveDifficulty: Difficulty = state.spectatorMode
+      ? gameState.currentPlayer === "sente"
+        ? gameConfig.difficulty
+        : gameConfig.difficultyB ?? gameConfig.difficulty
+      : gameConfig.difficulty;
+
     if (
       gameState.status !== "active" ||
-      gameState.currentPlayer !== aiPlayer ||
+      gameState.currentPlayer !== effectiveAiPlayer ||
+      // PR1a: 観戦モードのポーズ中は AI 思考をブロック (F-3 進行中チェックリスト関連)
+      state.isPaused ||
       disableAi ||
       state.isAiThinking ||
       state.cardState.pendingCard !== null ||
@@ -115,10 +139,14 @@ export function useCardShogiGame({
       const result = await aiRequestMove({
         gameId,
         gameState,
-        player: aiPlayer,
-        difficulty: gameConfig.difficulty,
+        player: effectiveAiPlayer,
+        difficulty: effectiveDifficulty,
         variantId: gameConfig.variant.id,
         clientMoveCount: gameState.moveCount,
+        // PR1a (E-2 silent ignore): cardState を route に渡す。route 側で受け取るだけで使わない (PR1d で活用)。
+        cardState: state.cardState,
+        // PR1a (E-1): 観戦モード時は route 側で timeLimitMs を SPECTATOR_TIME_LIMIT_MS=1500ms に短縮する。
+        spectatorMode: state.spectatorMode,
       });
       if (result.stale) {
         // 待った / 終局 / unmount / 上書き / onError 経由の早期 abort。
@@ -153,6 +181,8 @@ export function useCardShogiGame({
     state.isDrawing,
     state.isPlayingCard,
     state.isCheckBreakAnimating,
+    // PR1a: 観戦モードのポーズ解除時に AI 思考を再開できるよう依存配列に追加 (F-3 関連)
+    state.isPaused,
     disableAi,
     aiRetryCounter,
   ]);
@@ -163,6 +193,18 @@ export function useCardShogiGame({
       cancelAiRequest();
     }
   }, [state.gameState.status, cancelAiRequest]);
+
+  // Issue #193 / PR1a (C-5): 観戦モード固有の強制終局判定。
+  // 終了条件優先順位: 千日手 (最優先、既存 status 判定で repetition / perpetual_check に変わる) →
+  // カードアクション上限 5 回 (PR1a では未発動、PR3 のルール変更時の安全弁) →
+  // SPECTATOR_MAX_MOVES (200 手) 到達で強制引き分け。
+  useEffect(() => {
+    if (!state.spectatorMode) return;
+    if (state.gameState.status !== "active") return;
+    if (state.gameState.moveCount >= SPECTATOR_MAX_MOVES) {
+      dispatch({ type: "END_SPECTATOR_GAME" });
+    }
+  }, [state.spectatorMode, state.gameState.status, state.gameState.moveCount]);
 
   const dismissAiError = useCallback(() => setAiError(null), []);
   const retryAiMove = useCallback(() => {
@@ -178,6 +220,8 @@ export function useCardShogiGame({
     // これにより 1手目分の GameMove レコードは作られず、リロード時の DB 状態は
     // カード使用前にロールバックする (二手指しキャンセル相当)。
     if (disableServerSync) return;
+    // Issue #193 / PR1a (B-1): 観戦モード (CPU vs CPU) では DB 保存しない (揮発モード)。
+    if (!canPersist) return;
     if (state.doubleMove !== null) return;
 
     const moveCount = state.gameState.moveCount;
@@ -221,6 +265,8 @@ export function useCardShogiGame({
   useEffect(() => {
     if (state.doubleMove !== null) return;
     if (disableServerSync) return;
+    // Issue #193 / PR1a (B-1): 観戦モード時は DB 保存しない (揮発モード)。
+    if (!canPersist) return;
     if (state.isPlayingCard || state.isDrawing || state.isCheckBreakAnimating) return;
     if (state.cardState === lastPersistedCardStateRef.current) return;
     lastPersistedCardStateRef.current = state.cardState;
@@ -377,6 +423,8 @@ export function useCardShogiGame({
     if (state.gameState.status !== "resign") return;
     if (resignedRef.current) return;
     if (disableServerSync) return;
+    // Issue #193 / PR1a (B-1): 観戦モード時は DB 保存しない (揮発モード)。
+    if (!canPersist) return;
     resignedRef.current = true;
     const winner = state.gameState.winner ?? "";
     void saveCardShogiResign(gameId, state.gameState, state.cardState, winner);
@@ -407,6 +455,9 @@ export function useCardShogiGame({
     pendingUndoSyncRef.current = false;
     lastSavedMoveCountRef.current = state.gameState.moveCount;
     if (disableServerSync) return;
+    // Issue #193 / PR1a (B-1): 観戦モード時は DB 保存しない (揮発モード)。
+    // ただし観戦モードでは UI 側で undo 操作が disable されているため通常はここに来ないが、保険として残す。
+    if (!canPersist) return;
     undoCardShogiGameState(
       gameId,
       state.gameState,

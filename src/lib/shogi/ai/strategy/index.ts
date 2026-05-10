@@ -6,7 +6,11 @@ import { LegacyStrategyAdapter } from "./legacy-adapter";
 import { MusashiStrategy } from "./musashi";
 import { RyuouStrategy } from "./ryuou";
 import { SakuraStrategy } from "./sakura";
-import { SPECTATOR_TIME_LIMIT_MS } from "./spectator-override";
+import {
+  SPECTATOR_MAX_CARD_OPS_PER_TURN,
+  SPECTATOR_MAX_MOVES,
+  SPECTATOR_TIME_LIMIT_MS,
+} from "./spectator-override";
 import type { SearchStrategy, SearchStrategyOptions } from "./types";
 
 export type {
@@ -22,6 +26,8 @@ export {
   GennoStrategy,
   RyuouStrategy,
   SPECTATOR_TIME_LIMIT_MS,
+  SPECTATOR_MAX_MOVES,
+  SPECTATOR_MAX_CARD_OPS_PER_TURN,
 };
 
 // Difficulty から該当キャラ Strategy を生成する factory。
