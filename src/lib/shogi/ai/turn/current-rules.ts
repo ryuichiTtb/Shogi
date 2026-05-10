@@ -17,6 +17,7 @@ export class CurrentRules implements TurnRules {
 
   // 現行ルールは「1 アクション = 1 ターン終了」。
   // history・state は将来ルールで使うシグネチャ整合のため受け取るが、現行では未参照。
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   isTurnTerminating(_action: TurnAction, _history: TurnAction[], _state: AiTurnState): boolean {
     return true;
   }
