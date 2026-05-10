@@ -119,6 +119,9 @@ export const DIFFICULTY_LABELS: Record<Difficulty, string> = {
 // 旧 calculateAiMove は Stage B で削除済み。
 export interface FindBestMoveOptions {
   signal?: AbortSignal;
+  // Issue #193 / PR1a: 観戦モード (CPU vs CPU) で timeLimitMs を 1500ms 等に短縮するための override。
+  // 未指定時は DIFFICULTY_PARAMS[difficulty].timeLimitMs (既存挙動) を使用。
+  timeLimitMs?: number;
 }
 
 export interface FindBestMoveResult {
@@ -134,8 +137,10 @@ export function findBestMoveWithStats(
   options: FindBestMoveOptions = {},
 ): FindBestMoveResult {
   const params = DIFFICULTY_PARAMS[difficulty];
+  // Issue #193: options.timeLimitMs が指定されていれば override (観戦モード用)、なければ既存挙動
+  const effectiveTimeLimitMs = options.timeLimitMs ?? params.timeLimitMs;
   const ctx = createSearchContext({
-    timeLimitMs: params.timeLimitMs,
+    timeLimitMs: effectiveTimeLimitMs,
     signal: options.signal,
   });
 
@@ -177,7 +182,7 @@ export function findBestMoveWithStats(
     player,
     {
       maxDepth: params.maxDepth,
-      timeLimitMs: params.timeLimitMs,
+      timeLimitMs: effectiveTimeLimitMs,
       addNoise: params.addNoise,
       nearEqualThreshold: params.nearEqualThreshold,
     },
