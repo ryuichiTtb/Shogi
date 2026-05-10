@@ -245,7 +245,7 @@ describe("use-bgm: prepareBgmForNavigation の prepared audio フロー", () => 
     expect(playMock).toHaveBeenCalledTimes(playCallsBefore);
   });
 
-  it("違う path への遷移準備で prepared audio が作られ、currentAudio は変化しない", async () => {
+  it("違う path への遷移準備で prepared audio が muted=true で作られ、currentAudio は変化しない", async () => {
     const matchPath = BGM_FILES.bgm_match_setup!;
     const gamePath = BGM_FILES.bgm_game!;
     __forTest.startBgm("bgm_match_setup", matchPath);
@@ -258,13 +258,17 @@ describe("use-bgm: prepareBgmForNavigation の prepared audio フロー", () => 
     // ローディング中は currentAudio (= bgm_match_setup) を維持
     expect(__forTest.getCurrentAudio()).toBe(before);
     // 裏で prepared audio が unlock 済み状態で作られている
-    expect(__forTest.getPreparedAudio()).not.toBeNull();
+    const prepared = __forTest.getPreparedAudio();
+    expect(prepared).not.toBeNull();
     expect(__forTest.getPreparedPath()).toBe(gamePath);
     // prepared audio は play() 後に pause されている
     expect(pauseMock).toHaveBeenCalled();
+    // Issue #198: iOS Safari で volume プロパティが無効なため、無音再生は
+    // muted=true でなければ実現できない。prepared 状態では muted=true で保持。
+    expect(prepared!.muted).toBe(true);
   });
 
-  it("画面遷移後の startBgm 呼出で prepared audio が再利用される", async () => {
+  it("画面遷移後の startBgm で prepared audio が再利用され、muted が解除される", async () => {
     const matchPath = BGM_FILES.bgm_match_setup!;
     const gamePath = BGM_FILES.bgm_game!;
     __forTest.startBgm("bgm_match_setup", matchPath);
@@ -274,6 +278,7 @@ describe("use-bgm: prepareBgmForNavigation の prepared audio フロー", () => 
     await vi.runOnlyPendingTimersAsync();
     const prepared = __forTest.getPreparedAudio();
     expect(prepared).not.toBeNull();
+    expect(prepared!.muted).toBe(true);
 
     // 画面遷移後の useBgm が startBgm を呼ぶシナリオ
     __forTest.startBgm("bgm_game", gamePath);
@@ -284,5 +289,141 @@ describe("use-bgm: prepareBgmForNavigation の prepared audio フロー", () => 
     // prepared スロットは消費されて空になる
     expect(__forTest.getPreparedAudio()).toBeNull();
     expect(__forTest.getPreparedPath()).toBe("");
+    // Issue #198: 再利用時に muted=false に戻して通常再生に切替
+    expect(prepared!.muted).toBe(false);
+  });
+});
+
+// =====================
+// Issue #198: GainNode 経由の音量制御 (Web Audio Hybrid)
+// =====================
+//
+// AudioContext + createMediaElementSource を mock し、BGM の volume 操作が
+// HTMLAudioElement.volume ではなく GainNode.gain.value 経由で行われることを
+// 検証する。jsdom には AudioContext 実装がないため自前で mock する。
+
+describe("use-bgm: GainNode 経由の音量制御 (Issue #198)", () => {
+  // audio-engine の AudioContext singleton を試験用に reset する
+  let createdGainNode: { gain: { value: number }; connect: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> } | null = null;
+  let createSourceMock: ReturnType<typeof vi.fn>;
+  let createGainMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    createdGainNode = null;
+    createSourceMock = vi.fn(() => ({
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+    }));
+    createGainMock = vi.fn(() => {
+      const gain = {
+        gain: { value: 1 },
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+      };
+      createdGainNode = gain;
+      return gain;
+    });
+    // class で mock コンストラクタ (audio-engine.test.ts と同じパターン)
+    class MockAudioContext {
+      state = "running" as const;
+      destination = { type: "destination" };
+      createMediaElementSource = createSourceMock;
+      createGain = createGainMock;
+      decodeAudioData = vi.fn();
+      resume = vi.fn().mockResolvedValue(undefined);
+      close = vi.fn().mockResolvedValue(undefined);
+      addEventListener = vi.fn();
+    }
+    (globalThis as unknown as { AudioContext: unknown }).AudioContext =
+      MockAudioContext;
+    (globalThis as unknown as { webkitAudioContext: unknown }).webkitAudioContext =
+      MockAudioContext;
+
+    // audio-engine の singleton を reset (= AudioContext 再生成のため)
+    const engine = await import("@/lib/audio/audio-engine");
+    engine.__forTest.reset();
+  });
+
+  afterEach(async () => {
+    delete (globalThis as unknown as { AudioContext?: unknown }).AudioContext;
+    delete (globalThis as unknown as { webkitAudioContext?: unknown })
+      .webkitAudioContext;
+    const engine = await import("@/lib/audio/audio-engine");
+    engine.__forTest.reset();
+  });
+
+  it("startBgm で audio.volume ではなく GainNode.gain.value で音量制御される", async () => {
+    __forTest.startBgm("bgm_home", "/sounds/test.mp3");
+    await vi.runOnlyPendingTimersAsync();
+    // fade-in (500ms) 完了まで進める
+    vi.advanceTimersByTime(600);
+
+    // BGM 用 GainNode が createMediaElementSource 経由で作られている
+    // (audio-engine 側で masterGain が別途作られるため createGain は複数回呼ばれる)
+    expect(createSourceMock).toHaveBeenCalledTimes(1);
+    expect(createdGainNode).not.toBeNull();
+    // fade-in が完了し BGM_VOLUME (0.3) に達している
+    expect(createdGainNode!.gain.value).toBeCloseTo(0.3, 5);
+  });
+
+  it("setBgmMuted で GainNode.gain.value が 0 / BGM_VOLUME に切替", async () => {
+    __forTest.startBgm("bgm_home", "/sounds/test.mp3");
+    await vi.runOnlyPendingTimersAsync();
+    // play() resolve 後の fade-in は rAF 経由のため、ここで現在値を確認する
+    // 代わりに mute 切替で GainNode 値が即時に変わることを検証
+    setBgmMuted(true);
+    expect(createdGainNode!.gain.value).toBe(0);
+    setBgmMuted(false);
+    // BGM_VOLUME = 0.3
+    expect(createdGainNode!.gain.value).toBe(0.3);
+  });
+
+  it("destroyAudio で GainNode が disconnect される (リーク防止)", async () => {
+    const matchPath = BGM_FILES.bgm_match_setup!;
+    const gamePath = BGM_FILES.bgm_game!;
+    __forTest.startBgm("bgm_match_setup", matchPath);
+    await vi.runOnlyPendingTimersAsync();
+    const firstGain = createdGainNode!;
+    expect(firstGain).not.toBeNull();
+
+    // 違う path の BGM へ切替 → 旧 audio destroy → GainNode disconnect
+    __forTest.startBgm("bgm_game", gamePath);
+    // destroyAudio は setTimeout 経由 (FADE_DURATION_MS + 50)
+    vi.advanceTimersByTime(700);
+    expect(firstGain.disconnect).toHaveBeenCalled();
+  });
+
+  it("prepareBgmForNavigation でも GainNode が attach される", async () => {
+    const matchPath = BGM_FILES.bgm_match_setup!;
+    __forTest.startBgm("bgm_match_setup", matchPath);
+    await vi.runOnlyPendingTimersAsync();
+    const callsBeforePrepare = createSourceMock.mock.calls.length;
+
+    prepareBgmForNavigation("/game/abc");
+    await vi.runOnlyPendingTimersAsync();
+
+    // prepared audio に対しても createMediaElementSource が呼ばれる
+    expect(createSourceMock.mock.calls.length).toBe(callsBeforePrepare + 1);
+    // 最新の GainNode は gain=0 で初期化 (= 無音状態で unlock)
+    expect(createdGainNode!.gain.value).toBe(0);
+  });
+
+  it("startBgm の play() 成功時に AudioContext.resume() が呼ばれる (Issue #198)", async () => {
+    const engine = await import("@/lib/audio/audio-engine");
+    // ensureCtx を呼んで AudioContext を初期化させる + resume の spy 取得
+    engine.getAudioCtx();
+    const ctx = engine.__forTest.getCtx();
+    expect(ctx).not.toBeNull();
+    // ctx は最初 suspended → unlock で running になる mock
+    // suspended state を再現するためにテスト前に明示的に suspended にする
+    (ctx as unknown as { state: string }).state = "suspended";
+    const resumeSpy = ctx!.resume as unknown as ReturnType<typeof vi.fn>;
+    resumeSpy.mockClear();
+
+    __forTest.startBgm("bgm_home", "/sounds/test.mp3");
+    await vi.runOnlyPendingTimersAsync();
+
+    // play() 成功 → unlockAudio() → ctx.resume() が呼ばれる
+    expect(resumeSpy).toHaveBeenCalled();
   });
 });
