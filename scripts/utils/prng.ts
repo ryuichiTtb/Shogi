@@ -1,4 +1,4 @@
-// Issue #193 / PR1b (Phase 3): fixture 生成用の決定的 PRNG (Mulberry32)。
+// Issue #193 / PR1b + PR1c 共通 (Phase 3 + Phase 4 足場): fixture 生成用の決定的 PRNG (Mulberry32)。
 //
 // 設計意図:
 // JavaScript 組込 `Math.random` は seed 指定不可で、fixture を再現性をもって
@@ -60,7 +60,8 @@ export function randomChoice<T>(rng: () => number, items: readonly T[]): T | und
  * 未指定の場合は `defaultSeed` (= 42) を返す。
  *
  * @example
- * // node scripts/gen-fixture-legal-moves.ts --seed=123
+ * // npm run gen:fixture:legal-moves -- --seed=123
+ * // npm run gen:fixture:evaluate -- --seed=123
  * const seed = parseSeedFromArgv(process.argv);  // 123
  */
 export function parseSeedFromArgv(argv: readonly string[], defaultSeed = 42): number {
