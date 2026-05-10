@@ -4,10 +4,12 @@
 //   - rotateY 360° の連続ループを CSS keyframes (loading-card-flip) で再生し、
 //     表面と裏面の 2 枚を [transform-style: preserve-3d] の親に重ねて
 //     [backface-visibility: hidden] で半周ごとに表裏を切替える。
-//   - 表面は将棋の主要 8 駒 (歩・香車・桂馬・銀将・金将・飛車・角行・王将) から
-//     1 枚ランダム選択し、対局時と同じ ShogiPiece (font: yuji-boku、五角形 SVG
-//     枠) で描画する。マウントごとにランダムだが、useState 初期化なのでカード
-//     表面を見ているあいだは固定される (くるくる入れ替わると目障りなため)。
+//   - 表面は将棋の通常 8 駒 (歩兵・香車・桂馬・銀将・金将・飛車・角行・王将) と
+//     成り駒 6 種 (と金・成香・成桂・成銀・竜馬・龍王) の計 14 駒から 1 枚ランダム
+//     選択し、対局時と同じ ShogiPiece (font: yuji-boku、五角形 SVG 枠) で描画する。
+//     成り駒は ShogiPiece の `promoted_*` 判定により自動で赤字 (text-red-700) で
+//     描画される (Issue #200)。マウントごとにランダムだが、useState 初期化なので
+//     カード表面を見ているあいだは固定される (くるくる入れ替わると目障りなため)。
 //   - prefers-reduced-motion: reduce のときは framer-motion の useReducedMotion
 //     経由で reduce フラグを取得し、回転を止めて CardBack のみを静止表示する。
 //   - サイズはレスポンシブに clamp(140px, 40vw, 240px)、アスペクト比 8:5。
@@ -20,8 +22,9 @@ import { CardBack } from "@/components/card-back/card-back";
 import { ShogiPiece } from "@/components/game/shogi-piece";
 import { cn } from "@/lib/utils";
 
-// 表面に出す駒のプール。プロモート駒・成り駒は除外し、初心者にも一目で
-// 分かる主要 8 駒に絞る (Issue #155 のユーザー指定)。
+// 表面に出す駒のプール。通常 8 駒 + 成り駒 6 種の計 14 駒 (Issue #200)。
+// 成り駒は ShogiPiece が `piece.type.startsWith("promoted_")` を見て自動で
+// 赤字 (text-red-700) に切替えるため、ここで色を指定する必要はない。
 // プレビューページ (/dev/loading-preview) からも参照するため export している。
 export const LOADING_FACE_PIECE_TYPES = [
   "pawn",
@@ -32,14 +35,21 @@ export const LOADING_FACE_PIECE_TYPES = [
   "rook",
   "bishop",
   "king",
+  "promoted_pawn",
+  "promoted_lance",
+  "promoted_knight",
+  "promoted_silver",
+  "promoted_bishop",
+  "promoted_rook",
 ] as const;
 
 export type LoadingFacePieceType = (typeof LOADING_FACE_PIECE_TYPES)[number];
 
 // 駒の正式名称 (ローディング表面で表示する文字)。盤上 1 文字表記とは別に、
-// 「歩・香車・桂馬・銀将・金将・飛車・角行・王将」の縦書き表示にする。
+// 「歩兵・香車・桂馬・銀将・金将・飛車・角行・王将 + と金・成香・成桂・成銀・
+// 竜馬・龍王」の縦書き表示にする (Issue #200)。
 export const LOADING_FACE_PIECE_LABEL: Record<LoadingFacePieceType, string> = {
-  pawn: "歩",
+  pawn: "歩兵",
   lance: "香車",
   knight: "桂馬",
   silver: "銀将",
@@ -47,6 +57,12 @@ export const LOADING_FACE_PIECE_LABEL: Record<LoadingFacePieceType, string> = {
   rook: "飛車",
   bishop: "角行",
   king: "王将",
+  promoted_pawn: "と金",
+  promoted_lance: "成香",
+  promoted_knight: "成桂",
+  promoted_silver: "成銀",
+  promoted_bishop: "竜馬",
+  promoted_rook: "龍王",
 };
 
 function pickRandomPieceType(): LoadingFacePieceType {

@@ -49,12 +49,15 @@ export default function LoadingPreviewPage() {
         </h1>
       </header>
 
-      {/* (1) 表面 8 駒の一覧 */}
+      {/* (1) 表面 14 駒の一覧 (Issue #200: 通常 8 駒 + 成り駒 6 種) */}
       <section className="mb-10">
         <h2 className="text-base font-bold mb-3">
-          表面 8 駒 (静止 / ふわふわアニメは個別)
+          表面 14 駒 (静止 / ふわふわアニメは個別)
         </h2>
         <p className="text-xs text-muted-foreground mb-4">
+          通常 8 駒 (歩兵 / 香車 / 桂馬 / 銀将 / 金将 / 飛車 / 角行 / 王将) と
+          成り駒 6 種 (と金 / 成香 / 成桂 / 成銀 / 竜馬 / 龍王) の計 14 枚。成り駒
+          は ShogiPiece の `promoted_*` 判定で自動的に赤字 (text-red-700) になります。
           各カードは個別にマウントされるので、上下のふわふわ + 回転アニメは
           位相がバラけて表示されます。実際のローディング中は 1 枚だけがランダムに
           選ばれて表示されます。
