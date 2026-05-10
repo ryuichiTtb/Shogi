@@ -38,9 +38,13 @@ const CHARSET_GROUPS: Record<string, string> = {
   // src/components/game/card-shogi/fast-move-badge.tsx: 早指し演出のラベル
   fastMove: "早指し",
   // src/components/loading/loading-card-visual.tsx: ローディング表面の正式名称
-  // (歩・香車・桂馬・銀将・金将・飛車・角行・王将)。Issue #155 で追加された
-  // 「車・将・行」が以前のサブセットに無く別フォントにフォールバックしていた。
-  loadingPieceLabel: "歩香車桂馬銀将金飛角行王将",
+  //   通常 8 駒: 歩兵・香車・桂馬・銀将・金将・飛車・角行・王将
+  //   成り駒 6 種: と金・成香・成桂・成銀・竜馬・龍王 (Issue #200 で追加)
+  // - Issue #155 で追加された「車・将・行」が以前のサブセットに無く別フォントに
+  //   フォールバックしていた事象あり。
+  // - Issue #200 で「兵・成・龍」が同様にフォールバックしたため追加。
+  //   「龍」は pieces グループの「竜」(略字) とは別グリフなので明示的に含める。
+  loadingPieceLabel: "歩兵香車桂馬銀将金飛角行王成龍",
 };
 
 async function main() {
