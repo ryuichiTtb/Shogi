@@ -295,6 +295,11 @@ export function useCardShogiGame({
     (pos: Position) => {
       const { gameState, cardState, selectedSquare, selectedHandPiece, legalMoves } = state;
       if (gameState.status !== "active") return;
+      // Issue #193 / PR1a: 観戦モード (CPU vs CPU) ではユーザー操作を完全に無効化する。
+      // 両プレイヤー AI 駆動の進行を妨げないため、selectSquare / selectHandPiece /
+      // drawCard / beginPlayCard / confirmPlayCard / cancelPlayCard / undo /
+      // resign / undoDoubleMoveFirst / cancelDoubleMove のすべてに同等のガードを追加。
+      if (state.spectatorMode) return;
       if (gameState.currentPlayer !== gameConfig.playerColor) return;
       // ドロー演出 / カード使用演出中は盤面操作禁止 (Issue #82)。
       // ※ pendingCard.selectTarget 時は currentPlayer 反転前なのでここを通る必要があるため、
@@ -389,13 +394,15 @@ export function useCardShogiGame({
 
   const selectHandPiece = useCallback(
     (pieceType: string) => {
+      // Issue #193 / PR1a: 観戦モードはユーザー操作不可
+      if (state.spectatorMode) return;
       if (state.cardState.pendingCard) return;
       if (state.isDrawing || state.isPlayingCard) return; // Issue #82: 演出中は弾く
       if (state.isCheckBreakAnimating) return; // Issue #82 (王手崩し): トラップ演出中
       if (state.gameState.currentPlayer !== gameConfig.playerColor) return;
       dispatch({ type: "SELECT_HAND_PIECE", pieceType });
     },
-    [state.gameState.currentPlayer, gameConfig.playerColor, state.cardState.pendingCard, state.isDrawing, state.isPlayingCard, state.isCheckBreakAnimating],
+    [state.spectatorMode, state.gameState.currentPlayer, gameConfig.playerColor, state.cardState.pendingCard, state.isDrawing, state.isPlayingCard, state.isCheckBreakAnimating],
   );
 
   const confirmPromotion = useCallback((promote: boolean) => {
@@ -407,11 +414,13 @@ export function useCardShogiGame({
   }, []);
 
   const resign = useCallback(() => {
+    // Issue #193 / PR1a: 観戦モードはユーザー投了不可 (両 CPU 駆動の進行のみ)
+    if (state.spectatorMode) return;
     // Issue #155: DB 保存は dispatch 結果が反映された state を見て useEffect 経由で
     // 行う (use-shogi-game.ts と同じ方式)。boardState + cardState を一緒に
     // "resign" 状態で永続化するため saveCardShogiResign を使う。
     dispatch({ type: "RESIGN" });
-  }, []);
+  }, [state.spectatorMode]);
 
   // Issue #155: 投了確定後の DB 保存 (card-shogi variant)。
   //   - saveCardShogiResign で boardState (status: "resign" を含む) と
@@ -437,11 +446,13 @@ export function useCardShogiGame({
   // ref フラグを立てて next render の useEffect (後述) で post-UNDO state を確定後にサーバーアクションを呼ぶ。
   const pendingUndoSyncRef = useRef(false);
   const undo = useCallback(() => {
+    // Issue #193 / PR1a: 観戦モードは undo 不可 (両 CPU 駆動の進行のみ)
+    if (state.spectatorMode) return;
     if (state.gameState.moveHistory.length < 2) return;
     if (state.cardState.pendingCard) return;
     pendingUndoSyncRef.current = true;
     dispatch({ type: "UNDO" });
-  }, [state.gameState.moveHistory.length, state.cardState.pendingCard]);
+  }, [state.spectatorMode, state.gameState.moveHistory.length, state.cardState.pendingCard]);
 
   // Issue #132: UNDO 完了後の DB 巻き戻し + 保存カウンタリセット。
   // pendingUndoSyncRef フラグが立っている時のみ実行し、巻き戻し後の state を DB に反映する。
@@ -473,8 +484,10 @@ export function useCardShogiGame({
   }, []);
 
   const drawCard = useCallback(() => {
+    // Issue #193 / PR1a: 観戦モードはユーザー操作不可
+    if (state.spectatorMode) return;
     dispatch({ type: "DRAW_CARD", player: gameConfig.playerColor });
-  }, [gameConfig.playerColor]);
+  }, [state.spectatorMode, gameConfig.playerColor]);
 
   // Issue #78: ドロー演出完了時に呼ぶ。currentPlayer を相手に渡し AI 思考を解禁する。
   const finalizeDraw = useCallback(() => {
@@ -483,14 +496,18 @@ export function useCardShogiGame({
 
   const beginPlayCard = useCallback(
     (instanceId: string) => {
+      // Issue #193 / PR1a: 観戦モードはユーザー操作不可
+      if (state.spectatorMode) return;
       dispatch({ type: "BEGIN_PLAY_CARD", player: gameConfig.playerColor, instanceId });
     },
-    [gameConfig.playerColor],
+    [state.spectatorMode, gameConfig.playerColor],
   );
 
   const confirmPlayCard = useCallback(() => {
+    // Issue #193 / PR1a: 観戦モードはユーザー操作不可
+    if (state.spectatorMode) return;
     dispatch({ type: "CONFIRM_PLAY_CARD" });
-  }, []);
+  }, [state.spectatorMode]);
 
   // Issue #82: カード使用演出完了時に呼ぶ。currentPlayer を相手に渡し AI 思考を解禁する。
   const finalizePlayCard = useCallback(() => {
@@ -498,8 +515,10 @@ export function useCardShogiGame({
   }, []);
 
   const cancelPlayCard = useCallback(() => {
+    // Issue #193 / PR1a: 観戦モードはユーザー操作不可
+    if (state.spectatorMode) return;
     dispatch({ type: "CANCEL_PLAY_CARD" });
-  }, []);
+  }, [state.spectatorMode]);
 
   // Issue #82 (王手崩し): トラップ演出完了時に呼ぶ。AI 思考とユーザー操作のロックを解除。
   const finalizeCheckBreak = useCallback(() => {
@@ -509,15 +528,19 @@ export function useCardShogiGame({
   // Issue #82 (二手指し): 1手目を取り消して preFirstMoveState から復元。
   // movesLeft===1 の時のみ動作。カードはまだ使用したまま、もう一度 1手目を選び直せる。
   const undoDoubleMoveFirst = useCallback(() => {
+    // Issue #193 / PR1a: 観戦モードはユーザー操作不可
+    if (state.spectatorMode) return;
     dispatch({ type: "UNDO_DOUBLE_MOVE_FIRST" });
-  }, []);
+  }, [state.spectatorMode]);
 
   // Issue #82 (二手指し / 新仕様): カード使用自体をキャンセル。
   // preCardState から完全復元、カードは手札に戻り、マナも消費されない。
   // movesLeft=2 (1手目前) でも movesLeft=1 (1手目後) でも実行可能。
   const cancelDoubleMove = useCallback(() => {
+    // Issue #193 / PR1a: 観戦モードはユーザー操作不可
+    if (state.spectatorMode) return;
     dispatch({ type: "CANCEL_DOUBLE_MOVE" });
-  }, []);
+  }, [state.spectatorMode]);
 
   return {
     gameState: state.gameState,
