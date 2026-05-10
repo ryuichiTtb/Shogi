@@ -22,6 +22,9 @@ interface GameControlsProps {
   compact?: boolean;
   // 音量トグルを非表示にする。card-shogi の 4列レイアウトでは音はヘッダーに分離するため。
   hideSound?: boolean;
+  // Issue #193 / PR1a: CPU vs CPU 観戦モード。true のとき投了 / 待ったボタンを
+  // 描画しない (= ユーザー操作不可、両 CPU 駆動のみで進行)。音量トグルは引き続き表示。
+  spectatorMode?: boolean;
 }
 
 // 固定高さ: 36px
@@ -36,6 +39,7 @@ export function GameControls({
   gameActive,
   compact = false,
   hideSound = false,
+  spectatorMode = false,
 }: GameControlsProps) {
   const [showResignDialog, setShowResignDialog] = useState(false);
 
@@ -59,7 +63,8 @@ export function GameControls({
           </Button>
         )}
 
-        {gameActive && (
+        {/* Issue #193 / PR1a: 観戦モードでは投了 / 待ったボタンを描画しない (両 CPU 駆動のみ) */}
+        {gameActive && !spectatorMode && (
           <>
             <Button
               variant="outline"

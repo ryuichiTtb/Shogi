@@ -270,6 +270,10 @@ export function CardShogiGame({
     ...serializableConfig,
     variant: getVariantById(serializableConfig.variantId),
   };
+  // Issue #193 / PR1a: 観戦モードでは UI 操作 (手札クリック / 投了 / 待った 等) を完全に
+  // 無効化する。useCardShogiGame 側の callback も no-op になっているが、UI 層でも
+  // 早期 return して効果音 (card_select 等) の発火やボタン描画を抑止する。
+  const spectatorMode = serializableConfig.spectatorMode ?? false;
 
   const character = getCharacterById(gameConfig.characterId);
   const { playSfx, toggleMute, isMuted, isReady } = useSound();
@@ -900,23 +904,30 @@ export function CardShogiGame({
   const handleHandPieceClick = useCallback(
     (piece: Parameters<typeof selectHandPiece>[0]) => {
       if (isDrawAnimating || isPlayingCard || isCheckBreakAnimating) return;
+      // Issue #193 / PR1a: 観戦モードはユーザー操作不可
+      if (spectatorMode) return;
       selectHandPiece(piece);
     },
-    [isDrawAnimating, isPlayingCard, isCheckBreakAnimating, selectHandPiece],
+    [isDrawAnimating, isPlayingCard, isCheckBreakAnimating, spectatorMode, selectHandPiece],
   );
   const handleBeginPlayCard = useCallback(
     (id: string) => {
       if (isDrawAnimating || isPlayingCard || isCheckBreakAnimating) return;
+      // Issue #193 / PR1a: 観戦モードはユーザー操作不可。card_select SFX も
+      // 鳴らさないよう SFX 呼出より前で早期 return する。
+      if (spectatorMode) return;
       // Issue #79 派生: 手札クリックで中央 popup を開く SFX (default = カードをめくる)
       playSfx("card_select");
       beginPlayCard(id);
     },
-    [isDrawAnimating, isPlayingCard, isCheckBreakAnimating, beginPlayCard, playSfx],
+    [isDrawAnimating, isPlayingCard, isCheckBreakAnimating, spectatorMode, beginPlayCard, playSfx],
   );
   const handleDeselect = useCallback(() => {
     if (isDrawAnimating || isPlayingCard || isCheckBreakAnimating) return;
+    // Issue #193 / PR1a: 観戦モードはユーザー操作不可
+    if (spectatorMode) return;
     deselect();
-  }, [isDrawAnimating, isPlayingCard, isCheckBreakAnimating, deselect]);
+  }, [isDrawAnimating, isPlayingCard, isCheckBreakAnimating, spectatorMode, deselect]);
 
   // 演出中は最新ドローカードを手札表示から除外し、演出完了後に手札に現れたように見せる。
   // FIFO 化により queue 内の全カード ID を hidden 対象にする (#130)。
@@ -1559,6 +1570,7 @@ export function CardShogiGame({
             onToggleMute={toggleMute}
             canUndo={canUndo}
             gameActive={isGameActive}
+            spectatorMode={spectatorMode}
           />
         </div>
       </section>
@@ -1590,6 +1602,7 @@ export function CardShogiGame({
                 canUndo={canUndo}
                 gameActive={isGameActive}
                 hideSound
+                spectatorMode={spectatorMode}
               />
             ) : (
               /* 終局時: 結果ボタンを常時表示。蛍光緑、現状の約 2 倍幅、結果カード
@@ -1775,6 +1788,7 @@ export function CardShogiGame({
               canUndo={canUndo}
               gameActive={isGameActive}
               hideSound
+              spectatorMode={spectatorMode}
             />
           </div>
         </aside>
