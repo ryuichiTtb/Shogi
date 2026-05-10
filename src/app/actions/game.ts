@@ -51,6 +51,27 @@ async function loadDeckSpecForUser(userId: string): Promise<DeckSpec[]> {
     }));
 }
 
+// Issue #193 / PR1a: CPU vs CPU 観戦モード用の揮発初期化。
+// DB に Game レコードは作成せず、メモリ上の初期 state のみを返す (= 揮発モード)。
+// 観戦は対局を保存しないため Vercel Hobby Plan の Neon ボトルネックを回避できる。
+// gameId は "spectator-{uuid}" の固定 prefix で発行し、AI route 側で観戦モード判定の
+// 補助情報として使う想定 (route 側は spectatorMode フラグで判定するため必須ではない)。
+export async function createSpectatorGameState(): Promise<{
+  gameId: string;
+  initialState: GameState;
+  initialCardState: CardGameState;
+}> {
+  const user = await getCurrentAppUser();
+  const variant = getVariantById("card-shogi");
+  const initialState = createInitialGameState(variant);
+  // 観戦モードでも user 固有のデフォルトデッキを利用 (シングルプレイヤー同様)。
+  const deckSpec: DeckSpec[] = await loadDeckSpecForUser(user.id);
+  const initialCardState = createInitialCardState(deckSpec);
+  // 揮発 ID。crypto.randomUUID() は Node.js 19+ / Edge runtime で利用可。
+  const gameId = `spectator-${crypto.randomUUID()}`;
+  return { gameId, initialState, initialCardState };
+}
+
 // 新規ゲームを作成
 export async function createGame(
   difficulty: Difficulty,

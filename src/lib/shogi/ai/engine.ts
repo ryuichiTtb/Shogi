@@ -119,6 +119,9 @@ export const DIFFICULTY_LABELS: Record<Difficulty, string> = {
 // 旧 calculateAiMove は Stage B で削除済み。
 export interface FindBestMoveOptions {
   signal?: AbortSignal;
+  // Issue #193 / PR1a: 観戦モード (CPU vs CPU) で timeLimitMs を 1500ms 等に短縮するための override。
+  // 未指定時は DIFFICULTY_PARAMS[difficulty].timeLimitMs (既存挙動) を使用。
+  timeLimitMs?: number;
 }
 
 export interface FindBestMoveResult {
@@ -134,15 +137,23 @@ export function findBestMoveWithStats(
   options: FindBestMoveOptions = {},
 ): FindBestMoveResult {
   const params = DIFFICULTY_PARAMS[difficulty];
+  // Issue #193: options.timeLimitMs が指定されていれば override (観戦モード用)、なければ既存挙動
+  const effectiveTimeLimitMs = options.timeLimitMs ?? params.timeLimitMs;
   const ctx = createSearchContext({
-    timeLimitMs: params.timeLimitMs,
+    timeLimitMs: effectiveTimeLimitMs,
     signal: options.signal,
   });
 
-  // 定石ブック (序盤のみ)
+  // 定石ブック (序盤のみ)。
+  // Issue #193 / PR1a: card-shogi では openingBook lookup を無効化。
+  // ドロー/カード操作で board hash がズレるため定石が機能しないこと、および
+  // 振る舞いキープ例外として明示的に「card-shogi の両者合計 30 ply (= 各 15 手)
+  // で意図的振る舞い変更」を許容する。MAX_BOOK_MOVES * 2 は両者合計手数 (ply) で、
+  // MAX_BOOK_MOVES = 15 (各プレイヤー側の手数上限)。
+  const useBookForVariant = params.useBook && variant.id === "standard";
   let usedBook = false;
   let bookMove: Move | null = null;
-  if (params.useBook && state.moveCount < MAX_BOOK_MOVES * 2) {
+  if (useBookForVariant && state.moveCount < MAX_BOOK_MOVES * 2) {
     const candidate = getBookMove(state, player);
     if (candidate) {
       const legalMoves = getFullLegalMoves(state, player, variant);
@@ -177,7 +188,7 @@ export function findBestMoveWithStats(
     player,
     {
       maxDepth: params.maxDepth,
-      timeLimitMs: params.timeLimitMs,
+      timeLimitMs: effectiveTimeLimitMs,
       addNoise: params.addNoise,
       nearEqualThreshold: params.nearEqualThreshold,
     },

@@ -7,11 +7,11 @@ import { useRouter } from "next/navigation";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import { MaskedLink } from "@/components/navigation/masked-link";
 import { LOADING_STAGES } from "@/lib/loading-stages";
-import { ChevronUp, ChevronDown, Volume2, VolumeX } from "lucide-react";
+import { ChevronUp, ChevronDown, Pause, Volume2, VolumeX } from "lucide-react";
 
 import { useCardShogiGame } from "@/hooks/use-card-shogi-game";
-import { useSound } from "@/hooks/use-sound";
-import { useBgm } from "@/hooks/use-bgm";
+import { useSound, playSfxOnce } from "@/hooks/use-sound";
+import { useBgm, prepareBgmForNavigation } from "@/hooks/use-bgm";
 import { useCardBoardSize } from "@/hooks/use-card-board-size";
 
 import { ShogiBoard, type ShogiBoardHandle } from "../shogi-board";
@@ -30,6 +30,13 @@ import { AuthControls } from "@/components/auth/auth-controls";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { getShogiBoardCellSize } from "@/lib/shogi/board-layout";
 
@@ -74,6 +81,10 @@ interface SerializableGameConfig {
   // false → useBgm に null を渡し BGM 停止。
   soundEnabled: boolean;
   commentaryEnabled: boolean;
+  // Issue #193 / PR1a: CPU vs CPU 観戦モード関連 (gameConfig 経由で useCardShogiGame に伝播)。
+  spectatorMode?: boolean;
+  difficultyB?: Difficulty;
+  characterIdB?: string;
 }
 
 interface CardShogiGameProps {
@@ -266,6 +277,10 @@ export function CardShogiGame({
     ...serializableConfig,
     variant: getVariantById(serializableConfig.variantId),
   };
+  // Issue #193 / PR1a: 観戦モードでは UI 操作 (手札クリック / 投了 / 待った 等) を完全に
+  // 無効化する。useCardShogiGame 側の callback も no-op になっているが、UI 層でも
+  // 早期 return して効果音 (card_select 等) の発火やボタン描画を抑止する。
+  const spectatorMode = serializableConfig.spectatorMode ?? false;
 
   const character = getCharacterById(gameConfig.characterId);
   const { playSfx, toggleMute, isMuted, isReady } = useSound();
@@ -321,6 +336,11 @@ export function CardShogiGame({
     cancelDoubleMove,
     aiError,
     retryAiMove,
+    // Issue #193 / PR1a: 観戦モード専用 (一時停止 / 再開)。spectatorMode は
+    // serializableConfig 経由で取得済 (上の const spectatorMode = ...)。
+    isPaused,
+    pauseSpectator,
+    resumeSpectator,
   } = useCardShogiGame({
     initialState: initialGameState,
     initialCardState,
@@ -334,6 +354,42 @@ export function CardShogiGame({
   const playerColor = gameConfig.playerColor;
   const aiColor: Player = playerColor === "sente" ? "gote" : "sente";
   const isPlayerTurn = gameState.currentPlayer === playerColor;
+
+  // Issue #193 / PR1a: 観戦モードの「ホームへ戻る」フロー。
+  // 1. ボタン押下: 確認ダイアログを表示 + CPU 進行を即時停止 (一時停止と同じ挙動)
+  // 2. 確認 OK: ローディングマスクを表示しつつ router.push("/") でホーム画面へ遷移
+  // 3. キャンセル: ダイアログを閉じ、ダイアログ表示前の Pause 状態に戻す
+  //    (ダイアログ表示前から既に Pause していた場合は Resume しない)
+  const [showExitDialog, setShowExitDialog] = useState(false);
+  const [isExitingHome, setIsExitingHome] = useState(false);
+  // ダイアログ表示時点で既に isPaused=true だったかを保持し、キャンセル時の挙動を分岐する。
+  const pausedBeforeExitRef = useRef(false);
+
+  const handleRequestExit = useCallback(() => {
+    pausedBeforeExitRef.current = isPaused;
+    if (!isPaused) {
+      // ダイアログ表示中も CPU を止めるため、まだ Pause されていない場合に PAUSE_GAME を発行。
+      pauseSpectator();
+    }
+    setShowExitDialog(true);
+  }, [isPaused, pauseSpectator]);
+
+  const handleConfirmExit = useCallback(() => {
+    setShowExitDialog(false);
+    setIsExitingHome(true);
+    // 他画面のホーム戻りリンク (MaskedLink) と効果音 / BGM 切替を統一する。
+    playSfxOnce("nav_back");
+    prepareBgmForNavigation("/");
+    router.push("/");
+  }, [router]);
+
+  const handleCancelExit = useCallback(() => {
+    setShowExitDialog(false);
+    // ダイアログ表示前から Pause されていた場合は何もしない (ユーザーの Pause を維持)
+    if (!pausedBeforeExitRef.current) {
+      resumeSpectator();
+    }
+  }, [resumeSpectator]);
 
   // BGM (Issue #79):
   //   - useBgm が BGM の単一オーナー。dev tool で event override が設定された
@@ -896,23 +952,30 @@ export function CardShogiGame({
   const handleHandPieceClick = useCallback(
     (piece: Parameters<typeof selectHandPiece>[0]) => {
       if (isDrawAnimating || isPlayingCard || isCheckBreakAnimating) return;
+      // Issue #193 / PR1a: 観戦モードはユーザー操作不可
+      if (spectatorMode) return;
       selectHandPiece(piece);
     },
-    [isDrawAnimating, isPlayingCard, isCheckBreakAnimating, selectHandPiece],
+    [isDrawAnimating, isPlayingCard, isCheckBreakAnimating, spectatorMode, selectHandPiece],
   );
   const handleBeginPlayCard = useCallback(
     (id: string) => {
       if (isDrawAnimating || isPlayingCard || isCheckBreakAnimating) return;
+      // Issue #193 / PR1a: 観戦モードはユーザー操作不可。card_select SFX も
+      // 鳴らさないよう SFX 呼出より前で早期 return する。
+      if (spectatorMode) return;
       // Issue #79 派生: 手札クリックで中央 popup を開く SFX (default = カードをめくる)
       playSfx("card_select");
       beginPlayCard(id);
     },
-    [isDrawAnimating, isPlayingCard, isCheckBreakAnimating, beginPlayCard, playSfx],
+    [isDrawAnimating, isPlayingCard, isCheckBreakAnimating, spectatorMode, beginPlayCard, playSfx],
   );
   const handleDeselect = useCallback(() => {
     if (isDrawAnimating || isPlayingCard || isCheckBreakAnimating) return;
+    // Issue #193 / PR1a: 観戦モードはユーザー操作不可
+    if (spectatorMode) return;
     deselect();
-  }, [isDrawAnimating, isPlayingCard, isCheckBreakAnimating, deselect]);
+  }, [isDrawAnimating, isPlayingCard, isCheckBreakAnimating, spectatorMode, deselect]);
 
   // 演出中は最新ドローカードを手札表示から除外し、演出完了後に手札に現れたように見せる。
   // FIFO 化により queue 内の全カード ID を hidden 対象にする (#130)。
@@ -1555,6 +1618,10 @@ export function CardShogiGame({
             onToggleMute={toggleMute}
             canUndo={canUndo}
             gameActive={isGameActive}
+            spectatorMode={spectatorMode}
+            isPaused={isPaused}
+            onPauseSpectator={pauseSpectator}
+            onExitSpectator={handleRequestExit}
           />
         </div>
       </section>
@@ -1586,6 +1653,10 @@ export function CardShogiGame({
                 canUndo={canUndo}
                 gameActive={isGameActive}
                 hideSound
+                spectatorMode={spectatorMode}
+                isPaused={isPaused}
+                onPauseSpectator={pauseSpectator}
+                onExitSpectator={handleRequestExit}
               />
             ) : (
               /* 終局時: 結果ボタンを常時表示。蛍光緑、現状の約 2 倍幅、結果カード
@@ -1771,6 +1842,10 @@ export function CardShogiGame({
               canUndo={canUndo}
               gameActive={isGameActive}
               hideSound
+              spectatorMode={spectatorMode}
+              isPaused={isPaused}
+              onPauseSpectator={pauseSpectator}
+              onExitSpectator={handleRequestExit}
             />
           </div>
         </aside>
@@ -2061,15 +2136,63 @@ export function CardShogiGame({
       {/* Issue #81: 早指し時に駒の少し下に表示するバッジ */}
       <FastMoveBadgeLayer items={fastMoveBadges} onComplete={removeFastMoveBadge} />
 
+      {/* Issue #193 / PR1a: 観戦モード一時停止中の中央インジケータ。
+          オーバーレイ自体がクリック可能で、どこをクリックしても resumeSpectator が
+          発火して観戦を再開できる。半透明 + 軽い backdrop-blur で全体がぼんやり
+          マスクされた状態を表現する。 */}
+      {spectatorMode && isPaused && !isExitingHome && (
+        <button
+          type="button"
+          onClick={resumeSpectator}
+          aria-label="クリックで観戦を再開"
+          className="fixed inset-0 z-40 flex items-center justify-center bg-background/40 backdrop-blur-[2px] cursor-pointer"
+        >
+          <div className="flex flex-col items-center gap-2 bg-card/95 px-6 py-5 sm:px-8 sm:py-6 rounded-2xl shadow-xl border-2 border-primary/30 pointer-events-none">
+            <Pause className="w-12 h-12 sm:w-16 sm:h-16 text-primary" strokeWidth={2.5} />
+            <div className="text-base sm:text-lg font-bold">一時停止中</div>
+            <div className="text-xs text-muted-foreground text-center">
+              画面をクリックで再開
+            </div>
+          </div>
+        </button>
+      )}
+
+      {/* Issue #193 / PR1a: 観戦モードのホーム戻り確認ダイアログ。
+          ダイアログ表示中は CPU を pause した状態を維持し、確認 OK で
+          ローディングマスク (LoadingOverlay) を表示しつつ router.push("/") する。 */}
+      <Dialog
+        open={showExitDialog}
+        onOpenChange={(open) => {
+          if (!open) handleCancelExit();
+        }}
+      >
+        <DialogContent className="max-w-xs">
+          <DialogHeader>
+            <DialogTitle>ホームへ戻りますか？</DialogTitle>
+            <DialogDescription>
+              観戦を中断してホーム画面に戻ります。観戦結果は保存されません。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-2 justify-end mt-2">
+            <Button variant="outline" onClick={handleCancelExit}>
+              キャンセル
+            </Button>
+            <Button onClick={handleConfirmExit}>ホームへ戻る</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Issue #163: 「もう一局」(=createGame Server Action 後 router.push) 中のローディングマスク。
           xl/xl 未満/モバイル の各レイアウトで同じ isPending を共有しているため Overlay 1 つで全カバー。
-          ビジュアルは他のリッチローディング (回転カード + プログレスバー + ステージ文言) に統一。 */}
+          ビジュアルは他のリッチローディング (回転カード + プログレスバー + ステージ文言) に統一。
+          Issue #193 / PR1a: 観戦モードのホーム戻り (isExitingHome) も同 Overlay を流用、
+          ステージ文言は LOADING_STAGES.homeNavigate に切替。 */}
       <LoadingOverlay
-        show={isPending}
+        show={isPending || isExitingHome}
         fullScreen
         card
         progress
-        stages={LOADING_STAGES.matchRestart}
+        stages={isExitingHome ? LOADING_STAGES.homeNavigate : LOADING_STAGES.matchRestart}
       />
       {/* Issue #176: AI 思考が連続失敗した場合のリカバリ UI */}
       <AiErrorModal

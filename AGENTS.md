@@ -443,12 +443,22 @@ Issue対応やコード変更依頼で実装・検証・コミットが完了し
      - `state.doubleMove` のような明示的な「ターン継続中」フラグを reducer に持つこと
      - DB 保存スキップ (`src/hooks/use-card-shogi-game.ts` の save useEffect) も該当フラグを考慮
 
-5. **テスト**
+5. **AI / 探索側の更新** (Issue #193 / PR1a で追加)
+   - **新カードが AI 側 `getLegalActions` で候補生成に含まれる**ように `src/lib/shogi/ai/turn/current-rules.ts` (or PR1d で追加される `action-generator.ts`) を更新
+     - PR1a 時点では move-only のため自動的にスキップされるが、PR1d で playCard 候補生成が入るときに必要
+   - **新カードが評価関数 (cardDigest) に影響する場合** は `src/lib/shogi/ai/cards/digest.ts` の `CardDigest` interface に該当フィールドを追加 (PR1d 段階で構造を整備)
+   - **新カードの価値を `evaluateCardDigest` に係数として追加** (PR1d 以降):
+     - 例: 新カードが「相手の駒を取る」効果なら、PIECE_VALUES と整合する単位 cp で価値を表現
+   - **AI fixture に新カードの基本ケースを追加**: `src/lib/shogi/ai/__tests__/card-digest.test.ts` / `action-generator.test.ts` (PR1d 期から運用) に該当カードの動作確認を 1〜2 ケース追加
+   - **bench fixture に新カード使用局面を追加** (棋力影響を測定): `perf-bench.test.ts` に新カード保有の midgame 局面を含めて、新カード追加前後で `depthCompleted` ±10% 以内であることを確認
+   - **影響なしの場合 (= 効果が単発で AI が探索に組み込めない種類)** は本節に「該当なし」と PR コメントで明記すれば足りる
+
+6. **テスト**
    - `npm run test:ci -- src/hooks/card-shogi/__tests__/undo-policy.test.ts` が緑であることを確認
    - 新カードの効果関数のユニットテストを `effects.test.ts` に追加
    - 1 ターン複数 ply 系の場合は reducer 統合テストも追加
 
-6. **prisma seed**
+7. **prisma seed**
    - `ALL_CARD_DEFS` 経由で自動的に Card マスタ・DeckEntry・PlayerCardCollection に投入される
    - 既存ローカル DB に反映するには `npm run db:seed` を実行
 

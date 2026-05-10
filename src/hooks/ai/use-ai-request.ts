@@ -31,6 +31,7 @@ import type {
   Move,
   Player,
 } from "@/lib/shogi/types";
+import type { CardGameState } from "@/lib/shogi/cards/types";
 import type { SearchStats } from "@/lib/shogi/ai/search-context";
 
 export interface AiMoveRequestParams {
@@ -40,6 +41,12 @@ export interface AiMoveRequestParams {
   difficulty: Difficulty;
   variantId: string;
   clientMoveCount: number;
+  // Issue #193 / PR1a: optional な cardState 送信経路。PR1a では route 側で
+  // silent ignore (型不一致でも 400 返却せず無視)、PR1d で評価関数に組込予定。
+  cardState?: CardGameState;
+  // Issue #193 / PR1a: CPU vs CPU 観戦モードフラグ。route 側で timeLimitMs を
+  // SPECTATOR_TIME_LIMIT_MS (1500ms) に短縮して観戦体験を向上させる。
+  spectatorMode?: boolean;
 }
 
 export interface AiMoveResponse {

@@ -48,6 +48,11 @@ function makeInitialState(
     doubleMove: null,
     forbiddenMateMoves: [],
     undoSnapshots: [],
+    // Issue #193 / PR1a (B-3 対応): 観戦モード関連の新規フィールド。既存テストでは
+    // 常に false (= 人間プレイ時の挙動) を想定。観戦モード固有の挙動 (早指し disable /
+    // PAUSE_GAME / RESUME_GAME) は別途専用テストで検証する想定。
+    spectatorMode: false,
+    isPaused: false,
   };
 }
 

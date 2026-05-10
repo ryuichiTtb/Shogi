@@ -70,7 +70,18 @@ export type ShogiAction =
   // preCardState から完全復元 → カードは手札に戻り、マナも消費されない。
   // movesLeft=2 でも movesLeft=1 でも実行可能 (= 2手目完了前ならいつでもキャンセル可)。
   | { type: "CANCEL_DOUBLE_MOVE" }
-  | { type: "BEGIN_TURN_TIMER"; player: Player };
+  | { type: "BEGIN_TURN_TIMER"; player: Player }
+  // Issue #193 / PR1a: CPU vs CPU 観戦モードのポーズ機能。spectatorMode === true
+  // のときのみ実効する (人間プレイ時のポーズは別 Issue で扱う)。reducer は isPaused
+  // フラグを更新するだけで、AI 自動応手 useEffect 側がフラグを見て request abort と
+  // dispatch ガードを行う。
+  | { type: "PAUSE_GAME" }
+  | { type: "RESUME_GAME" }
+  // Issue #193 / PR1a (C-5): 観戦モード固有の終局判定。SPECTATOR_MAX_MOVES (200 手)
+  // 到達時に use-card-shogi-game の useEffect が dispatch する。spectatorMode === false の
+  // 人間プレイ時は no-op (= 強制終了は観戦モード専用)。終了条件優先順位: 千日手 (最優先、
+  // 既存 status="draw" 判定) → カードアクション上限 → 200 手到達の順。
+  | { type: "END_SPECTATOR_GAME" };
 
 export type Action = ShogiAction | CardAction;
 
@@ -154,6 +165,16 @@ export interface CardShogiGameStateInternal {
   // リロード後は in-memory の本フィールドが空 [] となり、UNDO は不可になる
   // (eventLog も空でリロード後 → getUndoScope null → canUndo false が先に効くが、二重に保守的)。
   undoSnapshots: UndoSnapshot[];
+  // Issue #193 / PR1a: CPU vs CPU 観戦モードフラグ。対局開始時に確定し、対局中は変化しない。
+  // - false (既定): 人間プレイ。早指しボーナス・自動進行・ポーズなどは従来挙動を完全保持。
+  // - true: 観戦モード。makeMoveWithEffects の早指し判定をスキップ (= MANA_FAST_BONUS 不発)、
+  //   PAUSE_GAME / RESUME_GAME を受付ける。DB 保存は use-card-shogi-game 側で別途スキップ。
+  spectatorMode: boolean;
+  // Issue #193 / PR1a: 観戦モード専用のポーズフラグ。spectatorMode === false のときは常に false
+  // (= PAUSE_GAME / RESUME_GAME を dispatch しても無視)。人間プレイ時のポーズ機能は別 Issue で扱う。
+  // ポーズ中は AI 自動応手 useEffect 側で request を cancel し、副作用ある dispatch も
+  // ガードする (reducer 自身は本フラグを保持するだけで副作用を生まない)。
+  isPaused: boolean;
 }
 
 // Issue #132: 待ったスナップショット。reducer 内部で「移動直前の状態」を保持する。
@@ -218,7 +239,10 @@ function makeMoveWithEffects(
   gameState: GameState,
   cardState: CardGameState,
   move: Move,
-  options?: { mode?: MakeMoveMode },
+  // Issue #193 / PR1a: spectatorMode は CPU vs CPU 観戦モード時に true。
+  // 早指し判定 (FAST_THRESHOLD_MS) を完全 disable し、両 CPU の連続指しによる
+  // マナ蓄積異常を防ぐ。spectatorMode=false の人間プレイ時は完全に従来挙動を保持。
+  options?: { mode?: MakeMoveMode; spectatorMode?: boolean },
 ): {
   gameState: GameState;
   cardState: CardGameState;
@@ -228,6 +252,7 @@ function makeMoveWithEffects(
   triggeredCheckBreak: boolean;
 } {
   const mode: MakeMoveMode = options?.mode ?? "normal";
+  const spectatorMode = options?.spectatorMode ?? false;
   const opponent: Player = move.player === "sente" ? "gote" : "sente";
   const events: GameEvent[] = [];
 
@@ -332,8 +357,13 @@ function makeMoveWithEffects(
   if (mode === "normal") {
     // 通常の指し手: マナチャージ + 早指し判定 + タイマークリア
     const lastStarted = cardStateNext.lastTurnStartedAt[move.player];
+    // Issue #193 / PR1a: 観戦モード時は早指し判定を完全スキップ (両 CPU が常に <4 秒で
+    // 指してマナ蓄積が異常になることを防ぐ)。spectatorMode=false の人間プレイ時は
+    // 完全に従来挙動を保持する。
     const isFastMove =
-      lastStarted !== null && Date.now() - lastStarted < FAST_THRESHOLD_MS;
+      !spectatorMode &&
+      lastStarted !== null &&
+      Date.now() - lastStarted < FAST_THRESHOLD_MS;
     const manaAmount =
       MANA_PER_TURN + (isFastMove ? MANA_FAST_BONUS : 0);
     cardStateNext = {
@@ -749,6 +779,7 @@ export function reducer(
       if (dm && dm.movesLeft === 2) {
         const result = makeMoveWithEffects(state.gameState, state.cardState, action.move, {
           mode: "double_move_first",
+          spectatorMode: state.spectatorMode,
         });
         // 1手目で詰みが成立 (相手玉) したら即終了 + カード finalize (新仕様)
         const gameOver = result.gameState.status !== "active";
@@ -789,6 +820,7 @@ export function reducer(
       if (dm && dm.movesLeft === 1) {
         const result = makeMoveWithEffects(state.gameState, state.cardState, action.move, {
           mode: "double_move_second",
+          spectatorMode: state.spectatorMode,
         });
         return finalizeDoubleMoveCardConsumption({
           ...state,
@@ -807,7 +839,9 @@ export function reducer(
       }
 
       // 通常 MAKE_MOVE
-      const result = makeMoveWithEffects(state.gameState, state.cardState, action.move);
+      const result = makeMoveWithEffects(state.gameState, state.cardState, action.move, {
+        spectatorMode: state.spectatorMode,
+      });
       const stateAfter: CardShogiGameStateInternal = {
         ...state,
         gameState: result.gameState,
@@ -849,6 +883,7 @@ export function reducer(
       if (dm && dm.movesLeft === 2) {
         const result = makeMoveWithEffects(state.gameState, state.cardState, moveWithPromote, {
           mode: "double_move_first",
+          spectatorMode: state.spectatorMode,
         });
         const gameOver = result.gameState.status !== "active";
         if (gameOver) {
@@ -887,6 +922,7 @@ export function reducer(
       if (dm && dm.movesLeft === 1) {
         const result = makeMoveWithEffects(state.gameState, state.cardState, moveWithPromote, {
           mode: "double_move_second",
+          spectatorMode: state.spectatorMode,
         });
         return finalizeDoubleMoveCardConsumption({
           ...state,
@@ -905,7 +941,9 @@ export function reducer(
       }
 
       // 通常 CONFIRM_PROMOTION
-      const result = makeMoveWithEffects(state.gameState, state.cardState, moveWithPromote);
+      const result = makeMoveWithEffects(state.gameState, state.cardState, moveWithPromote, {
+        spectatorMode: state.spectatorMode,
+      });
       const stateAfter: CardShogiGameStateInternal = {
         ...state,
         gameState: result.gameState,
@@ -1421,6 +1459,29 @@ export function reducer(
         doubleMove: null,
       };
     }
+
+    // Issue #193 / PR1a: CPU vs CPU 観戦モードのポーズ機能。
+    // spectatorMode === false の人間プレイ時は完全に no-op (= 常に既存挙動を保持)。
+    // 観戦時のみ isPaused フラグを切替えるが、reducer は状態を持つだけで副作用は生まない。
+    // AI 自動応手 useEffect 側がフラグを見て request abort と dispatch ガードを実施する。
+    case "PAUSE_GAME":
+      if (!state.spectatorMode) return state;
+      return { ...state, isPaused: true };
+
+    case "RESUME_GAME":
+      if (!state.spectatorMode) return state;
+      return { ...state, isPaused: false };
+
+    // Issue #193 / PR1a (C-5): 観戦モード固有の強制引き分け終局。
+    // SPECTATOR_MAX_MOVES 到達で use-card-shogi-game の useEffect から dispatch される。
+    // GameStatus に "spectator_max_moves" を追加し winner="draw" 扱い。
+    case "END_SPECTATOR_GAME":
+      if (!state.spectatorMode) return state;
+      if (state.gameState.status !== "active") return state;
+      return {
+        ...state,
+        gameState: { ...state.gameState, status: "spectator_max_moves", winner: "draw" },
+      };
 
     default:
       return state;

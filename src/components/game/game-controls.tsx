@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Flag, RotateCcw, Volume2, VolumeX } from "lucide-react";
+import { Flag, Home, Pause, RotateCcw, Volume2, VolumeX } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -22,6 +22,16 @@ interface GameControlsProps {
   compact?: boolean;
   // 音量トグルを非表示にする。card-shogi の 4列レイアウトでは音はヘッダーに分離するため。
   hideSound?: boolean;
+  // Issue #193 / PR1a: CPU vs CPU 観戦モード。true のとき投了 / 待ったボタンを
+  // 描画しない (= ユーザー操作不可、両 CPU 駆動のみで進行)。音量トグルは引き続き表示。
+  spectatorMode?: boolean;
+  // Issue #193 / PR1a: 観戦モード専用の一時停止 / ホーム戻り。
+  // spectatorMode=true && gameActive=true のときに描画。再開操作は本コンポーネント
+  // ではなく、card-shogi-game の中央オーバーレイ (画面クリック) で行う UX のため、
+  // onResumeSpectator は本 props から除外している。
+  isPaused?: boolean;
+  onPauseSpectator?: () => void;
+  onExitSpectator?: () => void;
 }
 
 // 固定高さ: 36px
@@ -36,6 +46,10 @@ export function GameControls({
   gameActive,
   compact = false,
   hideSound = false,
+  spectatorMode = false,
+  isPaused = false,
+  onPauseSpectator,
+  onExitSpectator,
 }: GameControlsProps) {
   const [showResignDialog, setShowResignDialog] = useState(false);
 
@@ -59,7 +73,8 @@ export function GameControls({
           </Button>
         )}
 
-        {gameActive && (
+        {/* Issue #193 / PR1a: 観戦モードでは投了 / 待ったボタンを描画しない (両 CPU 駆動のみ) */}
+        {gameActive && !spectatorMode && (
           <>
             <Button
               variant="outline"
@@ -84,6 +99,39 @@ export function GameControls({
             >
               <Flag className="w-4 h-4" />
               {!compact && "投了"}
+            </Button>
+          </>
+        )}
+
+        {/* Issue #193 / PR1a: 観戦モード専用の一時停止 / ホーム戻りボタン。
+            ボタン表示は常に「一時停止」のままで切替えない (再開操作は中央オーバーレイの
+            クリックで行う UX に統一)。一時停止中に本ボタンを再押下しても reducer 側で
+            isPaused=true 状態のため副作用なし (no-op)。 */}
+        {gameActive && spectatorMode && (
+          <>
+            <Button
+              variant="outline"
+              size={compact ? "icon" : "sm"}
+              onClick={onPauseSpectator}
+              disabled={isPaused}
+              className={compact ? "h-9 w-9" : "gap-1.5"}
+              aria-label="一時停止"
+              title="一時停止"
+            >
+              <Pause className="w-4 h-4" />
+              {!compact && "一時停止"}
+            </Button>
+
+            <Button
+              variant="outline"
+              size={compact ? "icon" : "sm"}
+              onClick={onExitSpectator}
+              className={compact ? "h-9 w-9" : "gap-1.5"}
+              aria-label="ホームへ戻る"
+              title="ホームへ戻る"
+            >
+              <Home className="w-4 h-4" />
+              {!compact && "ホーム"}
             </Button>
           </>
         )}
