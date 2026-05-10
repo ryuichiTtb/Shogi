@@ -30,6 +30,13 @@ import { AuthControls } from "@/components/auth/auth-controls";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { getShogiBoardCellSize } from "@/lib/shogi/board-layout";
 
@@ -348,13 +355,39 @@ export function CardShogiGame({
   const aiColor: Player = playerColor === "sente" ? "gote" : "sente";
   const isPlayerTurn = gameState.currentPlayer === playerColor;
 
-  // Issue #193 / PR1a: 観戦モードの「ホームへ戻る」ボタン。揮発モードのため
-  // ページ離脱で初期化される (G-2 進行中チェックリスト想定)。in-flight な AI 探索を
-  // 確実に停止するため、useCardShogiGame の cancelAiRequest 経由は不要 (unmount 時の
-  // useEffect cleanup で abort される)。
-  const handleExitSpectator = useCallback(() => {
+  // Issue #193 / PR1a: 観戦モードの「ホームへ戻る」フロー。
+  // 1. ボタン押下: 確認ダイアログを表示 + CPU 進行を即時停止 (一時停止と同じ挙動)
+  // 2. 確認 OK: ローディングマスクを表示しつつ router.push("/") でホーム画面へ遷移
+  // 3. キャンセル: ダイアログを閉じ、ダイアログ表示前の Pause 状態に戻す
+  //    (ダイアログ表示前から既に Pause していた場合は Resume しない)
+  const [showExitDialog, setShowExitDialog] = useState(false);
+  const [isExitingHome, setIsExitingHome] = useState(false);
+  // ダイアログ表示時点で既に isPaused=true だったかを保持し、キャンセル時の挙動を分岐する。
+  const pausedBeforeExitRef = useRef(false);
+
+  const handleRequestExit = useCallback(() => {
+    pausedBeforeExitRef.current = isPaused;
+    if (!isPaused) {
+      // ダイアログ表示中も CPU を止めるため、まだ Pause されていない場合に PAUSE_GAME を発行。
+      pauseSpectator();
+    }
+    setShowExitDialog(true);
+  }, [isPaused, pauseSpectator]);
+
+  const handleConfirmExit = useCallback(() => {
+    setShowExitDialog(false);
+    setIsExitingHome(true);
+    // ローディングマスクを 1 frame 描画してから遷移 (体感的な滑らかさのため)。
     router.push("/");
   }, [router]);
+
+  const handleCancelExit = useCallback(() => {
+    setShowExitDialog(false);
+    // ダイアログ表示前から Pause されていた場合は何もしない (ユーザーの Pause を維持)
+    if (!pausedBeforeExitRef.current) {
+      resumeSpectator();
+    }
+  }, [resumeSpectator]);
 
   // BGM (Issue #79):
   //   - useBgm が BGM の単一オーナー。dev tool で event override が設定された
@@ -1587,7 +1620,7 @@ export function CardShogiGame({
             isPaused={isPaused}
             onPauseSpectator={pauseSpectator}
             onResumeSpectator={resumeSpectator}
-            onExitSpectator={handleExitSpectator}
+            onExitSpectator={handleRequestExit}
           />
         </div>
       </section>
@@ -1623,7 +1656,7 @@ export function CardShogiGame({
                 isPaused={isPaused}
                 onPauseSpectator={pauseSpectator}
                 onResumeSpectator={resumeSpectator}
-                onExitSpectator={handleExitSpectator}
+                onExitSpectator={handleRequestExit}
               />
             ) : (
               /* 終局時: 結果ボタンを常時表示。蛍光緑、現状の約 2 倍幅、結果カード
@@ -1813,7 +1846,7 @@ export function CardShogiGame({
               isPaused={isPaused}
               onPauseSpectator={pauseSpectator}
               onResumeSpectator={resumeSpectator}
-              onExitSpectator={handleExitSpectator}
+              onExitSpectator={handleRequestExit}
             />
           </div>
         </aside>
@@ -2104,15 +2137,42 @@ export function CardShogiGame({
       {/* Issue #81: 早指し時に駒の少し下に表示するバッジ */}
       <FastMoveBadgeLayer items={fastMoveBadges} onComplete={removeFastMoveBadge} />
 
+      {/* Issue #193 / PR1a: 観戦モードのホーム戻り確認ダイアログ。
+          ダイアログ表示中は CPU を pause した状態を維持し、確認 OK で
+          ローディングマスク (LoadingOverlay) を表示しつつ router.push("/") する。 */}
+      <Dialog
+        open={showExitDialog}
+        onOpenChange={(open) => {
+          if (!open) handleCancelExit();
+        }}
+      >
+        <DialogContent className="max-w-xs">
+          <DialogHeader>
+            <DialogTitle>ホームへ戻りますか？</DialogTitle>
+            <DialogDescription>
+              観戦を中断してホーム画面に戻ります。観戦結果は保存されません。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-2 justify-end mt-2">
+            <Button variant="outline" onClick={handleCancelExit}>
+              キャンセル
+            </Button>
+            <Button onClick={handleConfirmExit}>ホームへ戻る</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Issue #163: 「もう一局」(=createGame Server Action 後 router.push) 中のローディングマスク。
           xl/xl 未満/モバイル の各レイアウトで同じ isPending を共有しているため Overlay 1 つで全カバー。
-          ビジュアルは他のリッチローディング (回転カード + プログレスバー + ステージ文言) に統一。 */}
+          ビジュアルは他のリッチローディング (回転カード + プログレスバー + ステージ文言) に統一。
+          Issue #193 / PR1a: 観戦モードのホーム戻り (isExitingHome) も同 Overlay を流用、
+          ステージ文言は LOADING_STAGES.homeNavigate に切替。 */}
       <LoadingOverlay
-        show={isPending}
+        show={isPending || isExitingHome}
         fullScreen
         card
         progress
-        stages={LOADING_STAGES.matchRestart}
+        stages={isExitingHome ? LOADING_STAGES.homeNavigate : LOADING_STAGES.matchRestart}
       />
       {/* Issue #176: AI 思考が連続失敗した場合のリカバリ UI */}
       <AiErrorModal
