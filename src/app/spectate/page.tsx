@@ -11,7 +11,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, Eye } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -45,7 +44,8 @@ interface SpectatorGame {
 }
 
 export default function SpectatePage() {
-  const router = useRouter();
+  // ホームへ戻るリンクは MaskedLink (href="/") で完結するため useRouter は不要。
+  // 観戦開始 → 観戦画面遷移は client-side state (game) の切替で処理する。
   // 既定値: 先手 = 龍王 (超上級)、後手 = さくら (初級)。観戦体験として強さ差がある方が手の違いが見えやすい。
   const [characterIdA, setCharacterIdA] = useState<string>("ryuou");
   const [characterIdB, setCharacterIdB] = useState<string>("sakura");

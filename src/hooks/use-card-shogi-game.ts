@@ -156,6 +156,12 @@ export function useCardShogiGame({
       }
       const move = result.response.move;
       if (!move) {
+        // Issue #193 / PR1a (I-5): AI が move=null を返すのは合法手なし (詰み・stalemate)
+        // のケース。reducer 側で gameState.status は既に "checkmate" / "stalemate" 等の
+        // 終局状態に変化済 (= 直前の MAKE_MOVE で evaluateGameEnd が判定済み) のため、
+        // ここでは isAiThinking フラグのみ解除して終局演出を妨げないようにする。
+        // 観戦モード両 CPU 駆動でも同様に動作 (どちらかが詰めば AI useEffect の
+        // gameState.status !== "active" ガードで以後の request は発火しない)。
         dispatch({ type: "SET_AI_THINKING", thinking: false });
         return;
       }
@@ -246,7 +252,9 @@ export function useCardShogiGame({
     ).catch((e) => {
       console.error("saveCardShogiMove failed", e);
     });
-  }, [state.gameState, state.cardState, state.doubleMove, gameId, disableServerSync]);
+    // Issue #193 / PR1a: canPersist は spectatorMode から派生し対局中は変化しないため
+    // deps 追加で実害なし、react-hooks/exhaustive-deps 要件を満たす。
+  }, [state.gameState, state.cardState, state.doubleMove, gameId, disableServerSync, canPersist]);
 
   // Issue #132: カード使用 / ドロー / トラップ設置直後の cardState 即時保存。
   // 駒指し以外のカード操作は moveCount を増やさないため、上の save useEffect では発火しない。
@@ -273,6 +281,7 @@ export function useCardShogiGame({
     persistCardShogiState(gameId, state.gameState, state.cardState).catch((e) => {
       console.error("persistCardShogiState failed", e);
     });
+    // Issue #193 / PR1a: canPersist deps 追加 (理由は上の useEffect と同じ)。
   }, [
     state.cardState,
     state.gameState,
@@ -282,6 +291,7 @@ export function useCardShogiGame({
     state.isCheckBreakAnimating,
     gameId,
     disableServerSync,
+    canPersist,
   ]);
 
   // ----- 公開API -----
@@ -477,7 +487,8 @@ export function useCardShogiGame({
     ).catch((e) => {
       console.error("undoCardShogiGameState failed", e);
     });
-  }, [state.gameState, state.cardState, gameId, disableServerSync]);
+    // Issue #193 / PR1a: canPersist deps 追加 (上 2 つの useEffect と同様の理由)。
+  }, [state.gameState, state.cardState, gameId, disableServerSync, canPersist]);
 
   const deselect = useCallback(() => {
     dispatch({ type: "DESELECT" });
