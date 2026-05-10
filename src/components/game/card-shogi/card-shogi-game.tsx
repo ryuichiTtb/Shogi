@@ -74,6 +74,10 @@ interface SerializableGameConfig {
   // false → useBgm に null を渡し BGM 停止。
   soundEnabled: boolean;
   commentaryEnabled: boolean;
+  // Issue #193 / PR1a: CPU vs CPU 観戦モード関連 (gameConfig 経由で useCardShogiGame に伝播)。
+  spectatorMode?: boolean;
+  difficultyB?: Difficulty;
+  characterIdB?: string;
 }
 
 interface CardShogiGameProps {

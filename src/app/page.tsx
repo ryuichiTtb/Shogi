@@ -6,7 +6,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, useReducedMotion } from "framer-motion";
-import { History, Swords, Castle } from "lucide-react";
+import { History, Swords, Castle, Eye } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ThemeSelector } from "@/components/game/theme-selector";
@@ -138,6 +138,25 @@ export default function Home() {
             >
               <Castle className="w-4 h-4 mr-2" />
               通常将棋で遊ぶ
+            </Button>
+          </motion.div>
+
+          {/* Issue #193 / PR1a: CPU vs CPU 観戦モード CTA */}
+          <motion.div
+            initial={!reduce ? { opacity: 0, y: 8 } : false}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.42, ease: "easeOut" }}
+          >
+            <Button
+              variant="outline"
+              size="lg"
+              onClick={() => navigateTo("/spectate")}
+              disabled={isPending}
+              className="w-full text-sm sm:text-base py-3 sm:py-4 bg-card/60 backdrop-blur-sm"
+              aria-label="CPU 同士の対局を観戦する"
+            >
+              <Eye className="w-4 h-4 mr-2" />
+              CPU 同士を観る
             </Button>
           </motion.div>
 
