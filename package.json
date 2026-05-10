@@ -12,6 +12,7 @@
     "test:ci": "vitest run",
     "test:layout:card-shogi": "node scripts/card-shogi-layout-audit.mjs",
     "waveform:peaks": "tsx scripts/build-waveform-peaks.ts",
+    "gen:fixture:legal-moves": "tsx scripts/gen-fixture-legal-moves.ts",
     "db:seed": "npx tsx prisma/seed.ts",
     "db:push": "prisma db push",
     "db:generate": "prisma generate"
