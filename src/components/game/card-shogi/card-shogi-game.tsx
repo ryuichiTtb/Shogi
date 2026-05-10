@@ -1621,7 +1621,6 @@ export function CardShogiGame({
             spectatorMode={spectatorMode}
             isPaused={isPaused}
             onPauseSpectator={pauseSpectator}
-            onResumeSpectator={resumeSpectator}
             onExitSpectator={handleRequestExit}
           />
         </div>
@@ -1657,7 +1656,6 @@ export function CardShogiGame({
                 spectatorMode={spectatorMode}
                 isPaused={isPaused}
                 onPauseSpectator={pauseSpectator}
-                onResumeSpectator={resumeSpectator}
                 onExitSpectator={handleRequestExit}
               />
             ) : (
@@ -1847,7 +1845,6 @@ export function CardShogiGame({
               spectatorMode={spectatorMode}
               isPaused={isPaused}
               onPauseSpectator={pauseSpectator}
-              onResumeSpectator={resumeSpectator}
               onExitSpectator={handleRequestExit}
             />
           </div>
@@ -2140,19 +2137,24 @@ export function CardShogiGame({
       <FastMoveBadgeLayer items={fastMoveBadges} onComplete={removeFastMoveBadge} />
 
       {/* Issue #193 / PR1a: 観戦モード一時停止中の中央インジケータ。
-          spectatorMode && isPaused のときに半透明オーバーレイで Pause アイコンを
-          画面中央に表示。pointer-events-none で背後の操作 (GameControls の再開ボタン) は
-          引き続き反応するため、ユーザーは再開を即実行できる。 */}
+          オーバーレイ自体がクリック可能で、どこをクリックしても resumeSpectator が
+          発火して観戦を再開できる。半透明 + 軽い backdrop-blur で全体がぼんやり
+          マスクされた状態を表現する。 */}
       {spectatorMode && isPaused && !isExitingHome && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center pointer-events-none bg-background/40 backdrop-blur-[2px]">
-          <div className="flex flex-col items-center gap-2 bg-card/95 px-6 py-5 sm:px-8 sm:py-6 rounded-2xl shadow-xl border-2 border-primary/30">
+        <button
+          type="button"
+          onClick={resumeSpectator}
+          aria-label="クリックで観戦を再開"
+          className="fixed inset-0 z-40 flex items-center justify-center bg-background/40 backdrop-blur-[2px] cursor-pointer"
+        >
+          <div className="flex flex-col items-center gap-2 bg-card/95 px-6 py-5 sm:px-8 sm:py-6 rounded-2xl shadow-xl border-2 border-primary/30 pointer-events-none">
             <Pause className="w-12 h-12 sm:w-16 sm:h-16 text-primary" strokeWidth={2.5} />
             <div className="text-base sm:text-lg font-bold">一時停止中</div>
             <div className="text-xs text-muted-foreground text-center">
-              再開ボタンで観戦を続けられます
+              画面をクリックで再開
             </div>
           </div>
-        </div>
+        </button>
       )}
 
       {/* Issue #193 / PR1a: 観戦モードのホーム戻り確認ダイアログ。

@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Flag, Home, Pause, Play, RotateCcw, Volume2, VolumeX } from "lucide-react";
+import { Flag, Home, Pause, RotateCcw, Volume2, VolumeX } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -25,11 +25,12 @@ interface GameControlsProps {
   // Issue #193 / PR1a: CPU vs CPU 観戦モード。true のとき投了 / 待ったボタンを
   // 描画しない (= ユーザー操作不可、両 CPU 駆動のみで進行)。音量トグルは引き続き表示。
   spectatorMode?: boolean;
-  // Issue #193 / PR1a: 観戦モード専用の一時停止 / 再開 / ホーム戻り。
-  // spectatorMode=true && gameActive=true のときに描画。
+  // Issue #193 / PR1a: 観戦モード専用の一時停止 / ホーム戻り。
+  // spectatorMode=true && gameActive=true のときに描画。再開操作は本コンポーネント
+  // ではなく、card-shogi-game の中央オーバーレイ (画面クリック) で行う UX のため、
+  // onResumeSpectator は本 props から除外している。
   isPaused?: boolean;
   onPauseSpectator?: () => void;
-  onResumeSpectator?: () => void;
   onExitSpectator?: () => void;
 }
 
@@ -48,7 +49,6 @@ export function GameControls({
   spectatorMode = false,
   isPaused = false,
   onPauseSpectator,
-  onResumeSpectator,
   onExitSpectator,
 }: GameControlsProps) {
   const [showResignDialog, setShowResignDialog] = useState(false);
@@ -103,19 +103,23 @@ export function GameControls({
           </>
         )}
 
-        {/* Issue #193 / PR1a: 観戦モード専用の一時停止 / 再開 / ホーム戻りボタン */}
+        {/* Issue #193 / PR1a: 観戦モード専用の一時停止 / ホーム戻りボタン。
+            ボタン表示は常に「一時停止」のままで切替えない (再開操作は中央オーバーレイの
+            クリックで行う UX に統一)。一時停止中に本ボタンを再押下しても reducer 側で
+            isPaused=true 状態のため副作用なし (no-op)。 */}
         {gameActive && spectatorMode && (
           <>
             <Button
               variant="outline"
               size={compact ? "icon" : "sm"}
-              onClick={isPaused ? onResumeSpectator : onPauseSpectator}
+              onClick={onPauseSpectator}
+              disabled={isPaused}
               className={compact ? "h-9 w-9" : "gap-1.5"}
-              aria-label={isPaused ? "再開" : "一時停止"}
-              title={isPaused ? "再開" : "一時停止"}
+              aria-label="一時停止"
+              title="一時停止"
             >
-              {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
-              {!compact && (isPaused ? "再開" : "一時停止")}
+              <Pause className="w-4 h-4" />
+              {!compact && "一時停止"}
             </Button>
 
             <Button
