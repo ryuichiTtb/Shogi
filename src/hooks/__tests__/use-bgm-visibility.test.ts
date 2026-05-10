@@ -245,7 +245,7 @@ describe("use-bgm: prepareBgmForNavigation の prepared audio フロー", () => 
     expect(playMock).toHaveBeenCalledTimes(playCallsBefore);
   });
 
-  it("違う path への遷移準備で prepared audio が作られ、currentAudio は変化しない", async () => {
+  it("違う path への遷移準備で prepared audio が muted=true で作られ、currentAudio は変化しない", async () => {
     const matchPath = BGM_FILES.bgm_match_setup!;
     const gamePath = BGM_FILES.bgm_game!;
     __forTest.startBgm("bgm_match_setup", matchPath);
@@ -258,13 +258,17 @@ describe("use-bgm: prepareBgmForNavigation の prepared audio フロー", () => 
     // ローディング中は currentAudio (= bgm_match_setup) を維持
     expect(__forTest.getCurrentAudio()).toBe(before);
     // 裏で prepared audio が unlock 済み状態で作られている
-    expect(__forTest.getPreparedAudio()).not.toBeNull();
+    const prepared = __forTest.getPreparedAudio();
+    expect(prepared).not.toBeNull();
     expect(__forTest.getPreparedPath()).toBe(gamePath);
     // prepared audio は play() 後に pause されている
     expect(pauseMock).toHaveBeenCalled();
+    // Issue #198: iOS Safari で volume プロパティが無効なため、無音再生は
+    // muted=true でなければ実現できない。prepared 状態では muted=true で保持。
+    expect(prepared!.muted).toBe(true);
   });
 
-  it("画面遷移後の startBgm 呼出で prepared audio が再利用される", async () => {
+  it("画面遷移後の startBgm で prepared audio が再利用され、muted が解除される", async () => {
     const matchPath = BGM_FILES.bgm_match_setup!;
     const gamePath = BGM_FILES.bgm_game!;
     __forTest.startBgm("bgm_match_setup", matchPath);
@@ -274,6 +278,7 @@ describe("use-bgm: prepareBgmForNavigation の prepared audio フロー", () => 
     await vi.runOnlyPendingTimersAsync();
     const prepared = __forTest.getPreparedAudio();
     expect(prepared).not.toBeNull();
+    expect(prepared!.muted).toBe(true);
 
     // 画面遷移後の useBgm が startBgm を呼ぶシナリオ
     __forTest.startBgm("bgm_game", gamePath);
@@ -284,5 +289,7 @@ describe("use-bgm: prepareBgmForNavigation の prepared audio フロー", () => 
     // prepared スロットは消費されて空になる
     expect(__forTest.getPreparedAudio()).toBeNull();
     expect(__forTest.getPreparedPath()).toBe("");
+    // Issue #198: 再利用時に muted=false に戻して通常再生に切替
+    expect(prepared!.muted).toBe(false);
   });
 });

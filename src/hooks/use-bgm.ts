@@ -159,6 +159,9 @@ function startBgm(key: BgmEventKey | null, path: string): void {
     preparedPath = "";
     try {
       audio.loop = shouldLoopFlag;
+      // Issue #198: prepareBgmForNavigation で iOS Safari 対応のため muted=true で
+      // unlock した状態。ここで解除して通常再生に戻す。
+      audio.muted = false;
       audio.volume = 0;
       audio.currentTime = 0;
     } catch {
@@ -515,12 +518,19 @@ export function prepareBgmForNavigation(href: string): void {
     preparedAudio = null;
     preparedPath = "";
   }
-  // user gesture 内で audio element を 1 度 play() して unlock 状態にする
+  // user gesture 内で audio element を 1 度 play() して unlock 状態にする。
+  //
+  // Issue #198: iOS Safari では HTMLAudioElement.volume プロパティが無効
+  // (read-only / set 無視) で常に 1.0 で再生される (WebKit 仕様)。
+  // そのため volume=0 だけでは音量制御できないので muted=true を併用する。
+  // muted は iOS Safari でも有効で、play() 開始から pause() までの数百 ms の
+  // 間も音が出ない。再利用時 (startBgm 側) で muted=false に戻して通常再生する。
   try {
     const audio = new Audio();
     audio.preload = "auto";
     audio.src = path;
     audio.loop = true;
+    audio.muted = true;
     audio.volume = 0;
     const playPromise = audio.play();
     if (playPromise && typeof playPromise.then === "function") {
