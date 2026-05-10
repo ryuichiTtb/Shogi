@@ -29,7 +29,7 @@
 
 import { useEffect } from "react";
 
-import { getAudioCtx } from "@/lib/audio/audio-engine";
+import { getAudioCtx, unlockAudio } from "@/lib/audio/audio-engine";
 import {
   getEffectiveBgmPath,
   useBgmOverrides,
@@ -291,6 +291,10 @@ function startBgm(key: BgmEventKey | null, path: string): void {
   if (playPromise && typeof playPromise.then === "function") {
     playPromise
       .then(() => {
+        // Issue #198: GainNode 経由再生では AudioContext が running でないと
+        // destination に音が届かない。play() 成功時に必ず unlock を試みる
+        // (suspended なら resume、すでに running なら no-op)
+        void unlockAudio();
         // 成功: fade-in
         if (currentAudio === audio) {
           fadeVolume(audio, 0, targetVol, FADE_DURATION_MS);
@@ -317,8 +321,13 @@ function startBgm(key: BgmEventKey | null, path: string): void {
 let retryListenersAttached = false;
 
 function attemptRetry(): void {
+  // Issue #198: 本関数は click/touchstart/keydown の user gesture 経由で呼ばれる。
+  // GainNode 経由再生は AudioContext が running でないと音が destination に届かない
+  // ため、ここで AudioContext を resume する (user gesture 内なので確実に成功する)。
+  void unlockAudio();
   if (!currentAudio) return;
-  // 既に再生中なら何もしない (二重 play 防止)
+  // 既に再生中なら user gesture リトライ待ちは不要だが、AudioContext が
+  // suspended のまま無音だった可能性があるので unlockAudio は実行済み。listener 撤去。
   if (!currentAudio.paused) {
     detachRetryListeners();
     return;
@@ -419,6 +428,9 @@ function resumeFromVisible(): void {
   if (playPromise && typeof playPromise.then === "function") {
     playPromise
       .then(() => {
+        // Issue #198: GainNode 経由再生では AudioContext が running でないと
+        // destination に音が届かない。可視復帰時にも unlock を試みる。
+        void unlockAudio();
         if (currentAudio === a) {
           fadeVolume(a, 0, targetVol, FADE_DURATION_MS);
         }
@@ -620,8 +632,11 @@ export function prepareBgmForNavigation(href: string): void {
     audio.loop = true;
     audio.muted = true;
     // Issue #198: GainNode を user gesture 内で attach (= AudioContext 操作)
+    // 同タイミングで AudioContext を resume する (= GainNode 経由で音を destination
+    // に届けるためには AudioContext が running 必須)
     attachGainNode(audio);
     setEffectiveVolume(audio, 0);
+    void unlockAudio();
     const playPromise = audio.play();
     if (playPromise && typeof playPromise.then === "function") {
       playPromise

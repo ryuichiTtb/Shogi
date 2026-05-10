@@ -407,4 +407,23 @@ describe("use-bgm: GainNode 経由の音量制御 (Issue #198)", () => {
     // 最新の GainNode は gain=0 で初期化 (= 無音状態で unlock)
     expect(createdGainNode!.gain.value).toBe(0);
   });
+
+  it("startBgm の play() 成功時に AudioContext.resume() が呼ばれる (Issue #198)", async () => {
+    const engine = await import("@/lib/audio/audio-engine");
+    // ensureCtx を呼んで AudioContext を初期化させる + resume の spy 取得
+    engine.getAudioCtx();
+    const ctx = engine.__forTest.getCtx();
+    expect(ctx).not.toBeNull();
+    // ctx は最初 suspended → unlock で running になる mock
+    // suspended state を再現するためにテスト前に明示的に suspended にする
+    (ctx as unknown as { state: string }).state = "suspended";
+    const resumeSpy = ctx!.resume as unknown as ReturnType<typeof vi.fn>;
+    resumeSpy.mockClear();
+
+    __forTest.startBgm("bgm_home", "/sounds/test.mp3");
+    await vi.runOnlyPendingTimersAsync();
+
+    // play() 成功 → unlockAudio() → ctx.resume() が呼ばれる
+    expect(resumeSpy).toHaveBeenCalled();
+  });
 });
