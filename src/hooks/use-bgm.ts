@@ -29,6 +29,7 @@
 
 import { useEffect } from "react";
 
+import { getAudioCtx } from "@/lib/audio/audio-engine";
 import {
   getEffectiveBgmPath,
   useBgmOverrides,
@@ -69,6 +70,89 @@ let preparedAudio: HTMLAudioElement | null = null;
 let preparedPath = "";
 
 // =====================
+// GainNode 経由の音量制御 (Issue #198)
+// =====================
+//
+// iOS Safari は HTMLAudioElement.volume プロパティが無効 (read-only / set 無視)
+// で常に 1.0 で再生される。これにより BGM (BGM_VOLUME=0.3) が SFX (0.7) と
+// 比べて爆音になり、操作音がかき消される。
+//
+// 対策: AudioContext.createMediaElementSource() で HTMLAudio を Web Audio
+// グラフに繋ぎ、GainNode で実効的に音量制御する。GainNode は iOS Safari でも
+// 動作する。
+//
+// audio element ごとに GainNode を 1 つ持ち、WeakMap で関連付ける。
+// createMediaElementSource は同一 audio に対して 1 度しか呼べないため、
+// WeakMap キャッシュで二重呼出を防ぐ。AudioContext が利用不可な環境
+// (= 古いブラウザ / SSR) では WeakMap entry が無く、従来通り audio.volume
+// にフォールバックする。
+const audioGains = new WeakMap<HTMLAudioElement, GainNode>();
+
+function attachGainNode(audio: HTMLAudioElement): GainNode | null {
+  const cached = audioGains.get(audio);
+  if (cached) return cached;
+  const ctx = getAudioCtx();
+  if (!ctx) return null;
+  try {
+    const source = ctx.createMediaElementSource(audio);
+    const gain = ctx.createGain();
+    gain.gain.value = 0; // fade-in 前提の初期値
+    source.connect(gain);
+    gain.connect(ctx.destination);
+    audioGains.set(audio, gain);
+    return gain;
+  } catch {
+    // createMediaElementSource は同 audio 2 回目で InvalidStateError 等を投げ得る。
+    // 失敗時は audio.volume フォールバック (= iOS Safari では音量制御不可だが
+    // 致し方ない安全網)
+    return null;
+  }
+}
+
+function detachGainNode(audio: HTMLAudioElement): void {
+  const gain = audioGains.get(audio);
+  if (!gain) return;
+  try {
+    gain.disconnect();
+  } catch {
+    // ignore
+  }
+  audioGains.delete(audio);
+}
+
+function clamp01(v: number): number {
+  return Math.max(0, Math.min(1, v));
+}
+
+/**
+ * audio に紐づく effective volume を設定する。GainNode があればそちら、
+ * 無ければ audio.volume にフォールバック。
+ */
+function setEffectiveVolume(audio: HTMLAudioElement, value: number): void {
+  const v = clamp01(value);
+  const gain = audioGains.get(audio);
+  if (gain) {
+    gain.gain.value = v;
+  } else {
+    try {
+      audio.volume = v;
+    } catch {
+      // ignore (iOS Safari で setter が無視される等)
+    }
+  }
+}
+
+/**
+ * audio の effective volume を読む。GainNode があればその値、無ければ
+ * audio.volume を返す。
+ */
+function getEffectiveVolume(audio: HTMLAudioElement): number {
+  const gain = audioGains.get(audio);
+  if (gain) return gain.gain.value;
+  return audio.volume;
+}
+
+// =====================
 // fade ヘルパ
 // =====================
 
@@ -80,9 +164,9 @@ function fadeVolume(
 ): void {
   // 同 audio に対する旧 fade を中断するため id 採番
   const myId = ++activeFadeId;
-  audio.volume = Math.max(0, Math.min(1, from));
+  setEffectiveVolume(audio, from);
   if (durationMs <= 0 || from === to) {
-    audio.volume = Math.max(0, Math.min(1, to));
+    setEffectiveVolume(audio, to);
     return;
   }
   const startTs = performance.now();
@@ -90,7 +174,7 @@ function fadeVolume(
     // 別の fade が始まった、または audio が差し替わった → 中断
     if (myId !== activeFadeId) return;
     const t = Math.min(1, (now - startTs) / durationMs);
-    audio.volume = Math.max(0, Math.min(1, from + (to - from) * t));
+    setEffectiveVolume(audio, from + (to - from) * t);
     if (t < 1) {
       window.requestAnimationFrame(tick);
     }
@@ -103,6 +187,8 @@ function fadeVolume(
 // =====================
 
 function destroyAudio(audio: HTMLAudioElement): void {
+  // Issue #198: 関連 GainNode / MediaElementSource を切断 (リーク防止)
+  detachGainNode(audio);
   try {
     audio.pause();
     audio.removeAttribute("src");
@@ -137,7 +223,7 @@ function startBgm(key: BgmEventKey | null, path: string): void {
   // 旧 audio を fade out → destroy
   const prev = currentAudio;
   if (prev) {
-    fadeVolume(prev, prev.volume, 0, FADE_DURATION_MS);
+    fadeVolume(prev, getEffectiveVolume(prev), 0, FADE_DURATION_MS);
     window.setTimeout(() => destroyAudio(prev), FADE_DURATION_MS + 50);
   }
 
@@ -162,18 +248,23 @@ function startBgm(key: BgmEventKey | null, path: string): void {
       // Issue #198: prepareBgmForNavigation で iOS Safari 対応のため muted=true で
       // unlock した状態。ここで解除して通常再生に戻す。
       audio.muted = false;
-      audio.volume = 0;
       audio.currentTime = 0;
     } catch {
       // ignore
     }
+    // GainNode は既に attach 済み (prepareBgmForNavigation 内で attach)。fade-in
+    // 起点として 0 にリセットする。
+    setEffectiveVolume(audio, 0);
   } else {
     audio = new Audio();
     // preload はネットワーク負荷を抑えるため metadata まで。play() で自動的に full load。
     audio.preload = "auto";
     audio.src = path;
     audio.loop = shouldLoopFlag;
-    audio.volume = 0;
+    // Issue #198: GainNode を attach。これが iOS Safari でも有効な音量制御の核。
+    // attach 失敗時は audio.volume フォールバック (= 既存挙動)
+    attachGainNode(audio);
+    setEffectiveVolume(audio, 0);
   }
 
   // shouldLoop=false で loop 終了時に自然停止 (state クリア)
@@ -239,7 +330,7 @@ function attemptRetry(): void {
     playPromise
       .then(() => {
         if (currentAudio === audio) {
-          fadeVolume(audio, audio.volume, targetVol, FADE_DURATION_MS);
+          fadeVolume(audio, getEffectiveVolume(audio), targetVol, FADE_DURATION_MS);
         }
         detachRetryListeners();
       })
@@ -248,7 +339,7 @@ function attemptRetry(): void {
       });
   } else {
     // 旧ブラウザ: play が undefined を返す。再生開始したと仮定。
-    fadeVolume(audio, audio.volume, targetVol, FADE_DURATION_MS);
+    fadeVolume(audio, getEffectiveVolume(audio), targetVol, FADE_DURATION_MS);
     detachRetryListeners();
   }
 }
@@ -299,7 +390,7 @@ function pauseForHidden(): void {
   if (currentAudio.paused) return; // 既に停止
   wasPlayingBeforeHidden = true;
   const a = currentAudio;
-  fadeVolume(a, a.volume, 0, HIDE_FADE_MS);
+  fadeVolume(a, getEffectiveVolume(a), 0, HIDE_FADE_MS);
   // フェードアウト完了後に pause。途中で visible に戻ったら setTimeout 内で
   // visibilityState を再チェックして no-op にする。
   window.setTimeout(() => {
@@ -323,7 +414,7 @@ function resumeFromVisible(): void {
   const targetVol = isMuted ? 0 : BGM_VOLUME;
   // フェードイン用に音量を 0 から開始 (HIDE_FADE_MS 完了前に visible 復帰した
   // 場合は volume が中途半端なので 0 にリセットして再 fade-in)。
-  a.volume = 0;
+  setEffectiveVolume(a, 0);
   const playPromise = a.play();
   if (playPromise && typeof playPromise.then === "function") {
     playPromise
@@ -444,11 +535,7 @@ export function useBgm(
 export function setBgmMuted(muted: boolean): void {
   isMuted = muted;
   if (currentAudio) {
-    try {
-      currentAudio.volume = muted ? 0 : BGM_VOLUME;
-    } catch {
-      // ignore
-    }
+    setEffectiveVolume(currentAudio, muted ? 0 : BGM_VOLUME);
   }
 }
 
@@ -522,16 +609,19 @@ export function prepareBgmForNavigation(href: string): void {
   //
   // Issue #198: iOS Safari では HTMLAudioElement.volume プロパティが無効
   // (read-only / set 無視) で常に 1.0 で再生される (WebKit 仕様)。
-  // そのため volume=0 だけでは音量制御できないので muted=true を併用する。
-  // muted は iOS Safari でも有効で、play() 開始から pause() までの数百 ms の
-  // 間も音が出ない。再利用時 (startBgm 側) で muted=false に戻して通常再生する。
+  // そのため:
+  //   - GainNode (createMediaElementSource 経由) で gain=0 にすれば音量制御可能
+  //   - フォールバックとして muted=true も併用 (= GainNode attach 失敗時の安全網)
+  // 再利用時 (startBgm 側) で muted=false に戻し、GainNode で fade-in する。
   try {
     const audio = new Audio();
     audio.preload = "auto";
     audio.src = path;
     audio.loop = true;
     audio.muted = true;
-    audio.volume = 0;
+    // Issue #198: GainNode を user gesture 内で attach (= AudioContext 操作)
+    attachGainNode(audio);
+    setEffectiveVolume(audio, 0);
     const playPromise = audio.play();
     if (playPromise && typeof playPromise.then === "function") {
       playPromise
