@@ -329,6 +329,11 @@ export function CardShogiGame({
     cancelDoubleMove,
     aiError,
     retryAiMove,
+    // Issue #193 / PR1a: 観戦モード専用 (一時停止 / 再開)。spectatorMode は
+    // serializableConfig 経由で取得済 (上の const spectatorMode = ...)。
+    isPaused,
+    pauseSpectator,
+    resumeSpectator,
   } = useCardShogiGame({
     initialState: initialGameState,
     initialCardState,
@@ -342,6 +347,14 @@ export function CardShogiGame({
   const playerColor = gameConfig.playerColor;
   const aiColor: Player = playerColor === "sente" ? "gote" : "sente";
   const isPlayerTurn = gameState.currentPlayer === playerColor;
+
+  // Issue #193 / PR1a: 観戦モードの「ホームへ戻る」ボタン。揮発モードのため
+  // ページ離脱で初期化される (G-2 進行中チェックリスト想定)。in-flight な AI 探索を
+  // 確実に停止するため、useCardShogiGame の cancelAiRequest 経由は不要 (unmount 時の
+  // useEffect cleanup で abort される)。
+  const handleExitSpectator = useCallback(() => {
+    router.push("/");
+  }, [router]);
 
   // BGM (Issue #79):
   //   - useBgm が BGM の単一オーナー。dev tool で event override が設定された
@@ -1571,6 +1584,10 @@ export function CardShogiGame({
             canUndo={canUndo}
             gameActive={isGameActive}
             spectatorMode={spectatorMode}
+            isPaused={isPaused}
+            onPauseSpectator={pauseSpectator}
+            onResumeSpectator={resumeSpectator}
+            onExitSpectator={handleExitSpectator}
           />
         </div>
       </section>
@@ -1603,6 +1620,10 @@ export function CardShogiGame({
                 gameActive={isGameActive}
                 hideSound
                 spectatorMode={spectatorMode}
+                isPaused={isPaused}
+                onPauseSpectator={pauseSpectator}
+                onResumeSpectator={resumeSpectator}
+                onExitSpectator={handleExitSpectator}
               />
             ) : (
               /* 終局時: 結果ボタンを常時表示。蛍光緑、現状の約 2 倍幅、結果カード
@@ -1789,6 +1810,10 @@ export function CardShogiGame({
               gameActive={isGameActive}
               hideSound
               spectatorMode={spectatorMode}
+              isPaused={isPaused}
+              onPauseSpectator={pauseSpectator}
+              onResumeSpectator={resumeSpectator}
+              onExitSpectator={handleExitSpectator}
             />
           </div>
         </aside>

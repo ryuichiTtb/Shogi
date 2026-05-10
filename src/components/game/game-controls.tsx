@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Flag, RotateCcw, Volume2, VolumeX } from "lucide-react";
+import { Flag, Home, Pause, Play, RotateCcw, Volume2, VolumeX } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -25,6 +25,12 @@ interface GameControlsProps {
   // Issue #193 / PR1a: CPU vs CPU 観戦モード。true のとき投了 / 待ったボタンを
   // 描画しない (= ユーザー操作不可、両 CPU 駆動のみで進行)。音量トグルは引き続き表示。
   spectatorMode?: boolean;
+  // Issue #193 / PR1a: 観戦モード専用の一時停止 / 再開 / ホーム戻り。
+  // spectatorMode=true && gameActive=true のときに描画。
+  isPaused?: boolean;
+  onPauseSpectator?: () => void;
+  onResumeSpectator?: () => void;
+  onExitSpectator?: () => void;
 }
 
 // 固定高さ: 36px
@@ -40,6 +46,10 @@ export function GameControls({
   compact = false,
   hideSound = false,
   spectatorMode = false,
+  isPaused = false,
+  onPauseSpectator,
+  onResumeSpectator,
+  onExitSpectator,
 }: GameControlsProps) {
   const [showResignDialog, setShowResignDialog] = useState(false);
 
@@ -89,6 +99,35 @@ export function GameControls({
             >
               <Flag className="w-4 h-4" />
               {!compact && "投了"}
+            </Button>
+          </>
+        )}
+
+        {/* Issue #193 / PR1a: 観戦モード専用の一時停止 / 再開 / ホーム戻りボタン */}
+        {gameActive && spectatorMode && (
+          <>
+            <Button
+              variant="outline"
+              size={compact ? "icon" : "sm"}
+              onClick={isPaused ? onResumeSpectator : onPauseSpectator}
+              className={compact ? "h-9 w-9" : "gap-1.5"}
+              aria-label={isPaused ? "再開" : "一時停止"}
+              title={isPaused ? "再開" : "一時停止"}
+            >
+              {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+              {!compact && (isPaused ? "再開" : "一時停止")}
+            </Button>
+
+            <Button
+              variant="outline"
+              size={compact ? "icon" : "sm"}
+              onClick={onExitSpectator}
+              className={compact ? "h-9 w-9" : "gap-1.5"}
+              aria-label="ホームへ戻る"
+              title="ホームへ戻る"
+            >
+              <Home className="w-4 h-4" />
+              {!compact && "ホーム"}
             </Button>
           </>
         )}

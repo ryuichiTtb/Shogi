@@ -542,6 +542,22 @@ export function useCardShogiGame({
     dispatch({ type: "CANCEL_DOUBLE_MOVE" });
   }, [state.spectatorMode]);
 
+  // Issue #193 / PR1a: 観戦モード専用の一時停止 / 再開。
+  // spectatorMode === true のときのみ動作 (人間プレイ時は no-op)。
+  // PAUSE_GAME → reducer が isPaused=true → AI 自動応手 useEffect が
+  // isPaused ガードで return → cancelAiRequest で in-flight の探索もキャンセル。
+  // RESUME_GAME → isPaused=false → 自動応手再 trigger。
+  const pauseSpectator = useCallback(() => {
+    if (!state.spectatorMode) return;
+    dispatch({ type: "PAUSE_GAME" });
+    cancelAiRequest();
+  }, [state.spectatorMode, cancelAiRequest]);
+
+  const resumeSpectator = useCallback(() => {
+    if (!state.spectatorMode) return;
+    dispatch({ type: "RESUME_GAME" });
+  }, [state.spectatorMode]);
+
   return {
     gameState: state.gameState,
     selectedSquare: state.selectedSquare,
@@ -580,5 +596,10 @@ export function useCardShogiGame({
     aiError,
     dismissAiError,
     retryAiMove,
+    // Issue #193 / PR1a: 観戦モード専用の状態と操作
+    spectatorMode: state.spectatorMode,
+    isPaused: state.isPaused,
+    pauseSpectator,
+    resumeSpectator,
   };
 }
