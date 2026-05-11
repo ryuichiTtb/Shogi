@@ -380,7 +380,9 @@ export function getLeastAttackerValue(
 // --- 駒安全性評価 ---
 
 // 駒の安全性を評価（タダ取り・駒損交換の検知）
-function evaluatePieceSafety(
+// Issue #193 / PR1c (Phase 4 足場): 後続 PR (PR2) で評価関数モジュール本体分離する
+// 際に外部から呼べるよう export 化。本体ロジックは一切変更しない (1 cp ずれ厳禁)。
+export function evaluatePieceSafety(
   state: GameState,
   player: Player,
   variant: RuleVariant
@@ -423,7 +425,8 @@ function evaluatePieceSafety(
 // --- 成り込み脅威検知 ---
 
 // 相手の未成り駒が成りゾーンに侵入している場合のペナルティ
-function evaluatePromotionThreats(
+// Issue #193 / PR1c: PR1c-2/PR1d/PR2 で外部参照するため export 化。本体ロジック不変。
+export function evaluatePromotionThreats(
   state: GameState,
   player: Player,
   variant: RuleVariant
@@ -541,7 +544,8 @@ const CASTLE_PATTERNS: CastlePattern[] = [
 ];
 
 // 囲い評価（片方のプレイヤー）
-function evaluateCastle(
+// Issue #193 / PR1c: PR1c-2/PR1d/PR2 で外部参照するため export 化。本体ロジック不変。
+export function evaluateCastle(
   state: GameState,
   player: Player,
   kingRow: number,
@@ -589,7 +593,8 @@ function evaluateCastle(
 }
 
 // 玉の安全度評価（囲いパターン + 周辺評価）
-function evaluateKingSafety(
+// Issue #193 / PR1c: PR1c-2/PR1d/PR2 で外部参照するため export 化。本体ロジック不変。
+export function evaluateKingSafety(
   state: GameState,
   player: Player,
   variant: RuleVariant
@@ -672,7 +677,8 @@ function evaluateKingSafety(
 }
 
 // 飛車のオープンファイル評価
-function evaluateRookFiles(
+// Issue #193 / PR1c: PR1c-2/PR1d/PR2 で外部参照するため export 化。本体ロジック不変。
+export function evaluateRookFiles(
   state: GameState,
   player: Player,
   variant: RuleVariant
@@ -769,6 +775,133 @@ export function evaluate(
   score += state.currentPlayer === "sente" ? 15 : -15;
 
   return score;
+}
+
+// Issue #193 / PR1c (Phase 4 足場): debug 専用の評価値内訳ヘルパ。
+//
+// 用途:
+// - 親計画 md L386 PR2 セクションの「breakdown を本番有効化 (debug build /
+//   DEBUG_AI_EVAL env で出力)」の足場
+// - debug 時に「どの成分でどれだけ評価が動いたか」を可視化する
+// - 本番探索ホットパス (negamax / quiescence 内の評価呼出) では呼ばれない
+//   (= 計算コスト 2 倍化を許容)
+//
+// 設計原則:
+// - `evaluate` 本体と **完全に同じ計算順序** で各成分を加算する
+// - `total === evaluate(state, variant)` を 1000 局面 fixture で検証する
+// - 1 cp ずれ厳禁 (PR1c の最重要 DoD)
+//
+// 詳細: docs/plans/issue-193-pr1b-pr1c.md「## PR1c 実装ステップ」参照。
+export interface EvaluationBreakdown {
+  total: number;
+  material: number; // 盤上駒価値 + PST
+  hand: number; // 手駒価値
+  kingSafety: number; // 玉安全度差 (sente - gote)
+  rookFiles: number; // 飛車オープンファイル差
+  pieceSafety: number; // タダ取り・損な交換差
+  promotionThreats: number; // 成り込み脅威差
+  tempo: number; // 手番ボーナス (currentPlayer == sente ? +15 : -15)
+}
+
+export function evaluateWithBreakdown(
+  state: GameState,
+  variant: RuleVariant = STANDARD_VARIANT
+): EvaluationBreakdown {
+  // checkmate / 非 active のとき evaluate は ±100000 / 0 を返す。breakdown では
+  // 内訳を持たないため total に統合した値だけ返し、他成分は 0 とする。
+  if (state.status === "checkmate") {
+    const total = state.winner === "sente" ? 100000 : -100000;
+    return {
+      total,
+      material: 0,
+      hand: 0,
+      kingSafety: 0,
+      rookFiles: 0,
+      pieceSafety: 0,
+      promotionThreats: 0,
+      tempo: 0,
+    };
+  }
+  if (state.status !== "active") {
+    return {
+      total: 0,
+      material: 0,
+      hand: 0,
+      kingSafety: 0,
+      rookFiles: 0,
+      pieceSafety: 0,
+      promotionThreats: 0,
+      tempo: 0,
+    };
+  }
+
+  const rows = variant.boardSize.rows;
+
+  // 盤上の駒の評価 (material)
+  let material = 0;
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < variant.boardSize.cols; col++) {
+      const piece = state.board[row][col];
+      if (!piece) continue;
+
+      const value = PIECE_VALUES[piece.type] ?? 100;
+      const sign = piece.owner === "sente" ? 1 : -1;
+      material += sign * value;
+
+      const pst = PST_MAP[piece.type];
+      if (pst) {
+        const posRow = piece.owner === "sente" ? row : rows - 1 - row;
+        const posBonus = pst[posRow]?.[col] ?? 0;
+        material += sign * posBonus;
+      }
+    }
+  }
+
+  // 手駒の評価 (hand)
+  let hand = 0;
+  for (const [type, count] of Object.entries(state.hand.sente)) {
+    hand += (HAND_PIECE_VALUES[type] ?? 100) * (count ?? 0);
+  }
+  for (const [type, count] of Object.entries(state.hand.gote)) {
+    hand -= (HAND_PIECE_VALUES[type] ?? 100) * (count ?? 0);
+  }
+
+  // 玉の安全度
+  const kingSafety =
+    evaluateKingSafety(state, "sente", variant) -
+    evaluateKingSafety(state, "gote", variant);
+
+  // 飛車オープンファイル
+  const rookFiles =
+    evaluateRookFiles(state, "sente", variant) -
+    evaluateRookFiles(state, "gote", variant);
+
+  // 駒安全性
+  const pieceSafety =
+    evaluatePieceSafety(state, "sente", variant) -
+    evaluatePieceSafety(state, "gote", variant);
+
+  // 成り込み脅威
+  const promotionThreats =
+    evaluatePromotionThreats(state, "sente", variant) -
+    evaluatePromotionThreats(state, "gote", variant);
+
+  // テンポボーナス
+  const tempo = state.currentPlayer === "sente" ? 15 : -15;
+
+  const total =
+    material + hand + kingSafety + rookFiles + pieceSafety + promotionThreats + tempo;
+
+  return {
+    total,
+    material,
+    hand,
+    kingSafety,
+    rookFiles,
+    pieceSafety,
+    promotionThreats,
+    tempo,
+  };
 }
 
 // 評価値に基づく手のソート（alpha-beta探索のための手の順序付け）
