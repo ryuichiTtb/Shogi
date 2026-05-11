@@ -1,6 +1,9 @@
 import type { GameState, Move, Player, RuleVariant } from "../types";
 import { STANDARD_VARIANT } from "../variants/standard";
-import { getFullLegalMoves, isInCheck } from "../moves";
+// Issue #193 / PR1b (Phase 3): 探索ホットパスの合法手生成は getSearchLegalMoves に切替。
+// getFullLegalMoves は本ファイル内で直接呼ばないので import から除外、isInCheck のみ moves から取込む。
+import { isInCheck } from "../moves";
+import { getSearchLegalMoves } from "./legal-moves";
 import { applyMoveForSearch } from "../board";
 import { evaluate, scoreMoveForOrdering } from "./evaluate";
 import {
@@ -235,7 +238,7 @@ function quiescence(
 
   if (inCheck) {
     // 王手中: stand-pat不可、全合法手を探索（逃げなければならない）
-    const moves = getFullLegalMoves(state, player, variant);
+    const moves = getSearchLegalMoves(state, player, variant);
     if (moves.length === 0) {
       return -(MATE_SCORE - qDepth); // 詰み
     }
@@ -336,7 +339,7 @@ function negamax(
   }
 
   // 合法手生成
-  const moves = getFullLegalMoves(state, player, variant);
+  const moves = getSearchLegalMoves(state, player, variant);
   const opponent: Player = player === "sente" ? "gote" : "sente";
 
   if (moves.length === 0) {
@@ -509,7 +512,7 @@ export function findBestMove(
   variant: RuleVariant = STANDARD_VARIANT,
   ctx?: SearchContext
 ): Move | null {
-  const moves = getFullLegalMoves(state, player, variant);
+  const moves = getSearchLegalMoves(state, player, variant);
   if (moves.length === 0) return null;
   if (moves.length === 1) return moves[0];
 
