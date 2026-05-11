@@ -15,6 +15,7 @@
     "gen:fixture:legal-moves": "tsx scripts/gen-fixture-legal-moves.ts",
     "gen:fixture:evaluate": "tsx scripts/gen-fixture-evaluate.ts",
     "gen:fixture:strategy": "tsx scripts/gen-fixture-strategy.ts",
+    "verify:strategy-fixture": "tsx scripts/verify-strategy-fixture.ts",
     "db:seed": "npx tsx prisma/seed.ts",
     "db:push": "prisma db push",
     "db:generate": "prisma generate"
