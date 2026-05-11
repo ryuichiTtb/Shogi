@@ -8,7 +8,7 @@
 //
 // 役割分担方式 (MM-2 / 第 2 次レビュー Phase 3 ユーザー確定):
 // - Strategy fixture (本 script): 「Phase B refactor の関数呼出経路の整合性検証」
-//   に役割を絞り、maxDepth=8 の軽量検証 (CPU 速度非依存)
+//   に役割を絞り、maxDepth=6 の軽量検証 (CPU 速度非依存)
 // - 深い検証: PR1d 以降の perf-bench.test.ts + Vercel preview 実機確認で補完
 //
 // 生成パターン (本フェーズ計画 md L356-414 / JSON スキーマ準拠):
@@ -26,7 +26,7 @@
 //   - findBestMoveWithStats({ maxDepth: STRATEGY_FIXTURE_MAX_DEPTH=8 }) で実行
 //   - engine 内で options.maxDepth !== undefined 検出時に
 //     effectiveTimeLimitMs = Number.MAX_SAFE_INTEGER に内部設定 (= timeLimitMs 経路無効化)
-//   - 必ず maxDepth=8 まで到達するため reproducible
+//   - 必ず maxDepth=6 まで到達するため reproducible
 //
 // 出力:
 //   - src/lib/shogi/ai/__tests__/fixtures/strategy-baseline.json

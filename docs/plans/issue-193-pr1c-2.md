@@ -86,7 +86,7 @@ Issue #193 (AI/CPU アーキ刷新 + カード戦略統合 + CPU vs CPU 観戦) 
 | **マージ順序** | **Phase C 先行 (= 計画 md broken link 対策) → Phase A → Phase B** |
 | Fixture と refactor の commit 分離 | **別 PR で先行マージ** (Phase A → Phase B) |
 | addNoise 揺らぎ対策 | **advanced/expert のみ完全一致 DoD、beginner/intermediate は Strategy フィールド値検証** で代用 (2 層構造)。ただし層 2 検証は「Strategy が DIFFICULTY_PARAMS をパススルーしている」ことのみ保証し、**実際の Math.random 呼び出し回数や順序のずれは検出できない** ことを明示 |
-| **CPU 速度依存性対策** | **maxDepth 固定方式 (`maxDepth=8` 想定、Phase A 設計セクションで詳述)** |
+| **CPU 速度依存性対策** | **maxDepth 固定方式 (`maxDepth=6` 想定、Phase A 設計セクションで詳述)** |
 | 観戦 fixture 検証方式 | test:ci は fixture 直接比較 (data integrity のみ)、動的検証は別 npm script (リリース前手動実行) |
 | R-4 対応 | **別 PR (`chore/#193-pr1b-pr1c-plan` ブランチ再利用)**、Phase C として先行マージ |
 | route.ts 扱い | **1 行修正のみ許容** (`timeLimitMs: ...` → `spectator: body.spectatorMode`)。それ以外は触らない |
@@ -274,7 +274,7 @@ search.ts の `SearchOptions { maxDepth, timeLimitMs, addNoise, nearEqualThresho
 
 | 検証層 | 対象 difficulty | 検証手段 | 限界 |
 |--------|----------------|----------|------|
-| **層 1 (完全一致 DoD)** | advanced / expert | 180 局面 fixture で `findBestMoveWithStats(state, player, difficulty, variant, { maxDepth: 8 })` の返却 move が baseline と完全一致 (maxDepth 固定方式、M-2 反映) | maxDepth=8 限定の検証なので、production の実探索 (maxDepth=16/24) でのデグレ検知は別途 Vercel preview deploy で実機確認 |
+| **層 1 (完全一致 DoD)** | advanced / expert | 180 局面 fixture で `findBestMoveWithStats(state, player, difficulty, variant, { maxDepth: 6 })` の返却 move が baseline と完全一致 (maxDepth 固定方式、M-2 反映) | maxDepth=6 限定の検証なので、production の実探索 (maxDepth=16/24) でのデグレ検知は別途 Vercel preview deploy で実機確認 |
 | **層 2 (フィールド値検証)** | beginner / intermediate / advanced / expert (全 4) | `createStrategy(difficulty).addNoise === DIFFICULTY_PARAMS[difficulty].addNoise` 等、Strategy インスタンスのフィールド値が DIFFICULTY_PARAMS と完全一致 | **Strategy が DIFFICULTY_PARAMS をパススルーしていることのみ保証**、実際の Math.random 呼び出し回数や順序のずれは検出不能。beginner/intermediate の振る舞いキープは Vercel preview 実機確認で担保 |
 
 層 1 で振る舞いの完全一致を直接検証、層 2 で「Strategy が DIFFICULTY_PARAMS パススルーとして正しく機能している」ことを補強検証する構造。
@@ -295,13 +295,13 @@ advanced/expert は `addNoise=0` で **探索ロジック自体は decimistic** 
 
 ### 対策: maxDepth 固定方式
 
-**fixture 生成 + test:ci 検証の両方で `maxDepth` を有限固定** (`maxDepth=8` 想定) し、`timeLimitMs` 経路を無効化する:
+**fixture 生成 + test:ci 検証の両方で `maxDepth` を有限固定** (`maxDepth=6` 想定) し、`timeLimitMs` 経路を無効化する:
 
-- fixture 生成時: `findBestMoveWithStats(state, player, difficulty, variant, { maxDepth: 8 })` で実行 (TT-1 反映: `FindBestMoveOptions.timeLimitMs?` は S-5 で廃止済のため指定しない。engine 内で `options.maxDepth !== undefined` 検出時に `effectiveTimeLimitMs = Number.MAX_SAFE_INTEGER` に内部設定、CPU 速度非依存で必ず maxDepth=8 まで到達)
-- test:ci 検証時: 同じ `{ maxDepth: 8 }` で `findBestMoveWithStats` を再実行 → fixture と完全一致を比較
+- fixture 生成時: `findBestMoveWithStats(state, player, difficulty, variant, { maxDepth: 6 })` で実行 (TT-1 反映: `FindBestMoveOptions.timeLimitMs?` は S-5 で廃止済のため指定しない。engine 内で `options.maxDepth !== undefined` 検出時に `effectiveTimeLimitMs = Number.MAX_SAFE_INTEGER` に内部設定、CPU 速度非依存で必ず maxDepth=6 まで到達)
+- test:ci 検証時: 同じ `{ maxDepth: 6 }` で `findBestMoveWithStats` を再実行 → fixture と完全一致を比較
 - production: 通常の DIFFICULTY_PARAMS (advanced 16 / expert 24 + timeLimitMs 3000/3500) で動作 → CPU 速度依存性は production 上で許容 (本来の動作)
 
-### maxDepth=8 採用根拠と Strategy fixture の役割再定義 (MM-2 反映)
+### maxDepth=6 採用根拠と Strategy fixture の役割再定義 (MM-2 反映)
 
 **Strategy fixture の役割を再定義**: production の通常到達 depth (advanced 12-14 / expert 14-18) と乖離があるが、これは設計判断として **「Phase B refactor の関数呼出経路が壊れていないことの最低限保証 (= 軽量検証)」** に役割を絞り込む。「深い検証」は別途担保する。
 
@@ -309,21 +309,30 @@ advanced/expert は `addNoise=0` で **探索ロジック自体は decimistic** 
 
 | 検証層 | 担当 | 検知対象 | 検証深度 |
 |--------|------|---------|---------|
-| **Strategy fixture (本フェーズ)** | `strategy-equivalence.test.ts` + `strategy-baseline.json` | Phase B refactor の **関数呼出経路の整合性** (Strategy 経由参照が DIFFICULTY_PARAMS パススルー直接参照と完全に同じ move を返すこと) | maxDepth=8 (軽量、CPU 速度非依存) |
+| **Strategy fixture (本フェーズ)** | `strategy-equivalence.test.ts` + `strategy-baseline.json` | Phase B refactor の **関数呼出経路の整合性** (Strategy 経由参照が DIFFICULTY_PARAMS パススルー直接参照と完全に同じ move を返すこと) | maxDepth=6 (軽量、CPU 速度非依存) |
 | **深い検証 (PR1d 以降)** | PR1d で導入予定の `perf-bench.test.ts` (advanced/expert × 局面 × p50/p95/max nodes 観測) | production の通常到達 depth (advanced 12-18) での棋力指標 | production 動作 (maxDepth 24 + timeLimitMs) |
 | **マージ前確認** | Vercel preview deploy 動作確認 (DoD 必須項目) | 実機での AI 指し手・棋力・速度の人間観察 | production と同等 |
 
-**maxDepth=8 の妥当性**:
+**maxDepth=6 の妥当性 (Phase A 実装時に 8 → 6 に下げた経緯)**:
 
-- 関数呼出経路の整合性検証としては maxDepth=8 で十分 (= Phase B で呼出経路が壊れれば maxDepth に関わらず必ず move が変わる)
-- depth ≥ 9 で発生する稀なバグは **Strategy fixture では検知できない** ことを明示 → これらは Vercel preview 実機確認 (DoD) と PR1d の bench fixture で補完
-- CI 実行時間: 180 局面 × ~1-3 秒/局面 = **3-9 分** (許容範囲)
+**当初想定 (maxDepth=8)**: 計画策定時は 8 が「production (advanced 12-14 / expert 14-18) との乖離を最小化しつつ CI で許容できる時間」と想定していた。
+
+**Phase A 実装時の発見**: `Number.MAX_SAFE_INTEGER` で `timeLimitMs` 経路を無効化した結果、`iterative deepening` で depth 1〜8 を順に完全読み切る挙動となり、**1 局面あたり 30 秒〜数分の探索時間**が必要に。360 entries × 数十秒 = **数時間〜数日規模**で CI 不可。
+
+**maxDepth=6 への変更 (Phase A 着手中に下方修正)**:
+- 1 局面あたり ~1-3 秒 (計画想定通り) → 360 entries × 2 difficulty = **6-18 分** (CI 許容)
+- 関数呼出経路の整合性検証 (Phase B refactor の振る舞いキープ確認) には depth=4 でも検知可能だが、depth=6 で **PST + king safety + piece safety + evaluatePromotionThreats 等の評価関数の各要素を一通り通過** できる
+- depth ≥ 7 で発生する稀なバグは **Strategy fixture では検知できない** ことを明示 → これらは Vercel preview 実機確認 (DoD) と PR1d の bench fixture で補完
+- 役割分担方式 (= 軽量検証に役割を絞る MM-2 の方針) と完全整合
+
+**ボツ案**:
 - maxDepth=4 だと探索質が低下しすぎてバグを検出しないリスク
-- maxDepth=12 だと CI 6-27 分で重くなりすぎる → 役割分担方式を採用
+- maxDepth=8+ は前述の通り CI 不可
+- `Number.MAX_SAFE_INTEGER` ではなく中程度 timeLimitMs (例: 5000ms) を使う案 → CPU 速度依存性 (M-2) が再発するため不採用
 
 **実装側の named constant 化 (NN-1 反映)**:
 
-`STRATEGY_FIXTURE_MAX_DEPTH = 8` を `src/lib/shogi/ai/strategy/spectator-override.ts` (既存) または新規ファイル `src/lib/shogi/ai/strategy/fixture-constants.ts` に集約。fixture 生成スクリプト (`scripts/gen-fixture-strategy.ts`) と test:ci 検証 (`strategy-equivalence.test.ts`) の両方が同 constant を参照することで一元管理。
+`STRATEGY_FIXTURE_MAX_DEPTH = 6` を `src/lib/shogi/ai/strategy/spectator-override.ts` (既存) または新規ファイル `src/lib/shogi/ai/strategy/fixture-constants.ts` に集約。fixture 生成スクリプト (`scripts/gen-fixture-strategy.ts`) と test:ci 検証 (`strategy-equivalence.test.ts`) の両方が同 constant を参照することで一元管理。
 
 `gen-fixture-strategy.ts` には `--max-depth=N` フラグオーバーライドも実装し、ローカル動作確認時に深度変更可能にする (デフォルトは `STRATEGY_FIXTURE_MAX_DEPTH`)。
 
@@ -361,7 +370,7 @@ const move = findBestMove(state, player, {
 
 これにより:
 - production: `options.maxDepth` 未指定 → `strategy.maxSearchDepth` (advanced 16 / expert 24) 使用
-- fixture 生成 + 検証: `options.maxDepth=8` 指定 → CPU 速度非依存
+- fixture 生成 + 検証: `options.maxDepth=6` 指定 → CPU 速度非依存
 
 ---
 
@@ -430,7 +439,7 @@ git checkout -b chore/#193-pr1c-2-fixture origin/main
 
 - 180 局面 × 2 difficulty (advanced/expert) = **360 entries**
 - `id` は同じ局面で difficulty 違いを区別 (重複可)、`category` は局面カテゴリー (standard-opening / standard-midgame / standard-endgame / card-shogi-midgame / card-shogi-endgame)
-- `expected.move` は **maxDepth=8 で固定して生成した move** (CPU 速度非依存)
+- `expected.move` は **maxDepth=6 で固定して生成した move** (CPU 速度非依存)
 
 ### `spectator-baseline.json` JSON スキーマ
 
@@ -467,7 +476,7 @@ git checkout -b chore/#193-pr1c-2-fixture origin/main
   - card-shogi variant: 80 局面 (midgame 40 / endgame 40)
 - **観戦モード 4 シナリオ** (advanced/expert の組合せ各 50 手):
   - advanced vs advanced / expert vs expert / advanced vs expert / expert vs advanced
-- 各 entry の `expected.move` は `findBestMoveWithStats(state, player, difficulty, variant, { maxDepth: 8 })` の戻り値 move
+- 各 entry の `expected.move` は `findBestMoveWithStats(state, player, difficulty, variant, { maxDepth: 6 })` の戻り値 move
 - 出力: `strategy-baseline.json` + `spectator-baseline.json` + 対応 `.meta.json`
 
 #### 生成方針
@@ -476,7 +485,7 @@ git checkout -b chore/#193-pr1c-2-fixture origin/main
   - `state.status === "active"` filter で特殊値局面を除外
   - 「template ベース」は採用しない (= 計画 md でも `template` の語は使わない、R-7 対策)
 - **fixture 生成は Phase A の commit 時点 (refactor 前の main 動作) で実行** → これが PR1c-2 の baseline
-- **maxDepth=8 固定で reproducibility 確保** (CPU 速度非依存)
+- **maxDepth=6 固定で reproducibility 確保** (CPU 速度非依存)
 - 観戦モード fixture は 4 シナリオに絞ることで生成時間を抑制 (50 手 × 4 シナリオ = 200 ply × ~1-3 秒/局面 ≒ **3-10 分目安**、L300 の 1-3 秒/局面想定と整合、SS-2 反映)
 
 #### 実装の慣習
@@ -488,18 +497,18 @@ git checkout -b chore/#193-pr1c-2-fixture origin/main
 
 現状の 90 行テストに以下を追加:
 
-1. **180 局面 fixture 検証** (advanced/expert 完全一致): `strategy-baseline.json` を import、各 entry で `findBestMoveWithStats(state, player, difficulty, variant, { maxDepth: 8 })` の戻り値と `expected.move` を比較
+1. **180 局面 fixture 検証** (advanced/expert 完全一致): `strategy-baseline.json` を import、各 entry で `findBestMoveWithStats(state, player, difficulty, variant, { maxDepth: 6 })` の戻り値と `expected.move` を比較
 2. **全 4 difficulty フィールド値検証**: `createStrategy(difficulty).addNoise === DIFFICULTY_PARAMS[difficulty].addNoise` 等、Strategy インスタンスの 3 フィールド (addNoise / nearEqualThreshold / useBook) が DIFFICULTY_PARAMS と一致
 3. **観戦モード fixture data integrity 検証** (S-3 反映): `spectator-baseline.json` から各シナリオの **手系列を読み込んで構造妥当性 (シナリオ数 4 / 各 50 手 / Move スキーマ妥当) のみ確認**。動的検証 (両 CPU シミュレーション実行) は `npm run verify:strategy-fixture` 別 script で実施 (CI 外)
 
 ### Phase A の DoD
 
 - [ ] `scripts/gen-fixture-strategy.ts` が新規追加、`npm run gen:fixture:strategy` で 180 局面 + 4 観戦シナリオ生成成功
-- [ ] `strategy-baseline.json` (360 entries) + `spectator-baseline.json` (4 シナリオ) が生成、`.meta.json` も同梱 (`maxDepth=8`, `seed=42` を記録)
+- [ ] `strategy-baseline.json` (360 entries) + `spectator-baseline.json` (4 シナリオ) が生成、`.meta.json` も同梱 (`maxDepth=6`, `seed=42` を記録)
 - [ ] `strategy-equivalence.test.ts` が拡張済、3 種の検証 (fixture 完全一致 / フィールド値検証 / 観戦 data integrity) すべて緑
 - [ ] `package.json` に `gen:fixture:strategy` + `verify:strategy-fixture` script 追加
 - [ ] `FindBestMoveOptions.maxDepth?: number` および `FindBestMoveOptions.spectator?: boolean` が engine.ts に追加 (= Phase A 内の先行 refactor、Phase B の準備、SS-1 反映)
-- [ ] `STRATEGY_FIXTURE_MAX_DEPTH = 8` named constant が新規追加 (NN-1 反映、fixture 生成スクリプトと test:ci 検証の両方が同 constant 参照)
+- [ ] `STRATEGY_FIXTURE_MAX_DEPTH = 6` named constant が新規追加 (NN-1 反映、fixture 生成スクリプトと test:ci 検証の両方が同 constant 参照)
 - [ ] lint / typecheck / test:ci / build すべてパス
 - [ ] Vercel preview deploy で実機動作確認 (Phase A は fixture 追加 + maxDepth? 追加のみで production 動作変更なし)
 
@@ -548,7 +557,7 @@ selectMove(input: SelectMoveInput): SelectMoveResult {
 
 ### Phase B の DoD
 
-- [ ] **standard variant fixture** (100 局面 × 2 difficulty = 200 entries、advanced/expert): Phase B 前後で `findBestMoveWithStats({ maxDepth: 8 })` の返却 move が完全一致
+- [ ] **standard variant fixture** (100 局面 × 2 difficulty = 200 entries、advanced/expert): Phase B 前後で `findBestMoveWithStats({ maxDepth: 6 })` の返却 move が完全一致
 - [ ] **card-shogi 中盤・終盤 fixture** (80 局面 × 2 difficulty = 160 entries): 完全一致
 - [ ] **観戦モード fixture data integrity** (4 シナリオ): structure validity 確認、動的検証は `npm run verify:strategy-fixture` で別途実行
 - [ ] **全 4 difficulty フィールド値検証**: Strategy インスタンスの addNoise / nearEqualThreshold / useBook が DIFFICULTY_PARAMS と一致 (Phase A で追加した test が緑)
@@ -626,7 +635,7 @@ git push --force-with-lease origin chore/#193-pr1b-pr1c-plan
 git fetch origin
 git checkout -b chore/#193-pr1c-2-fixture origin/main
 # 実装・テスト・コミット (4 コミット粒度)
-npm run gen:fixture:strategy   # fixture 初回生成 (Mulberry32 seed=42, maxDepth=8)
+npm run gen:fixture:strategy   # fixture 初回生成 (Mulberry32 seed=42, maxDepth=6)
 npm run lint && npm run typecheck && npm run test:ci && npm run build
 git push -u origin chore/#193-pr1c-2-fixture
 # AGENTS.md ルール 1: PR 作成・マージは明示指示まで実施しない (push のみ完了)
@@ -673,7 +682,7 @@ strategy.timeLimitMs に切替。
 を Strategy 内に閉じ込められる構造を確立。
 
 検証: Phase A で確立した fixture (180 局面 × 2 difficulty + 4 観戦シナリオ) で
-advanced/expert 完全一致 (maxDepth=8 固定)、全 4 difficulty フィールド値検証緑、
+advanced/expert 完全一致 (maxDepth=6 固定)、全 4 difficulty フィールド値検証緑、
 grep で params.* 直接参照 0 件、effectiveTimeLimitMs 削除確認。
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
@@ -758,13 +767,13 @@ PR1c-2 着手前: A-2 / A-3 / B-1 が本フェーズで対応済となる。
 | **R3** | SearchOptions シグネチャ変更の波及 | 案 (a) 最小変更を採用、`SearchOptions` は無変更 (engine.ts で Strategy から値抽出して渡す)。案 (b) は PR2 以降のスコープ |
 | **R4** | useBook の variant-specific 補正 (engine.ts L153) | variant ガード (`variant.id === "standard"`) は engine.ts 側に残す (variant 判断は engine の責務、Strategy は character/difficulty の責務) |
 | **R5** | spectator timeLimitMs の二重 override | `FindBestMoveOptions.spectator?: boolean` を新規追加 (M-1)。route.ts は `spectator: body.spectatorMode` を渡し、engine 内で `createStrategy(difficulty, { spectator })` で Strategy 構築時に Math.min override 済 |
-| **R6** | fixture 生成スクリプトの CPU 速度依存性・実行時間爆発 | **maxDepth 固定方式** (`maxDepth=8` 想定) で CPU 速度非依存 + 実行時間予測可能 (180 局面 × maxDepth 8 ≒ 3-9 分)。観戦 fixture は 4 シナリオ × 50 手 ≒ **3-10 分目安** (SS-2 反映) |
+| **R6** | fixture 生成スクリプトの CPU 速度依存性・実行時間爆発 | **maxDepth 固定方式** (`maxDepth=6` 想定) で CPU 速度非依存 + 実行時間予測可能 (180 局面 × maxDepth 8 ≒ 3-9 分)。観戦 fixture は 4 シナリオ × 50 手 ≒ **3-10 分目安** (SS-2 反映) |
 | **R7** | R-4 訂正反映漏れ (本計画 md にも「template」記述書く危険) | 本計画 md 内で「random walk + accept フィルタ方式」と明示、`template` という単語を使わない (Phase A 設計セクションで実証済) |
 | **R8** | comment_id 誤記の 4 サイクル目再発 | 本計画 md「## 運用注意書き」セクションで Z-1 運用ルールを継承、`gh api` で正確な id 取得 + grep 検証を徹底 |
-| **R9 (新規、M-2)** | 標準 fixture 完全一致 DoD が CPU 速度依存性 (timeLimitMs 打切による depth 差) で原理的に崩壊 | **maxDepth 固定方式**: fixture 生成 + test:ci 検証で `maxDepth=8` 固定 (CPU 速度非依存)。production は通常 maxDepth (advanced 16 / expert 24) で動作 → Vercel preview 実機確認で補完 |
+| **R9 (新規、M-2)** | 標準 fixture 完全一致 DoD が CPU 速度依存性 (timeLimitMs 打切による depth 差) で原理的に崩壊 | **maxDepth 固定方式**: fixture 生成 + test:ci 検証で `maxDepth=6` 固定 (CPU 速度非依存)。production は通常 maxDepth (advanced 16 / expert 24) で動作 → Vercel preview 実機確認で補完 |
 | **R10 (新規、M-4)** | `chore/#193-pr1c-2-plan` マージ時に `docs/plans/issue-193-pr1b-pr1c.md` への broken link 発生 | **Phase C 先行マージ** (R-4 訂正で `issue-193-pr1b-pr1c.md` を main に反映) → 本計画 md → Phase A → Phase B の順 (SS-4 反映で本計画 md 自体のマージタイミングも確定) |
-| **R11 (新規、MM-1)** | `options.maxDepth` 指定時に `search.ts:537` の `timeLimitMs * 0.55` で早期打切が発生し、maxDepth=8 に到達しない (CPU 速度依存性再発) | engine.ts 内で `options.maxDepth !== undefined` のとき `effectiveTimeLimitMs = Number.MAX_SAFE_INTEGER` に設定し、必ず maxDepth に到達するまで探索継続 (Strategy 再集約方針セクション参照) |
-| **R12 (新規、MM-2)** | maxDepth=8 では production の通常到達 depth (advanced 12-18) と乖離大、depth ≥ 9 のバグを検知できない | **役割分担方式**: Strategy fixture (本フェーズ) は「関数呼出経路の整合性検証」に役割を絞り、深い検証は PR1d で導入予定の `perf-bench.test.ts` + Vercel preview 実機確認 (DoD) で補完 |
+| **R11 (新規、MM-1)** | `options.maxDepth` 指定時に `search.ts:537` の `timeLimitMs * 0.55` で早期打切が発生し、maxDepth=6 に到達しない (CPU 速度依存性再発) | engine.ts 内で `options.maxDepth !== undefined` のとき `effectiveTimeLimitMs = Number.MAX_SAFE_INTEGER` に設定し、必ず maxDepth に到達するまで探索継続 (Strategy 再集約方針セクション参照) |
+| **R12 (新規、MM-2)** | maxDepth=6 では production の通常到達 depth (advanced 12-18) と乖離大、depth ≥ 9 のバグを検知できない | **役割分担方式**: Strategy fixture (本フェーズ) は「関数呼出経路の整合性検証」に役割を絞り、深い検証は PR1d で導入予定の `perf-bench.test.ts` + Vercel preview 実機確認 (DoD) で補完 |
 | **R13 (新規、MM-3)** | Phase B で `options.timeLimitMs` 廃止により `legacy-adapter.ts:60-65` がコンパイルエラー or spectator override 失効 | Phase B 影響ファイルに `legacy-adapter.ts` を追加、`timeLimitMs: this.spectator ? this.timeLimitMs : undefined` を `spectator: this.spectator` に切替 (= 3 コミット粒度に追加) |
 
 ---
@@ -796,7 +805,7 @@ PR1c-2 着手前: A-2 / A-3 / B-1 が本フェーズで対応済となる。
 | **Phase C** | ユーザー承認後マージ | レビュー時間に依存 |
 | **Phase A** | ブランチ作成 + `FindBestMoveOptions.maxDepth?` / `spectator?` 追加 (refactor 微小) | 30 分 |
 | **Phase A** | `scripts/gen-fixture-strategy.ts` 実装 (random walk + accept フィルタ + Mulberry32 + maxDepth 固定) | 1-2 時間 |
-| **Phase A** | `strategy-baseline.json` + `spectator-baseline.json` 初回生成 (`npm run gen:fixture:strategy`) | 30 分 (maxDepth=8 で **6-19 分の実行** + 確認、内訳: 本体 180 局面 3-9 分 + 観戦 200 ply 3-10 分、TN-1 反映) |
+| **Phase A** | `strategy-baseline.json` + `spectator-baseline.json` 初回生成 (`npm run gen:fixture:strategy`) | 30 分 (maxDepth=6 で **6-19 分の実行** + 確認、内訳: 本体 180 局面 3-9 分 + 観戦 200 ply 3-10 分、TN-1 反映) |
 | **Phase A** | `strategy-equivalence.test.ts` 拡張 (3 種の検証) | 1 時間 |
 | **Phase A** | `package.json` に script 2 種追加 | 5 分 |
 | **Phase A** | 必須チェック + 修正 + push | 30 分 |
@@ -825,7 +834,7 @@ PR1c-2 着手前: A-2 / A-3 / B-1 が本フェーズで対応済となる。
 - [x] 絶対ルール 9: Worktree 推奨 → 本フェーズは Phase A/B/C 順次進行のため Worktree 不要 (= ブランチ切替で進める)。並行進行が必要になれば worktree 利用を検討
 - [x] 実装ガイドライン: パフォーマンス >= 保守性 > 可読性 → Strategy 経由参照は関数呼び出しオーバーヘッドが微小に追加されるが、V8 JIT で大半は最適化される想定 (R3 で性能影響なしを DoD で担保)
 - [x] UI/UX: PC/モバイル両対応、観戦モードでバッテリー/発熱対策 → 本フェーズは refactor のため UX 影響なし (Phase A の観戦モード fixture 生成で観戦体験を再現するが、production には影響なし)
-- [x] マジックナンバー禁止 → 本フェーズで新規定数追加は最小限。`SPECTATOR_TIME_LIMIT_MS` 等は PR1a で `heuristics.ts` に集約済。**`STRATEGY_FIXTURE_MAX_DEPTH = 8` は計画段階で確定** (NN-1 反映)、`src/lib/shogi/ai/strategy/fixture-constants.ts` (新規) または既存 `spectator-override.ts` に集約。fixture 生成スクリプトと test:ci 検証の両方が同 constant を参照することで一元管理
+- [x] マジックナンバー禁止 → 本フェーズで新規定数追加は最小限。`SPECTATOR_TIME_LIMIT_MS` 等は PR1a で `heuristics.ts` に集約済。**`STRATEGY_FIXTURE_MAX_DEPTH = 6` は計画段階で確定** (NN-1 反映)、`src/lib/shogi/ai/strategy/fixture-constants.ts` (新規) または既存 `spectator-override.ts` に集約。fixture 生成スクリプトと test:ci 検証の両方が同 constant を参照することで一元管理
 - [x] 必須チェック: lint → typecheck → test:ci → build → 各 PR で実施
 - [x] 機密情報: `.env*` は読まない、Neon URL を出力しない
 - [x] カード追加チェックリスト破綻防止 → 本フェーズはカード追加なし
@@ -878,7 +887,7 @@ PR1c-2 着手前: A-2 / A-3 / B-1 が本フェーズで対応済となる。
 
 1. **Phase 1 で発見した親計画 md とのギャップの扱い**: 4 項目のギャップ (Strategy 既取込 / search.ts ではなく engine.ts / 180 局面 fixture 未生成 / spectator-baseline 未生成) の対処方針が妥当か
 2. **addNoise / nearEqualThreshold 揺らぎ対策の 2 層構造**: addNoise=0 の advanced/expert のみ完全一致 / beginner/intermediate はフィールド値検証で代用する DoD 設計は妥当か、層 2 の限界 (Math.random 呼出回数差の検知不能) を Vercel preview 実機確認で補完する方針は妥当か
-3. **CPU 速度依存性対策 (maxDepth 固定方式、M-2 反映)**: `maxDepth=8` 固定で fixture 生成 + test:ci 検証は妥当か、production の通常 maxDepth (advanced 16 / expert 24) と乖離する fixture 検証の有効性は十分か
+3. **CPU 速度依存性対策 (maxDepth 固定方式、M-2 反映)**: `maxDepth=6` 固定で fixture 生成 + test:ci 検証は妥当か、production の通常 maxDepth (advanced 16 / expert 24) と乖離する fixture 検証の有効性は十分か
 4. **fixture 生成と refactor の commit 分離方針 (3 PR 構成)**: Phase C → Phase A → Phase B のマージ順序 (broken link 対策) は妥当か、運用負荷として許容範囲か
 5. **観戦モード fixture 検証方式 (S-3 反映、fixture 直接比較案 1)**: test:ci で data integrity のみ確認、動的検証は別 npm script (CI 外) で実施する方針は妥当か
 6. **route.ts 1 行修正と `FindBestMoveOptions.spectator?` 追加 (M-1 反映)**: PR1c-2 の最小変更スコープとして許容範囲か、`options.timeLimitMs` 経路の廃止と整合するか
@@ -896,7 +905,7 @@ PR1c-2 着手前: A-2 / A-3 / B-1 が本フェーズで対応済となる。
 | # | カテゴリ | 指摘 | 反映箇所 |
 |---|---------|------|---------|
 | **M-1** | Must | `findBestMoveWithStats` の spectator 情報伝達経路の設計矛盾 | `FindBestMoveOptions.spectator?: boolean` 新規追加 + route.ts 1 行修正 (`timeLimitMs: ...` → `spectator: body.spectatorMode`) を PR1c-2 スコープに含める。「## Strategy 再集約方針」「## 着手方針」セクションで明示 |
-| **M-2** | Must | fixture の CPU 速度依存性 (timeLimitMs 打切による depth 差) | **maxDepth 固定方式 (`maxDepth=8`)**: fixture 生成 + test:ci 検証の両方で maxDepth=8 を固定し CPU 速度非依存化。`FindBestMoveOptions.maxDepth?` 新規追加。「## CPU 速度依存性対策」セクション新設 |
+| **M-2** | Must | fixture の CPU 速度依存性 (timeLimitMs 打切による depth 差) | **maxDepth 固定方式 (`maxDepth=6`)**: fixture 生成 + test:ci 検証の両方で maxDepth=6 を固定し CPU 速度非依存化。`FindBestMoveOptions.maxDepth?` 新規追加。「## CPU 速度依存性対策」セクション新設 |
 | **M-3** | Must | `findBestMoveWithStats` シグネチャ表記の未来形混入 (`cardState?`) | 現状シグネチャを `(state, player, difficulty, variant, options)` に訂正、`cardState?` は PR1d で追加予定と明示 |
 | **M-4** | Must | `docs/plans/issue-193-pr1b-pr1c.md` への broken link 危険 | **マージ順序を明示**: Phase C 先行マージ → Phase A → Phase B の順。「## 着手方針」「## ブランチ運用と push 手順」セクションで明示 |
 | **S-1** | Should | `Math.random` は addNoise だけでなく `nearEqualThreshold > 0` でも呼ばれる | 「## addNoise 揺らぎ対策」セクションを「addNoise / nearEqualThreshold 揺らぎ対策」に改題、beginner/intermediate は二重に非決定的であることを明示、層 2 検証の限界も追記 |
@@ -909,7 +918,7 @@ PR1c-2 着手前: A-2 / A-3 / B-1 が本フェーズで対応済となる。
 | **N-3** | Nice | 進行中チェックリスト F-3 の検証手順不明確 | F-3 は本フェーズ対応 **スコープ外** に変更 (= production hooks 側の問題で fixture 生成と独立)、PR1d 着手前に別レビューで対応する方針に明示 |
 | **N-4** | Nice | AGENTS.md 実装ガイドライン 9 最終報告テンプレートとの整合 | 「## コミットメッセージ規約」セクション末尾と「## AGENTS.md 規約準拠の確認」に「push 時の報告は AGENTS.md 実装ガイドライン 9 最終報告テンプレートに従う」を明示 |
 
-**統合解決 (M-2 + S-3)**: M-2 の maxDepth 固定方式と S-3 の fixture 直接比較方式を **「maxDepth=8 固定で fixture 生成 + test:ci で動的再実行 (高速、CPU 速度非依存) + 観戦 fixture は data integrity のみ」** として統合。詳細は本計画 md「## CPU 速度依存性対策」セクション参照。
+**統合解決 (M-2 + S-3)**: M-2 の maxDepth 固定方式と S-3 の fixture 直接比較方式を **「maxDepth=6 固定で fixture 生成 + test:ci で動的再実行 (高速、CPU 速度非依存) + 観戦 fixture は data integrity のみ」** として統合。詳細は本計画 md「## CPU 速度依存性対策」セクション参照。
 
 ---
 
@@ -919,14 +928,14 @@ PR1c-2 着手前: A-2 / A-3 / B-1 が本フェーズで対応済となる。
 
 | # | カテゴリ | 指摘 | 反映箇所 |
 |---|---------|------|---------|
-| **MM-1** | Must | `options.maxDepth` 指定時の `timeLimitMs` 経路扱いが計画 md で曖昧 (= `search.ts:537` の早期打切で maxDepth=8 に到達しない可能性) | engine.ts 内に `options.maxDepth !== undefined` のとき `effectiveTimeLimitMs = Number.MAX_SAFE_INTEGER` のロジックを追加。「## Strategy 再集約方針」「## CPU 速度依存性対策」セクションで擬似コード統一 (MM-1 + SS-3 統合反映)。リスク表 R11 として追加 |
-| **MM-2** | Must | `maxDepth=8` 採用根拠の妥当性 (production 動作 advanced 12-18 と乖離大) | **役割分担方式採用**: Strategy fixture (本フェーズ) を「Phase B refactor の関数呼出経路の整合性検証 (= 軽量検証)」に役割を絞り、「深い検証」は PR1d で導入予定の `perf-bench.test.ts` + Vercel preview 実機確認 (DoD) で補完。L297-322 の採用根拠を訂正、リスク表 R12 として追加 |
+| **MM-1** | Must | `options.maxDepth` 指定時の `timeLimitMs` 経路扱いが計画 md で曖昧 (= `search.ts:537` の早期打切で maxDepth=6 に到達しない可能性) | engine.ts 内に `options.maxDepth !== undefined` のとき `effectiveTimeLimitMs = Number.MAX_SAFE_INTEGER` のロジックを追加。「## Strategy 再集約方針」「## CPU 速度依存性対策」セクションで擬似コード統一 (MM-1 + SS-3 統合反映)。リスク表 R11 として追加 |
+| **MM-2** | Must | `maxDepth=6` 採用根拠の妥当性 (production 動作 advanced 12-18 と乖離大) | **役割分担方式採用**: Strategy fixture (本フェーズ) を「Phase B refactor の関数呼出経路の整合性検証 (= 軽量検証)」に役割を絞り、「深い検証」は PR1d で導入予定の `perf-bench.test.ts` + Vercel preview 実機確認 (DoD) で補完。L297-322 の採用根拠を訂正、リスク表 R12 として追加 |
 | **MM-3** | Must | Phase B 影響ファイルに `legacy-adapter.ts` (`selectMove` 内 `findBestMoveWithStats` 呼出) が抜けている | Phase B 影響ファイル表に `legacy-adapter.ts` 追加 (`timeLimitMs: this.spectator ? this.timeLimitMs : undefined` → `spectator: this.spectator` に切替)、Phase B コミット粒度を 2 → 3 コミットに増加。リスク表 R13 として追加 |
 | **SS-1** | Should | Phase A DoD で `spectator?` 言及漏れ | L494 を訂正、「`FindBestMoveOptions.maxDepth?: number` および `FindBestMoveOptions.spectator?: boolean` が engine.ts に追加」と両方明記 |
 | **SS-2** | Should | 観戦 fixture 生成時間予測の数字ずれ (1-3 分 vs 計算上 3-10 分) | L478 と R6 を「3-10 分目安」に訂正、L300 の 1-3 秒/局面想定と整合 |
 | **SS-3** | Should | `effectiveMaxDepth` 変数の擬似コード不統一 (L313 と L214-220) | Phase B 擬似コード (L195-220 周辺) と CPU 速度依存性対策セクション (L298-322 周辺) を MM-1 統合形に統一、`effectiveMaxDepth` / `effectiveTimeLimitMs` の整合確保 |
 | **SS-4** | Should | 本計画 md (`chore/#193-pr1c-2-plan`) 自体のマージ運用が曖昧 | マージ順序を確定: **Phase C → 本計画 md → Phase A → Phase B** の順。L25-34 「マージ順序の確定」と R10 で明示 |
-| **NN-1** | Nice | `STRATEGY_FIXTURE_MAX_DEPTH` named constant を計画段階で確定 | 「## CPU 速度依存性対策」セクションに `STRATEGY_FIXTURE_MAX_DEPTH = 8` を計画段階で確定する旨を明示、`src/lib/shogi/ai/strategy/fixture-constants.ts` (新規) または `spectator-override.ts` に集約、Phase A DoD と AGENTS.md 規約準拠セクションにも反映 |
+| **NN-1** | Nice | `STRATEGY_FIXTURE_MAX_DEPTH` named constant を計画段階で確定 | 「## CPU 速度依存性対策」セクションに `STRATEGY_FIXTURE_MAX_DEPTH = 6` を計画段階で確定する旨を明示、`src/lib/shogi/ai/strategy/fixture-constants.ts` (新規) または `spectator-override.ts` に集約、Phase A DoD と AGENTS.md 規約準拠セクションにも反映 |
 
 **統合解決 (MM-1 + SS-3)**: MM-1 (timeLimitMs 経路扱い) と SS-3 (擬似コード不統一) を同時解決。engine.ts 内の最終形を:
 
@@ -949,7 +958,7 @@ const effectiveTimeLimitMs = options?.maxDepth !== undefined
 
 | # | カテゴリ | 指摘 | 反映箇所 |
 |---|---------|------|---------|
-| **TT-1** | Should | L283-285 の `findBestMoveWithStats` 呼出シグネチャに `timeLimitMs: Infinity` が残存 (S-5 で廃止済のため型エラー) | L293-294 を訂正: `{ maxDepth: 8, timeLimitMs: Infinity }` → `{ maxDepth: 8 }`。engine 内で `options.maxDepth !== undefined` 検出時に `Number.MAX_SAFE_INTEGER` に内部設定する旨を明示 |
+| **TT-1** | Should | L283-285 の `findBestMoveWithStats` 呼出シグネチャに `timeLimitMs: Infinity` が残存 (S-5 で廃止済のため型エラー) | L293-294 を訂正: `{ maxDepth: 6, timeLimitMs: Infinity }` → `{ maxDepth: 6 }`。engine 内で `options.maxDepth !== undefined` 検出時に `Number.MAX_SAFE_INTEGER` に内部設定する旨を明示 |
 | **TT-2** | Should | `legacy-adapter.ts` 修正の擬似コードが計画 md にない | Phase B 影響ファイル表の直後に **「`legacy-adapter.ts` 修正の擬似コード」副節を新設**。`selectMove` 内の `findBestMoveWithStats` 呼出を `spectator: this.spectator` に切替える擬似コード明示 |
 | **TN-1** | Nice | L737 想定スケジュール「4-12 分」が古い (SS-2 反映後の数字と不整合) | L799 を「**6-19 分の実行** + 確認、内訳: 本体 180 局面 3-9 分 + 観戦 200 ply 3-10 分」に訂正、L300 + L473 + R6 と整合 |
 | **TN-2** | Nice | `Number.MAX_SAFE_INTEGER` 採用論証が計画 md に不在 | engine.ts 擬似コード (L195-220 / L330-353) のコメントに採用論証を追記。`search-context.ts` が `performance.now()` ベース (`setTimeout` 不使用) で整数オーバーフローなし、`Infinity` でも動作可能だが (1) 整数値、(2) TS number 型整合性、(3) JSON serialize 可能 の 3 点で優位、将来 `setTimeout` ベース refactor 時の安全網として機能 |
