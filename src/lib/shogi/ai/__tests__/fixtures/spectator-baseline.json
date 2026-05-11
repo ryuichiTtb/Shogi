@@ -1,0 +1,1833 @@
+{
+  "version": "1.0",
+  "scenarios": [
+    {
+      "id": "advanced-vs-advanced",
+      "senteDifficulty": "advanced",
+      "goteDifficulty": "advanced",
+      "moves": [
+        {
+          "ply": 1,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 4
+            },
+            "to": {
+              "row": 7,
+              "col": 3
+            },
+            "piece": "king",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 2,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 1,
+              "col": 1
+            },
+            "to": {
+              "row": 1,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 3,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 7,
+              "col": 7
+            },
+            "to": {
+              "row": 7,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 4,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 4
+            },
+            "to": {
+              "row": 1,
+              "col": 5
+            },
+            "piece": "king",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 5,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 6
+            },
+            "to": {
+              "row": 7,
+              "col": 5
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 6,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 2
+            },
+            "to": {
+              "row": 1,
+              "col": 3
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 7,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 7,
+              "col": 4
+            },
+            "to": {
+              "row": 8,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 8,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 0
+            },
+            "to": {
+              "row": 1,
+              "col": 0
+            },
+            "piece": "lance",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 9,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 0
+            },
+            "to": {
+              "row": 7,
+              "col": 0
+            },
+            "piece": "lance",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 10,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 5
+            },
+            "to": {
+              "row": 1,
+              "col": 6
+            },
+            "piece": "gold",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 11,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 2
+            },
+            "to": {
+              "row": 7,
+              "col": 2
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 12,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 8
+            },
+            "to": {
+              "row": 1,
+              "col": 8
+            },
+            "piece": "lance",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 13,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 3
+            },
+            "to": {
+              "row": 7,
+              "col": 4
+            },
+            "piece": "gold",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 14,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 1,
+              "col": 4
+            },
+            "to": {
+              "row": 0,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 15,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 7,
+              "col": 2
+            },
+            "to": {
+              "row": 8,
+              "col": 3
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 16,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 4
+            },
+            "to": {
+              "row": 1,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 17,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 3
+            },
+            "to": {
+              "row": 7,
+              "col": 2
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 18,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 1,
+              "col": 4
+            },
+            "to": {
+              "row": 0,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 19,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 7,
+              "col": 2
+            },
+            "to": {
+              "row": 8,
+              "col": 3
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 20,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 4
+            },
+            "to": {
+              "row": 1,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 21,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 3
+            },
+            "to": {
+              "row": 7,
+              "col": 2
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 22,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 1,
+              "col": 4
+            },
+            "to": {
+              "row": 0,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 23,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 7,
+              "col": 2
+            },
+            "to": {
+              "row": 8,
+              "col": 3
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 24,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 4
+            },
+            "to": {
+              "row": 1,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 25,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 3
+            },
+            "to": {
+              "row": 7,
+              "col": 2
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        }
+      ]
+    },
+    {
+      "id": "expert-vs-expert",
+      "senteDifficulty": "expert",
+      "goteDifficulty": "expert",
+      "moves": [
+        {
+          "ply": 1,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 4
+            },
+            "to": {
+              "row": 7,
+              "col": 3
+            },
+            "piece": "king",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 2,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 1,
+              "col": 1
+            },
+            "to": {
+              "row": 1,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 3,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 7,
+              "col": 7
+            },
+            "to": {
+              "row": 7,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 4,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 4
+            },
+            "to": {
+              "row": 1,
+              "col": 5
+            },
+            "piece": "king",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 5,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 6
+            },
+            "to": {
+              "row": 7,
+              "col": 5
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 6,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 2
+            },
+            "to": {
+              "row": 1,
+              "col": 3
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 7,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 7,
+              "col": 4
+            },
+            "to": {
+              "row": 8,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 8,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 0
+            },
+            "to": {
+              "row": 1,
+              "col": 0
+            },
+            "piece": "lance",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 9,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 0
+            },
+            "to": {
+              "row": 7,
+              "col": 0
+            },
+            "piece": "lance",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 10,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 5
+            },
+            "to": {
+              "row": 1,
+              "col": 6
+            },
+            "piece": "gold",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 11,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 2
+            },
+            "to": {
+              "row": 7,
+              "col": 2
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 12,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 8
+            },
+            "to": {
+              "row": 1,
+              "col": 8
+            },
+            "piece": "lance",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 13,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 3
+            },
+            "to": {
+              "row": 7,
+              "col": 4
+            },
+            "piece": "gold",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 14,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 1,
+              "col": 4
+            },
+            "to": {
+              "row": 0,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 15,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 7,
+              "col": 2
+            },
+            "to": {
+              "row": 8,
+              "col": 3
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 16,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 4
+            },
+            "to": {
+              "row": 1,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 17,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 3
+            },
+            "to": {
+              "row": 7,
+              "col": 2
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 18,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 1,
+              "col": 4
+            },
+            "to": {
+              "row": 0,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 19,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 7,
+              "col": 2
+            },
+            "to": {
+              "row": 8,
+              "col": 3
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 20,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 4
+            },
+            "to": {
+              "row": 1,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 21,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 3
+            },
+            "to": {
+              "row": 7,
+              "col": 2
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 22,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 1,
+              "col": 4
+            },
+            "to": {
+              "row": 0,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 23,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 7,
+              "col": 2
+            },
+            "to": {
+              "row": 8,
+              "col": 3
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 24,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 4
+            },
+            "to": {
+              "row": 1,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 25,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 3
+            },
+            "to": {
+              "row": 7,
+              "col": 2
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        }
+      ]
+    },
+    {
+      "id": "advanced-vs-expert",
+      "senteDifficulty": "advanced",
+      "goteDifficulty": "expert",
+      "moves": [
+        {
+          "ply": 1,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 4
+            },
+            "to": {
+              "row": 7,
+              "col": 3
+            },
+            "piece": "king",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 2,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 1,
+              "col": 1
+            },
+            "to": {
+              "row": 1,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 3,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 7,
+              "col": 7
+            },
+            "to": {
+              "row": 7,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 4,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 4
+            },
+            "to": {
+              "row": 1,
+              "col": 5
+            },
+            "piece": "king",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 5,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 6
+            },
+            "to": {
+              "row": 7,
+              "col": 5
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 6,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 2
+            },
+            "to": {
+              "row": 1,
+              "col": 3
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 7,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 7,
+              "col": 4
+            },
+            "to": {
+              "row": 8,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 8,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 0
+            },
+            "to": {
+              "row": 1,
+              "col": 0
+            },
+            "piece": "lance",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 9,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 0
+            },
+            "to": {
+              "row": 7,
+              "col": 0
+            },
+            "piece": "lance",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 10,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 5
+            },
+            "to": {
+              "row": 1,
+              "col": 6
+            },
+            "piece": "gold",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 11,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 2
+            },
+            "to": {
+              "row": 7,
+              "col": 2
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 12,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 8
+            },
+            "to": {
+              "row": 1,
+              "col": 8
+            },
+            "piece": "lance",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 13,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 3
+            },
+            "to": {
+              "row": 7,
+              "col": 4
+            },
+            "piece": "gold",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 14,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 1,
+              "col": 4
+            },
+            "to": {
+              "row": 0,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 15,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 7,
+              "col": 2
+            },
+            "to": {
+              "row": 8,
+              "col": 3
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 16,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 4
+            },
+            "to": {
+              "row": 1,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 17,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 3
+            },
+            "to": {
+              "row": 7,
+              "col": 2
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 18,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 1,
+              "col": 4
+            },
+            "to": {
+              "row": 0,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 19,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 7,
+              "col": 2
+            },
+            "to": {
+              "row": 8,
+              "col": 3
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 20,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 4
+            },
+            "to": {
+              "row": 1,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 21,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 3
+            },
+            "to": {
+              "row": 7,
+              "col": 2
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 22,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 1,
+              "col": 4
+            },
+            "to": {
+              "row": 0,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 23,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 7,
+              "col": 2
+            },
+            "to": {
+              "row": 8,
+              "col": 3
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 24,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 4
+            },
+            "to": {
+              "row": 1,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 25,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 3
+            },
+            "to": {
+              "row": 7,
+              "col": 2
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        }
+      ]
+    },
+    {
+      "id": "expert-vs-advanced",
+      "senteDifficulty": "expert",
+      "goteDifficulty": "advanced",
+      "moves": [
+        {
+          "ply": 1,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 4
+            },
+            "to": {
+              "row": 7,
+              "col": 3
+            },
+            "piece": "king",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 2,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 1,
+              "col": 1
+            },
+            "to": {
+              "row": 1,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 3,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 7,
+              "col": 7
+            },
+            "to": {
+              "row": 7,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 4,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 4
+            },
+            "to": {
+              "row": 1,
+              "col": 5
+            },
+            "piece": "king",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 5,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 6
+            },
+            "to": {
+              "row": 7,
+              "col": 5
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 6,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 2
+            },
+            "to": {
+              "row": 1,
+              "col": 3
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 7,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 7,
+              "col": 4
+            },
+            "to": {
+              "row": 8,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 8,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 0
+            },
+            "to": {
+              "row": 1,
+              "col": 0
+            },
+            "piece": "lance",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 9,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 0
+            },
+            "to": {
+              "row": 7,
+              "col": 0
+            },
+            "piece": "lance",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 10,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 5
+            },
+            "to": {
+              "row": 1,
+              "col": 6
+            },
+            "piece": "gold",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 11,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 2
+            },
+            "to": {
+              "row": 7,
+              "col": 2
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 12,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 8
+            },
+            "to": {
+              "row": 1,
+              "col": 8
+            },
+            "piece": "lance",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 13,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 3
+            },
+            "to": {
+              "row": 7,
+              "col": 4
+            },
+            "piece": "gold",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 14,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 1,
+              "col": 4
+            },
+            "to": {
+              "row": 0,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 15,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 7,
+              "col": 2
+            },
+            "to": {
+              "row": 8,
+              "col": 3
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 16,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 4
+            },
+            "to": {
+              "row": 1,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 17,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 3
+            },
+            "to": {
+              "row": 7,
+              "col": 2
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 18,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 1,
+              "col": 4
+            },
+            "to": {
+              "row": 0,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 19,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 7,
+              "col": 2
+            },
+            "to": {
+              "row": 8,
+              "col": 3
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 20,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 4
+            },
+            "to": {
+              "row": 1,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 21,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 3
+            },
+            "to": {
+              "row": 7,
+              "col": 2
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 22,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 1,
+              "col": 4
+            },
+            "to": {
+              "row": 0,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 23,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 7,
+              "col": 2
+            },
+            "to": {
+              "row": 8,
+              "col": 3
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        },
+        {
+          "ply": 24,
+          "player": "gote",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 0,
+              "col": 4
+            },
+            "to": {
+              "row": 1,
+              "col": 4
+            },
+            "piece": "rook",
+            "promote": false,
+            "player": "gote"
+          }
+        },
+        {
+          "ply": 25,
+          "player": "sente",
+          "move": {
+            "type": "move",
+            "from": {
+              "row": 8,
+              "col": 3
+            },
+            "to": {
+              "row": 7,
+              "col": 2
+            },
+            "piece": "silver",
+            "promote": false,
+            "player": "sente"
+          }
+        }
+      ]
+    }
+  ]
+}
