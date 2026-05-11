@@ -22,7 +22,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getCurrentAppUser } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/prisma";
 import { findBestMoveWithStats } from "@/lib/shogi/ai/engine";
-import { SPECTATOR_TIME_LIMIT_MS } from "@/lib/shogi/ai/strategy";
+// Issue #193 / PR1c-2 Phase B: SPECTATOR_TIME_LIMIT_MS import 削除。
+// engine 内で createStrategy({ spectator }) 経由で Strategy 構築時に Math.min override 処理される。
 import { getVariantById } from "@/lib/shogi/variants";
 import type { CardGameState } from "@/lib/shogi/cards/types";
 import type { Difficulty, GameState, Player } from "@/lib/shogi/types";
@@ -198,7 +199,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       variant,
       {
         signal: controller.signal,
-        timeLimitMs: body.spectatorMode ? SPECTATOR_TIME_LIMIT_MS : undefined,
+        // Issue #193 / PR1c-2 Phase B (MM-1 反映): timeLimitMs 経路から spectator フラグ経由に切替。
+        // engine 内で createStrategy(difficulty, { spectator }) で Strategy 構築時に
+        // Math.min(base, SPECTATOR_TIME_LIMIT_MS) で短縮処理される。
+        spectator: body.spectatorMode,
       },
     );
     // client abort の場合は 499 相当だが、Next.js では client がもう listen して
