@@ -121,7 +121,22 @@ export interface FindBestMoveOptions {
   signal?: AbortSignal;
   // Issue #193 / PR1a: 観戦モード (CPU vs CPU) で timeLimitMs を 1500ms 等に短縮するための override。
   // 未指定時は DIFFICULTY_PARAMS[difficulty].timeLimitMs (既存挙動) を使用。
+  // 注: Phase B で本フィールドは廃止予定 (spectator フラグ経由に切替)。Phase A では既存挙動維持。
   timeLimitMs?: number;
+  // Issue #193 / PR1c-2 Phase A (M-1 反映): 観戦モードフラグ。Phase B で route.ts が
+  // `spectator: body.spectatorMode` を渡すように切替予定。Phase A 段階では未使用 (timeLimitMs 経路維持)。
+  spectator?: boolean;
+  // Issue #193 / PR1c-2 Phase A (M-2 反映): fixture 生成・検証専用の maxDepth 上書き。
+  // 指定時は (1) 反復深化を maxDepth まで強制、(2) timeLimitMs 経路を実質無効化 (= Number.MAX_SAFE_INTEGER)
+  // することで CPU 速度非依存の deterministic 結果を保証する。production では未指定。
+  //
+  // Number.MAX_SAFE_INTEGER 採用論証:
+  // - search-context.ts:53-56 は deadlineAt = startedAt + timeLimitMs の絶対時刻加算
+  // - search-context.ts:80 は performance.now() ベース (setTimeout 不使用)
+  // - search.ts:537 は elapsedFromStart > timeLimitMs * 0.55 の相対経過比較
+  // → Number.MAX_SAFE_INTEGER でも整数オーバーフローなく振る舞いキープ
+  // Infinity でも動作するが、(1) 整数値, (2) TS number 型整合性, (3) JSON serialize 可能 の 3 点で優位。
+  maxDepth?: number;
 }
 
 export interface FindBestMoveResult {
@@ -137,8 +152,14 @@ export function findBestMoveWithStats(
   options: FindBestMoveOptions = {},
 ): FindBestMoveResult {
   const params = DIFFICULTY_PARAMS[difficulty];
-  // Issue #193: options.timeLimitMs が指定されていれば override (観戦モード用)、なければ既存挙動
-  const effectiveTimeLimitMs = options.timeLimitMs ?? params.timeLimitMs;
+  // Issue #193: options.timeLimitMs が指定されていれば override (観戦モード用、Phase A 維持)、
+  // PR1c-2 Phase A (MM-1 反映): options.maxDepth 指定時 (= fixture 生成・検証用途) は
+  // timeLimitMs を実質無効化することで search.ts:537 の早期打切を回避し、必ず maxDepth に
+  // 到達するまで探索を継続する (CPU 速度非依存)。
+  const effectiveMaxDepth = options.maxDepth ?? params.maxDepth;
+  const effectiveTimeLimitMs = options.maxDepth !== undefined
+    ? Number.MAX_SAFE_INTEGER
+    : options.timeLimitMs ?? params.timeLimitMs;
   const ctx = createSearchContext({
     timeLimitMs: effectiveTimeLimitMs,
     signal: options.signal,
@@ -187,7 +208,7 @@ export function findBestMoveWithStats(
     state,
     player,
     {
-      maxDepth: params.maxDepth,
+      maxDepth: effectiveMaxDepth,
       timeLimitMs: effectiveTimeLimitMs,
       addNoise: params.addNoise,
       nearEqualThreshold: params.nearEqualThreshold,
