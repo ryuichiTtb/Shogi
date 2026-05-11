@@ -210,6 +210,13 @@ export function findBestMoveWithStats(
   // MM-1 反映: options.maxDepth 指定時 (= fixture 生成・検証用途) は
   // timeLimitMs を実質無効化することで search.ts:537 の早期打切を回避し、
   // 必ず maxDepth に到達するまで探索を継続する (CPU 速度非依存)。
+  // TN-2 反映 (Number.MAX_SAFE_INTEGER 採用論証):
+  // - search-context.ts:53-56 は deadlineAt = startedAt + timeLimitMs の絶対時刻比較
+  // - search-context.ts:80 は performance.now() ベース (setTimeout 不使用)
+  // - search.ts:537 は elapsedFromStart > timeLimitMs * 0.55 の相対経過比較
+  // → Number.MAX_SAFE_INTEGER でも整数オーバーフローなく振る舞いキープ
+  // Infinity でも動作するが、Number.MAX_SAFE_INTEGER は (1) 整数値, (2) TS number 型整合性,
+  // (3) JSON serialize 可能 の 3 点で優位 (将来 setTimeout ベース refactor 時の安全網)
   const effectiveMaxDepth = options?.maxDepth ?? strategy.maxSearchDepth;
   const effectiveTimeLimitMs = options?.maxDepth !== undefined
     ? Number.MAX_SAFE_INTEGER  // fixture 生成・検証専用 (production では未指定)
@@ -290,8 +297,8 @@ advanced/expert は `addNoise=0` で **探索ロジック自体は decimistic** 
 
 **fixture 生成 + test:ci 検証の両方で `maxDepth` を有限固定** (`maxDepth=8` 想定) し、`timeLimitMs` 経路を無効化する:
 
-- fixture 生成時: `findBestMoveWithStats(state, player, difficulty, variant, { maxDepth: 8, timeLimitMs: Infinity })` で実行 (CPU 速度非依存、必ず maxDepth=8 まで到達)
-- test:ci 検証時: 同じ `{ maxDepth: 8, timeLimitMs: Infinity }` で `findBestMoveWithStats` を再実行 → fixture と完全一致を比較
+- fixture 生成時: `findBestMoveWithStats(state, player, difficulty, variant, { maxDepth: 8 })` で実行 (TT-1 反映: `FindBestMoveOptions.timeLimitMs?` は S-5 で廃止済のため指定しない。engine 内で `options.maxDepth !== undefined` 検出時に `effectiveTimeLimitMs = Number.MAX_SAFE_INTEGER` に内部設定、CPU 速度非依存で必ず maxDepth=8 まで到達)
+- test:ci 検証時: 同じ `{ maxDepth: 8 }` で `findBestMoveWithStats` を再実行 → fixture と完全一致を比較
 - production: 通常の DIFFICULTY_PARAMS (advanced 16 / expert 24 + timeLimitMs 3000/3500) で動作 → CPU 速度依存性は production 上で許容 (本来の動作)
 
 ### maxDepth=8 採用根拠と Strategy fixture の役割再定義 (MM-2 反映)
@@ -523,6 +530,21 @@ git checkout -b refactor/#193-pr1c-2 origin/main
 | 編集 | `src/lib/shogi/ai/engine.ts` | `params.useBook` / `params.maxDepth` / `params.addNoise` / `params.nearEqualThreshold` / `params.timeLimitMs` を Strategy 経由参照に切替、`findBestMoveWithStats` 内で `createStrategy(difficulty, { spectator: options?.spectator ?? false })` を呼ぶ、`effectiveTimeLimitMs` 変数削除 + `createSearchContext` も `strategy.timeLimitMs` に切替 + MM-1 反映の `effectiveMaxDepth` / `effectiveTimeLimitMs` ロジック追加 |
 | 編集 | `src/app/api/ai-move/route.ts` | **1 行のみ修正**: `timeLimitMs: body.spectatorMode ? SPECTATOR_TIME_LIMIT_MS : undefined` → `spectator: body.spectatorMode` |
 | 編集 | `src/lib/shogi/ai/strategy/legacy-adapter.ts` | **MM-3 反映**: `selectMove` 内 (L60-65) で `findBestMoveWithStats` 呼出時の `timeLimitMs: this.spectator ? this.timeLimitMs : undefined` を `spectator: this.spectator` に切替。`options.timeLimitMs` 廃止 (S-5 反映) に伴うコンパイルエラー回避 |
+
+#### `legacy-adapter.ts` 修正の擬似コード (TT-2 反映)
+
+```ts
+// legacy-adapter.ts L58-65 Phase B 後の形 (MM-3 反映)
+selectMove(input: SelectMoveInput): SelectMoveResult {
+  return findBestMoveWithStats(input.state, input.player, this.difficulty, input.variant, {
+    signal: input.signal,
+    spectator: this.spectator,  // ← timeLimitMs 経路から spectator フラグへ切替
+                                //   (S-5 で options.timeLimitMs 廃止のため型エラー回避)
+  });
+}
+```
+
+これにより Phase B 実装時に AI / 実装者が誤実装する余地を排除 (= AGENTS.md ガイドライン 8「不明点を曖昧なまま実装しない」整合)。
 
 ### Phase B の DoD
 
@@ -774,7 +796,7 @@ PR1c-2 着手前: A-2 / A-3 / B-1 が本フェーズで対応済となる。
 | **Phase C** | ユーザー承認後マージ | レビュー時間に依存 |
 | **Phase A** | ブランチ作成 + `FindBestMoveOptions.maxDepth?` / `spectator?` 追加 (refactor 微小) | 30 分 |
 | **Phase A** | `scripts/gen-fixture-strategy.ts` 実装 (random walk + accept フィルタ + Mulberry32 + maxDepth 固定) | 1-2 時間 |
-| **Phase A** | `strategy-baseline.json` + `spectator-baseline.json` 初回生成 (`npm run gen:fixture:strategy`) | 30 分 (maxDepth=8 で 4-12 分の実行 + 確認) |
+| **Phase A** | `strategy-baseline.json` + `spectator-baseline.json` 初回生成 (`npm run gen:fixture:strategy`) | 30 分 (maxDepth=8 で **6-19 分の実行** + 確認、内訳: 本体 180 局面 3-9 分 + 観戦 200 ply 3-10 分、TN-1 反映) |
 | **Phase A** | `strategy-equivalence.test.ts` 拡張 (3 種の検証) | 1 時間 |
 | **Phase A** | `package.json` に script 2 種追加 | 5 分 |
 | **Phase A** | 必須チェック + 修正 + push | 30 分 |
@@ -918,3 +940,34 @@ const effectiveTimeLimitMs = options?.maxDepth !== undefined
 の形に統一し、Phase B 擬似コードと CPU 速度依存性対策セクションの両方で同じコードを参照する形に整理。
 
 **役割分担方式の採用 (MM-2)**: ユーザー意思決定 (第 2 次レビュー Phase 3) で「役割分担方式」を選択。Strategy fixture は軽量検証に役割を絞り、深い検証は PR1d 以降の bench fixture と Vercel preview 実機確認で補完する設計。
+
+---
+
+## 第 3 次レビュー指摘の反映履歴 ([#issuecomment-4421874056](https://github.com/ryuichiTtb/Shogi/issues/193#issuecomment-4421874056))
+
+第 3 次レビュー (Should-fix 2 件 + Nice-to-have 2 件 = 計 4 件) を全件反映済 (本改訂版)。第 3 次レビュー総評では **「計画 md は実装着手可能なレベルまで成熟」** と評価され、新規指摘 4 件は **表記揺れ・整合性の軽微な不一致** との位置付け。
+
+| # | カテゴリ | 指摘 | 反映箇所 |
+|---|---------|------|---------|
+| **TT-1** | Should | L283-285 の `findBestMoveWithStats` 呼出シグネチャに `timeLimitMs: Infinity` が残存 (S-5 で廃止済のため型エラー) | L293-294 を訂正: `{ maxDepth: 8, timeLimitMs: Infinity }` → `{ maxDepth: 8 }`。engine 内で `options.maxDepth !== undefined` 検出時に `Number.MAX_SAFE_INTEGER` に内部設定する旨を明示 |
+| **TT-2** | Should | `legacy-adapter.ts` 修正の擬似コードが計画 md にない | Phase B 影響ファイル表の直後に **「`legacy-adapter.ts` 修正の擬似コード」副節を新設**。`selectMove` 内の `findBestMoveWithStats` 呼出を `spectator: this.spectator` に切替える擬似コード明示 |
+| **TN-1** | Nice | L737 想定スケジュール「4-12 分」が古い (SS-2 反映後の数字と不整合) | L799 を「**6-19 分の実行** + 確認、内訳: 本体 180 局面 3-9 分 + 観戦 200 ply 3-10 分」に訂正、L300 + L473 + R6 と整合 |
+| **TN-2** | Nice | `Number.MAX_SAFE_INTEGER` 採用論証が計画 md に不在 | engine.ts 擬似コード (L195-220 / L330-353) のコメントに採用論証を追記。`search-context.ts` が `performance.now()` ベース (`setTimeout` 不使用) で整数オーバーフローなし、`Infinity` でも動作可能だが (1) 整数値、(2) TS number 型整合性、(3) JSON serialize 可能 の 3 点で優位、将来 `setTimeout` ベース refactor 時の安全網として機能 |
+
+**`Number.MAX_SAFE_INTEGER` 採用の安全性 (第 3 次レビュー A セクションで独自検証)**:
+
+- `search-context.ts:53-56`: `deadlineAt = startedAt + opts.timeLimitMs` (絶対時刻加算)
+- `search-context.ts:80`: `if (performance.now() >= ctx.deadlineAt)` (絶対時刻比較)
+- `search.ts:537`: `if (elapsedFromStart > options.timeLimitMs * 0.55) break;` (相対経過比較)
+- いずれも `setTimeout` 不使用、整数オーバーフローなし → `Number.MAX_SAFE_INTEGER` で安全に振る舞いキープ
+
+**累計反映実績 (3 サイクル)**:
+
+| サイクル | Must | Should | Nice | 計 |
+|---------|------|--------|------|-----|
+| 第 1 次 | 4 (M-1〜M-4) | 5 (S-1〜S-5) | 4 (N-1〜N-4) | 13 |
+| 第 2 次 | 3 (MM-1〜MM-3) | 4 (SS-1〜SS-4) | 1 (NN-1) | 8 |
+| **第 3 次** | 0 | 2 (TT-1, TT-2) | 2 (TN-1, TN-2) | 4 |
+| **累計** | 7 | 11 | 7 | **25** |
+
+PR1a 4 サイクル 43 件 / PR1b/PR1c 5 サイクル 26 件と同等規模の品質基盤継承を達成。第 3 次レビュー総評通り、**計画 md は実装着手可能なレベル**に到達。
