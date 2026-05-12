@@ -1,4 +1,5 @@
 import type { Difficulty, GameState, Move, Player, RuleVariant } from "../types";
+import type { CardGameState } from "../cards/types";
 import { STANDARD_VARIANT } from "../variants/standard";
 import { findBestMove } from "./search";
 import {
@@ -142,6 +143,18 @@ export interface FindBestMoveOptions {
   // → Number.MAX_SAFE_INTEGER でも整数オーバーフローなく振る舞いキープ
   // Infinity でも動作するが、(1) 整数値, (2) TS number 型整合性, (3) JSON serialize 可能 の 3 点で優位。
   maxDepth?: number;
+  // Issue #193 / PR1d-1: openingBook lookup の明示的 ON/OFF 制御。
+  // 未指定時は strategy.useBook (DIFFICULTY_PARAMS 由来) を使用 = 既存挙動完全保持。
+  // false 明示時は openingBook を完全 bypass。fixture 生成・検証で非決定性
+  // (openingBook.ts:353 の Math.random 重み付き選択) を回避するために導入
+  // (Issue #193 comment #4428841412: Phase B 動的検証で 5/360 件 (1.4%) 不一致検出経緯)。
+  useBook?: boolean;
+  // Issue #193 / PR1d-1: AI 探索に CardGameState を渡す経路 (W-6 反映で options 経由に統一)。
+  // 未指定時は cardDigest 加算 skip (= 既存挙動完全保持、cardState 非依存の standard variant や
+  // PR1c の 1000 局面 evaluate fixture の byte-level equality を維持)。
+  // 指定時かつ variant.id === "card-shogi" のとき、findBestMoveWithStats 内で root で 1 回
+  // computeCardDigest を呼び、cardDigest を引数として evaluate に伝播する (W-1 root スカラー方式)。
+  cardState?: CardGameState;
 }
 
 export interface FindBestMoveResult {
@@ -185,7 +198,10 @@ export function findBestMoveWithStats(
   // で意図的振る舞い変更」を許容する。MAX_BOOK_MOVES * 2 は両者合計手数 (ply) で、
   // MAX_BOOK_MOVES = 15 (各プレイヤー側の手数上限)。
   // PR1c-2 Phase B: useBook も Strategy 経由参照に変更。
-  const useBookForVariant = strategy.useBook && variant.id === "standard";
+  // PR1d-1: options.useBook が明示指定された場合はそれを優先 (false で openingBook 完全 bypass)。
+  // 未指定時は strategy.useBook (DIFFICULTY_PARAMS 由来) = 既存挙動完全保持。
+  const effectiveUseBook = options.useBook !== undefined ? options.useBook : strategy.useBook;
+  const useBookForVariant = effectiveUseBook && variant.id === "standard";
   let usedBook = false;
   let bookMove: Move | null = null;
   if (useBookForVariant && state.moveCount < MAX_BOOK_MOVES * 2) {
