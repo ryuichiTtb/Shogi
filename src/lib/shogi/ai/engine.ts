@@ -10,6 +10,11 @@ import { evaluate, getLeastAttackerValue } from "./evaluate";
 import { getBookMove, MAX_BOOK_MOVES } from "./openingBook";
 import { getFullLegalMoves, isSquareAttackedByFast } from "../moves";
 import { applyMoveForSearch } from "../board";
+// Issue #193 / PR1c-2 Phase B: DIFFICULTY_PARAMS 直接参照を Strategy 経由参照に切替。
+// findBestMoveWithStats 内で createStrategy(difficulty, { spectator }) を呼んで
+// Strategy インスタンスから maxSearchDepth / timeLimitMs / addNoise /
+// nearEqualThreshold / useBook を取得する形に変更。
+import { createStrategy } from "./strategy";
 
 export interface DifficultyParams {
   maxDepth: number;
@@ -151,15 +156,23 @@ export function findBestMoveWithStats(
   variant: RuleVariant = STANDARD_VARIANT,
   options: FindBestMoveOptions = {},
 ): FindBestMoveResult {
-  const params = DIFFICULTY_PARAMS[difficulty];
-  // Issue #193: options.timeLimitMs が指定されていれば override (観戦モード用、Phase A 維持)、
+  // Issue #193 / PR1c-2 Phase B: DIFFICULTY_PARAMS 直接参照を Strategy 経由参照に切替。
+  // createStrategy(difficulty, { spectator }) で Strategy インスタンスを取得し、
+  // maxSearchDepth / timeLimitMs / addNoise / nearEqualThreshold / useBook を
+  // 全てそこから取得する。spectator override (Math.min(base, SPECTATOR_TIME_LIMIT_MS))
+  // は Strategy 構築時に処理済 (legacy-adapter.ts:50-52)。
+  const strategy = createStrategy(difficulty, {
+    spectator: options.spectator ?? false,
+  });
   // PR1c-2 Phase A (MM-1 反映): options.maxDepth 指定時 (= fixture 生成・検証用途) は
   // timeLimitMs を実質無効化することで search.ts:537 の早期打切を回避し、必ず maxDepth に
   // 到達するまで探索を継続する (CPU 速度非依存)。
-  const effectiveMaxDepth = options.maxDepth ?? params.maxDepth;
+  // 互換性のため options.timeLimitMs (Phase A 維持) も引き続き尊重する (= 観戦モード旧経路、
+  // route.ts は Phase B で spectator フラグ経由に切替済だが、外部呼出経路の互換性として残す)。
+  const effectiveMaxDepth = options.maxDepth ?? strategy.maxSearchDepth;
   const effectiveTimeLimitMs = options.maxDepth !== undefined
     ? Number.MAX_SAFE_INTEGER
-    : options.timeLimitMs ?? params.timeLimitMs;
+    : options.timeLimitMs ?? strategy.timeLimitMs;
   const ctx = createSearchContext({
     timeLimitMs: effectiveTimeLimitMs,
     signal: options.signal,
@@ -171,7 +184,8 @@ export function findBestMoveWithStats(
   // 振る舞いキープ例外として明示的に「card-shogi の両者合計 30 ply (= 各 15 手)
   // で意図的振る舞い変更」を許容する。MAX_BOOK_MOVES * 2 は両者合計手数 (ply) で、
   // MAX_BOOK_MOVES = 15 (各プレイヤー側の手数上限)。
-  const useBookForVariant = params.useBook && variant.id === "standard";
+  // PR1c-2 Phase B: useBook も Strategy 経由参照に変更。
+  const useBookForVariant = strategy.useBook && variant.id === "standard";
   let usedBook = false;
   let bookMove: Move | null = null;
   if (useBookForVariant && state.moveCount < MAX_BOOK_MOVES * 2) {
@@ -210,8 +224,8 @@ export function findBestMoveWithStats(
     {
       maxDepth: effectiveMaxDepth,
       timeLimitMs: effectiveTimeLimitMs,
-      addNoise: params.addNoise,
-      nearEqualThreshold: params.nearEqualThreshold,
+      addNoise: strategy.addNoise,
+      nearEqualThreshold: strategy.nearEqualThreshold,
     },
     variant,
     ctx,

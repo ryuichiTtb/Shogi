@@ -56,11 +56,13 @@ export class LegacyStrategyAdapter implements SearchStrategy {
   }
 
   selectMove(input: SelectMoveInput): SelectMoveResult {
-    // PR1a: 観戦モード時のみ timeLimitMs を override し、それ以外は完全に既存挙動を維持。
+    // Issue #193 / PR1c-2 Phase B (MM-3 反映): timeLimitMs 経路から spectator フラグ経由に切替。
+    // engine 内で createStrategy(difficulty, { spectator }) で Strategy 構築時に
+    // Math.min(base, SPECTATOR_TIME_LIMIT_MS) で短縮処理される (= 二重 override 解消)。
     // cardState は PR1a では未使用 (PR1d で findBestMoveWithStats に渡す経路を追加予定)。
     return findBestMoveWithStats(input.state, input.player, this.difficulty, input.variant, {
       signal: input.signal,
-      timeLimitMs: this.spectator ? this.timeLimitMs : undefined,
+      spectator: this.spectator,
     });
   }
 }
