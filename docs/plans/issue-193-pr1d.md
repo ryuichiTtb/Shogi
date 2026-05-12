@@ -20,7 +20,7 @@ PR1d は親計画 md ([docs/plans/issue-193.md](issue-193.md) L344-523) で「ca
 1. **CardGameState を評価関数に組み込む基盤確立**: `computeCardDigest(cardState, player)` を root で 1 回計算 → `evaluate` 内で加算する設計 (親計画 md L350-356、Plan エージェント代替案 G-2 の流用)
 2. **CPU が全カード 6 種を判断対象にする**: ドロー / pawn_return / piece_return / double_pawn / double_move / no_promote / check_break (active カード 6 枚 + ドローアクション = 計 7 種類のアクション)
 3. **PR1c-2 残課題 (openingBook 非決定性) を解消**: `FindBestMoveOptions.useBook?: boolean` を新規追加し、fixture 再生成時に `useBook: false` で固定 → 360/360 件完全一致を達成 ([Issue #193 comment #4428841412](https://github.com/ryuichiTtb/Shogi/issues/193#issuecomment-4428841412))
-4. **棋力退化なし**: expert vs advanced の勝率が PR1d 前後で同等以上、`depthCompleted` ±10% 以内 (人間 vs AI bench で測定)
+4. **棋力退化なし**: expert vs advanced の勝率が PR1d 前後で同等以上、`depthCompleted` **-10% 以内 (退化許容範囲、+10% 改善は通常あり得ないため許容方向のみ)** (W-8 反映、人間 vs AI bench で測定)
 
 ---
 
@@ -179,9 +179,10 @@ PR1b の `gen-fixture-legal-moves.ts` / PR1c の `gen-fixture-evaluate.ts` / PR1
 
 cardDigest を root で 1 回計算 → evaluate に加算する形で CardGameState を評価関数に組み込む (親計画 md L350-356、Plan エージェント代替案 G-2 の流用)。
 
-- **計算タイミング**: 探索開始時に **root で 1 回だけ** `computeCardDigest(cardState, player)` を呼ぶ
-- **加算経路**: evaluate の戻り値に `evaluateCardDigest(digest, variant)` を加算 (1 op、ホットパスへの影響は無視できる)
+- **計算タイミング**: 探索開始時に **root で 1 回だけ** `computeCardDigest(cardState)` を呼ぶ (W-2 反映: sente 絶対視点で固定、player 引数なし)
+- **加算経路** (W-1 反映): `computeCardDigest` で得た **`CardDigest` を `evaluate` の引数として伝播** し、evaluate 内では `evaluateCardDigest(cardDigest, variant)` (加算 1 op のみ) を実行。**evaluate 内では `computeCardDigest` を呼び直さない** (= ホットパスでの再計算を構造的に禁止、`computeHandValue` の超越関数計算 / `Math.exp` を子ノードで実行しない)
 - **TT 整合性**: TT は board hash のみで keying (cardDigest は root スカラーなので TT ヒット時も整合、論点 4 で詳述)
+- **評価視点の統一** (W-2 反映): `CardDigest` は **sente 絶対視点** (sente +、gote -) で計算。`evaluate` 既存実装が sente 絶対視点 ([evaluate.ts:737-738](../../src/lib/shogi/ai/evaluate.ts#L737-L738) `sign = piece.owner === "sente" ? 1 : -1` 形式) のため、cardDigest も同じ視点に統一して符号矛盾を回避。観戦モードでも同じ digest を両プレイヤーで共有
 - **増分更新**: PR1d 段階では root のみカードアクション → 再計算は root レベルのみ。PR3 で深い探索にカードアクションを広げる際は `updateCardDigest(prevDigest, cardOp)` 増分更新型 API に切替検討 (関数名は `updateCardDigest` で統一、親計画 md L356)
 
 ### cardDigest フィールド段階拡張ロードマップ
@@ -210,25 +211,26 @@ PR1d 段階では含めないが、将来の拡張で必要になる可能性の
 ```ts
 // src/lib/shogi/ai/cards/digest.ts (PR1d-1 で新規作成)
 export interface CardDigest {
-  manaDelta: number;            // mana[player] - mana[opponent]
+  manaDelta: number;            // mana.sente - mana.gote (W-2 反映: sente 絶対視点)
   manaCap: number;              // 将来動的化想定 (現状静的だが枠は確保)
-  handValueDelta: number;       // hand 評価差 (player - opponent) - 単調減衰関数で算出
-  drawProgressDelta: number;    // drawProgress 差
+  handValueDelta: number;       // handValue(sente hand) - handValue(gote hand) (W-2 反映: sente 絶対視点、単調減衰関数で算出)
+  drawProgressDelta: number;    // drawProgress.sente - drawProgress.gote (W-2 反映: sente 絶対視点)
   // PR1d-3 で doubleMoveActive 追加
   // PR1d-4 で trapPresence, noPromoteMarksPositions 追加
 }
 
 /**
- * 探索開始時に root で 1 回だけ呼ぶ。
- * @param player 評価視点のプレイヤー (= 手番側)。観戦モード時は両プレイヤーで個別計算
- *               (gameState.currentPlayer に応じて呼び分ける)
+ * 探索開始時に root で 1 回だけ呼ぶ (W-1 反映: 子ノードでは引数として伝播、再計算しない)。
+ *
+ * W-2 反映: sente 絶対視点で固定 (player 引数なし)。これにより evaluate 既存実装
+ * (sente +、gote - の絶対視点) と符号整合し、観戦モードでも両プレイヤーで同じ digest を共有可能。
  */
-export function computeCardDigest(cardState: CardGameState, player: Player): CardDigest;
+export function computeCardDigest(cardState: CardGameState): CardDigest;
 
 /**
- * digest を cp 単位の評価値に変換。evaluate の戻り値に加算する。
+ * digest を cp 単位の評価値に変換。evaluate に引数として渡された cardDigest を加算するときに使う。
  * 単調減衰関数: handValue(handSize) = HAND_VALUE_BASE × (1 - exp(-handSize / HAND_VALUE_DECAY))
- * 単位: cp (PIECE_VALUES と整合、歩 = 90 cp 基準)
+ * 単位: cp (PIECE_VALUES と整合、歩 = 90 cp 基準)、sente 絶対視点 (sente 有利で正)
  */
 export function evaluateCardDigest(digest: CardDigest, variant: RuleVariant): number;
 ```
@@ -243,50 +245,64 @@ export function evaluateCardDigest(digest: CardDigest, variant: RuleVariant): nu
 
 これらは `src/lib/shogi/ai/cards/heuristics.ts` (PR1d-1 で新規作成) で名前付き定数として一元管理。`HAND_LIMIT` は **導入しない** (単調減衰関数で滑らかに価値が下がるため、しきい値方式は不要、親計画 md L412-413)。
 
-### 加算経路の擬似コード
+### 加算経路の擬似コード (W-1 / W-3 / W-6 反映済)
 
 ```ts
 // src/lib/shogi/ai/engine.ts findBestMoveWithStats 内 (PR1d-1 で拡張)
+// W-6 反映: cardState? は FindBestMoveOptions に集約し、PR1c-2 で確立した options 拡張パターンに統一
+export interface FindBestMoveOptions {
+  timeLimitMs?: number;
+  signal?: AbortSignal;
+  spectator?: boolean;
+  maxDepth?: number;
+  useBook?: boolean;             // PR1d-1 で追加 (PR1c-2 残課題解消)
+  cardState?: CardGameState;     // PR1d-1 で追加 (W-6 反映: 旧 第 6 引数 → options 内に集約)
+}
+
 export function findBestMoveWithStats(
   state: GameState,
   player: Player,
   difficulty: Difficulty,
   variant: RuleVariant,
   options: FindBestMoveOptions = {},
-  cardState?: CardGameState,  // PR1d-1 で追加
 ): FindBestMoveResult {
   // ... 既存処理 ...
 
-  // PR1d-1: cardDigest を root で 1 回計算
-  let cardDigest: CardDigest | null = null;
-  if (cardState !== undefined) {
-    cardDigest = computeCardDigest(cardState, player);
+  // PR1d-1: cardDigest を root で 1 回だけ計算 (W-1 反映: 子ノードでは引数として伝播)
+  // W-3 反映: variant ガードをここで適用し、evaluate 内のガード (variant.id === "card-shogi") と統一
+  let cardDigest: CardDigest | undefined = undefined;
+  if (options.cardState !== undefined && variant.id === "card-shogi") {
+    cardDigest = computeCardDigest(options.cardState);  // W-2 反映: player 引数なし
   }
 
-  // evaluate に cardState を渡す (cardState undefined なら cardDigest 加算 skip)
-  const score = evaluate(state, variant, cardState);
+  // 探索ホットパス (search.ts negamax 内) で evaluate を呼ぶ際に cardDigest を伝播
+  // (= 子ノードでは computeCardDigest を呼び直さない、加算 1 op のみ)
+  const score = evaluate(state, variant, cardDigest);
   // ...
 }
 
 // src/lib/shogi/ai/evaluate.ts (PR1d-1 で拡張)
+// W-1 反映: cardState ではなく事前計算済 cardDigest を受領
 export function evaluate(
   state: GameState,
   variant: RuleVariant,
-  cardState?: CardGameState,  // PR1d-1 で追加 (optional)
+  cardDigest?: CardDigest,  // PR1d-1 で追加 (optional、未渡時は cardDigest 加算 skip)
 ): number {
-  let total = /* 既存評価ロジック */;
+  let total = /* 既存評価ロジック (sente 絶対視点) */;
 
-  // PR1d-1: cardState 渡時のみ cardDigest 加算
-  if (cardState !== undefined) {
-    const digest = computeCardDigest(cardState, /* player は state.currentPlayer */);
-    total += evaluateCardDigest(digest, variant);
+  // PR1d-1: cardDigest 渡時のみ加算 (加算 1 op のみ、computeCardDigest はここでは呼ばない)
+  // W-3 反映: variant ガードはここでも残し、二重ガードで安全性確保
+  if (cardDigest !== undefined && variant.id === "card-shogi") {
+    total += evaluateCardDigest(cardDigest, variant);
   }
 
   return total;
 }
 ```
 
-`cardState` 未渡時は cardDigest 加算 skip → PR1c の 1000 局面 evaluate fixture (cardState 未渡) は **byte-level equality を継続保持** (論点 1 対策)。
+`cardDigest` 未渡時は加算 skip → PR1c の 1000 局面 evaluate fixture (cardDigest 未渡) は **byte-level equality を継続保持** (論点 1 M-1 対策)。
+
+**W-1 反映の効果**: 子ノードでの `computeCardDigest` 再計算 (`mana.sente - mana.gote` 差分 + `Math.exp(-handSize / HAND_VALUE_DECAY)` 超越関数計算等) を **構造的に禁止**。expert 探索 depth 16-24 の数百万回ノード呼出でも、cardDigest 由来の追加コストは「root で 1 回の `computeCardDigest` + 各ノードでの加算 1 op」のみ (= 親計画 md L350-356 「1 op、ホットパスへの影響は無視できる」の本来の意図と一致)。
 
 ---
 
@@ -390,8 +406,8 @@ git checkout -b feature/#193-pr1d-1 origin/main
 ```ts
 // src/lib/shogi/ai/cards/digest.ts
 import type { CardGameState } from "@/lib/shogi/cards/types";
-import type { Player } from "@/lib/shogi/types";
 import type { RuleVariant } from "@/lib/shogi/variants";
+import { MANA_CAP } from "@/lib/shogi/cards/definitions";
 import {
   MANA_DELTA_COEFFICIENT,
   HAND_VALUE_BASE,
@@ -400,19 +416,22 @@ import {
 } from "./heuristics";
 
 export interface CardDigest {
-  manaDelta: number;
+  manaDelta: number;            // sente 絶対視点 (W-2 反映)
   manaCap: number;
-  handValueDelta: number;
-  drawProgressDelta: number;
+  handValueDelta: number;       // sente 絶対視点 (W-2 反映)
+  drawProgressDelta: number;    // sente 絶対視点 (W-2 反映)
 }
 
-export function computeCardDigest(cardState: CardGameState, player: Player): CardDigest {
-  const opponent = player === "sente" ? "gote" : "sente";
-  const manaDelta = cardState.mana[player] - cardState.mana[opponent];
+/**
+ * sente 絶対視点で cardDigest を計算 (W-2 反映: player 引数なし、evaluate 既存実装と符号整合)。
+ * 観戦モードでも 1 回だけ呼べば両プレイヤーで同じ digest を共有可能。
+ */
+export function computeCardDigest(cardState: CardGameState): CardDigest {
+  const manaDelta = cardState.mana.sente - cardState.mana.gote;
   const handValueDelta =
-    computeHandValue(cardState.hand[player].length) -
-    computeHandValue(cardState.hand[opponent].length);
-  const drawProgressDelta = cardState.drawProgress[player] - cardState.drawProgress[opponent];
+    computeHandValue(cardState.hand.sente.length) -
+    computeHandValue(cardState.hand.gote.length);
+  const drawProgressDelta = cardState.drawProgress.sente - cardState.drawProgress.gote;
   return {
     manaDelta,
     manaCap: MANA_CAP,
@@ -425,8 +444,12 @@ function computeHandValue(handSize: number): number {
   return HAND_VALUE_BASE * (1 - Math.exp(-handSize / HAND_VALUE_DECAY));
 }
 
+/**
+ * digest を cp 単位の評価値に変換。sente 絶対視点 (sente 有利で正)。
+ * W-3 反映: variant ガードを変数で受領 (呼出側でも variant ガードしているため、ここでは安全ガード)。
+ */
 export function evaluateCardDigest(digest: CardDigest, variant: RuleVariant): number {
-  if (variant.id === "standard") return 0;  // standard variant は cardState を持たない
+  if (variant.id !== "card-shogi") return 0;  // W-3 反映: card-shogi 以外は影響なし
   return (
     digest.manaDelta * MANA_DELTA_COEFFICIENT +
     digest.handValueDelta +
@@ -459,32 +482,33 @@ export const SPECTATOR_MAX_CARD_OPS_PER_TURN = 5;
 
 **注: `HAND_LIMIT` は導入しない** (単調減衰関数で滑らかに価値が下がるため、しきい値方式は不要、親計画 md L412-413)。
 
-#### 4. evaluate.ts への加算
+#### 4. evaluate.ts への加算 (W-1 反映: cardDigest を引数として受領)
 
 `src/lib/shogi/ai/evaluate.ts` を拡張:
 
 ```ts
-// evaluate.ts (PR1d-1 で拡張、cardState? optional 追加)
-import { computeCardDigest, evaluateCardDigest } from "./cards/digest";
-import type { CardGameState } from "@/lib/shogi/cards/types";
+// evaluate.ts (PR1d-1 で拡張、cardDigest? optional 追加)
+// W-1 反映: cardState ではなく事前計算済 cardDigest を受領 (子ノードで computeCardDigest 再計算しない)
+import { evaluateCardDigest, type CardDigest } from "./cards/digest";
 
 export function evaluate(
   state: GameState,
   variant: RuleVariant,
-  cardState?: CardGameState,  // ← PR1d-1 で追加 (optional、cardState 未渡時は cardDigest 加算 skip)
+  cardDigest?: CardDigest,  // ← PR1d-1 で追加 (optional、未渡時は加算 skip = byte-level equality 保持)
 ): number {
-  let total = /* 既存評価ロジック (material + PST + king safety + ...) */;
+  let total = /* 既存評価ロジック (material + PST + king safety + ...、sente 絶対視点) */;
 
-  // PR1d-1: cardState 渡時のみ cardDigest 加算 (byte-level equality 保持のため)
-  if (cardState !== undefined && variant.id === "card-shogi") {
-    const player = state.currentPlayer;
-    const digest = computeCardDigest(cardState, player);
-    total += evaluateCardDigest(digest, variant);
+  // PR1d-1: cardDigest 渡時のみ加算 (加算 1 op のみ、ホットパス影響 = 0)
+  // W-3 反映: variant ガードを呼出側 (findBestMoveWithStats) と evaluate 双方で二重化
+  if (cardDigest !== undefined && variant.id === "card-shogi") {
+    total += evaluateCardDigest(cardDigest, variant);
   }
 
   return total;
 }
 ```
+
+**重要 (W-1 反映)**: `computeCardDigest` は `findBestMoveWithStats` 内で root で 1 回だけ呼ぶ ([前述「加算経路の擬似コード」セクション](#加算経路の擬似コード-w-1--w-3--w-6-反映済) 参照)。evaluate 内では呼ばない (= ホットパスでの超越関数計算を構造的に禁止)。
 
 #### 5. TurnRules.getLegalActions に DrawAction 候補追加
 
@@ -1119,32 +1143,45 @@ export function computeCardDigest(cardState: CardGameState, player: Player): Car
 - `doubleMoveActive === opponent`: 相手が二手指し中 → 大きなマイナス (= 相手が連続で攻める)
 - `doubleMoveActive === null`: 影響なし (0)
 
-#### 4. MANA_FAST_BONUS の double_move 中マナ供給差 (G-3 反映)
+#### 4. double_move 中マナ供給差を cardDigest に反映 (G-3 反映、W-5 で MANA_FAST_BONUS vs MANA_PER_TURN を明示)
 
-進行中チェックリスト G-3: super-action 探索内では `manaDelta` 計算で `mode === "double_move_first/second"` 時のマナ供給差を反映。
+進行中チェックリスト G-3 元指摘は `MANA_FAST_BONUS` ([definitions.ts:242](../../src/lib/shogi/cards/definitions.ts#L242)、早指し時の追加分、値 = 1) の double_move 中マナ供給差を cardDigest に反映するもの。
 
-`computeCardDigest` を super-action 内部探索の context で呼ぶ場合、`cardState.doubleMove !== null` から二手指し中を判定し、`MANA_FAST_BONUS` ([definitions.ts:242](../../src/lib/shogi/cards/definitions.ts#L242)) の供給差を考慮:
+**W-5 反映 (重要)**: G-3 元指摘の `MANA_FAST_BONUS` (早指し時の追加分) と、二手指し中の「相手ターンスキップ」由来の `MANA_PER_TURN` ([definitions.ts:241](../../src/lib/shogi/cards/definitions.ts#L241)、ターン毎の通常供給、値 = 1) は **異なる文脈の供給差**。値はどちらも `1` で偶然一致するが、意味が異なるため取り違えると将来定数値変更時にバグの温床になる。
+
+両者の役割を整理:
+
+| 供給差源 | 定数 | 値 | 発火条件 |
+|---------|------|----|---------|
+| **相手ターンスキップ** | `MANA_PER_TURN` | 1 | 自分が二手指し中 (= 2 ply 連続)、相手のターンが 1 つスキップされる → 相手のマナ供給 1 ターン分が発生しない |
+| **早指しボーナス** | `MANA_FAST_BONUS` | 1 | 自分が二手指し中 + 自分の 2 手目を `FAST_THRESHOLD_MS` ([definitions.ts:243](../../src/lib/shogi/cards/definitions.ts#L243)) 以内に決定 → 早指しボーナス +1 |
+
+`computeCardDigest` (sente 絶対視点、W-2 反映) で **両方を加算**することで完全な供給差を反映 (案 3 採用):
 
 ```ts
-// digest.ts 拡張 (G-3 反映)
-function computeManaDelta(cardState: CardGameState, player: Player): number {
-  const opponent = player === "sente" ? "gote" : "sente";
-  let manaDelta = cardState.mana[player] - cardState.mana[opponent];
+// digest.ts 拡張 (G-3 + W-5 反映、sente 絶対視点)
+function computeManaDelta(cardState: CardGameState): number {
+  let manaDelta = cardState.mana.sente - cardState.mana.gote;
 
-  // G-3: 二手指し中は早指しボーナス供給差を考慮
-  if (cardState.doubleMove?.player === player) {
-    // 自分が二手指し中: 2 ply 連続で指すため、相手のマナ供給がない (+MANA_PER_TURN 1 ターン分自分有利)
-    manaDelta += MANA_PER_TURN;
+  // G-3 + W-5: 二手指し中は (1) 相手ターンスキップ + (2) 早指しボーナス の両者由来の供給差を考慮
+  if (cardState.doubleMove?.player === "sente") {
+    // sente が二手指し中: 相手 (gote) のターンスキップ + sente 自身の早指しボーナス予想値
+    manaDelta += MANA_PER_TURN + MANA_FAST_BONUS;  // = +2 (sente 視点で有利)
+  } else if (cardState.doubleMove?.player === "gote") {
+    // gote が二手指し中: sente 視点では -2
+    manaDelta -= MANA_PER_TURN + MANA_FAST_BONUS;
   }
   return manaDelta;
 }
 ```
 
+**注**: 早指しボーナス (`MANA_FAST_BONUS`) は「2 手目決定までの時間が `FAST_THRESHOLD_MS` 以内」が条件。AI 探索ではボーナス獲得を **悲観的見積もり** (=確実な分のみ加算、`MANA_PER_TURN` のみ) と **楽観的見積もり** (=ボーナスも加算、`MANA_PER_TURN + MANA_FAST_BONUS`) の両極端のどちらを採るかは bench 結果で調整。PR1d-3 初版では楽観的見積もり (+2) を採用し、PR1d-4 bench で過大評価が観測された場合は悲観的見積もり (+1) に縮小する設計。
+
 ### 進行中チェックリスト反映 (PR1d-3 着手時、1 件)
 
 | # | 指摘 | 反映内容 |
 |---|------|---------|
-| **第 5 次 G-3** | `MANA_FAST_BONUS` の double_move 中マナ供給差 | 上記「MANA_FAST_BONUS の double_move 中マナ供給差 (G-3 反映)」セクションで反映済、computeManaDelta 拡張で MANA_PER_TURN 差分を加味 |
+| **第 5 次 G-3** | `MANA_FAST_BONUS` の double_move 中マナ供給差 | 上記「double_move 中マナ供給差を cardDigest に反映 (G-3 反映、W-5 で MANA_FAST_BONUS vs MANA_PER_TURN を明示)」セクションで反映済 (W-5 反映)。`computeManaDelta` 拡張で **両方の定数** (`MANA_PER_TURN` 相手ターンスキップ由来 + `MANA_FAST_BONUS` 早指しボーナス由来) を加算、楽観的見積もり (+2) を初版採用 |
 
 ### 性能影響評価と +30% フォールバック
 
@@ -1190,7 +1227,7 @@ npm run test:ci  # 既存 + 新規 double-move-search.test.ts
 - [ ] `double_move` 使用時の探索コストが通常駒指しの **+30% 以下** (PR1d-4 で導入する `perf-bench.test.ts` で計測、本 sub PR では暫定計測)
 - [ ] +30% 超過時は `DOUBLE_MOVE_TOP_K=10` フォールバックで吸収 (該当時のみ発動、デフォルト無効)
 - [ ] double-move-search.test.ts 全 test green (player 反転禁止 / α/β 継承 / フォールバック動作確認、初版 8-12 ケース想定)
-- [ ] **棋力退化なし** (PR1d-2 完了時点比): Vercel preview で expert の depthCompleted 同等 (誤差 ±10% 以内、bench fixture は PR1d-4 で正式計測)
+- [ ] **棋力退化なし** (PR1d-2 完了時点比): Vercel preview で expert の depthCompleted 同等以上 (**-10% 以内、退化許容範囲**、W-8 反映、bench fixture は PR1d-4 で正式計測)
 - [ ] strategy fixture / evaluate fixture すべて継続 green
 
 ---
@@ -1215,7 +1252,7 @@ git checkout -b feature/#193-pr1d-4 origin/main
 ### 影響ファイル
 
 **新規 (2-3 ファイル)**:
-- `src/lib/shogi/ai/__tests__/perf-bench.test.ts` — 人間 vs AI bench (50 局面 × 4 難易度、`depthCompleted` ±10% 測定)
+- `src/lib/shogi/ai/__tests__/perf-bench.test.ts` — 人間 vs AI bench (50 局面 × 4 難易度、`depthCompleted` **-10% 以内 (退化許容範囲)** を測定、W-8 反映)
 - `src/lib/shogi/ai/__tests__/perf-bench-spectator.test.ts` — 観戦モード bench (デバッグ目的、両者対称性確認)
 - (オプション) `src/lib/shogi/ai/__tests__/fixtures/perf-bench-positions.json` — bench 用 50 局面 fixture
 
@@ -1228,53 +1265,81 @@ git checkout -b feature/#193-pr1d-4 origin/main
 
 ### 主な変更
 
-#### 1. CardDigest 拡張 (trapPresence / noPromoteMarksPositions)
+#### 1. CardDigest 拡張 (trapPresence / noPromoteMarksPositions、W-7 反映: 実態構造から抽出経路を明示)
 
 `src/lib/shogi/ai/cards/digest.ts` を拡張:
 
 ```ts
-// cards/digest.ts (PR1d-4 で最終拡張)
+// cards/digest.ts (PR1d-4 で最終拡張、W-2 整合で sente 絶対視点固定)
 export interface CardDigest {
   manaDelta: number;
   manaCap: number;
   handValueDelta: number;
   drawProgressDelta: number;
-  doubleMoveActive: Player | null;     // PR1d-3
-  trapPresence: {                       // ← PR1d-4 で追加
-    player: CardId | null;              // 自分の盤上トラップ (1 枚のみ、なければ null)
-    opponent: CardId | null;            // 相手の盤上トラップ
+  doubleMoveActive: Player | null;     // PR1d-3 (= cardState.doubleMove?.player、両プレイヤーで意味が変わる例外)
+  trapPresence: {                       // ← PR1d-4 で追加 (W-2 整合: sente/gote 絶対視点で両者保持)
+    sente: CardId | null;               // sente の盤上トラップ defId (なければ null)
+    gote: CardId | null;                // gote の盤上トラップ defId
   };
-  noPromoteMarksPositions: ReadonlyArray<{ row: number; col: number; player: Player }>;  // ← PR1d-4 で追加
+  noPromoteMarksPositions: ReadonlyArray<{ row: number; col: number; player: Player }>;  // ← PR1d-4 で追加 (W-7 反映: PieceMark に owner 情報を付加)
+}
+```
+
+**W-7 反映: 実態構造からの抽出経路を擬似コードで明示**:
+
+[`cards/types.ts:92`](../../src/lib/shogi/cards/types.ts#L92) の `TrapInstance` は `{ instanceId, defId, owner }` 構造、[`cards/types.ts:112`](../../src/lib/shogi/cards/types.ts#L112) の `PieceMark` は `{ row, col }` のみ (owner は配列が属するキーで決定)。`computeCardDigest` 拡張時の抽出経路:
+
+```ts
+// computeCardDigest 拡張 (PR1d-4、W-7 反映、sente 絶対視点)
+export function computeCardDigest(cardState: CardGameState): CardDigest {
+  // ... 既存フィールド (manaDelta / handValueDelta / drawProgressDelta / doubleMoveActive) ...
+
+  // W-7 反映: TrapInstance から defId を抽出 (cardState.trap は Record<Player, TrapInstance | null>)
+  const trapPresence = {
+    sente: cardState.trap.sente?.defId ?? null,
+    gote: cardState.trap.gote?.defId ?? null,
+  };
+
+  // W-7 反映: PieceMark[] を平坦化 + owner 情報を付加
+  // (cardState.noPromoteMarks は Record<Player, PieceMark[]>、PieceMark = { row, col })
+  const noPromoteMarksPositions = [
+    ...cardState.noPromoteMarks.sente.map((m) => ({ row: m.row, col: m.col, player: "sente" as Player })),
+    ...cardState.noPromoteMarks.gote.map((m) => ({ row: m.row, col: m.col, player: "gote" as Player })),
+  ];
+
+  return { ..., trapPresence, noPromoteMarksPositions };
 }
 ```
 
 #### 2. evaluateCardDigest でトラップ価値計算
 
 ```ts
-// cards/digest.ts evaluateCardDigest 拡張 (PR1d-4)
+// cards/digest.ts evaluateCardDigest 拡張 (PR1d-4、W-2/W-3/W-7 反映: sente 絶対視点 + variant ガード統一)
 export function evaluateCardDigest(digest: CardDigest, variant: RuleVariant): number {
-  if (variant.id === "standard") return 0;
+  if (variant.id !== "card-shogi") return 0;  // W-3 反映: card-shogi 以外は影響なし
 
   let value = 0;
+  // sente 絶対視点 (sente 有利で正)
   value += digest.manaDelta * MANA_DELTA_COEFFICIENT;
   value += digest.handValueDelta;
   value += digest.drawProgressDelta * DRAW_PROGRESS_COEFFICIENT;
   value += evaluateDoubleMoveActive(digest.doubleMoveActive);
 
-  // PR1d-4: トラップ価値
-  if (digest.trapPresence.player === "no_promote") {
+  // PR1d-4 + W-2 整合: トラップ価値 (sente 視点で「sente 盤上トラップ = +、gote 盤上トラップ = -」)
+  if (digest.trapPresence.sente === "no_promote") {
     value += TRAP_VALUE_NO_PROMOTE;
-  } else if (digest.trapPresence.player === "check_break") {
+  } else if (digest.trapPresence.sente === "check_break") {
     value += TRAP_VALUE_CHECK_BREAK;
   }
-  if (digest.trapPresence.opponent === "no_promote") {
+  if (digest.trapPresence.gote === "no_promote") {
     value -= TRAP_VALUE_NO_PROMOTE;
-  } else if (digest.trapPresence.opponent === "check_break") {
+  } else if (digest.trapPresence.gote === "check_break") {
     value -= TRAP_VALUE_CHECK_BREAK;
   }
 
-  // noPromoteMarksPositions: 自玉周辺の no_promote マークは敵成り脅威減 → 価値増
-  value += evaluateNoPromoteMarksProximity(digest.noPromoteMarksPositions, /* 自玉位置 */);
+  // noPromoteMarksPositions: 各プレイヤーの自玉周辺の no_promote マークは敵成り脅威減 → sente の no_promote は +、gote の no_promote は -
+  // (PieceMark に W-7 反映で付加した owner 情報を使って sente/gote 別に評価)
+  value += evaluateNoPromoteMarksProximity(digest.noPromoteMarksPositions, /* sente 玉位置 + gote 玉位置を state から取得 */);
 
   return value;
 }
@@ -1369,7 +1434,7 @@ describe.skipIf(SKIP_IN_CI)("perf-bench (人間 vs AI bench)", () => {
 
 | # | 指摘 | 反映内容 |
 |---|------|---------|
-| **第 4 次 A-2** | 観戦両者対称性の定量定義 | PR1d-4 DoD に「`perf-bench-spectator.test.ts` で同一難易度同士の観戦 50 局を `addNoise=0` で実行 → 勝率 40-60% (= 完全対称想定で 50%、揺らぎ ±10%) を満たす」を組み込む |
+| **第 4 次 A-2** | 観戦両者対称性の定量定義 (W-4 反映: 2 層検証で `addNoise` 値別の論理整合を確保) | **2 層検証**を PR1d-4 DoD に組み込む: (1) **advanced/expert (`addNoise=0`、deterministic)**: `perf-bench-spectator.test.ts` で同一難易度同士の観戦 1 局を実行 → 両者対称的な手系列が成立 (= data integrity 検証、deterministic AI 同士のため 50 局は同一結果のため不要) (2) **beginner/intermediate (`addNoise > 0`、非決定的)**: 同一難易度同士の観戦 50 局を実行 → 勝率 40-60% (= 完全対称想定で 50%、揺らぎ ±10%) を満たす (= 統計検証) — PR1c-2 計画 md で確立した「2 層構造の検証」(advanced/expert 完全一致 DoD + beginner/intermediate フィールド値検証) を踏襲 |
 | **第 4 次 C-3** | PR1d 完成時の観戦モード fixture 再生成判断 | PR1d-4 段階で観戦モード基準 fixture (`spectator-baseline.json`) を **新基準として再生成** (PR1d-1〜3 で cardDigest 導入により振る舞いが意図的に変わるため)。PR1d-1 で当該 fixture を一旦 deprecate コメント化し、PR1d-4 完了時に再生成 + meta.json 更新 |
 | **第 5 次 G-4** | bench fixture の CI 対象外分離 | 上記「CI 対象外として分離」セクションで `describe.skipIf(SKIP_IN_CI)` パターン + `test:perf-bench` script 分離を反映済 |
 
@@ -1386,7 +1451,7 @@ npm run typecheck
 npm run test:ci  # 通常 CI tests (perf-bench は skip)
 
 # bench 実行 (リリース前手動)
-npm run test:perf-bench:human      # depthCompleted ±10% 確認 (約 30-60 分)
+npm run test:perf-bench:human      # depthCompleted -10% 以内 (退化許容範囲) を確認 (W-8 反映、約 30-60 分)
 npm run test:perf-bench:spectator  # 両者対称性確認 (約 30-60 分)
 
 # Vercel preview で実機検証
@@ -1412,13 +1477,13 @@ npm run test:perf-bench:spectator  # 両者対称性確認 (約 30-60 分)
 - [ ] CPU が「序盤に 1 回」no_promote をセットする観察 (Vercel preview で 1 局あたり 0 or 1 回、3-5 局)
 - [ ] CPU が「玉の安全度低下」のときに check_break をプリエンプティブセットする観察 (Vercel preview で 3-5 局)
 - [ ] cardDigest 拡張後も **byte-level equality 維持** (cardState 未渡時、PR1c の 1000 局面 evaluate fixture 継続 green)
-- [ ] perf-bench.test.ts: expert / advanced の `depthCompleted` が PR1c-2 完了時点比で **±10% 以内**
-- [ ] observation: 観戦モード両者対称性 (`perf-bench-spectator.test.ts` で同一難易度同士の観戦 50 局で勝率 40-60%、A-2 反映)
+- [ ] perf-bench.test.ts: expert / advanced の `depthCompleted` が PR1c-2 完了時点比で **-10% 以内 (退化許容範囲)** (W-8 反映)
+- [ ] observation: 観戦モード両者対称性 (W-4 反映の 2 層検証): (1) advanced/expert (`addNoise=0`、deterministic): 観戦 1 局で両者対称的な手系列成立 (data integrity)、(2) beginner/intermediate (`addNoise > 0`): 観戦 50 局で勝率 40-60% (統計検証、揺らぎ ±10%)
 
 #### PR1d 全体の主棋力 DoD (本 sub PR で測定)
 
 - [ ] **主棋力 DoD**: 人間 vs AI bench (元 timeLimitMs) で expert vs advanced の勝率が **PR1c-2 完了時点比で退化なし** (= 同等以上、人間 vs AI bench で 10 局以上)
-- [ ] cardDigest 加算で expert の `depthCompleted` が **PR1c-2 完了時点比で ±10% 以内** (B-1 反映、比較対象明示)
+- [ ] cardDigest 加算で expert の `depthCompleted` が **PR1c-2 完了時点比で -10% 以内 (退化許容範囲、+10% 改善は通常あり得ないため許容方向のみ)** (B-1 / W-8 反映、比較対象明示)
 - [ ] CPU が「マナ余裕 + drawProgress 進行 + 手札が乏しい」のときにドローする観察 (10 局以上で 80% 以上、PR1d-1 で達成、本 sub PR で再確認)
 - [ ] CPU が「自駒タダ取り回避」のときに pawn_return / piece_return を使う観察 (PR1d-2 で達成、本 sub PR で再確認)
 - [ ] CPU が「一手詰回避」のときに double_move を使う観察 (PR1d-3 で達成、本 sub PR で再確認)
@@ -1545,7 +1610,7 @@ PR1d で対応する 9 項目を抽出:
 | **第 4 次 C-5** | `enumerateValidSquaresForCard` 擬似コードの具体化 | PR1d-2 (9×9 走査ループ + `isValidCardTargetSquare` 呼出の擬似コードを明示済) |
 | **第 5 次 F-4** | PR1d-1 ドロー判定 `< AUTO_DRAW_INTERVAL - 1` の意図 | PR1d-1 (`drawProgress = 4` 局面では手動ドロー ROI 低の意図説明を明示済) |
 | **第 5 次 F-5** | `evaluateCardDigest` 戻り値 cp スケール基準 | PR1d-1 (`MANA_DELTA_COEFFICIENT = 10` / `HAND_VALUE_BASE = 20` / `HAND_VALUE_DECAY = 3.0` を heuristics.ts で named constant 化、bench で調整) |
-| **第 5 次 G-3** | `MANA_FAST_BONUS` の double_move 中マナ供給差を cardDigest に反映 | PR1d-3 (`computeManaDelta` で `cardState.doubleMove?.player === player` 時に `MANA_PER_TURN` 差分を加味) |
+| **第 5 次 G-3** | `MANA_FAST_BONUS` の double_move 中マナ供給差を cardDigest に反映 | PR1d-3 (W-5 反映: `computeManaDelta` で `cardState.doubleMove?.player === "sente"/"gote"` のとき **`MANA_PER_TURN + MANA_FAST_BONUS`** の両方加算 (相手ターンスキップ由来 + 早指しボーナス由来)、楽観的見積もり +2 を初版採用、bench で過大評価観測時に縮小) |
 | **第 5 次 G-4** | bench fixture の CI 対象外分離 | PR1d-4 (`describe.skipIf(SKIP_IN_CI)` パターン + `test:perf-bench` script 分離) |
 
 ### B. PR1d スコープ外 10 項目 (PR1a/PR1c-2 着手時に対応済)
@@ -1769,20 +1834,33 @@ PR1a で `spectator-baseline.json` を保存、各 PR で扱いが変わる:
 
 ## 第 N 次レビュー指摘反映履歴
 
-### 第 1 次レビュー指摘反映履歴
+### 第 1 次レビュー指摘反映 (8 件)
 
-初版 (本コミット) — レビュー指摘なし、レビュー依頼前
-
-将来レビューサイクルで以下の形式で追記:
-
-```
-### 第 1 次レビュー指摘反映 (X 件、コミット <SHA>)
+第 1 次レビュー結果 ([Issue #193 上のレビュアーコメント](https://github.com/ryuichiTtb/Shogi/issues/193)) に対し、Must-fix 2 件・Should-fix 3 件・Nice-to-have 3 件の全 8 件を反映。
 
 | # | 指摘 | 反映内容 | 反映箇所 |
 |---|------|---------|---------|
-| 第 1 次 Must-1 | (指摘内容) | (反映内容) | (反映箇所) |
-| ... | | | |
-```
+| **W-1 (Must-fix)** | cardDigest 加算経路が root スカラー方式の主旨と矛盾 (毎ノード再計算) | evaluate のシグネチャを `(state, variant, cardDigest?: CardDigest)` に変更、`findBestMoveWithStats` で root 1 回計算 → 引数として伝播する設計に修正。`computeCardDigest` 内の超越関数計算をホットパスで再計算しない構造的禁止 | 「cardDigest 設計の核 / 加算経路の擬似コード」「PR1d-1 / 4. evaluate.ts への加算」 |
+| **W-2 (Must-fix)** | cardDigest の player 視点と evaluate の sente 絶対視点の符号矛盾 | `computeCardDigest(cardState): CardDigest` で **player 引数を削除し sente 絶対視点固定**。`manaDelta = mana.sente - mana.gote` 等で常に sente 絶対視点に統一。観戦モードでも同じ digest を共有可能 | 「cardDigest 設計の核」全体、digest.ts 実装擬似コード、trapPresence 構造 (`sente`/`gote` フィールド)、`computeManaDelta` (G-3 反映) |
+| **W-3 (Should-fix)** | variant ガード不整合 (engine.ts L262 ガードなし vs evaluate L479 `variant.id === "card-shogi"` ガードあり) | `findBestMoveWithStats` 内の cardDigest 計算経路にも `variant.id === "card-shogi"` ガード追加、evaluate 側のガードを `!== "card-shogi"` 形式に統一、二重ガードで安全性確保 | 「cardDigest 設計の核 / 加算経路の擬似コード」「PR1d-1 / 4. evaluate.ts への加算」「digest.ts 実装擬似コード」 |
+| **W-4 (Should-fix)** | A-2 反映で `addNoise=0` deterministic と勝率 40-60% の論理矛盾 | **2 層検証**を PR1d-4 DoD に組み込み: advanced/expert (`addNoise=0`) は観戦 1 局で data integrity 検証、beginner/intermediate (`addNoise > 0`) は観戦 50 局で勝率 40-60% 統計検証。PR1c-2 計画 md の「2 層構造の検証」を踏襲 | 「進行中チェックリスト反映 / 第 4 次 A-2」「PR1d-4 個別 DoD / observation 行」 |
+| **W-5 (Should-fix)** | G-3 反映で `MANA_FAST_BONUS` vs `MANA_PER_TURN` の定数名取り違え (値はどちらも 1 で偶然一致) | 両定数の役割を表で整理: `MANA_PER_TURN` = 相手ターンスキップ由来、`MANA_FAST_BONUS` = 早指しボーナス由来。`computeManaDelta` で **両方を加算** (`+MANA_PER_TURN + MANA_FAST_BONUS = +2`、楽観的見積もり) を採用、bench で過大評価観測時に縮小する設計 | 「PR1d-3 / 4. double_move 中マナ供給差を cardDigest に反映」「進行中チェックリスト反映 / 第 5 次 G-3」 |
+| **W-6 (Nice-to-have)** | `findBestMoveWithStats` 第 6 引数 `cardState?` の API 一貫性 | `FindBestMoveOptions` に `cardState?: CardGameState` を追加し、PR1c-2 で確立した options 拡張パターン (`spectator?` / `maxDepth?` / `useBook?`) に統一。第 6 引数廃止 | 「cardDigest 設計の核 / 加算経路の擬似コード」 |
+| **W-7 (Nice-to-have)** | `trapPresence` の型表現と `TrapInstance` 構造の不整合 | `cardState.trap[player]?.defId ?? null` の抽出経路を `computeCardDigest` 拡張擬似コードで明示。`noPromoteMarksPositions` も `cardState.noPromoteMarks[player]` を平坦化 + owner 情報付加で生成。trapPresence のフィールド名を `player`/`opponent` → `sente`/`gote` に変更 (W-2 整合) | 「PR1d-4 / 1. CardDigest 拡張 (trapPresence / noPromoteMarksPositions)」「PR1d-4 / 2. evaluateCardDigest でトラップ価値計算」 |
+| **W-8 (Nice-to-have)** | `depthCompleted ±10%` 表記の方向性誤解 (+10% 改善は通常あり得ない) | 全 6 箇所 (Context / PR1d-2 DoD / PR1d-4 影響ファイル / 検証計画 bench / PR1d-4 個別 DoD / PR1d 全体主棋力 DoD) で `-10% 以内 (退化許容範囲、+10% 改善は通常あり得ないため許容方向のみ)` に統一 | 「Context 4」「PR1d-2 DoD」「PR1d-4 影響ファイル」「検証計画」「PR1d-4 個別 DoD」「PR1d 全体主棋力 DoD」 |
+
+**累計反映実績 (3 サイクル運用継承)**:
+
+| サイクル | Must | Should | Nice | 計 |
+|---------|------|--------|------|-----|
+| PR1a 4 サイクル | - | - | - | 43 |
+| PR1b/PR1c 5 サイクル | - | - | - | 26 |
+| PR1c-2 4 サイクル | - | - | - | 25 |
+| 本セッションメタ計画 3 サイクル | 3 | 4 | 7 | 14 |
+| **PR1d 計画 md 第 1 次 (本反映)** | **2** | **3** | **3** | **8** |
+| **累計** | - | - | - | **116** |
+
+「**指摘全件反映してから次サイクル**」の品質基盤を継承。本反映後、第 2 次レビューに進む。
 
 ---
 
