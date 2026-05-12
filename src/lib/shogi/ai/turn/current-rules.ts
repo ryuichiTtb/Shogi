@@ -59,7 +59,10 @@ export class CurrentRules implements TurnRules {
     return actions;
   }
 
-  // move 以外は PR1d で実装。PR1a の AI 探索からは呼ばれない (getLegalActions が move のみを返すため)。
+  // move 以外は PR1d-2 で実装。PR1d-1 段階では getLegalActions が root のみ draw 候補を生成するが、
+  // production の探索パスは依然として findBestMove (search.ts) → getSearchLegalMoves 直接呼出で、
+  // CurrentRules.getLegalActions/applyAction を呼んでいないため throw 到達せず。
+  // PR1d-2 で search.ts root 経路から getLegalActions を呼ぶ統合時に applyAction(draw) も同時実装する (ZZ-5 反映)。
   applyAction(state: AiTurnState, action: TurnAction): ApplyActionResult {
     if (action.kind === "move") {
       const nextGameState = applyMoveForSearch(state.gameState, action.move);
@@ -74,7 +77,7 @@ export class CurrentRules implements TurnRules {
       };
     }
     throw new Error(
-      `CurrentRules.applyAction: action.kind="${action.kind}" は PR1d で実装予定 (PR1a の AI 探索パスからは呼ばれません)`,
+      `CurrentRules.applyAction: action.kind="${action.kind}" は PR1d-2 で実装予定 (PR1d-1 段階では getLegalActions が draw 候補を生成するが、production の探索パスからは未呼出のため throw 到達せず、ZZ-5 反映)`,
     );
   }
 }

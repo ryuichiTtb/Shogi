@@ -203,6 +203,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         // engine 内で createStrategy(difficulty, { spectator }) で Strategy 構築時に
         // Math.min(base, SPECTATOR_TIME_LIMIT_MS) で短縮処理される。
         spectator: body.spectatorMode,
+        // Issue #193 / PR1d-1 (ZZ-2 反映): cardState を engine に正式伝播。
+        // engine 内で options.cardState !== undefined && variant.id === "card-shogi"
+        // のとき root で computeCardDigest を呼び、SearchContext 経由で子ノードに伝播 (W-1)。
+        // 上位 L88-91 で silent ignore (PR1a E-2) されているため undefined or 不正値を
+        // 渡しても安全 (undefined → cardDigest 計算 skip → 既存挙動完全保持)。
+        // 深い zod-like 検証 (型不一致時 400 返却) は PR1d-2/3/4 のいずれかで
+        // `src/lib/shogi/cards/validate.ts` 新規追加時に格上げ予定。
+        cardState: body.cardState,
       },
     );
     // client abort の場合は 499 相当だが、Next.js では client がもう listen して

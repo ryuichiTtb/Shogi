@@ -121,6 +121,11 @@ function verifyStrategyFixture(): { passed: number; failed: number; mismatches: 
     const state = deserializeGameState(entry.state);
     const result = findBestMoveWithStats(state, entry.player, entry.difficulty, variant, {
       maxDepth: STRATEGY_FIXTURE_MAX_DEPTH,
+      // PR1d-1 (ZZ-1 反映): fixture 生成側 (gen-fixture-strategy.ts:202) と一致させる。
+      // 未指定だと strategy.useBook (advanced/expert で true) で openingBook.ts:353 の
+      // Math.random 重み付き選択が発火し、生成時と異なる結果になって不一致を再発する。
+      // useBook: false で openingBook 経路を完全 bypass、360/360 件 deterministic 一致を保証。
+      useBook: false,
     });
     if (moveEquals(result.move, entry.expected.move)) {
       passed++;
@@ -160,6 +165,10 @@ function verifySpectatorFixture(): { passed: number; failed: number; mismatches:
       const result = findBestMoveWithStats(state, currentPlayer, difficulty, CARD_SHOGI_VARIANT, {
         maxDepth: STRATEGY_FIXTURE_MAX_DEPTH,
         spectator: true,
+        // PR1d-1 (ZZ-1 反映): fixture 生成側 (gen-fixture-strategy.ts:248) と一致させる。
+        // card-shogi では engine.ts L191 の variant.id === "standard" ガードで既に skip だが、
+        // 明示性のため指定 (= gen と verify の対称性確保)。
+        useBook: false,
       });
       if (moveEquals(result.move, step.move)) {
         passed++;

@@ -23,7 +23,8 @@
 //   2. state.status === "active" filter (二重ガード)
 //
 // CPU 速度非依存 (M-2 反映):
-//   - findBestMoveWithStats({ maxDepth: STRATEGY_FIXTURE_MAX_DEPTH=8 }) で実行
+//   - findBestMoveWithStats({ maxDepth: STRATEGY_FIXTURE_MAX_DEPTH=6 }) で実行
+//     (PR1c-2 で 8 → 6 下方修正済、CI 実行時間とデグレ検知能力のバランス、ZZ-4 反映)
 //   - engine 内で options.maxDepth !== undefined 検出時に
 //     effectiveTimeLimitMs = Number.MAX_SAFE_INTEGER に内部設定 (= timeLimitMs 経路無効化)
 //   - 必ず maxDepth=6 まで到達するため reproducible
