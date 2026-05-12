@@ -333,12 +333,15 @@ git checkout -b feature/#193-pr1d-1 origin/main
 - `src/lib/shogi/ai/__tests__/card-digest.test.ts` — digest 計算・評価の data integrity 検証 (新規テスト)
 - `src/lib/shogi/ai/__tests__/fixtures/card-digest-baseline.json` (オプション、card-digest.test.ts で参照する局面 fixture)
 
-**編集 (5 ファイル)**:
-- `src/lib/shogi/ai/engine.ts` — `FindBestMoveOptions.useBook?: boolean` 追加 + `cardState?: CardGameState` 受領 + 探索開始時に `computeCardDigest` 呼出 + evaluate に cardState 渡す経路
-- `src/lib/shogi/ai/evaluate.ts` — `evaluate(state, variant, cardState?)` シグネチャ拡張 (cardState? optional) + cardDigest 加算ロジック
-- `src/lib/shogi/ai/turn/current-rules.ts` — `getLegalActions` で root のみ DrawAction 候補生成
+**編集 (8 ファイル、ZZ-3 反映で `scripts/verify-strategy-fixture.ts` + `src/lib/shogi/ai/search-context.ts` + `src/lib/shogi/ai/search.ts` の 3 ファイルを元の 5 ファイルに追加)**:
+- `src/lib/shogi/ai/engine.ts` — `FindBestMoveOptions.useBook?: boolean` 追加 + `cardState?: CardGameState` 受領 + 探索開始時に `computeCardDigest` 呼出 + evaluate に `cardDigest` 渡す経路 (W-1 反映で cardState ではなく事前計算済 cardDigest を伝播)
+- `src/lib/shogi/ai/evaluate.ts` — `evaluate(state, variant, cardDigest?)` シグネチャ拡張 (cardDigest? optional、W-1 反映) + cardDigest 加算ロジック
+- `src/lib/shogi/ai/search-context.ts` — W-1 反映で `SearchContext.cardDigest?: CardDigest` を追加 + `createSearchContext` で受領、root スカラーを子ノード探索に伝播する経路
+- `src/lib/shogi/ai/search.ts` — `quiescence` × 2 + `negamax` futility pruning の計 3 箇所の `evaluate` 呼出に `ctx.cardDigest` を伝播 (W-1 反映、ホットパス再計算を構造的に禁止)
+- `src/lib/shogi/ai/turn/current-rules.ts` — `getLegalActions` で root のみ DrawAction 候補生成 + `canDraw` ヘルパ export
 - `scripts/gen-fixture-strategy.ts` — fixture 生成時に `useBook: false` 指定 (openingBook 非決定性 bypass)
-- `src/app/api/ai-move/route.ts` — `cardState` 経路を `findBestMoveWithStats` に正式に渡す (PR1a 時点では silent ignore、PR1d-1 で有効化、ただし zod-like 検証は PR1d-2/3/4 のいずれかで追加)
+- `scripts/verify-strategy-fixture.ts` — 動的検証時にも `useBook: false` 指定 (ZZ-1 反映、gen と verify の整合確保、360/360 件完全一致を達成するため)
+- `src/app/api/ai-move/route.ts` — `cardState` 経路を `findBestMoveWithStats` に正式に渡す (PR1a 時点では silent ignore、PR1d-1 で有効化、ZZ-2 反映で実装漏れを補正。深い zod-like 検証は PR1d-2/3/4 で `src/lib/shogi/cards/validate.ts` 新規追加時に格上げ予定)
 
 **再生成 (2 ファイル)**:
 - `src/lib/shogi/ai/__tests__/fixtures/strategy-baseline.json` — `useBook: false` で再生成、360 entries
@@ -1902,10 +1905,42 @@ PR1a で `spectator-baseline.json` を保存、各 PR で扱いが変わる:
 | PR1c-2 4 サイクル | - | - | - | 25 |
 | 本セッションメタ計画 3 サイクル | 3 | 4 | 7 | 14 |
 | PR1d 計画 md 第 1 次 | 2 | 3 | 3 | 8 |
-| **PR1d 計画 md 第 2 次 (本反映)** | **0** | **1** | **0** | **1** |
-| **累計** | - | - | - | **117** |
+| PR1d 計画 md 第 2 次 | 0 | 1 | 0 | 1 |
+| **累計 (計画 md 段階)** | - | - | - | **117** |
 
-本反映後、第 3 次レビューに進む。第 3 次で新規 Must-fix / Should-fix 0 件なら PR1d-1 着手承認の見込み。
+PR1d 計画 md 段階のレビューは第 2 次まで完了。実装フェーズ (PR1d-1) で第 3 次相当のレビューに進む。
+
+### PR1d-1 実装 第 1 次レビュー指摘反映 (5 件、ZZ-3 のみ本ブランチ反映)
+
+PR1d-1 実装完了後の第 1 次レビューで指摘された 5 件 (Must-fix 2 + Should-fix 2 + Nice-to-have 1) のうち、**実装側 4 件 (ZZ-1 / ZZ-2 / ZZ-4 / ZZ-5)** は `feature/#193-pr1d-1` ブランチで反映 (コミット `bf34354`、計画 md とは別ブランチ)。**計画 md 側 1 件 (ZZ-3)** のみ本コミットで反映。
+
+| # | 指摘 | 反映先 | 反映内容 |
+|---|------|--------|---------|
+| **ZZ-1 (Must-fix)** | verify-strategy-fixture.ts に `useBook: false` 未指定 → DoD 「360/360 件完全一致」が達成不能 | `feature/#193-pr1d-1` ブランチ (commit `bf34354`) | 2 箇所 (strategy 検証 L122-124 + spectator 検証 L160-163) に `useBook: false` 追加。fixture 生成側 (gen-fixture-strategy.ts:202) と一致させ、openingBook 経路の非決定性を完全 bypass |
+| **ZZ-2 (Must-fix、致命的)** | route.ts に `cardState` 未伝播 → production で cardDigest が一切動かない | `feature/#193-pr1d-1` ブランチ (commit `bf34354`) | `findBestMoveWithStats` 呼出に `cardState: body.cardState` 追加。engine 内で `options.cardState !== undefined && variant.id === "card-shogi"` のとき root で `computeCardDigest` を呼ぶ経路を有効化 |
+| **ZZ-3 (Should-fix、本コミット反映)** | 計画 md 影響ファイル表に `verify-strategy-fixture.ts` 未記載 | **本コミット (chore/#193-pr1d-plan ブランチ)** | PR1d-1 影響ファイル表 (旧 5 ファイル → 新 8 ファイル) に追加: `scripts/verify-strategy-fixture.ts` (ZZ-1 反映) + `src/lib/shogi/ai/search-context.ts` (W-1 反映で `SearchContext.cardDigest?` 追加) + `src/lib/shogi/ai/search.ts` (W-1 反映で 3 箇所の evaluate 呼出に `ctx.cardDigest` 伝播)。`evaluate.ts` のシグネチャ記述も `cardState?` → `cardDigest?` に W-1 整合へ訂正 |
+| **ZZ-4 (Should-fix)** | gen-fixture-strategy.ts L26 コメントの古い数値 `MAX_DEPTH=8` 残存 (実態は 6) | `feature/#193-pr1d-1` ブランチ (commit `bf34354`) | コメントを `STRATEGY_FIXTURE_MAX_DEPTH=6` に訂正、PR1c-2 で 8 → 6 下方修正済の経緯も付記 |
+| **ZZ-5 (Nice-to-have)** | current-rules.ts `applyAction({kind:"draw"})` throw メッセージが古い (`PR1d で実装予定`) | `feature/#193-pr1d-1` ブランチ (commit `bf34354`) | throw メッセージを `PR1d-2 で実装予定 (PR1d-1 段階では getLegalActions が draw 候補を生成するが production の探索パスからは未呼出のため throw 到達せず)` に訂正、案 1 採用で実害なし |
+
+**ZZ-3 の追加反映項目** (本コミットで `evaluate.ts` シグネチャ記述を W-1 整合へ訂正):
+- 旧: `evaluate(state, variant, cardState?) シグネチャ拡張 (cardState? optional) + cardDigest 加算ロジック`
+- 新: `evaluate(state, variant, cardDigest?) シグネチャ拡張 (cardDigest? optional、W-1 反映) + cardDigest 加算ロジック`
+- 理由: W-1 反映で「evaluate は cardState ではなく事前計算済 cardDigest を受領」する設計に確定済 (cardDigest 設計の核 / 加算経路の擬似コード参照)。影響ファイル表の記述だけが旧シグネチャ (cardState?) のままだった
+
+**累計反映実績 (PR1d-1 実装第 1 次レビュー後)**:
+
+| サイクル | Must | Should | Nice | 計 |
+|---------|------|--------|------|-----|
+| PR1a 4 サイクル | - | - | - | 43 |
+| PR1b/PR1c 5 サイクル | - | - | - | 26 |
+| PR1c-2 4 サイクル | - | - | - | 25 |
+| メタ計画 3 サイクル | 3 | 4 | 7 | 14 |
+| PR1d 計画 md 第 1 次 | 2 | 3 | 3 | 8 |
+| PR1d 計画 md 第 2 次 | 0 | 1 | 0 | 1 |
+| **PR1d-1 実装 第 1 次** (本反映) | **2** | **2** | **1** | **5** |
+| **累計** | - | - | - | **122** |
+
+本反映後、`feature/#193-pr1d-1` ブランチで `npm run verify:strategy-fixture` (約 50 分の CI 外動的検証) を実行して 360/360 件完全一致を実証することで PR1d-1 DoD 達成と認定可能。続いて Vercel preview deploy で cardDigest 加算経路が production で発火することを確認。
 
 ---
 
