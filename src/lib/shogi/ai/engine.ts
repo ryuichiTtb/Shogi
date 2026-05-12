@@ -11,6 +11,7 @@ import { evaluate, getLeastAttackerValue } from "./evaluate";
 import { getBookMove, MAX_BOOK_MOVES } from "./openingBook";
 import { getFullLegalMoves, isSquareAttackedByFast } from "../moves";
 import { applyMoveForSearch } from "../board";
+import { computeCardDigest, type CardDigest } from "./cards/digest";
 // Issue #193 / PR1c-2 Phase B: DIFFICULTY_PARAMS 直接参照を Strategy 経由参照に切替。
 // findBestMoveWithStats 内で createStrategy(difficulty, { spectator }) を呼んで
 // Strategy インスタンスから maxSearchDepth / timeLimitMs / addNoise /
@@ -186,9 +187,21 @@ export function findBestMoveWithStats(
   const effectiveTimeLimitMs = options.maxDepth !== undefined
     ? Number.MAX_SAFE_INTEGER
     : options.timeLimitMs ?? strategy.timeLimitMs;
+
+  // Issue #193 / PR1d-1: cardDigest を root で 1 回計算 (W-1 root スカラー方式)。
+  // 未指定時は undefined で SearchContext に格納 → evaluate 呼出時に cardDigest 加算 skip
+  // = 既存挙動完全保持 (PR1c の 1000 局面 evaluate fixture の byte-level equality を維持)。
+  // W-3 反映: variant.id === "card-shogi" の variant ガードもここで適用し、evaluate 内の
+  // ガードと二重化することで standard variant への影響を完全排除。
+  const cardDigest: CardDigest | undefined =
+    options.cardState !== undefined && variant.id === "card-shogi"
+      ? computeCardDigest(options.cardState)
+      : undefined;
+
   const ctx = createSearchContext({
     timeLimitMs: effectiveTimeLimitMs,
     signal: options.signal,
+    cardDigest,
   });
 
   // 定石ブック (序盤のみ)。
@@ -279,7 +292,8 @@ export function findBestMoveWithStats(
         let bestSafeMove = safeMoves[0];
         for (const m of safeMoves) {
           const ns = applyMoveForSearch(state, m);
-          const rawScore = evaluate(ns, variant);
+          // PR1d-1: cardDigest を伝播 (W-1 root スカラー方式、未渡時は既存挙動)
+          const rawScore = evaluate(ns, variant, cardDigest);
           const score = player === "sente" ? rawScore : -rawScore;
           if (score > bestSafeScore) {
             bestSafeScore = score;

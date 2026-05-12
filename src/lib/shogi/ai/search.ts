@@ -230,7 +230,8 @@ function quiescence(
 
   // 深度制限
   if (qDepth > MAX_Q_DEPTH) {
-    const rawScore = evaluate(state, variant);
+    // PR1d-1: ctx.cardDigest を伝播 (W-1 root スカラー方式、未渡時は既存挙動)
+    const rawScore = evaluate(state, variant, ctx.cardDigest);
     return player === "sente" ? rawScore : -rawScore;
   }
 
@@ -258,7 +259,8 @@ function quiescence(
   }
 
   // 通常: stand-pat + 取り駒 + 成り手
-  const rawScore = evaluate(state, variant);
+  // PR1d-1: ctx.cardDigest を伝播 (W-1 root スカラー方式、未渡時は既存挙動)
+  const rawScore = evaluate(state, variant, ctx.cardDigest);
   const standPat = player === "sente" ? rawScore : -rawScore;
 
   if (standPat >= beta) return beta;
@@ -404,7 +406,8 @@ function negamax(
     // Futility Pruning（depth 1-2で非戦術手をスキップ、王手中は除外���
     if (depth <= 2 && !isCapture && !isPromotion && !inCheck && i > 0) {
       if (staticEval === null) {
-        const rawEval = evaluate(state, variant);
+        // PR1d-1: ctx.cardDigest を伝播 (W-1 root スカラー方式、未渡時は既存挙動)
+        const rawEval = evaluate(state, variant, ctx.cardDigest);
         staticEval = player === "sente" ? rawEval : -rawEval;
       }
       const margin = depth === 1 ? 300 : 500;

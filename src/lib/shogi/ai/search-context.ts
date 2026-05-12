@@ -15,6 +15,7 @@
 
 import type { Move } from "../types";
 import { TranspositionTable } from "./transpositionTable";
+import type { CardDigest } from "./cards/digest";
 
 export const MAX_DEPTH = 64;
 
@@ -42,11 +43,17 @@ export interface SearchContext {
   tt: TranspositionTable;
   killerMoves: (Move | null)[][];
   historyTable: number[][];
+  // Issue #193 / PR1d-1: root で 1 回計算した cardDigest を子ノードに伝播 (W-1 root スカラー方式)。
+  // 未指定時は cardDigest 加算 skip (= 既存挙動完全保持、PR1c の 1000 局面 evaluate fixture の
+  // byte-level equality を維持)。指定時は quiescence / negamax 内の evaluate 呼出にそのまま渡す
+  // (= ホットパスでの再計算を構造的に禁止)。
+  cardDigest?: CardDigest;
 }
 
 export interface CreateSearchContextOptions {
   timeLimitMs: number;
   signal?: AbortSignal;
+  cardDigest?: CardDigest;
 }
 
 export function createSearchContext(opts: CreateSearchContextOptions): SearchContext {
@@ -62,6 +69,7 @@ export function createSearchContext(opts: CreateSearchContextOptions): SearchCon
     tt: new TranspositionTable(),
     killerMoves: Array.from({ length: MAX_DEPTH }, () => [null, null] as [Move | null, Move | null]),
     historyTable: Array.from({ length: 81 }, () => new Array<number>(81).fill(0)),
+    cardDigest: opts.cardDigest,
   };
 }
 
