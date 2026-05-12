@@ -195,7 +195,11 @@ function generateStrategyFixture(rng: () => number): {
           state.currentPlayer,
           difficulty,
           spec.variant,
-          { maxDepth: STRATEGY_FIXTURE_MAX_DEPTH },
+          // PR1d-1: useBook: false で openingBook lookup を完全 bypass。
+          // PR1c-2 残課題 (Issue #193 comment #4428841412「Phase B 動的検証で 5 件不一致発見
+          // → openingBook 非決定性起因」) の解消。openingBook.ts:353 の Math.random 重み付き
+          // 選択を回避し、fixture 360 entries 全件で deterministic 結果を保証する。
+          { maxDepth: STRATEGY_FIXTURE_MAX_DEPTH, useBook: false },
         );
         entries.push({
           id,
@@ -238,7 +242,10 @@ function generateSpectatorScenario(
       currentPlayer,
       difficulty,
       CARD_SHOGI_VARIANT,
-      { maxDepth: STRATEGY_FIXTURE_MAX_DEPTH, spectator: true },
+      // PR1d-1: useBook: false (openingBook 非決定性 bypass、上記の通常 fixture と同じ理由)。
+      // 加えて card-shogi では engine.ts L188 で variant.id === "standard" ガードで
+      // openingBook lookup が既に skip されるため、本指定は明示性のためのもの。
+      { maxDepth: STRATEGY_FIXTURE_MAX_DEPTH, spectator: true, useBook: false },
     );
     moves.push({ ply, player: currentPlayer, move: result.move });
     if (!result.move) break;
