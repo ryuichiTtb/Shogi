@@ -476,8 +476,9 @@ export const SPECTATOR_TIME_LIMIT_MS = 1500;
 export const SPECTATOR_MAX_MOVES = 200;
 export const SPECTATOR_MAX_CARD_OPS_PER_TURN = 5;
 
-// PR1d-3 で追加予定 (Phase 0 で枠だけ確保)
-// export const DOUBLE_MOVE_TOP_K = 10;
+// PR1d-3 で追加予定 (Phase 0 で枠だけ確保、V-1 反映で DOUBLE_MOVE_ACTIVE_VALUE 追加も明示)
+// export const DOUBLE_MOVE_TOP_K = 10;             // bench で +30% 超過時のフォールバック上限手数
+// export const DOUBLE_MOVE_ACTIVE_VALUE = 200;     // V-1 反映: 二手指し継続中の cardDigest 評価値 (cp、bench で調整)
 ```
 
 **注: `HAND_LIMIT` は導入しない** (単調減衰関数で滑らかに価値が下がるため、しきい値方式は不要、親計画 md L412-413)。
@@ -967,7 +968,7 @@ git checkout -b feature/#193-pr1d-3 origin/main
 - `src/lib/shogi/ai/turn/action-generator.ts` — `getCardActions` に double_move 候補追加
 - `src/lib/shogi/ai/search.ts` — super-action 内部探索ロジック (local αβ + α/β 値継承)
 - `src/lib/shogi/ai/cards/digest.ts` — `CardDigest` に `doubleMoveActive: Player | null` 追加 + computeCardDigest で算出
-- `src/lib/shogi/ai/cards/heuristics.ts` — `DOUBLE_MOVE_TOP_K = 10` 追加
+- `src/lib/shogi/ai/cards/heuristics.ts` — `DOUBLE_MOVE_TOP_K = 10` + `DOUBLE_MOVE_ACTIVE_VALUE = 200` 追加 (V-1 反映、マジックナンバー禁止)
 
 ### 主な変更
 
@@ -1117,31 +1118,53 @@ function searchDoubleMoveSuperAction(
 }
 ```
 
-#### 3. CardDigest 拡張 (doubleMoveActive)
+#### 3. CardDigest 拡張 (doubleMoveActive、W-2/V-1 整合で sente/gote の生値を保持)
 
 `src/lib/shogi/ai/cards/digest.ts` を拡張:
 
 ```ts
-// cards/digest.ts (PR1d-3 で拡張)
+// cards/digest.ts (PR1d-3 で拡張、W-2/V-1 整合)
 export interface CardDigest {
   manaDelta: number;
   manaCap: number;
   handValueDelta: number;
   drawProgressDelta: number;
-  doubleMoveActive: Player | null;  // ← PR1d-3 で追加 (二手指し中のプレイヤー、null=非活性)
+  doubleMoveActive: Player | null;  // ← PR1d-3 で追加 (sente/gote の生値、evaluateCardDigest で sente 絶対視点に変換、null=非活性)
 }
 
-export function computeCardDigest(cardState: CardGameState, player: Player): CardDigest {
-  // ... 既存フィールド
+// W-2 整合: player 引数なし (PR1d-1 で確立した sente 絶対視点固定の API)
+export function computeCardDigest(cardState: CardGameState): CardDigest {
+  // ... 既存フィールド (manaDelta / handValueDelta / drawProgressDelta、sente 絶対視点)
   const doubleMoveActive = cardState.doubleMove?.player ?? null;
   return { ..., doubleMoveActive };
 }
 ```
 
-`evaluateCardDigest` で `doubleMoveActive` の評価値を加算:
-- `doubleMoveActive === player`: 自分が二手指し中 → 通常 1 手の +α 価値 (cost 5 マナ消費済みなのでネット価値)
-- `doubleMoveActive === opponent`: 相手が二手指し中 → 大きなマイナス (= 相手が連続で攻める)
+`evaluateCardDigest` で `doubleMoveActive` の評価値を加算 (V-1 反映: W-2 整合で sente 絶対視点に統一):
+- `doubleMoveActive === "sente"`: sente が二手指し中 → **sente 視点で +DOUBLE_MOVE_ACTIVE_VALUE** (cost 5 マナ消費済みなのでネット価値)
+- `doubleMoveActive === "gote"`: gote が二手指し中 → **sente 視点で -DOUBLE_MOVE_ACTIVE_VALUE** (gote が連続で攻める)
 - `doubleMoveActive === null`: 影響なし (0)
+
+実装擬似コード (V-1 反映: マジックナンバー禁止、名前付き定数化):
+
+```ts
+// digest.ts evaluateDoubleMoveActive (PR1d-3、W-2/V-1 整合で sente 絶対視点)
+import { DOUBLE_MOVE_ACTIVE_VALUE } from "./heuristics";
+
+function evaluateDoubleMoveActive(doubleMoveActive: Player | null): number {
+  if (doubleMoveActive === "sente") return DOUBLE_MOVE_ACTIVE_VALUE;    // 例: +200 cp
+  if (doubleMoveActive === "gote") return -DOUBLE_MOVE_ACTIVE_VALUE;    // 例: -200 cp
+  return 0;
+}
+```
+
+PR1d-3 で `heuristics.ts` に以下の名前付き定数を追加 (V-1 反映):
+
+```ts
+// cards/heuristics.ts (PR1d-3 追加分)
+export const DOUBLE_MOVE_ACTIVE_VALUE = 200;  // 二手指し継続中の cardDigest 評価値 (cp、bench で調整)
+export const DOUBLE_MOVE_TOP_K = 10;          // bench で +30% 超過時のフォールバック上限手数 (親計画 md L495)
+```
 
 #### 4. double_move 中マナ供給差を cardDigest に反映 (G-3 反映、W-5 で MANA_FAST_BONUS vs MANA_PER_TURN を明示)
 
@@ -1276,7 +1299,7 @@ export interface CardDigest {
   manaCap: number;
   handValueDelta: number;
   drawProgressDelta: number;
-  doubleMoveActive: Player | null;     // PR1d-3 (= cardState.doubleMove?.player、両プレイヤーで意味が変わる例外)
+  doubleMoveActive: Player | null;     // PR1d-3 (= cardState.doubleMove?.player、sente/gote の生値、evaluateCardDigest で sente 絶対視点に変換、V-1 反映)
   trapPresence: {                       // ← PR1d-4 で追加 (W-2 整合: sente/gote 絶対視点で両者保持)
     sente: CardId | null;               // sente の盤上トラップ defId (なければ null)
     gote: CardId | null;                // gote の盤上トラップ defId
@@ -1857,10 +1880,32 @@ PR1a で `spectator-baseline.json` を保存、各 PR で扱いが変わる:
 | PR1b/PR1c 5 サイクル | - | - | - | 26 |
 | PR1c-2 4 サイクル | - | - | - | 25 |
 | 本セッションメタ計画 3 サイクル | 3 | 4 | 7 | 14 |
-| **PR1d 計画 md 第 1 次 (本反映)** | **2** | **3** | **3** | **8** |
+| **PR1d 計画 md 第 1 次** | **2** | **3** | **3** | **8** |
 | **累計** | - | - | - | **116** |
 
-「**指摘全件反映してから次サイクル**」の品質基盤を継承。本反映後、第 2 次レビューに進む。
+「**指摘全件反映してから次サイクル**」の品質基盤を継承。
+
+### 第 2 次レビュー指摘反映 (1 件)
+
+第 2 次レビュー結果に対し、Should-fix 1 件 (V-1) を反映。Must-fix / Nice-to-have は 0 件。
+
+| # | 指摘 | 反映内容 | 反映箇所 |
+|---|------|---------|---------|
+| **V-1 (Should-fix)** | `doubleMoveActive` の W-2 整合取り残し (`player`/`opponent` 表記が残存、W-2 sente 絶対視点と矛盾) | (1) `evaluateCardDigest` での評価値計算表記を **`sente`/`gote`** に統一 (sente が二手指し中 → +DOUBLE_MOVE_ACTIVE_VALUE / gote が二手指し中 → -DOUBLE_MOVE_ACTIVE_VALUE)、(2) `evaluateDoubleMoveActive` 擬似コードを明示 (sente 絶対視点で sign 反転)、(3) `DOUBLE_MOVE_ACTIVE_VALUE = 200` を `heuristics.ts` で名前付き定数化 (マジックナンバー禁止)、(4) PR1d-4 CardDigest 拡張のコメント (「両プレイヤーで意味が変わる例外」→「sente/gote の生値、evaluateCardDigest で sente 絶対視点に変換」) を訂正、(5) `computeCardDigest` シグネチャから player 引数削除 (W-2 整合)、(6) PR1d-1 heuristics.ts 集約コメント + PR1d-3 影響ファイルに `DOUBLE_MOVE_ACTIVE_VALUE` 追加を反映 | 「PR1d-3 / 3. CardDigest 拡張 (doubleMoveActive)」「PR1d-1 / 3. heuristics.ts 名前付き定数集約」「PR1d-3 影響ファイル」「PR1d-4 / 1. CardDigest 拡張」 |
+
+**累計反映実績 (PR1d 第 2 次後)**:
+
+| サイクル | Must | Should | Nice | 計 |
+|---------|------|--------|------|-----|
+| PR1a 4 サイクル | - | - | - | 43 |
+| PR1b/PR1c 5 サイクル | - | - | - | 26 |
+| PR1c-2 4 サイクル | - | - | - | 25 |
+| 本セッションメタ計画 3 サイクル | 3 | 4 | 7 | 14 |
+| PR1d 計画 md 第 1 次 | 2 | 3 | 3 | 8 |
+| **PR1d 計画 md 第 2 次 (本反映)** | **0** | **1** | **0** | **1** |
+| **累計** | - | - | - | **117** |
+
+本反映後、第 3 次レビューに進む。第 3 次で新規 Must-fix / Should-fix 0 件なら PR1d-1 着手承認の見込み。
 
 ---
 
