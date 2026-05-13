@@ -6,6 +6,9 @@ import { isInCheck } from "../moves";
 import { getSearchLegalMoves } from "./legal-moves";
 import { applyMoveForSearch } from "../board";
 import { evaluate, scoreMoveForOrdering } from "./evaluate";
+import { simulateCardEffect } from "../cards/effects";
+import { DRAW_VALUE_BONUS } from "./cards/heuristics";
+import type { AiTurnState, TurnAction } from "./turn/types";
 import {
   computeHash,
   PIECE_KEYS, PIECE_KEYS_HI,
@@ -686,4 +689,58 @@ export function findBestMove(
   }
 
   return bestMove;
+}
+
+// Issue #193 / PR1d-2: TurnAction (move / draw / playCard) を player 視点のスカラー評価値に変換する純粋関数。
+//
+// 設計意図:
+// - production の探索ホットパス (findBestMove / negamax / quiescence) は move-only のまま保持し、
+//   playCard / draw は本関数を engine.ts (PR1d-2 コミット 3 で統合予定) の root 経路から呼んで評価
+// - evaluate.ts の sente 絶対視点 (PR1d-1 W-2 反映) を player 視点に符号反転して返す
+// - cardDigest は ctx?.cardDigest (W-1 root スカラー方式) を使用、未渡時は加算 skip = 振る舞いキープ
+//
+// 評価方針:
+// - move: applyMoveForSearch 後の局面で evaluate (= 既存 root 評価と同じ depth=0 評価)
+// - draw: 局面は変わらず、cardDigest も root スカラー固定のため evaluate 値は同じ。
+//   ドローを促進するため DRAW_VALUE_BONUS を加算 (heuristics.ts の名前付き定数)
+// - playCard: simulateCardEffect で仮想 GameState 遷移後の局面で evaluate。
+//   simulateCardEffect が null を返すカード (target なしカード mana_up/no_promote/check_break/double_move 等)
+//   は PR1d-2 範囲外のため Number.NEGATIVE_INFINITY を返して候補から除外
+//
+// 注: depth=0 評価のため、move の深く読んだスコア (findBestMove 反復深化結果) との直接比較は
+// 不公平。コミット 3 (engine.ts 統合) で move のスコア比較経路を調整する想定。
+export function evaluateAction(
+  state: AiTurnState,
+  action: TurnAction,
+  player: Player,
+  variant: RuleVariant,
+  ctx?: SearchContext,
+): number {
+  const cardDigest = ctx?.cardDigest;
+  switch (action.kind) {
+    case "move": {
+      const nextState = applyMoveForSearch(state.gameState, action.move);
+      const raw = evaluate(nextState, variant, cardDigest);
+      return player === "sente" ? raw : -raw;
+    }
+    case "draw": {
+      const raw = evaluate(state.gameState, variant, cardDigest);
+      const signed = player === "sente" ? raw : -raw;
+      return signed + DRAW_VALUE_BONUS;
+    }
+    case "playCard": {
+      const nextGameState = simulateCardEffect(
+        state.gameState,
+        player,
+        action.defId,
+        action.target ?? null,
+      );
+      if (!nextGameState) {
+        // simulateCardEffect が null を返すカード (target なしカード) は PR1d-2 範囲外
+        return Number.NEGATIVE_INFINITY;
+      }
+      const raw = evaluate(nextGameState, variant, cardDigest);
+      return player === "sente" ? raw : -raw;
+    }
+  }
 }
