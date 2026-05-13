@@ -1494,7 +1494,7 @@ npm run test:perf-bench:spectator  # 両者対称性確認 (約 30-60 分)
 | 2 | `feat: #193-PR1d-4 evaluateCardDigest でトラップ価値計算 + 自玉周辺 no_promote 追加価値` | cards/digest.ts evaluateCardDigest 拡張 |
 | 3 | `feat: #193-PR1d-4 action-generator.ts にトラップ系候補追加 (no_promote / check_break)` | turn/action-generator.ts 拡張 + getCardActions 7 項目判定 |
 | 4 | `test: #193-PR1d-4 perf-bench.test.ts 新規 + bench fixture 2 系統 + CI 対象外分離 (G-4)` | perf-bench.test.ts + perf-bench-spectator.test.ts 新規 + package.json scripts + skipIf 制御 |
-| 5 | (オプション) `chore: #193-PR1d-4 観戦モード基準 fixture (spectator-baseline.json) 再生成 (C-3)` | scripts/gen-fixture-strategy.ts 観戦モード再生成 + meta.json 更新 |
+| 5 | (オプション) `chore: #193-PR1d-4 観戦モード基準 fixture (spectator-baseline.json) 再生成 (C-3 + ZZ-A 同時解消)` | scripts/gen-fixture-strategy.ts 観戦モード再生成 + meta.json 更新 + **ZZ-A 同時解消** (`pliesPerScenario: 50` → `maxPliesPerScenario: 50` + `actualPliesPerScenario: [n1, n2, n3, n4]` の実態値別フィールド追加、scripts 側の生成ロジックも実態 ply 数を記録するよう拡張) |
 
 ### DoD (PR1d 全体の最終 DoD を本 sub PR で確認)
 
@@ -1756,7 +1756,7 @@ PR1c-2 で確立した方式 (役割分担):
 
 PR1a で `spectator-baseline.json` を保存、各 PR で扱いが変わる:
 
-- **PR1c-2 マージ時点 (5badcab)**: 4 シナリオ × 50 ply、`addNoise=0` で deterministic AI 同士 → ply 25 で同一展開が繰り返される (data integrity 検証としては問題なし)
+- **PR1c-2 マージ時点 (5badcab)**: 4 シナリオ × 50 ply 想定、`addNoise=0` で deterministic AI 同士 → **実態は終局 (千日手 / 詰み / stalemate) 到達で 25 ply で break、4 シナリオすべて同じ展開** (PR1d-1 実装第 2 次レビュー ZZ-A 反映で発覚した既存問題。`meta.json` の `pliesPerScenario: 50` は上限値で、実態 ply 数は別フィールドで記録すべきだったため PR1d-4 で `maxPliesPerScenario` + `actualPliesPerScenario` に分離して同時解消予定)
 - **PR1d-1〜3 進行中**: 振る舞いが意図的に変わるため、観戦モード基準 fixture は **deprecated 扱い** (CI 外検証)
 - **PR1d-4 完了時**: 観戦モード基準 fixture を **新基準として再生成** (C-3 反映)、`spectator-baseline.meta.json` 更新
 
@@ -1937,10 +1937,35 @@ PR1d-1 実装完了後の第 1 次レビューで指摘された 5 件 (Must-fix
 | メタ計画 3 サイクル | 3 | 4 | 7 | 14 |
 | PR1d 計画 md 第 1 次 | 2 | 3 | 3 | 8 |
 | PR1d 計画 md 第 2 次 | 0 | 1 | 0 | 1 |
-| **PR1d-1 実装 第 1 次** (本反映) | **2** | **2** | **1** | **5** |
-| **累計** | - | - | - | **122** |
+| PR1d-1 実装 第 1 次 | 2 | 2 | 1 | 5 |
+| **累計 (PR1d-1 実装第 1 次まで)** | - | - | - | **122** |
 
-本反映後、`feature/#193-pr1d-1` ブランチで `npm run verify:strategy-fixture` (約 50 分の CI 外動的検証) を実行して 360/360 件完全一致を実証することで PR1d-1 DoD 達成と認定可能。続いて Vercel preview deploy で cardDigest 加算経路が production で発火することを確認。
+PR1d-1 実装第 1 次レビュー後、`npm run verify:strategy-fixture` (約 52.3 分の CI 外動的検証) を実行して **460/460 件完全一致** (Strategy 360/360 + Spectator 100/100) を実証し、PR1d-1 DoD「openingBook 非決定性解消」を構造的に達成済。
+
+### PR1d-1 実装 第 2 次レビュー指摘反映 (2 件、ZZ-A は PR1d-4 持ち越し記録のみ)
+
+PR1d-1 実装第 1 次反映後の第 2 次レビューで指摘された 2 件 (Should-fix 1 + Nice-to-have 1) は、いずれも **PR1d-1 マージブロッカーに該当しない** (= レビュアーも明言) ため、ユーザー判断のもと以下方針で対応:
+
+| # | 指摘 | ユーザー判断 | 反映内容 |
+|---|------|------------|---------|
+| **ZZ-A (Should-fix)** | `spectator-baseline.meta.json` の `pliesPerScenario: 50` メタ vs 実態 25 ply 不一致 (PR1c-2 由来の既存問題、PR1d-1 で初顕在化) | **PR1d-4 で同時解消 (案 B)** | 本コミットで PR1d-4 「コミット粒度」表 (L1497) と「観戦モード基準 fixture の扱い」(L1759) に **ZZ-A 同時解消方針** を追記。PR1d-4 観戦モード fixture 再生成時に scripts/gen-fixture-strategy.ts の生成ロジックを修正し、`maxPliesPerScenario: 50` + `actualPliesPerScenario: [n1, n2, n3, n4]` の実態値別フィールド分離を同時実装 |
+| **ZZ-B (Nice-to-have)** | Vercel preview deploy での production 機能発火観察が未実証 (追跡項目) | **本セッションで Vercel preview URL 取得 + ユーザー実機確認 (案 A)** | feature/#193-pr1d-1 ブランチの Vercel preview URL を `gh api` で取得し、ユーザーが card-shogi 対戦を試して **cardDigest 加算が production で発火 (sente/gote マナ差で指し手変化)** を確認。完全な DoD「マナ余裕 + drawProgress 進行 + 手札が乏しい のときにドロー」は PR1d-2 で `getLegalActions` を search.ts root 経路から呼ぶ統合時に実機検証 |
+
+**累計反映実績 (PR1d-1 実装第 2 次レビュー後)**:
+
+| サイクル | Must | Should | Nice | 計 |
+|---------|------|--------|------|-----|
+| PR1a 4 サイクル | - | - | - | 43 |
+| PR1b/PR1c 5 サイクル | - | - | - | 26 |
+| PR1c-2 4 サイクル | - | - | - | 25 |
+| メタ計画 3 サイクル | 3 | 4 | 7 | 14 |
+| PR1d 計画 md 第 1 次 | 2 | 3 | 3 | 8 |
+| PR1d 計画 md 第 2 次 | 0 | 1 | 0 | 1 |
+| PR1d-1 実装 第 1 次 | 2 | 2 | 1 | 5 |
+| **PR1d-1 実装 第 2 次** (本反映、ZZ-A 持ち越し + ZZ-B 追跡) | **0** | **1** | **1** | **2** |
+| **累計** | - | - | - | **124** |
+
+本反映後、Vercel preview deploy で実機確認 → PR1d-1 マージ承認 → PR1d-2 着手の見込み。「**指摘全件反映してから次サイクル**」の品質基盤を継承 (= ZZ-A は PR1d-4 で同時解消する形で反映予定、ZZ-B は本セッションで Vercel preview URL 取得で対応)。
 
 ---
 
