@@ -1,6 +1,7 @@
 import type { Board, GameState, Player, Position, RuleVariant } from "../types";
 import { STANDARD_VARIANT } from "../variants/standard";
 import { findKing, isSquareAttackedByFast } from "../moves";
+import { evaluateCardDigest, type CardDigest } from "./cards/digest";
 
 // 局面評価関数
 // 正の値 = 先手有利、負の値 = 後手有利
@@ -715,9 +716,16 @@ export function evaluateRookFiles(
 }
 
 // メイン評価関数
+//
+// Issue #193 / PR1d-1: cardDigest? optional 引数を追加 (W-1 / W-3 反映)。
+// - 未渡時は cardDigest 加算 skip (= 既存挙動完全保持、PR1c の 1000 局面 evaluate fixture の
+//   byte-level equality を維持)
+// - 渡時 + variant.id === "card-shogi" のときのみ evaluateCardDigest を加算 (1 op、
+//   ホットパス影響無視可、root スカラー方式で再計算を構造的に禁止)
 export function evaluate(
   state: GameState,
-  variant: RuleVariant = STANDARD_VARIANT
+  variant: RuleVariant = STANDARD_VARIANT,
+  cardDigest?: CardDigest,
 ): number {
   if (state.status === "checkmate") {
     return state.winner === "sente" ? 100000 : -100000;
@@ -773,6 +781,13 @@ export function evaluate(
 
   // テンポボーナス（手番側に小さなボーナス）
   score += state.currentPlayer === "sente" ? 15 : -15;
+
+  // Issue #193 / PR1d-1: cardDigest 加算 (W-1 / W-3 反映)。
+  // cardDigest 未渡時は加算 skip → byte-level equality 保持。
+  // evaluateCardDigest 側で variant.id === "card-shogi" のガード済 (W-3 二重ガード)。
+  if (cardDigest !== undefined) {
+    score += evaluateCardDigest(cardDigest, variant);
+  }
 
   return score;
 }

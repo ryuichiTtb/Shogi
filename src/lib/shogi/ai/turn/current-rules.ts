@@ -10,7 +10,25 @@
 import { applyMoveForSearch } from "@/lib/shogi/board";
 import { getFullLegalMoves } from "@/lib/shogi/moves";
 import type { Player, RuleVariant } from "@/lib/shogi/types";
+import type { CardGameState } from "@/lib/shogi/cards/types";
+import { DRAW_COST, AUTO_DRAW_INTERVAL } from "@/lib/shogi/cards/definitions";
 import type { AiTurnState, ApplyActionResult, TurnAction, TurnRules } from "./types";
+
+// PR1d-1: ドロー判定ヘルパ。
+// 計画 md L506-510 / 進行中チェックリスト F-4 反映:
+//   ・mana >= DRAW_COST (= 2): 手動ドロー使用後もマナ余裕を保つ
+//   ・deck.length > 0: 山札枯渇時はドロー不能
+//   ・drawProgress < AUTO_DRAW_INTERVAL - 1 (= 4): 次手番開始時の自動ドロー発火直前
+//     (drawProgress = 4) の局面では手動ドローを使うと「マナ -2 + 既に出る自動ドローを
+//     1 ターン分前倒し」にしかならず ROI が低い。drawProgress < 4 のときに限定して、
+//     自動ドローを 5 ターン後に持ち越しつつマナ -2 を即時投資する意味のあるケースに絞る。
+export function canDraw(cardState: CardGameState, player: Player): boolean {
+  return (
+    cardState.mana[player] >= DRAW_COST &&
+    cardState.deck[player].length > 0 &&
+    cardState.drawProgress[player] < AUTO_DRAW_INTERVAL - 1
+  );
+}
 
 export class CurrentRules implements TurnRules {
   constructor(private readonly variant: RuleVariant) {}
@@ -22,13 +40,29 @@ export class CurrentRules implements TurnRules {
     return true;
   }
 
-  // PR1a では振る舞いキープのため move-only を返す。draw / playCard は PR1d で追加。
+  // PR1d-1: getLegalActions に root のみ DrawAction 候補追加 (進行中チェックリスト F-4 反映)。
+  // ・move 候補は既存通り全列挙
+  // ・state.isRoot === true かつ variant.id === "card-shogi" のときのみ DrawAction を追加
+  //   (= 子ノードでは move-only に絞る、PR3 でカード深読みを広げる際に拡張)
+  // ・state.isRoot 未指定 or false の場合は従来通り move-only (= PR1c-2 完了時点の振る舞いを保持)
+  // ・実際の search.ts/findBestMove root 経路からの呼出統合は PR1d-2 で playCard 候補と一緒に行う
   getLegalActions(state: AiTurnState, player: Player): TurnAction[] {
     const moves = getFullLegalMoves(state.gameState, player, this.variant);
-    return moves.map((move) => ({ kind: "move" as const, move }));
+    const actions: TurnAction[] = moves.map((move) => ({ kind: "move" as const, move }));
+
+    if (state.isRoot === true && this.variant.id === "card-shogi") {
+      if (canDraw(state.cardState, player)) {
+        actions.push({ kind: "draw" });
+      }
+    }
+
+    return actions;
   }
 
-  // move 以外は PR1d で実装。PR1a の AI 探索からは呼ばれない (getLegalActions が move のみを返すため)。
+  // move 以外は PR1d-2 で実装。PR1d-1 段階では getLegalActions が root のみ draw 候補を生成するが、
+  // production の探索パスは依然として findBestMove (search.ts) → getSearchLegalMoves 直接呼出で、
+  // CurrentRules.getLegalActions/applyAction を呼んでいないため throw 到達せず。
+  // PR1d-2 で search.ts root 経路から getLegalActions を呼ぶ統合時に applyAction(draw) も同時実装する (ZZ-5 反映)。
   applyAction(state: AiTurnState, action: TurnAction): ApplyActionResult {
     if (action.kind === "move") {
       const nextGameState = applyMoveForSearch(state.gameState, action.move);
@@ -43,7 +77,7 @@ export class CurrentRules implements TurnRules {
       };
     }
     throw new Error(
-      `CurrentRules.applyAction: action.kind="${action.kind}" は PR1d で実装予定 (PR1a の AI 探索パスからは呼ばれません)`,
+      `CurrentRules.applyAction: action.kind="${action.kind}" は PR1d-2 で実装予定 (PR1d-1 段階では getLegalActions が draw 候補を生成するが、production の探索パスからは未呼出のため throw 到達せず、ZZ-5 反映)`,
     );
   }
 }

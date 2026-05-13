@@ -27,6 +27,10 @@ export type TurnAction =
 // - doubleMove: 二手指し継続中の状態 (active プレイヤーと残り手数)。null は通常局面。
 //   reducer の doubleMove スナップショット (preFirstMoveState/preCardState) は AI 側では
 //   持たない (探索内では1手目を仮想適用してから2手目を選ぶため、戻し用スナップショットは不要)。
+// - isRoot: 探索 root であるかの判定経路 (PR1d-1 追加)。getLegalActions で
+//   DrawAction / PlayCardAction 候補を root のみで含める制御に使う。
+//   未指定時は false 扱い (= 子ノード)。本フィールドの実際の有効化は PR1d-2 で
+//   search.ts/findBestMove root 経路から getLegalActions を呼ぶ統合時に行う。
 export interface AiTurnState {
   gameState: GameState;
   cardState: CardGameState;
@@ -34,6 +38,7 @@ export interface AiTurnState {
     active: Player;
     movesLeft: 1 | 2;
   } | null;
+  isRoot?: boolean;
 }
 
 // applyAction の戻り値。
