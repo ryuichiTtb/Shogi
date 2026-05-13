@@ -1,7 +1,7 @@
 import type { Difficulty, GameState, Move, Player, RuleVariant } from "../types";
 import type { CardGameState } from "../cards/types";
 import { STANDARD_VARIANT } from "../variants/standard";
-import { findBestMove } from "./search";
+import { findBestMove, evaluateAction } from "./search";
 import {
   createSearchContext,
   finalizeStats,
@@ -12,6 +12,8 @@ import { getBookMove, MAX_BOOK_MOVES } from "./openingBook";
 import { getFullLegalMoves, isSquareAttackedByFast } from "../moves";
 import { applyMoveForSearch } from "../board";
 import { computeCardDigest, type CardDigest } from "./cards/digest";
+import { CurrentRules } from "./turn/current-rules";
+import type { AiTurnState, TurnAction } from "./turn/types";
 // Issue #193 / PR1c-2 Phase B: DIFFICULTY_PARAMS 直接参照を Strategy 経由参照に切替。
 // findBestMoveWithStats 内で createStrategy(difficulty, { spectator }) を呼んで
 // Strategy インスタンスから maxSearchDepth / timeLimitMs / addNoise /
@@ -160,6 +162,14 @@ export interface FindBestMoveOptions {
 
 export interface FindBestMoveResult {
   move: Move | null;
+  // Issue #193 / PR1d-2: TurnAction (move / draw / playCard) として最良アクションを返す経路。
+  // 設計意図:
+  // - `move` フィールドは引き続き findBestMove (move-only 探索) の結果を保持し、route.ts / 上位フックの
+  //   既存呼出経路は完全に振る舞いキープ (= playCard / draw が選ばれても move は move bestMove のまま)
+  // - `action` フィールドは playCard / draw 採用時に対応する TurnAction を保持
+  //   (上位 PR で UI 統合する際の伝播経路、PR1d-2 段階では SearchStats.usedCardAction で観測のみ)
+  // - card-shogi variant 以外 / cardState 未渡時は `action: { kind: "move", move }` または null
+  action: TurnAction | null;
   stats: SearchStats;
 }
 
@@ -242,6 +252,7 @@ export function findBestMoveWithStats(
   if (bookMove) {
     return {
       move: bookMove,
+      action: { kind: "move", move: bookMove },
       stats: finalizeStats(ctx, { usedBook: true, usedFallback: false }),
     };
   }
@@ -272,10 +283,67 @@ export function findBestMoveWithStats(
     }
   }
 
+  // Issue #193 / PR1d-2: card-shogi の root で playCard / draw 候補を評価して最良 TurnAction を決定。
+  //
+  // 設計意図:
+  // - move は findBestMove (反復深化 + negamax) で深く読んだ結果を活用
+  // - playCard / draw は CurrentRules.getLegalActions で候補生成 → evaluateAction で浅く評価 (depth=0)
+  // - 公平比較のため、move も evaluateAction で浅く再評価して比較基準を統一
+  //   (= move の深く読んだ bestScore は内部状態で取得困難なため、再評価で代替)
+  // - 浅い比較は move の深さ優位を失うが、playCard / draw を頻繁に過剰採用するリスクを抑える
+  //   ため、move 採用が原則になる保守的振る舞い (棋力退化防止)
+  //
+  // 振る舞いキープ:
+  // - variant.id !== "card-shogi" / options.cardState 未渡 / fallback 経路では playCard 評価 skip
+  //   = 既存 standard variant や PR1c-2 完了時点と完全同一
+  // - move フィールドは findBestMove 結果のまま (= UI / route.ts への伝播は move-only、
+  //   PR1d-2 段階では action フィールドは observability 用途のみ、上位 PR で UI 統合)
+  let selectedAction: TurnAction | null = move !== null ? { kind: "move", move } : null;
+  let usingCardAction = false;
+
+  if (
+    !usedFallback &&
+    move !== null &&
+    variant.id === "card-shogi" &&
+    options.cardState !== undefined
+  ) {
+    const rules = new CurrentRules(variant);
+    const aiTurnState: AiTurnState = {
+      gameState: state,
+      cardState: options.cardState,
+      doubleMove: null,
+      isRoot: true,
+    };
+    const allActions = rules.getLegalActions(aiTurnState, player);
+
+    // move を evaluateAction で浅く再評価 (= 比較基準を統一)
+    let bestActionScore = evaluateAction(
+      aiTurnState,
+      { kind: "move", move },
+      player,
+      variant,
+      ctx,
+    );
+
+    for (const action of allActions) {
+      if (action.kind === "move") continue; // move は上で評価済
+      const score = evaluateAction(aiTurnState, action, player, variant, ctx);
+      if (score > bestActionScore) {
+        bestActionScore = score;
+        selectedAction = action;
+        usingCardAction = true;
+      }
+    }
+  }
+
   // ブランダーガード (advanced / expert のみ、抑制版)。
   // Issue #176: 戦術的駒捨てを潰すリスクがあるが、Stage A では現行挙動を維持する。
   // Phase 4 (PR 2) で抑制ロジックを再設計する。
+  // PR1d-2 (M-2 / N-7 反映): usingCardAction = true (= playCard / draw 採用) のとき
+  // blunder guard を skip。理由: pawn_return / piece_return が「自駒タダ取り回避」役を
+  // 担う場合、hasHangingPiece による move 差替と二重発動するため、構造的排他制御で防ぐ。
   if (
+    !usingCardAction &&
     !usedFallback &&
     move !== null &&
     (difficulty === "advanced" || difficulty === "expert")
@@ -301,12 +369,15 @@ export function findBestMoveWithStats(
           }
         }
         move = bestSafeMove;
+        // blunder guard で move が差替えられた場合、selectedAction の move も同期
+        selectedAction = { kind: "move", move };
       }
     }
   }
 
   return {
     move,
-    stats: finalizeStats(ctx, { usedBook, usedFallback }),
+    action: selectedAction,
+    stats: finalizeStats(ctx, { usedBook, usedFallback, usedCardAction: usingCardAction }),
   };
 }

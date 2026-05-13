@@ -29,6 +29,11 @@ export interface SearchStats {
   stoppedBy: StopReason;
   usedBook: boolean;
   usedFallback: boolean;
+  // Issue #193 / PR1d-2: root で playCard / draw が選ばれたかを記録 (observability)。
+  // findBestMoveWithStats 内の blunder guard 排他制御 (= playCard 選択時は skip) と
+  // 同じローカル状態を SearchStats 経由で外部から観測可能にする。
+  // 未指定時は false (= 振る舞いキープ、PR1d-1 完了時点と同等)。
+  usedCardAction: boolean;
 }
 
 export interface SearchContext {
@@ -97,7 +102,7 @@ export function shouldStop(ctx: SearchContext): boolean {
 // 探索終了時に SearchStats を構築する。
 export function finalizeStats(
   ctx: SearchContext,
-  extras: { usedBook: boolean; usedFallback: boolean },
+  extras: { usedBook: boolean; usedFallback: boolean; usedCardAction?: boolean },
 ): SearchStats {
   return {
     elapsedMs: performance.now() - ctx.startedAt,
@@ -107,5 +112,7 @@ export function finalizeStats(
     stoppedBy: ctx.stoppedBy,
     usedBook: extras.usedBook,
     usedFallback: extras.usedFallback,
+    // PR1d-2 (W-6 整合): usedCardAction 未指定時は false (= 振る舞いキープ)
+    usedCardAction: extras.usedCardAction ?? false,
   };
 }
