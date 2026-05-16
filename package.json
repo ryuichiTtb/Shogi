@@ -16,6 +16,9 @@
     "gen:fixture:evaluate": "tsx scripts/gen-fixture-evaluate.ts",
     "gen:fixture:strategy": "tsx scripts/gen-fixture-strategy.ts",
     "verify:strategy-fixture": "tsx scripts/verify-strategy-fixture.ts",
+    "test:perf-bench": "RUN_PERF_BENCH=true vitest run src/lib/shogi/ai/__tests__/perf-bench.test.ts src/lib/shogi/ai/__tests__/perf-bench-spectator.test.ts",
+    "test:perf-bench:human": "RUN_PERF_BENCH=true vitest run src/lib/shogi/ai/__tests__/perf-bench.test.ts",
+    "test:perf-bench:spectator": "RUN_PERF_BENCH=true vitest run src/lib/shogi/ai/__tests__/perf-bench-spectator.test.ts",
     "db:seed": "npx tsx prisma/seed.ts",
     "db:push": "prisma db push",
     "db:generate": "prisma generate"
