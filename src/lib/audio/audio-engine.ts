@@ -67,6 +67,16 @@ export function getAudioCtx(): AudioContext | null {
   return ensureCtx();
 }
 
+// Issue #213: AudioContext が running (= GainNode 経由で音が destination に届く
+// 状態) かを副作用なしで判定する。ensureCtx() と違い AudioContext を生成しない
+// (未生成なら false)。use-bgm.ts の attemptRetry が「play() 成功でも AudioContext
+// が suspended なら GainNode 経由で無音」を検知し、running 確定まで user gesture
+// リトライ listener を保持し続けるために参照する。isRunning 判定 (iOS Safari の
+// "interrupted" を running 扱いしない) を audio-engine 内に一元化する。
+export function isAudioContextRunning(): boolean {
+  return audioCtx != null && isRunning(audioCtx.state);
+}
+
 // =====================
 // unlock (resume) 制御
 // =====================
@@ -96,8 +106,13 @@ function attachUnlockRetry(): void {
     }
     detachUnlockRetry();
   };
+  // Issue #213: iOS Safari は非インタラクティブ要素 (背景 div/テキスト/余白) で
+  // click を発火しない。touchstart はスクロール意図とも解釈されジェスチャー特権が
+  // 弱いため、確実にタップを拾える touchend も併用する (= ホーム画面の任意箇所
+  // タップで AudioContext を unlock できるようにする)。
   window.addEventListener("click", onGesture);
   window.addEventListener("touchstart", onGesture);
+  window.addEventListener("touchend", onGesture);
   window.addEventListener("keydown", onGesture);
   unlockRetryHandler = onGesture;
 }
@@ -110,6 +125,7 @@ function detachUnlockRetry(): void {
   if (typeof window !== "undefined" && unlockRetryHandler) {
     window.removeEventListener("click", unlockRetryHandler);
     window.removeEventListener("touchstart", unlockRetryHandler);
+    window.removeEventListener("touchend", unlockRetryHandler);
     window.removeEventListener("keydown", unlockRetryHandler);
   }
   unlockRetryHandler = null;
