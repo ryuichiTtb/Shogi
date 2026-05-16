@@ -9,6 +9,8 @@
 
 import { describe, it, expect } from "vitest";
 import { CurrentRules } from "../turn/current-rules";
+import { evaluateAction } from "../search";
+import { getCardActions } from "../turn/action-generator";
 import { createInitialCardState } from "@/lib/shogi/cards/state";
 import { createInitialGameState } from "@/lib/shogi/board";
 import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
@@ -114,5 +116,71 @@ describe("CurrentRules.applyAction 二手指し制御 (PR1d-3 コミット 1)", 
     const r2 = rules.applyAction(r1.next, firstLegalMove(r1.next));
     expect(r2.turnEnded).toBe(true);
     expect(r2.next.doubleMove).toBeNull();
+  });
+});
+
+describe("searchDoubleMoveSuperAction (PR1d-3 コミット 2、evaluateAction 経由)", () => {
+  it("double_move の evaluateAction は有限スコアを返す (super-action 探索が機能、NEGATIVE_INFINITY でない)", () => {
+    const state = makeAiTurnState();
+    const action: TurnAction = {
+      kind: "playCard",
+      cardInstanceId: "dm",
+      defId: "double_move",
+      target: undefined,
+    };
+    const score = evaluateAction(state, action, "sente", CARD_SHOGI_VARIANT);
+    expect(Number.isFinite(score)).toBe(true);
+    expect(score).not.toBe(Number.NEGATIVE_INFINITY);
+  });
+
+  it("double_move スコアは move スコアと同じ player 視点で比較可能 (両方有限)", () => {
+    const state = makeAiTurnState();
+    const dmAction: TurnAction = {
+      kind: "playCard",
+      cardInstanceId: "dm",
+      defId: "double_move",
+      target: undefined,
+    };
+    const moves = getFullLegalMoves(state.gameState, "sente", CARD_SHOGI_VARIANT);
+    const mvAction: TurnAction = { kind: "move", move: moves[0] };
+    const dmScore = evaluateAction(state, dmAction, "sente", CARD_SHOGI_VARIANT);
+    const mvScore = evaluateAction(state, mvAction, "sente", CARD_SHOGI_VARIANT);
+    expect(Number.isFinite(dmScore)).toBe(true);
+    expect(Number.isFinite(mvScore)).toBe(true);
+  });
+
+  it("gote 視点でも double_move は有限スコア (player 符号整合)", () => {
+    const state = makeAiTurnState();
+    state.gameState = { ...state.gameState, currentPlayer: "gote" };
+    const action: TurnAction = {
+      kind: "playCard",
+      cardInstanceId: "dm",
+      defId: "double_move",
+      target: undefined,
+    };
+    const score = evaluateAction(state, action, "gote", CARD_SHOGI_VARIANT);
+    expect(Number.isFinite(score)).toBe(true);
+  });
+
+  it("getCardActions が double_move を候補に含む (マナ 5 以上 + 手札保有時)", () => {
+    const state = makeAiTurnState();
+    state.cardState.mana.sente = 10;
+    state.cardState.hand.sente = [{ instanceId: "dm1", defId: "double_move" }];
+    const actions = Array.from(getCardActions(state, "sente", CARD_SHOGI_VARIANT));
+    const hasDoubleMove = actions.some(
+      (a) => a.kind === "playCard" && a.defId === "double_move",
+    );
+    expect(hasDoubleMove).toBe(true);
+  });
+
+  it("マナ不足 (5 未満) では double_move は候補に含まれない (BEGIN_PLAY_CARD 項目 4)", () => {
+    const state = makeAiTurnState();
+    state.cardState.mana.sente = 4; // double_move cost 5 未満
+    state.cardState.hand.sente = [{ instanceId: "dm1", defId: "double_move" }];
+    const actions = Array.from(getCardActions(state, "sente", CARD_SHOGI_VARIANT));
+    const hasDoubleMove = actions.some(
+      (a) => a.kind === "playCard" && a.defId === "double_move",
+    );
+    expect(hasDoubleMove).toBe(false);
   });
 });

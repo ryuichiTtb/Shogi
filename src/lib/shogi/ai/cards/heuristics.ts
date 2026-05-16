@@ -33,6 +33,19 @@ export const HAND_VALUE_DECAY = 3.0;
 export const MANA_DELTA_COEFFICIENT = 10;
 export const DRAW_PROGRESS_COEFFICIENT = 3;
 
-// PR1d-3 で追加予定 (Phase 0 で枠だけ確保、V-1 反映で DOUBLE_MOVE_ACTIVE_VALUE 追加も明示):
-// export const DOUBLE_MOVE_TOP_K = 10;             // bench で +30% 超過時のフォールバック上限手数
-// export const DOUBLE_MOVE_ACTIVE_VALUE = 200;     // V-1 反映: 二手指し継続中の cardDigest 評価値 (cp、bench で調整)
+// PR1d-3 (判断 1 = 案 B「depth=0 簡易評価」採用):
+//   ・DOUBLE_MOVE_TOP_K: super-action 内部探索の 1 手目候補上限。案 B では 2 手指し
+//     組合せ (1 手目 × 全 2 手目) を depth=0 で全評価するため計算量は O(K × ~80)。
+//     計画 md L1254 は「+30% 超過時のみ発動・デフォルト無効」だが、それは案 A
+//     (negamax 深読み + αβ pruning) 前提の試算。案 B は depth=0 全探索で αβ
+//     pruning が効かないため、PR1d-3 初版から常時 K=10 に絞り 1 手目を heuristic
+//     順 (scoreMoveForOrdering) 上位に限定する (ZZ 反映: 案 B 採用に伴う性能調整)。
+export const DOUBLE_MOVE_TOP_K = 10;
+
+// 判断 2 = 案 B でコミット 3 (cardDigest doubleMoveActive) はスキップ確定のため
+// DOUBLE_MOVE_ACTIVE_VALUE は導入しない。理由: CardGameState に doubleMove
+// フィールドが無く、production root では engine.ts が doubleMove:null 固定で
+// AiTurnState を構築するため root スカラー cardDigest の doubleMoveActive は
+// 常に無意味化する。二手指しの価値は super-action 探索の局所評価が直接捕捉する。
+// 将来 reducer の doubleMove を route.ts 経由で AI に渡す統合時に再検討
+// (計画 md PR1d-3 コミット 3 セクションに ZZ 反映)。
