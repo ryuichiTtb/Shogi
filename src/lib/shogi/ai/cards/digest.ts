@@ -24,6 +24,9 @@ import {
   HAND_VALUE_BASE,
   HAND_VALUE_DECAY,
   DRAW_PROGRESS_COEFFICIENT,
+  TRAP_VALUE_NO_PROMOTE,
+  TRAP_VALUE_CHECK_BREAK,
+  NO_PROMOTE_MARK_COEFFICIENT,
 } from "./heuristics";
 
 export interface CardDigest {
@@ -96,9 +99,27 @@ export function evaluateCardDigest(
   variant: RuleVariant,
 ): number {
   if (variant.id !== "card-shogi") return 0;
-  return (
+  let value =
     digest.manaDelta * MANA_DELTA_COEFFICIENT +
     digest.handValueDelta +
-    digest.drawProgressDelta * DRAW_PROGRESS_COEFFICIENT
-  );
+    digest.drawProgressDelta * DRAW_PROGRESS_COEFFICIENT;
+  // PR1d-4: 盤上トラップ価値 (sente 絶対視点: sente 盤上トラップ = +、gote = -)
+  value += evaluateTrapPresence(digest.trapPresence);
+  // PR1d-4 (ギャップ1=案A): no_promote マーク数差 × 係数 (玉位置非依存)。
+  // sente 絶対視点: sente の no_promote マークが多いほど + (敵の成りを抑止して有利)。
+  value += digest.noPromoteMarkCountDelta * NO_PROMOTE_MARK_COEFFICIENT;
+  return value;
+}
+
+// 盤上トラップの sente 絶対視点価値。sente の盤上トラップは正、gote は負。
+// check_break は王手回避用途で no_promote より戦略価値が高い (定数で表現)。
+function evaluateTrapPresence(
+  trapPresence: CardDigest["trapPresence"],
+): number {
+  let v = 0;
+  if (trapPresence.sente === "no_promote") v += TRAP_VALUE_NO_PROMOTE;
+  else if (trapPresence.sente === "check_break") v += TRAP_VALUE_CHECK_BREAK;
+  if (trapPresence.gote === "no_promote") v -= TRAP_VALUE_NO_PROMOTE;
+  else if (trapPresence.gote === "check_break") v -= TRAP_VALUE_CHECK_BREAK;
+  return v;
 }
