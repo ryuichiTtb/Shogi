@@ -6,12 +6,17 @@
 // - cardDigest を引数として子ノードに伝播 (= ホットパスでの再計算を構造的に禁止、W-1 反映)
 // - sente 絶対視点で固定 (W-2 反映、evaluate 既存実装 sign = piece.owner === "sente" ? 1 : -1 と符号整合)
 //
-// 段階拡張ロードマップ (PR1d 計画 md L191-196):
-// - PR1d-1 (本コミット): manaDelta / manaCap / handValueDelta / drawProgressDelta
-// - PR1d-3: doubleMoveActive: Player | null (sente/gote の生値、evaluateCardDigest で sente 絶対視点に変換)
-// - PR1d-4: trapPresence / noPromoteMarksPositions (W-7 反映: TrapInstance / PieceMark 抽出経路)
+// 段階拡張ロードマップ (PR1d 計画 md L191-196、実装での確定を反映):
+// - PR1d-1: manaDelta / manaCap / handValueDelta / drawProgressDelta
+// - PR1d-3: doubleMoveActive は **スキップ** (判断2=案B)。CardGameState に doubleMove
+//   フィールドが無く production root では常に null のため root スカラー化が無意味。
+//   二手指し価値は search.ts の super-action 局所探索が直接捕捉する。
+// - PR1d-4 (本コミット): trapPresence (TrapInstance.defId 抽出) +
+//   noPromoteMarkCountDelta (ギャップ1=案A: 玉位置非依存の sente-gote マーク数差。
+//   計画 md L1310 の positions 配列は evaluateCardDigest が GameState/玉位置を
+//   持たず proximity 不可のため単純カウント差に簡略化、ZZ 反映)。
 
-import type { CardGameState } from "../../cards/types";
+import type { CardGameState, CardId } from "../../cards/types";
 import type { RuleVariant } from "../../types";
 import { MANA_CAP } from "../../cards/definitions";
 import {
@@ -30,6 +35,15 @@ export interface CardDigest {
   handValueDelta: number;
   // drawProgress.sente - drawProgress.gote (W-2: sente 絶対視点)
   drawProgressDelta: number;
+  // PR1d-4: 盤上トラップ存在。各プレイヤーの TrapInstance.defId (なければ null)。
+  // W-2 整合: sente/gote 両者を絶対視点で保持し、evaluateCardDigest で
+  // 「sente 盤上トラップ = +、gote 盤上トラップ = -」に変換。
+  trapPresence: { sente: CardId | null; gote: CardId | null };
+  // PR1d-4 (ギャップ1=案A): no_promote マーク数差 = sente 数 - gote 数。
+  // W-2 sente 絶対視点。計画 md L1310 の positions 配列 + proximity 評価は
+  // evaluateCardDigest が GameState/玉位置非依存 (W-1 root スカラー方式) のため
+  // 実装不可 → 玉位置非依存の単純カウント差に簡略化 (ZZ 反映)。
+  noPromoteMarkCountDelta: number;
 }
 
 /**
@@ -45,11 +59,23 @@ export function computeCardDigest(cardState: CardGameState): CardDigest {
     computeHandValue(cardState.hand.gote.length);
   const drawProgressDelta =
     cardState.drawProgress.sente - cardState.drawProgress.gote;
+  // PR1d-4: cardState.trap は Record<Player, TrapInstance | null>。
+  // TrapInstance.defId を抽出 (盤上トラップなしは null)。
+  const trapPresence = {
+    sente: cardState.trap.sente?.defId ?? null,
+    gote: cardState.trap.gote?.defId ?? null,
+  };
+  // PR1d-4 (ギャップ1=案A): cardState.noPromoteMarks は Record<Player, PieceMark[]>。
+  // 玉位置非依存の単純カウント差 (sente 数 - gote 数、W-2 sente 絶対視点)。
+  const noPromoteMarkCountDelta =
+    cardState.noPromoteMarks.sente.length - cardState.noPromoteMarks.gote.length;
   return {
     manaDelta,
     manaCap: MANA_CAP,
     handValueDelta,
     drawProgressDelta,
+    trapPresence,
+    noPromoteMarkCountDelta,
   };
 }
 
