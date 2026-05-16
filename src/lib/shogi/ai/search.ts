@@ -7,7 +7,12 @@ import { getSearchLegalMoves } from "./legal-moves";
 import { applyMoveForSearch } from "../board";
 import { evaluate, scoreMoveForOrdering } from "./evaluate";
 import { simulateCardEffect } from "../cards/effects";
-import { DRAW_VALUE_BONUS, DOUBLE_MOVE_TOP_K } from "./cards/heuristics";
+import {
+  DRAW_VALUE_BONUS,
+  DOUBLE_MOVE_TOP_K,
+  TRAP_VALUE_NO_PROMOTE,
+  TRAP_VALUE_CHECK_BREAK,
+} from "./cards/heuristics";
 import { CurrentRules } from "./turn/current-rules";
 import type { AiTurnState, TurnAction } from "./turn/types";
 import {
@@ -705,10 +710,12 @@ export function findBestMove(
 // - draw: 局面は変わらず、cardDigest も root スカラー固定のため evaluate 値は同じ。
 //   ドローを促進するため DRAW_VALUE_BONUS を加算 (heuristics.ts の名前付き定数)
 // - playCard (通常カード): simulateCardEffect で仮想 GameState 遷移後の局面で evaluate。
-//   simulateCardEffect が null を返す target なしカード (mana_up/no_promote/check_break)
-//   は PR1d-3 範囲外のため Number.NEGATIVE_INFINITY を返して候補から除外
+//   simulateCardEffect が null を返す target なしカード (mana_up 等) は
+//   Number.NEGATIVE_INFINITY を返して候補から除外
 // - playCard "double_move": PR1d-3 で searchDoubleMoveSuperAction (2 手指し組合せの
 //   depth=0 局所探索、判断 1 = 案 B) に委譲
+// - playCard "no_promote" / "check_break": PR1d-4 で現局面評価 + TRAP_VALUE_* 加算
+//   (targeting:none で盤面不変、トラップセット増分価値の固定近似、bench で係数調整)
 //
 // 注: depth=0 評価のため、move の深く読んだスコア (findBestMove 反復深化結果) との
 // 直接比較は不公平だが、engine.ts root 経路 (PR1d-2) で move も evaluateAction で
@@ -739,6 +746,20 @@ export function evaluateAction(
       if (action.defId === "double_move") {
         return searchDoubleMoveSuperAction(state, player, variant, ctx);
       }
+      // PR1d-4: トラップ系 (no_promote / check_break) は targeting:none で盤面不変
+      // (simulateCardEffect は null)。カード使用で自盤面にトラップがセットされる
+      // 増分価値を現局面評価 (player 視点) に加算 (= draw の DRAW_VALUE_BONUS と同型)。
+      // 「いつ使うべきか」(序盤 / king safety) の精度は固定価値の近似で代替し、
+      // heuristics.ts の TRAP_VALUE_* を bench で調整 (計画 md L1267 警告に対応)。
+      if (action.defId === "no_promote" || action.defId === "check_break") {
+        const trapRaw = evaluate(state.gameState, variant, cardDigest);
+        const trapSigned = player === "sente" ? trapRaw : -trapRaw;
+        const trapBonus =
+          action.defId === "no_promote"
+            ? TRAP_VALUE_NO_PROMOTE
+            : TRAP_VALUE_CHECK_BREAK;
+        return trapSigned + trapBonus;
+      }
       const nextGameState = simulateCardEffect(
         state.gameState,
         player,
@@ -747,7 +768,7 @@ export function evaluateAction(
       );
       if (!nextGameState) {
         // simulateCardEffect が null を返すその他の target なしカード
-        // (mana_up / no_promote / check_break) は PR1d-3 範囲外
+        // (mana_up 等) は PR1d-4 範囲外
         return Number.NEGATIVE_INFINITY;
       }
       const raw = evaluate(nextGameState, variant, cardDigest);

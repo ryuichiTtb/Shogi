@@ -140,3 +140,48 @@ describe("getCardActions の Generator 性質", () => {
     expect(list1.length).toBe(list2.length);
   });
 });
+
+describe("getCardActions トラップ系 (PR1d-4: no_promote / check_break)", () => {
+  it("no_promote / check_break は targeting:none で候補生成 (マナ十分・トラップ未セット)", () => {
+    const state = makeAiTurnState();
+    state.cardState.mana.sente = 10;
+    state.cardState.hand.sente = [
+      makeCardInstance("no_promote", "np1"),
+      makeCardInstance("check_break", "cb1"),
+    ];
+    const actions = Array.from(getCardActions(state, "sente", CARD_SHOGI_VARIANT));
+    const defIds = new Set(actions.map((a) => (a.kind === "playCard" ? a.defId : null)));
+    expect(defIds.has("no_promote")).toBe(true);
+    expect(defIds.has("check_break")).toBe(true);
+  });
+
+  it("マナ不足ではトラップ候補に含まれない (no_promote cost 3 / check_break cost 4)", () => {
+    const state = makeAiTurnState();
+    state.cardState.mana.sente = 2;
+    state.cardState.hand.sente = [
+      makeCardInstance("no_promote", "np1"),
+      makeCardInstance("check_break", "cb1"),
+    ];
+    const actions = Array.from(getCardActions(state, "sente", CARD_SHOGI_VARIANT));
+    expect(actions).toEqual([]);
+  });
+
+  it("同種トラップがセット済なら hasSameKindTrapPlaced で除外 (BEGIN_PLAY_CARD 項目5)", () => {
+    const state = makeAiTurnState();
+    state.cardState.mana.sente = 10;
+    state.cardState.hand.sente = [
+      makeCardInstance("no_promote", "np1"),
+      makeCardInstance("check_break", "cb1"),
+    ];
+    // sente 盤面に no_promote トラップをセット済 → no_promote のみ除外、check_break は残る
+    state.cardState.trap.sente = {
+      instanceId: "existing-np",
+      defId: "no_promote",
+      owner: "sente",
+    };
+    const actions = Array.from(getCardActions(state, "sente", CARD_SHOGI_VARIANT));
+    const defIds = new Set(actions.map((a) => (a.kind === "playCard" ? a.defId : null)));
+    expect(defIds.has("no_promote")).toBe(false);
+    expect(defIds.has("check_break")).toBe(true);
+  });
+});
