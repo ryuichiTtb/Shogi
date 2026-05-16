@@ -1969,6 +1969,27 @@ PR1d-1 実装第 1 次反映後の第 2 次レビューで指摘された 2 件 
 
 ---
 
+### PR1d-3 実装 設計判断反映 (2 件ユーザー確認済 + 実装ギャップ ZZ)
+
+PR1d-3 実装中、計画書 PR1d-3 詳細 (L948-1259) の擬似コードと PR1d-2 で確立した設計 (production ホットパス touch せず、engine.ts root で `evaluateAction` 浅評価 = depth=0) の整合性が問題となり、ユーザーに 2 件の設計判断を確認:
+
+| # | 設計判断 | ユーザー確定 | 反映内容 |
+|---|---------|------------|---------|
+| **判断 1** | super-action 内部探索の深さ (計画書 L1060-1122 は案 A=negamax 深読み、PR1d-2 evaluateAction は depth=0) | **案 B (depth=0 簡易評価)** | `searchDoubleMoveSuperAction` は 2 手指し組合せを局所探索し 2 手指し後を depth=0 評価。計画書 L1060-1122 の negamax 深読み + local αβ は案 A 前提のため本実装と乖離 (negamax 呼出なし、αβ は depth=0 で単純 max に縮約)。性能配慮で 1 手目を `DOUBLE_MOVE_TOP_K=10` 常時絞り (計画書 L1254「+30% 超過時のみ・デフォルト無効」は案 A 前提) |
+| **判断 2** | cardDigest doubleMoveActive (計画書 L1124-1170、L1141 `cardState.doubleMove?.player`) | **案 B (コミット 3 スキップ)** | `CardGameState` に `doubleMove` フィールドが存在せず (reducer state 側、AI 側は `AiTurnState.doubleMove` 独立管理)、production root では engine.ts が `doubleMove:null` 固定で AiTurnState 構築のため root スカラー cardDigest の doubleMoveActive は常に無意味化。コミット 3 (cards/digest.ts 拡張 + `DOUBLE_MOVE_ACTIVE_VALUE` + `MANA_FAST_BONUS` 供給差、計画書 L1124-1210) は全てスキップ。二手指しの価値は super-action 探索の局所評価が直接捕捉。将来 reducer の doubleMove を route.ts 経由で AI に渡す統合時に再検討 |
+
+**実装ギャップ (擬似コードと実コードの差異、ZZ 記録)**:
+
+- `ApplyActionResult.turnEnded` は PR1a で既存 (計画書 L980-989「turn/types.ts に追加」は不要、turn/types.ts 変更なし)
+- `CurrentRules` は `class ... implements TurnRules` (計画書 L995 等の `const CurrentRules: TurnRules = {}` と差異)
+- `AiTurnState.doubleMove` の player キーは `.active` (計画書 L1002-1021 等の `.player` と差異)
+- action-generator.ts は double_move 候補生成のため変更不要 (`targeting:none` を PR1d-2 の `enumerateTargets` case "none" が既に対応、計画書 L971「double_move 候補追加」は実態と差異)
+- PR1d-2 実装ギャップ (本コミットで併記): action-generator.ts シグネチャ `(state, player, variant)` (計画書 L707 `(state, player)`)、`isInCheck` は `@/lib/shogi/moves` 由来 (計画書 `@/lib/shogi/check`)、`targeting:"ownPiece"` を `"square"` と同枝統合、`isValidCardTargetSquare` 4 引数、production 統合は engine.ts root 経路 + evaluateAction 方式 (計画書 search.ts negamax 統合とは別アプローチ、振る舞いキープ優先)
+
+PR1d-3 はコミット 1 (applyAction 二手指し制御、`52a05ed`) + コミット 2 (super-action 内部探索、`a79bbe5`) の 2 コミットで完結 (コミット 3 スキップ)。`double-move-search.test.ts` 13 ケース green、関連 fixture 回帰なし。
+
+---
+
 ## 補足: メタ計画 md (本セッションの作業計画) との関係
 
 本計画 md (`docs/plans/issue-193-pr1d.md`) は、Claude Code ローカル plan ディレクトリ (`~/.claude/plans/issue-193-issue-pr-calm-hammock.md`) に保存されたメタ計画 md に基づいて作成された。メタ計画 md はリポジトリ外で保存され、本リポジトリにはコミットされない (= 引き継ぎ・記録用のみ)。
