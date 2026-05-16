@@ -29,7 +29,7 @@
 
 import { useEffect } from "react";
 
-import { getAudioCtx, unlockAudio } from "@/lib/audio/audio-engine";
+import { getAudioCtx, unlockAudio, isAudioContextRunning } from "@/lib/audio/audio-engine";
 import {
   getEffectiveBgmPath,
   useBgmOverrides,
@@ -320,48 +320,69 @@ function startBgm(key: BgmEventKey | null, path: string): void {
 
 let retryListenersAttached = false;
 
-function attemptRetry(): void {
-  // Issue #198: 本関数は click/touchstart/keydown の user gesture 経由で呼ばれる。
-  // GainNode 経由再生は AudioContext が running でないと音が destination に届かない
-  // ため、ここで AudioContext を resume する (user gesture 内なので確実に成功する)。
-  void unlockAudio();
+async function attemptRetry(): Promise<void> {
+  // Issue #213: 本関数は click/touchstart/touchend/keydown の user gesture 経由で
+  // 呼ばれる。GainNode 経由再生 (Issue #198) は AudioContext が running でないと
+  // 音が destination に届かないため、resume 完了を await してから play() する。
+  //
+  // 旧実装は `void unlockAudio()` で resume を投げっぱなしにし、完了前に
+  // audio.play() を呼んでいた。iOS Safari では play() 自体は resolve するが
+  // AudioContext が suspended のままで GainNode 経由が無音になり、しかも
+  // play().then() で detachRetryListeners() してしまうため「無音なのに二度と
+  // リトライされない」状態に陥っていた (本 Issue の主原因 2)。
+  //
+  // await チェーンは同一 user gesture タスク内に留まるため iOS Safari の
+  // autoplay policy 上も play() は許可される (= ctx.resume() → audio.play()
+  // の標準 unlock パターン)。
+  await unlockAudio();
   if (!currentAudio) return;
-  // 既に再生中なら user gesture リトライ待ちは不要だが、AudioContext が
-  // suspended のまま無音だった可能性があるので unlockAudio は実行済み。listener 撤去。
+  // 既に再生中。ただし AudioContext が suspended のまま無音だった可能性が
+  // あり unlockAudio は実行済み。running 確定時のみ listener 撤去し、
+  // suspended の間は次の gesture でリトライを継続する (Issue #213)。
   if (!currentAudio.paused) {
-    detachRetryListeners();
+    if (isAudioContextRunning()) detachRetryListeners();
     return;
   }
   const audio = currentAudio;
   const targetVol = isMuted ? 0 : BGM_VOLUME;
   const playPromise = audio.play();
   if (playPromise && typeof playPromise.then === "function") {
-    playPromise
-      .then(() => {
-        if (currentAudio === audio) {
-          fadeVolume(audio, getEffectiveVolume(audio), targetVol, FADE_DURATION_MS);
-        }
+    try {
+      await playPromise;
+      if (currentAudio === audio) {
+        fadeVolume(audio, getEffectiveVolume(audio), targetVol, FADE_DURATION_MS);
+      }
+      // Issue #213: play() 成功でも AudioContext が running でなければ
+      // GainNode 経由で無音。running 確定時のみ listener 撤去し、suspended の
+      // 間は次の gesture でリトライを継続する。
+      if (isAudioContextRunning()) {
         detachRetryListeners();
-      })
-      .catch(() => {
-        // まだ block されている → listener 保持 (次の gesture で再試行)
-      });
+      }
+    } catch {
+      // まだ block されている → listener 保持 (次の gesture で再試行)
+    }
   } else {
-    // 旧ブラウザ: play が undefined を返す。再生開始したと仮定。
+    // 旧ブラウザ: play が undefined を返す (AudioContext gating なしの直接
+    // 再生)。再生開始したと仮定し従来通り無条件 detach。
     fadeVolume(audio, getEffectiveVolume(audio), targetVol, FADE_DURATION_MS);
     detachRetryListeners();
   }
 }
 
 function onUserGesture(): void {
-  attemptRetry();
+  void attemptRetry();
 }
 
 function attachRetryListeners(): void {
   if (retryListenersAttached) return;
   retryListenersAttached = true;
+  // Issue #213: iOS Safari は非インタラクティブ要素 (ホーム画面の背景 div /
+  // テキスト / 余白) で click を発火しない。touchstart はスクロール意図とも
+  // 解釈されジェスチャー特権が弱いため、確実にタップを拾える touchend も併用
+  // する (= ホーム画面の任意箇所タップで BGM リトライを起動できるようにする)。
   window.addEventListener("click", onUserGesture);
   window.addEventListener("touchstart", onUserGesture);
+  window.addEventListener("touchend", onUserGesture);
   window.addEventListener("keydown", onUserGesture);
 }
 
@@ -370,6 +391,7 @@ function detachRetryListeners(): void {
   retryListenersAttached = false;
   window.removeEventListener("click", onUserGesture);
   window.removeEventListener("touchstart", onUserGesture);
+  window.removeEventListener("touchend", onUserGesture);
   window.removeEventListener("keydown", onUserGesture);
 }
 
