@@ -68,29 +68,67 @@ export class CurrentRules implements TurnRules {
     return actions;
   }
 
-  // PR1d-2 コミット 2 段階での実装方針 (ZZ-5 後続対応):
-  // move 以外 (draw / playCard) の applyAction は引き続き throw 維持。
-  // 理由: PR1d-2 では search.ts の evaluateAction (新規) が simulateCardEffect 等を
-  // 直接呼んで playCard / draw の評価値を算出する設計に確定したため、applyAction 経由の
-  // 状態遷移は不要 (= reducer ロジックを AI 側で二重実装するリスクを回避)。
-  // production 探索パスは依然として findBestMove (search.ts) → getSearchLegalMoves 直接呼出で、
-  // CurrentRules.applyAction は呼ばれず throw 到達せず。
-  // 将来 PR3 (カード深読み探索) で applyAction(draw / playCard) が必要になった時点で実装する。
+  // PR1d-3: applyAction に二手指し (double_move) 制御を実装。
+  //
+  // 実装範囲 (PR1d-3 スコープ):
+  // - move: 二手指し中なら turnEnded / doubleMove 遷移を制御
+  //   ・doubleMove.movesLeft === 2 → 1 手目: movesLeft を 1 に減算、ターン継続 (turnEnded=false)
+  //   ・doubleMove.movesLeft === 1 → 2 手目: doubleMove リセット、ターン終了 (turnEnded=true)
+  //   ・doubleMove === null → 通常 1 手: ターン終了 (turnEnded=true、= PR1d-2 までの振る舞いキープ)
+  // - playCard "double_move": doubleMove フラグをセットしてターン継続 (turnEnded=false)。
+  //   盤面不変 (targeting:none)。super-action 内部探索 (search.ts) が連鎖呼出する。
+  //
+  // throw 維持 (PR3 カード深読み探索で実装予定):
+  // - draw / playCard "double_move" 以外: evaluateAction (search.ts) が simulateCardEffect 等を
+  //   直接呼んで評価値を算出する設計のため applyAction 経由は不要。super-action 探索でも
+  //   double_move 以外の playCard / draw は連鎖呼出しないため到達しない。
   applyAction(state: AiTurnState, action: TurnAction): ApplyActionResult {
     if (action.kind === "move") {
       const nextGameState = applyMoveForSearch(state.gameState, action.move);
+      const dm = state.doubleMove;
+      // 二手指し遷移: movesLeft 2 → 1 (ターン継続) / 1 → null (ターン終了) / null は通常終了
+      let nextDoubleMove = dm;
+      let turnEnded = true;
+      if (dm !== null && dm.movesLeft === 2) {
+        nextDoubleMove = { active: dm.active, movesLeft: 1 };
+        turnEnded = false;
+      } else if (dm !== null && dm.movesLeft === 1) {
+        nextDoubleMove = null;
+        turnEnded = true;
+      }
       return {
         next: {
           gameState: nextGameState,
           cardState: state.cardState,
-          doubleMove: state.doubleMove,
+          doubleMove: nextDoubleMove,
         },
         events: [],
-        turnEnded: true,
+        turnEnded,
       };
     }
+
+    if (action.kind === "playCard" && action.defId === "double_move") {
+      // double_move カード使用直後。盤面は不変 (targeting:none = 盤面に作用しない)、
+      // doubleMove フラグをセットしてターン継続 (turnEnded=false)。active は現在の
+      // 手番プレイヤー (= 二手指しを開始するプレイヤー)。
+      // 注: cost 5 マナ消費は AI 探索では cardDigest 側で扱う設計のため、ここでは
+      // cardState を変更しない (近似、計画 md PR1d-3 コミット 3 / 設計確認で精緻化予定)。
+      const player = state.gameState.currentPlayer;
+      return {
+        next: {
+          gameState: state.gameState,
+          cardState: state.cardState,
+          doubleMove: { active: player, movesLeft: 2 },
+        },
+        events: [],
+        turnEnded: false,
+      };
+    }
+
     throw new Error(
-      `CurrentRules.applyAction: action.kind="${action.kind}" は PR3 (カード深読み探索) で実装予定 (PR1d-2 段階では evaluateAction が simulateCardEffect 等を直接呼ぶため applyAction 経由は不要)`,
+      `CurrentRules.applyAction: action.kind="${action.kind}"${
+        action.kind === "playCard" ? ` defId="${action.defId}"` : ""
+      } は PR3 (カード深読み探索) で実装予定 (PR1d-3 段階では move の二手指し制御と playCard "double_move" のみ実装、その他 playCard / draw は evaluateAction が simulateCardEffect 等を直接呼ぶため applyAction 経由は不要)`,
     );
   }
 }

@@ -7,7 +7,8 @@ import { getSearchLegalMoves } from "./legal-moves";
 import { applyMoveForSearch } from "../board";
 import { evaluate, scoreMoveForOrdering } from "./evaluate";
 import { simulateCardEffect } from "../cards/effects";
-import { DRAW_VALUE_BONUS } from "./cards/heuristics";
+import { DRAW_VALUE_BONUS, DOUBLE_MOVE_TOP_K } from "./cards/heuristics";
+import { CurrentRules } from "./turn/current-rules";
 import type { AiTurnState, TurnAction } from "./turn/types";
 import {
   computeHash,
@@ -703,12 +704,15 @@ export function findBestMove(
 // - move: applyMoveForSearch 後の局面で evaluate (= 既存 root 評価と同じ depth=0 評価)
 // - draw: 局面は変わらず、cardDigest も root スカラー固定のため evaluate 値は同じ。
 //   ドローを促進するため DRAW_VALUE_BONUS を加算 (heuristics.ts の名前付き定数)
-// - playCard: simulateCardEffect で仮想 GameState 遷移後の局面で evaluate。
-//   simulateCardEffect が null を返すカード (target なしカード mana_up/no_promote/check_break/double_move 等)
-//   は PR1d-2 範囲外のため Number.NEGATIVE_INFINITY を返して候補から除外
+// - playCard (通常カード): simulateCardEffect で仮想 GameState 遷移後の局面で evaluate。
+//   simulateCardEffect が null を返す target なしカード (mana_up/no_promote/check_break)
+//   は PR1d-3 範囲外のため Number.NEGATIVE_INFINITY を返して候補から除外
+// - playCard "double_move": PR1d-3 で searchDoubleMoveSuperAction (2 手指し組合せの
+//   depth=0 局所探索、判断 1 = 案 B) に委譲
 //
-// 注: depth=0 評価のため、move の深く読んだスコア (findBestMove 反復深化結果) との直接比較は
-// 不公平。コミット 3 (engine.ts 統合) で move のスコア比較経路を調整する想定。
+// 注: depth=0 評価のため、move の深く読んだスコア (findBestMove 反復深化結果) との
+// 直接比較は不公平だが、engine.ts root 経路 (PR1d-2) で move も evaluateAction で
+// 再評価して比較基準を統一済 (= 公平化済)。
 export function evaluateAction(
   state: AiTurnState,
   action: TurnAction,
@@ -729,6 +733,12 @@ export function evaluateAction(
       return signed + DRAW_VALUE_BONUS;
     }
     case "playCard": {
+      // PR1d-3 (判断 1 = 案 B): double_move は super-action 内部探索で 2 手指しの
+      // 最良組合せを depth=0 評価 (simulateCardEffect は targeting:none で null を
+      // 返すため、専用経路で扱う)。
+      if (action.defId === "double_move") {
+        return searchDoubleMoveSuperAction(state, player, variant, ctx);
+      }
       const nextGameState = simulateCardEffect(
         state.gameState,
         player,
@@ -736,11 +746,86 @@ export function evaluateAction(
         action.target ?? null,
       );
       if (!nextGameState) {
-        // simulateCardEffect が null を返すカード (target なしカード) は PR1d-2 範囲外
+        // simulateCardEffect が null を返すその他の target なしカード
+        // (mana_up / no_promote / check_break) は PR1d-3 範囲外
         return Number.NEGATIVE_INFINITY;
       }
       const raw = evaluate(nextGameState, variant, cardDigest);
       return player === "sente" ? raw : -raw;
     }
   }
+}
+
+// Issue #193 / PR1d-3: double_move (二手指し) を 1 つの super-action として扱う
+// 内部探索 (判断 1 = 案 B「depth=0 簡易評価」採用)。
+//
+// 設計:
+// - double_move は「同一プレイヤーが 2 ply 連続で指す」特殊機構。super-action 内部で
+//   1 手目選択 → applyAction(turnEnded=false) → 2 手目選択 → applyAction(turnEnded=true)
+//   → 2 手指し後の局面を depth=0 評価 (= PR1d-2 evaluateAction の depth=0 と公平)
+// - player 反転禁止: 二手指し中は同一プレイヤーが連続するため negamax の符号反転や
+//   player 反転を行わない (turnEnded フラグで構造的に保証、不変条件を assert)
+// - 性能配慮 (案 B は depth=0 全探索で αβ pruning が効かない): 1 手目候補を
+//   scoreMoveForOrdering 順上位 DOUBLE_MOVE_TOP_K 手に常時絞る (heuristics.ts の ZZ 反映)
+// - cardDigest は ctx?.cardDigest (W-1 root スカラー方式) を使用、未渡時は加算 skip
+//
+// 計画 md L1060-1122 の擬似コードは案 A (negamax 深読み) 前提。本実装は案 B
+// (depth=0) のため negamax 呼出なし・local αβ も depth=0 では単純 max に縮約
+// (ZZ 反映)。double_move の「2 手分動ける」価値は組合せ探索が直接捕捉する。
+function searchDoubleMoveSuperAction(
+  state: AiTurnState,
+  player: Player,
+  variant: RuleVariant,
+  ctx?: SearchContext,
+): number {
+  const cardDigest = ctx?.cardDigest;
+  const rules = new CurrentRules(variant);
+
+  // Step 1: double_move カード適用 (doubleMove フラグ ON、turnEnded=false)
+  const afterCard = rules.applyAction(state, {
+    kind: "playCard",
+    cardInstanceId: "", // super-action 内部探索では instanceId 不問
+    defId: "double_move",
+  }).next;
+
+  // Step 2: 1 手目候補生成 (move-only)。性能配慮で heuristic 上位 K 手に絞る。
+  const firstMovesAll = getSearchLegalMoves(afterCard.gameState, player, variant);
+  if (firstMovesAll.length === 0) return NEG_INF; // 1 手目なし = 二手指し不成立で負
+  const firstMoves =
+    firstMovesAll.length > DOUBLE_MOVE_TOP_K
+      ? [...firstMovesAll]
+          .sort((a, b) => scoreMoveForOrdering(b) - scoreMoveForOrdering(a))
+          .slice(0, DOUBLE_MOVE_TOP_K)
+      : firstMovesAll;
+
+  let bestScore = NEG_INF;
+  // Step 3: 各 1 手目 × 全 2 手目を局所探索、2 手指し後を depth=0 評価
+  for (const firstMove of firstMoves) {
+    const afterFirst = rules.applyAction(afterCard, { kind: "move", move: firstMove });
+    // 不変条件: 二手指し 1 手目は turnEnded=false (= player 反転禁止の構造的保証)
+    if (afterFirst.turnEnded) {
+      throw new Error(
+        "Invariant violation: double_move 1 手目で turnEnded が true (player 反転禁止が破れている)",
+      );
+    }
+    const secondMoves = getSearchLegalMoves(afterFirst.next.gameState, player, variant);
+    if (secondMoves.length === 0) continue; // 2 手目なしはこの 1 手目をスキップ
+    for (const secondMove of secondMoves) {
+      const afterSecond = rules.applyAction(afterFirst.next, {
+        kind: "move",
+        move: secondMove,
+      });
+      // 不変条件: 二手指し 2 手目で turnEnded=true (= ターン終了、通常フローに戻る)
+      if (!afterSecond.turnEnded) {
+        throw new Error(
+          "Invariant violation: double_move 2 手目で turnEnded が false",
+        );
+      }
+      // 案 B: 2 手指し後の局面を depth=0 評価 (player 視点、PR1d-2 evaluateAction と整合)
+      const raw = evaluate(afterSecond.next.gameState, variant, cardDigest);
+      const score = player === "sente" ? raw : -raw;
+      if (score > bestScore) bestScore = score;
+    }
+  }
+  return bestScore;
 }
