@@ -16,6 +16,19 @@ import { getCurrentAppUser } from "@/lib/auth/current-user";
 import { ensureInitialUserData } from "@/lib/auth/user-bootstrap";
 import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
 
+// Issue #217: 「もう一局」5 分待ちの原因フェーズ特定用の計測。
+// コード経路は短くループも無いため、ボトルネックは DB 接続取得 / 認証往復等の
+// ランタイム側にある。各 await のフェーズ別所要を Vercel Function ログへ出力し
+// 実測で特定する (秘匿情報・接続文字列は出力しない)。原因特定後に撤去予定。
+async function timedPhase<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  const startedAt = Date.now();
+  try {
+    return await fn();
+  } finally {
+    console.log(`[rematch-perf] ${label}: ${Date.now() - startedAt}ms`);
+  }
+}
+
 // card-shogi variant 用: ユーザーのデフォルトデッキから DeckSpec を取得
 async function loadDeckSpecForUser(userId: string): Promise<DeckSpec[]> {
   let deck = await prisma.deck.findFirst({
@@ -79,7 +92,9 @@ export async function createGame(
   characterId: string,
   variantId: string = "standard"
 ): Promise<string> {
-  const user = await getCurrentAppUser();
+  const user = await timedPhase("createGame:getCurrentAppUser", () =>
+    getCurrentAppUser(),
+  );
   const variant = getVariantById(variantId);
   const initialState = createInitialGameState(variant);
 
@@ -97,39 +112,48 @@ export async function createGame(
   // card-shogi variant の場合は cardState を初期化
   let initialCardState: unknown = undefined;
   if (variantId === "card-shogi") {
-    const deckSpec: DeckSpec[] = await loadDeckSpecForUser(user.id);
+    const deckSpec: DeckSpec[] = await timedPhase(
+      "createGame:loadDeckSpecForUser",
+      () => loadDeckSpecForUser(user.id),
+    );
     const cardState = createInitialCardState(deckSpec);
     initialCardState = serializeCardState(cardState);
   }
 
-  const game = await prisma.game.create({
-    data: {
-      playerId: user.id,
-      playerColor,
-      difficulty,
-      variantId,
-      characterId,
-      status: "active",
-      boardState: serializeGameState(initialState),
-      gameConfig: serializableConfig,
-      cardState: initialCardState as never,
-    },
-  });
+  const game = await timedPhase("createGame:prisma.game.create", () =>
+    prisma.game.create({
+      data: {
+        playerId: user.id,
+        playerColor,
+        difficulty,
+        variantId,
+        characterId,
+        status: "active",
+        boardState: serializeGameState(initialState),
+        gameConfig: serializableConfig,
+        cardState: initialCardState as never,
+      },
+    }),
+  );
 
   return game.id;
 }
 
 // ゲームを取得
 export async function getGame(gameId: string) {
-  const user = await getCurrentAppUser();
-  const game = await prisma.game.findFirst({
-    where: { id: gameId, playerId: user.id },
-    include: {
-      moves: {
-        orderBy: { moveNum: "asc" },
+  const user = await timedPhase("getGame:getCurrentAppUser", () =>
+    getCurrentAppUser(),
+  );
+  const game = await timedPhase("getGame:prisma.game.findFirst", () =>
+    prisma.game.findFirst({
+      where: { id: gameId, playerId: user.id },
+      include: {
+        moves: {
+          orderBy: { moveNum: "asc" },
+        },
       },
-    },
-  });
+    }),
+  );
 
   if (!game) return null;
 
