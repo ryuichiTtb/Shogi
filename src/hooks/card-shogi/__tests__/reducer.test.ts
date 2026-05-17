@@ -829,6 +829,128 @@ describe("reducer / 王手崩しトラップ (check_break)", () => {
   });
 });
 
+// ===== 二手指し × 王手崩し (Issue #220) =====
+
+describe("reducer / 二手指し × 王手崩し (Issue #220)", () => {
+  // sente: 玉[8][4] / 飛[5][3]、gote: 玉[2][4]、gote が check_break セット中。
+  // sente が二手指し中 (movesLeft=2)。一手目で飛を [5][3]→[5][4] に動かすと
+  // 列4で gote 玉に王手 (間の [4][4]/[3][4] は空)。盤はほぼ空なので詰みではない。
+  function makeDoubleMoveCheckBreakState(): CardShogiGameStateInternal {
+    const gameState: GameState = {
+      ...createInitialGameState(CARD_SHOGI_VARIANT),
+      board: Array.from({ length: 9 }, () => Array(9).fill(null)),
+      hand: { sente: {}, gote: {} },
+      currentPlayer: "sente",
+    };
+    gameState.board[8][4] = { type: "king", owner: "sente" };
+    gameState.board[2][4] = { type: "king", owner: "gote" };
+    gameState.board[5][3] = { type: "rook", owner: "sente" };
+    const cardState = makeInitialCardState({
+      trap: {
+        sente: null,
+        gote: { instanceId: "trap-1", defId: "check_break", owner: "gote" },
+      },
+    });
+    const snapshot = {
+      gameState,
+      cardState,
+      eventLog: [] as GameEvent[],
+    };
+    return {
+      ...makeInitialState(gameState, cardState),
+      doubleMove: {
+        active: "sente",
+        movesLeft: 2,
+        mateInOneAvailable: false,
+        cardInstance: card("dm-1", "double_move"),
+        cardCost: 6,
+        preFirstMoveState: snapshot,
+        preCardState: snapshot,
+      },
+    };
+  }
+
+  const firstMoveCheck = {
+    type: "move" as const,
+    player: "sente" as const,
+    piece: "rook",
+    from: { row: 5, col: 3 },
+    to: { row: 5, col: 4 },
+  };
+
+  it("一手目で王手しても check_break は発動しない (中間局面のため遅延 / 情報リークなし)", () => {
+    const state = makeDoubleMoveCheckBreakState();
+    const next = reducer(state, { type: "MAKE_MOVE", move: firstMoveCheck });
+
+    // トラップ未消費 (隠し情報維持) / 発動演出なし / イベントなし
+    expect(next.cardState.trap.gote).not.toBeNull();
+    expect(next.cardState.trap.gote?.defId).toBe("check_break");
+    expect(next.isCheckBreakAnimating).toBe(false);
+    expect(next.eventLog.some((e) => e.kind === "trapTriggerEvent")).toBe(false);
+    // 飛は盤上に残り、gote 持ち駒化されていない
+    expect(next.gameState.board[5][4]).toEqual({ type: "rook", owner: "sente" });
+    expect(next.gameState.hand.gote.rook).toBeUndefined();
+    // 二手指しは継続 (movesLeft 2→1、currentPlayer は active=sente に戻る)
+    expect(next.doubleMove?.movesLeft).toBe(1);
+    expect(next.gameState.currentPlayer).toBe("sente");
+  });
+
+  it("二手指し完了 (二手目) で最終局面が王手なら check_break が発動する", () => {
+    const afterFirst = reducer(makeDoubleMoveCheckBreakState(), {
+      type: "MAKE_MOVE",
+      move: firstMoveCheck,
+    });
+    // 二手目: gote の王手を解除しない手 (sente 玉を動かすだけ)
+    const secondMoveKeepCheck = {
+      type: "move" as const,
+      player: "sente" as const,
+      piece: "king",
+      from: { row: 8, col: 4 },
+      to: { row: 7, col: 4 },
+    };
+    const next = reducer(afterFirst, {
+      type: "MAKE_MOVE",
+      move: secondMoveKeepCheck,
+    });
+
+    // 最終局面が王手 → トラップ発動 (王手駒=飛を gote 持ち駒へ)
+    expect(next.cardState.trap.gote).toBeNull();
+    expect(next.gameState.hand.gote.rook).toBe(1);
+    expect(next.isCheckBreakAnimating).toBe(true);
+    const trapEvent = next.eventLog.find((e) => e.kind === "trapTriggerEvent");
+    expect(trapEvent?.kind === "trapTriggerEvent" && trapEvent.reason).toBe(
+      "check_declared",
+    );
+    expect(next.doubleMove).toBeNull();
+  });
+
+  it("一手目で王手 → 二手目で王手解除 → check_break は発動しない", () => {
+    const afterFirst = reducer(makeDoubleMoveCheckBreakState(), {
+      type: "MAKE_MOVE",
+      move: firstMoveCheck,
+    });
+    // 二手目: 王手していた飛を [5][4]→[5][3] に戻し王手解除
+    const secondMoveResolve = {
+      type: "move" as const,
+      player: "sente" as const,
+      piece: "rook",
+      from: { row: 5, col: 4 },
+      to: { row: 5, col: 3 },
+    };
+    const next = reducer(afterFirst, {
+      type: "MAKE_MOVE",
+      move: secondMoveResolve,
+    });
+
+    // 最終局面が非王手 → トラップ未発動 (隠し情報維持)
+    expect(next.cardState.trap.gote).not.toBeNull();
+    expect(next.cardState.trap.gote?.defId).toBe("check_break");
+    expect(next.isCheckBreakAnimating).toBe(false);
+    expect(next.eventLog.some((e) => e.kind === "trapTriggerEvent")).toBe(false);
+    expect(next.doubleMove).toBeNull();
+  });
+});
+
 // ===== 自動ドロー (#130) =====
 
 describe("reducer / 自動ドロー (#130)", () => {
