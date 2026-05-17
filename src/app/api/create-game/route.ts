@@ -32,8 +32,6 @@ interface CreateGameRequestBody {
   playerColor: Player;
   characterId: string;
   variantId?: string;
-  // Issue #217: もう一局リクエストの相関 ID (ログ突合用)。
-  traceId?: string;
 }
 
 export async function POST(request: NextRequest) {
@@ -44,7 +42,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "invalid json" }, { status: 400 });
   }
 
-  const { difficulty, playerColor, characterId, variantId, traceId } = body;
+  const { difficulty, playerColor, characterId, variantId } = body;
   const resolvedVariantId = variantId ?? "standard";
   if (
     !VALID_DIFFICULTIES.has(difficulty) ||
@@ -62,11 +60,10 @@ export async function POST(request: NextRequest) {
       playerColor,
       characterId,
       resolvedVariantId,
-      typeof traceId === "string" ? traceId : "-",
     );
     return NextResponse.json({ gameId });
   } catch (e) {
-    console.error("[rematch-perf] create-game route failed", e);
+    console.error("create-game route failed", e);
     return NextResponse.json({ error: "create failed" }, { status: 500 });
   }
 }

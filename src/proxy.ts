@@ -59,25 +59,7 @@ function ensureGuestCookie(request: NextRequest): NextResponse {
 const guestOnlyProxy = (request: NextRequest) => ensureGuestCookie(request);
 
 const clerkProxy = clerkMiddleware(async (auth, request) => {
-  // Issue #217: もう一局の 150 秒が「リクエスト受信 → middleware 開始」
-  // (Vercel dispatch / コールドスタート) なのか、middleware 内の
-  // `await auth()` (Clerk handshake / dev インスタンスのレート制限) なのかを
-  // 切り分ける。非 GET (Server Action / API は POST) のみ計測し GET の
-  // ログ氾濫を避ける。client の `start at=` と mw ENTER at= を突き合わせれば
-  // dispatch 時間が、auth=<ms> で Clerk 時間が分かる。原因特定後に撤去予定。
-  const isProbe = request.method !== "GET";
-  if (isProbe) {
-    console.log(
-      `[rematch-perf] mw ENTER at=${new Date().toISOString()} method=${request.method} path=${request.nextUrl.pathname}`,
-    );
-  }
-  const authStartedAt = Date.now();
   const { userId } = await auth();
-  if (isProbe) {
-    console.log(
-      `[rematch-perf] mw auth=${Date.now() - authStartedAt}ms method=${request.method} path=${request.nextUrl.pathname}`,
-    );
-  }
   if (userId) {
     return NextResponse.next();
   }

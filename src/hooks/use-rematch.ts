@@ -42,16 +42,6 @@ export function useRematch(): UseRematchResult {
     async (config: RematchConfig) => {
       setRematchError(null);
       setIsRematching(true);
-      // Issue #217: この 1 回のもう一局を Vercel ログで一意特定するための
-      // 相関 ID。ブラウザ devtools にも出すので、ユーザーはこの id を Vercel
-      // Runtime Logs の検索に貼るだけで該当リクエストの計測行に絞り込める。
-      const traceId = Math.random().toString(36).slice(2, 8);
-      const clickedAt = Date.now();
-      // at= に絶対時刻 (ISO) を入れ、Console のタイムスタンプ設定に依存せず
-      // サーバーログの時刻と突き合わせて A (dispatch) / B (応答受信) を切り分ける。
-      console.info(
-        `[rematch-perf] start id=${traceId} at=${new Date().toISOString()}`,
-      );
       try {
         // Issue #217: 巨大ページ Server Action の cold start (Vercel
         // Hobby/Preview で 503 + リトライ → 数分) を避けるため、対局生成は
@@ -65,7 +55,6 @@ export function useRematch(): UseRematchResult {
             playerColor: config.playerColor,
             characterId: config.characterId,
             variantId: config.variantId ?? "standard",
-            traceId,
           }),
         });
         if (!res.ok) {
@@ -74,11 +63,6 @@ export function useRematch(): UseRematchResult {
         const { gameId: newGameId } = (await res.json()) as {
           gameId: string;
         };
-        // クライアント実測 (対局生成完了までの総待ち時間)。サーバ側
-        // フェーズ計測と突き合わせる。
-        console.info(
-          `[rematch-perf] createGame done id=${traceId} clientWait=${Date.now() - clickedAt}ms at=${new Date().toISOString()} newGame=${newGameId}`,
-        );
         // 成功時は遷移でアンマウントされるまで isRematching=true を保持し、
         // ローディングマスク継続 + ボタン無効を維持する (ちらつき・二重押下防止)。
         router.push(`/game/${newGameId}`);
