@@ -149,6 +149,11 @@ export function CardShogiGame({
   const [drawFlightQueue, setDrawFlightQueue] = useState<DrawFlightItem[]>([]);
   const currentDrawFlight = drawFlightQueue[0] ?? null;
   const isDrawAnimating = drawFlightQueue.length > 0;
+  // Issue #193 / card-apply: 相手 (AI) ドロー用の独立キュー。自分側と同じ
+  // 山札→中央→手札フライトを faceDown で再生する (中央でも裏面のまま)。
+  // 自分側 queue とは分離し、既存の自分側演出経路に影響を与えない。
+  const [opponentDrawFlightQueue, setOpponentDrawFlightQueue] = useState<DrawFlightItem[]>([]);
+  const currentOpponentDrawFlight = opponentDrawFlightQueue[0] ?? null;
   const flightKeyCounterRef = useRef(0);
   const nextFlightKey = useCallback(() => {
     flightKeyCounterRef.current += 1;
@@ -508,6 +513,33 @@ export function CardShogiGame({
     return null;
   }, []);
 
+  // Issue #193 / card-apply: 相手 (AI) の山札 / 手札の DOMRect。
+  // 本ゲームは将棋の盤面向きの慣習上、相手側が常に画面上部・自分側が下部に
+  // 配置される (全レスポンシブレイアウトで一貫)。AI 側専用 ref を全レイアウトに
+  // 増設する代わりに、表示中要素のうち最も上 (top 最小) のものを AI 側とみなす。
+  // 既存セレクタ ([data-card-shogi-deck] / [data-hand-scroll]) を再利用し
+  // レイアウト JSX を変更しない (低リスク)。
+  const getTopmostVisibleRect = useCallback((selector: string): DOMRect | null => {
+    if (typeof document === "undefined") return null;
+    const els = document.querySelectorAll<HTMLElement>(selector);
+    let best: DOMRect | null = null;
+    for (const el of els) {
+      if (el.offsetParent === null) continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) continue;
+      if (!best || rect.top < best.top) best = rect;
+    }
+    return best;
+  }, []);
+  const getAiDeckRect = useCallback(
+    (): DOMRect | null => getTopmostVisibleRect("[data-card-shogi-deck]"),
+    [getTopmostVisibleRect],
+  );
+  const getAiHandRect = useCallback(
+    (): DOMRect | null => getTopmostVisibleRect("[data-hand-scroll]"),
+    [getTopmostVisibleRect],
+  );
+
   // 盤面マスの DOMRect。表示中の ShogiBoard (xl→タブレット) から取得する。
   const getBoardSquareRect = useCallback((row: number, col: number): DOMRect | null => {
     for (const ref of [boardXlRef, boardTabletRef]) {
@@ -629,17 +661,20 @@ export function CardShogiGame({
               { card: ev.instance, source, key: nextFlightKey() },
             ]);
           } else {
-            // 相手側 auto-draw は SE 無し (盤面集中を阻害しないため、ユーザー要望)。
-            // 相手側 manual-draw (= 現状 AI は呼ばないが防御的) のみ 100ms 遅延で再生。
-            if (source === "manual") {
-              scheduleTimer(() => playSfx("card_draw"), 100);
-            }
-            // 相手側ドロー: 中央 DrawFlightCard を再生しないため、ここで
-            // 明示的に finalizeDraw を予約しないと isDrawing が永続する。
-            // 600ms = 視覚フィードバック (相手 deck 枚数表示の変化 / aria-live 通知)
-            // を読み取れる最低時間。短すぎると flicker、長すぎると AI 思考が
-            // テンポを乱す。
-            scheduleTimer(() => finalizeDraw(), 600);
+            // Issue #193 / card-apply: 相手 (AI) ドローも自分と同じ
+            // 山札→中央→手札フライトを再生する (中央でも裏面のまま=何を
+            // 引いたかは見せない)。開始 SE は自分側と同じ
+            // (auto=card_auto_draw / manual=card_draw)。レア度別
+            // draw_card_open SE は「裏面で引いた札を伏せる」方針と矛盾する
+            // (耳でレア度が分かってしまう) ため相手側では鳴らさない。
+            // finalizeDraw はフライト完了 (handleOpponentDrawFlightComplete)
+            // で呼ぶ。DrawFlightInner 側に保険タイマーがあるため、タブ非
+            // アクティブでも isDrawing ロックは解除される。
+            playSfx(source === "auto" ? "card_auto_draw" : "card_draw");
+            setOpponentDrawFlightQueue((q) => [
+              ...q,
+              { card: ev.instance, source, key: nextFlightKey() },
+            ]);
           }
           if (source === "manual" && isSelf) {
             triggerManaFlight(-DRAW_COST, getDeckRect());
@@ -922,7 +957,7 @@ export function CardShogiGame({
       }
     }
     lastEventIndexRef.current = eventLog.length;
-  }, [eventLog, isReady, playSfx, playerColor, triggerManaFlight, triggerFastMoveBadge, getDeckRect, getOriginRect, getBoardSquareRect, findVisibleCapturedPieceRect, scheduleTimer, nextFlightKey, finalizeDraw, finalizePlayCard, gameState]);
+  }, [eventLog, isReady, playSfx, playerColor, triggerManaFlight, triggerFastMoveBadge, getDeckRect, getOriginRect, getBoardSquareRect, findVisibleCapturedPieceRect, scheduleTimer, nextFlightKey, finalizePlayCard, gameState]);
 
   // Issue #78 / #82: 演出中(ドロー / カード使用 / 王手崩しトラップ)は盤面・手札・カード操作・背景クリックをロックする
   const handleSquareClick = useCallback(
@@ -1056,6 +1091,14 @@ export function CardShogiGame({
     return cardState.hand[playerColor].filter((c) => !hiddenIds.has(c.instanceId));
   }, [cardState.hand, playerColor, drawFlightQueue]);
 
+  // Issue #193 / card-apply: 相手 (AI) も自分側と同様、ドローフライト中は
+  // 引いた札を手札表示から除外し、フライト完了後に手札へ現れたように見せる。
+  const displayedOpponentHand = useMemo(() => {
+    if (opponentDrawFlightQueue.length === 0) return cardState.hand[aiColor];
+    const hiddenIds = new Set(opponentDrawFlightQueue.map((q) => q.card.instanceId));
+    return cardState.hand[aiColor].filter((c) => !hiddenIds.has(c.instanceId));
+  }, [cardState.hand, aiColor, opponentDrawFlightQueue]);
+
   // Issue #130: queue 先頭が auto に切り替わった瞬間に AutoDrawBurst を起動。
   // burstKey の更新で AnimatePresence が新規 mount し、Burst が再生される。
   // 連続 auto-draw (sente auto → gote auto) でも個別に再生される。
@@ -1173,6 +1216,16 @@ export function CardShogiGame({
       });
     }
   }, [currentDrawFlight, finalizeDraw, scheduleTimer, playSfx]);
+
+  // Issue #193 / card-apply: 相手 (AI) ドローフライト完了。queue 先頭を pop し、
+  // finalizeDraw で COMMIT_DRAW (isDrawing 解除 + 手番交代) を実行。完了 SE は
+  // 自分側と同じ card_to_hand。相手手札は裏面表示なので freshlyDrawnId 等の
+  // フラッシュ・手札スクロールは行わない (自分側固有の可読性補助のため不要)。
+  const handleOpponentDrawFlightComplete = useCallback(() => {
+    setOpponentDrawFlightQueue((q) => q.slice(1));
+    finalizeDraw();
+    playSfx("card_to_hand");
+  }, [finalizeDraw, playSfx]);
 
   // ----- レイアウト用ヘルパ -----
 
@@ -1304,7 +1357,7 @@ export function CardShogiGame({
 
   const opponentHandFaceDown = (
     <HandArea
-      hand={cardState.hand[aiColor]}
+      hand={displayedOpponentHand}
       currentMana={cardState.mana[aiColor]}
       faceDown
       size="sm"
@@ -1497,7 +1550,7 @@ export function CardShogiGame({
         <div className="ml-auto flex items-end gap-1.5">
           <div className="shrink-0 flex items-end">
             <HandArea
-              hand={cardState.hand[aiColor]}
+              hand={displayedOpponentHand}
               currentMana={0}
               faceDown
               layout="stack"
@@ -2032,10 +2085,10 @@ export function CardShogiGame({
               <TrapSlot trap={cardState.trap[aiColor]} faceDown size="lg" fullWidth />
             </div>
           </div>
-          <div className="text-xs text-muted-foreground font-medium shrink-0 text-center">手札 {cardState.hand[aiColor].length}枚</div>
+          <div className="text-xs text-muted-foreground font-medium shrink-0 text-center">手札 {displayedOpponentHand.length}枚</div>
           <div className="flex-1 min-h-0 overflow-y-auto">
             <HandArea
-              hand={cardState.hand[aiColor]}
+              hand={displayedOpponentHand}
               currentMana={0}
               faceDown
               layout="vertical"
@@ -2098,6 +2151,19 @@ export function CardShogiGame({
         deckRectGetter={getDeckRect}
         handRectGetter={getHandRect}
         onComplete={handleDrawFlightComplete}
+      />
+
+      {/* Issue #193 / card-apply: 相手 (AI) ドロー用フライト。自分側と同じ
+          山札→中央→手札アニメだが faceDown で中央でも裏面のまま (何を引いたか
+          見せない)。山札/手札 rect は AI 側 (画面上部) を取得。 */}
+      <DrawFlightCard
+        cardInstance={currentOpponentDrawFlight?.card ?? null}
+        flightKey={currentOpponentDrawFlight?.key ?? null}
+        variant={currentOpponentDrawFlight?.source ?? "manual"}
+        deckRectGetter={getAiDeckRect}
+        handRectGetter={getAiHandRect}
+        onComplete={handleOpponentDrawFlightComplete}
+        faceDown
       />
 
       {/* Issue #130: 自動ドロー専用 Burst 演出 (ring collapse + particles + trail)。
