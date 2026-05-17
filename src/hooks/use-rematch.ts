@@ -43,12 +43,24 @@ export function useRematch(): UseRematchResult {
     async (config: RematchConfig) => {
       setRematchError(null);
       setIsRematching(true);
+      // Issue #217: この 1 回のもう一局を Vercel ログで一意特定するための
+      // 相関 ID。ブラウザ devtools にも出すので、ユーザーはこの id を Vercel
+      // Runtime Logs の検索に貼るだけで該当リクエストの計測行に絞り込める。
+      const traceId = Math.random().toString(36).slice(2, 8);
+      const clickedAt = Date.now();
+      console.info(`[rematch-perf] start id=${traceId}`);
       try {
         const newGameId = await createGame(
           config.difficulty,
           config.playerColor,
           config.characterId,
           config.variantId ?? "standard",
+          traceId,
+        );
+        // クライアント実測 (createGame 完了までの総待ち時間)。サーバ側
+        // フェーズ計測と突き合わせる。
+        console.info(
+          `[rematch-perf] createGame done id=${traceId} clientWait=${Date.now() - clickedAt}ms newGame=${newGameId}`,
         );
         // 成功時は遷移でアンマウントされるまで isRematching=true を保持し、
         // ローディングマスク継続 + ボタン無効を維持する (ちらつき・二重押下防止)。

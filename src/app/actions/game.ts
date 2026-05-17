@@ -18,15 +18,14 @@ import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
 
 // Issue #217: 「もう一局」5 分待ちの原因フェーズ特定用の計測。
 // コード経路は短くループも無いため、ボトルネックは DB 接続取得 / 認証往復等の
-// ランタイム側にある。各 await のフェーズ別所要を Vercel Function ログへ出力し
-// 実測で特定する (秘匿情報・接続文字列は出力しない)。原因特定後に撤去予定。
-async function timedPhase<T>(label: string, fn: () => Promise<T>): Promise<T> {
+// ランタイム側にある。フェーズごとに ms を計測し、呼び出しごとに 1 行へ集約
+// 出力する。1 行には相関 ID (createGame は client 発行の traceId、getGame は
+// gameId) を含めるので、Vercel Runtime Logs でその ID を検索すれば該当 1 回の
+// もう一局だけに絞り込める (秘匿情報・接続文字列は出力しない)。原因特定後に撤去予定。
+async function measure<T>(fn: () => Promise<T>): Promise<[T, number]> {
   const startedAt = Date.now();
-  try {
-    return await fn();
-  } finally {
-    console.log(`[rematch-perf] ${label}: ${Date.now() - startedAt}ms`);
-  }
+  const result = await fn();
+  return [result, Date.now() - startedAt];
 }
 
 // card-shogi variant 用: ユーザーのデフォルトデッキから DeckSpec を取得
@@ -90,11 +89,12 @@ export async function createGame(
   difficulty: Difficulty,
   playerColor: Player,
   characterId: string,
-  variantId: string = "standard"
+  variantId: string = "standard",
+  // Issue #217: もう一局リクエストの相関 ID (client 発行)。ログ突合用。
+  // ホーム新規対局など未指定の呼び出しは "-"。
+  traceId: string = "-",
 ): Promise<string> {
-  const user = await timedPhase("createGame:getCurrentAppUser", () =>
-    getCurrentAppUser(),
-  );
+  const [user, authMs] = await measure(() => getCurrentAppUser());
   const variant = getVariantById(variantId);
   const initialState = createInitialGameState(variant);
 
@@ -111,16 +111,15 @@ export async function createGame(
 
   // card-shogi variant の場合は cardState を初期化
   let initialCardState: unknown = undefined;
+  let deckMs = 0;
   if (variantId === "card-shogi") {
-    const deckSpec: DeckSpec[] = await timedPhase(
-      "createGame:loadDeckSpecForUser",
-      () => loadDeckSpecForUser(user.id),
-    );
+    const [deckSpec, ms] = await measure(() => loadDeckSpecForUser(user.id));
+    deckMs = ms;
     const cardState = createInitialCardState(deckSpec);
     initialCardState = serializeCardState(cardState);
   }
 
-  const game = await timedPhase("createGame:prisma.game.create", () =>
+  const [game, createMs] = await measure(() =>
     prisma.game.create({
       data: {
         playerId: user.id,
@@ -136,15 +135,17 @@ export async function createGame(
     }),
   );
 
+  console.log(
+    `[rematch-perf] createGame id=${traceId} total=${authMs + deckMs + createMs}ms ` +
+      `auth=${authMs}ms deck=${deckMs}ms create=${createMs}ms variant=${variantId}`,
+  );
   return game.id;
 }
 
 // ゲームを取得
 export async function getGame(gameId: string) {
-  const user = await timedPhase("getGame:getCurrentAppUser", () =>
-    getCurrentAppUser(),
-  );
-  const game = await timedPhase("getGame:prisma.game.findFirst", () =>
+  const [user, authMs] = await measure(() => getCurrentAppUser());
+  const [game, findMs] = await measure(() =>
     prisma.game.findFirst({
       where: { id: gameId, playerId: user.id },
       include: {
@@ -153,6 +154,10 @@ export async function getGame(gameId: string) {
         },
       },
     }),
+  );
+  console.log(
+    `[rematch-perf] getGame game=${gameId} total=${authMs + findMs}ms ` +
+      `auth=${authMs}ms find=${findMs}ms`,
   );
 
   if (!game) return null;
