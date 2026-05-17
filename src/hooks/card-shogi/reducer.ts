@@ -23,6 +23,7 @@ import {
 } from "@/lib/shogi/moves";
 import { evaluateGameEnd } from "@/lib/shogi/rules";
 import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
+import { unpromotePieceType } from "@/lib/shogi/variants/standard";
 
 import type { CardAction, CardGameState, CardInstance, GameEvent } from "@/lib/shogi/cards/types";
 import {
@@ -1210,6 +1211,10 @@ export function reducer(
       // 効果適用
       let nextCardState = state.cardState;
       let nextGameState = state.gameState;
+      // pawn_return / piece_return が盤上 → 持ち駒に戻した駒の情報。
+      // 適用前の盤面から捕捉し cardPlayEvent に載せる (相手 AI 使用時の
+      // 駒フライト演出再現用、Issue #193 / card-apply)。
+      let returnedPieceInfo: { row: number; col: number; pieceType: string } | undefined;
 
       if (def.kind === "trap") {
         // トラップは consumeNormalCard を使わず、マナ消費 + applyTrapSet
@@ -1229,9 +1234,17 @@ export function reducer(
       } else if (def.effectId === "pawn_return") {
         if (!pending.target || pending.target.kind !== "square") return state;
         const targetPos = { row: pending.target.row, col: pending.target.col };
+        const returnedPiece = state.gameState.board[targetPos.row]?.[targetPos.col];
         const newGameState = applyPawnReturn(state.gameState, player, targetPos);
         if (!newGameState) return state;
         nextGameState = newGameState;
+        if (returnedPiece) {
+          returnedPieceInfo = {
+            row: targetPos.row,
+            col: targetPos.col,
+            pieceType: unpromotePieceType(returnedPiece.type),
+          };
+        }
         const afterConsume = consumeNormalCard(state.cardState, player, pending.instance.instanceId, def.cost);
         if (!afterConsume) return state;
         // 持ち駒に戻った駒は no_promote マークを失う (案A 仕様)
@@ -1239,9 +1252,17 @@ export function reducer(
       } else if (def.effectId === "piece_return") {
         if (!pending.target || pending.target.kind !== "square") return state;
         const targetPos = { row: pending.target.row, col: pending.target.col };
+        const returnedPiece = state.gameState.board[targetPos.row]?.[targetPos.col];
         const newGameState = applyPieceReturn(state.gameState, player, targetPos);
         if (!newGameState) return state;
         nextGameState = newGameState;
+        if (returnedPiece) {
+          returnedPieceInfo = {
+            row: targetPos.row,
+            col: targetPos.col,
+            pieceType: unpromotePieceType(returnedPiece.type),
+          };
+        }
         const afterConsume = consumeNormalCard(state.cardState, player, pending.instance.instanceId, def.cost);
         if (!afterConsume) return state;
         // 持ち駒に戻った駒は no_promote マークを失う (案A 仕様、pawn_return と同じ)
@@ -1326,6 +1347,7 @@ export function reducer(
               player,
               instance: pending.instance,
               target: pending.target,
+              returnedPiece: returnedPieceInfo,
               at: Date.now(),
             };
 

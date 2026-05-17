@@ -726,35 +726,66 @@ export function CardShogiGame({
               setPlayFlight({ card: cardInstance, key: playFlightKeyRef.current, isTrap: false });
             }
           } else {
-            // Issue #193 / card-apply: 相手 (AI) のカード使用。人間と違い
-            // handleSquareClick 経由の先回り駒フライトが無いため、ここで中央
-            // カード演出を直接発火する。CardPlayFlight の onComplete
+            // Issue #193 / card-apply: 相手 (AI) のカード使用。自分が使った
+            // ときと同じ体験にするため、駒戻し/歩戻し (returnedPiece あり) は
+            // 「盤上 → 持ち駒の駒フライト → 完了後に中央カード演出 → finalize」
+            // を再現する。人間は handleSquareClick で適用前に fromRect を
+            // 捕捉するが、AI は適用後にしか介入できないため、reducer が
+            // cardPlayEvent に載せた returnedPiece (元位置 + unpromote 駒種)
+            // から復元する。駒フライト完了 (handlePieceFlightComplete) が
+            // pendingPlayFlightRef から中央カード演出を発火し、その onComplete
             // (handlePlayFlightComplete) が finalizePlayCard → COMMIT_PLAY_CARD
-            // を呼び、isPlayingCard を解除して手番を進める。これが無いと演出も
-            // COMMIT も発生せず手番が永久ロックする (相手ドローで finalizeDraw
-            // を明示予約しているのと同じ構造の対策)。
-            //
-            // 二歩指し (double_pawn) は moveCount を増やさず moveCount useEffect
-            // 経由の王手演出が出ないため、相手 (AI) の二歩指しで自玉が王手に
-            // なるケースをここで補う (自分側分岐 712-722 と対称)。
-            if (def.effectId === "double_pawn") {
-              const checkedSide: Player =
-                ev.player === "sente" ? "gote" : "sente";
-              if (
-                gameState.status === "active" &&
-                isInCheck(gameState, checkedSide, CARD_SHOGI_VARIANT)
-              ) {
-                playSfx("check");
-                setOverlayEvent({ event: "check", key: Date.now() });
+            // を呼んで手番を進める。この経路が無いと演出も COMMIT も発生せず
+            // 手番が永久ロックする (相手ドローで finalizeDraw を明示予約して
+            // いるのと同じ構造の対策)。
+            const rp = ev.returnedPiece;
+            let opponentPieceFlightFired = false;
+            if (rp) {
+              const fromRect = getBoardSquareRect(rp.row, rp.col);
+              const toRect = findVisibleCapturedPieceRect(aiColor, rp.pieceType);
+              if (fromRect && toRect) {
+                pieceFlightKeyRef.current += 1;
+                playSfx("piece_flight");
+                setPieceFlight({
+                  spec: {
+                    pieceType: rp.pieceType,
+                    owner: aiColor,
+                    fromX: fromRect.left + fromRect.width / 2,
+                    fromY: fromRect.top + fromRect.height / 2,
+                    toX: toRect.left + toRect.width / 2,
+                    toY: toRect.top + toRect.height / 2,
+                  },
+                  key: pieceFlightKeyRef.current,
+                  hideTarget: { kind: "captured", player: aiColor, pieceType: rp.pieceType },
+                });
+                pendingPlayFlightRef.current = { card: ev.instance, isTrap: false };
+                opponentPieceFlightFired = true;
               }
             }
-            playFlightKeyRef.current += 1;
-            playSfx("card_use_animation");
-            setPlayFlight({
-              card: ev.instance,
-              key: playFlightKeyRef.current,
-              isTrap: false,
-            });
+            if (!opponentPieceFlightFired) {
+              // 駒移動なしカード (mana_up 等) / rect 取得失敗フォールバック。
+              // 二歩指し (double_pawn) は moveCount を増やさず moveCount
+              // useEffect 経由の王手演出が出ないため、相手 (AI) の二歩指しで
+              // 自玉が王手になるケースをここで補う (自分側分岐 712-722 と対称)。
+              if (def.effectId === "double_pawn") {
+                const checkedSide: Player =
+                  ev.player === "sente" ? "gote" : "sente";
+                if (
+                  gameState.status === "active" &&
+                  isInCheck(gameState, checkedSide, CARD_SHOGI_VARIANT)
+                ) {
+                  playSfx("check");
+                  setOverlayEvent({ event: "check", key: Date.now() });
+                }
+              }
+              playFlightKeyRef.current += 1;
+              playSfx("card_use_animation");
+              setPlayFlight({
+                card: ev.instance,
+                key: playFlightKeyRef.current,
+                isTrap: false,
+              });
+            }
           }
           break;
         }
@@ -1189,15 +1220,26 @@ export function CardShogiGame({
   }, [pieceFlight, playerColor, checkBreakAnim]);
   // Issue #82 (王手崩し): 相手側 (AI) のトラップ発動時、相手の持ち駒に流入する駒種を隠す
   const hiddenOpponentCapturedTypes = useMemo<string[]>(() => {
-    if (!checkBreakAnim) return EMPTY_STRINGS;
     const result: string[] = [];
-    for (const ht of checkBreakAnim.hideTargets) {
-      if (ht.kind === "captured" && ht.player === aiColor) {
-        result.push(ht.pieceType);
+    // Issue #193 / card-apply: 相手 (AI) の駒戻し/歩戻しフライト中、着地先の
+    // AI 持ち駒を隠す (自分側 hiddenOwnCapturedTypes と対称)。これが無いと
+    // 適用済の駒が持ち駒に出たままフライトが重なって二重表示になる。
+    if (
+      pieceFlight &&
+      pieceFlight.hideTarget.kind === "captured" &&
+      pieceFlight.hideTarget.player === aiColor
+    ) {
+      result.push(pieceFlight.hideTarget.pieceType);
+    }
+    if (checkBreakAnim) {
+      for (const ht of checkBreakAnim.hideTargets) {
+        if (ht.kind === "captured" && ht.player === aiColor) {
+          result.push(ht.pieceType);
+        }
       }
     }
     return result.length === 0 ? EMPTY_STRINGS : result;
-  }, [checkBreakAnim, aiColor]);
+  }, [pieceFlight, checkBreakAnim, aiColor]);
 
   // Issue #82 (王手崩し): 1 枚分のフライト完了で pendingFlightCount を減算。
   // 0 になったら finalizeCheckBreak で AI 思考とユーザー操作のロックを解除。
