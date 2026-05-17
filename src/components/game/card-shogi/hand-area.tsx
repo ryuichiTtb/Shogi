@@ -112,7 +112,7 @@ export const HandArea = memo(function HandArea({
     const total = hand.length;
     const visible = hand.slice(0, stackMaxVisible);
     return (
-      <div className="flex flex-row items-center" aria-label={`カード ${total}枚`}>
+      <div data-hand-area className="flex flex-row items-center" aria-label={`カード ${total}枚`}>
         {visible.map((c, i) => (
           <div key={c.instanceId} className={cn(i > 0 && overlapClass)}>
             <CardView card={c} faceDown={faceDown} size={size} />
@@ -129,7 +129,10 @@ export const HandArea = memo(function HandArea({
 
   if (faceDown) {
     return (
-      <div className={cn("flex gap-1", layout === "vertical" ? "flex-col" : "flex-row")}>
+      <div
+        data-hand-area
+        className={cn("flex gap-1", layout === "vertical" ? "flex-col" : "flex-row")}
+      >
         {hand.map((c) => (
           <CardView key={c.instanceId} card={c} faceDown size={size} fullWidth={fullWidth} />
         ))}

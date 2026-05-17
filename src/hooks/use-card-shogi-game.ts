@@ -19,6 +19,7 @@ import { isValidCardTargetSquare } from "@/lib/shogi/cards/effects";
 // reducer 関数本体) は src/hooks/card-shogi/reducer.ts に分離。本ファイルは
 // useReducer + useEffect + useCallback の薄いフックとして公開 API のみを担う。
 import { reducer } from "./card-shogi/reducer";
+import { turnActionToReducerActions } from "./card-shogi/ai-action-bridge";
 import { canUndoFromState } from "./card-shogi/undo-policy";
 import { useDbPersistenceGuard } from "./card-shogi/use-db-persistence-guard";
 import { SPECTATOR_MAX_MOVES } from "@/lib/shogi/ai/strategy";
@@ -155,7 +156,11 @@ export function useCardShogiGame({
         return;
       }
       const move = result.response.move;
-      if (!move) {
+      // Issue #193 / card-apply: AI が選んだ最良 TurnAction (move | draw | playCard)。
+      // PR1d 系で評価エンジンまでは実装済だったが、reducer への配線がこれまで未接続
+      // だった。action を見て card 使用/ドローも dispatch する。
+      const action = result.response.action;
+      if (!move && !action) {
         // Issue #193 / PR1a (I-5): AI が move=null を返すのは合法手なし (詰み・stalemate)
         // のケース。reducer 側で gameState.status は既に "checkmate" / "stalemate" 等の
         // 終局状態に変化済 (= 直前の MAKE_MOVE で evaluateGameEnd が判定済み) のため、
@@ -167,7 +172,17 @@ export function useCardShogiGame({
       }
       // Step 3 (Issue #107) / Issue #176: 旧実装の固定 500ms 待ちを撤廃。
       // Route Handler 化により AI 応答が独立したため、追加待機は体感悪化のみ。
-      dispatch({ type: "MAKE_MOVE", move });
+      //
+      // action を reducer Action 列へ変換。null は double_move (AI 未接続、論点 A)
+      // のため move フォールバック。action 自体が無い (後方互換) 場合も move を指す。
+      const acts = action
+        ? turnActionToReducerActions(action, effectiveAiPlayer)
+        : null;
+      if (acts) {
+        acts.forEach((a) => dispatch(a));
+      } else if (move) {
+        dispatch({ type: "MAKE_MOVE", move });
+      }
       dispatch({ type: "SET_AI_THINKING", thinking: false });
       onComment?.("ai_move");
     })();

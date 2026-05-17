@@ -36,6 +36,10 @@ interface DrawFlightCardProps {
   handRectGetter: () => DOMRect | null;
   onComplete: () => void;
   variant?: DrawFlightVariant;
+  // Issue #193 / card-apply: 相手 (AI) ドロー時は中央でも表面を見せず裏面の
+  // まま飛ばす (何を引いたか分からないようにする)。true のとき表裏とも
+  // 裏面カードを描画する (回転アニメは維持)。
+  faceDown?: boolean;
 }
 
 const subscribe = () => () => {};
@@ -49,6 +53,7 @@ export function DrawFlightCard({
   handRectGetter,
   onComplete,
   variant = "manual",
+  faceDown = false,
 }: DrawFlightCardProps) {
   const isClient = useSyncExternalStore(subscribe, getClientSnapshot, getServerSnapshot);
 
@@ -68,6 +73,7 @@ export function DrawFlightCard({
             handRectGetter={handRectGetter}
             onComplete={onComplete}
             variant={variant}
+            faceDown={faceDown}
           />
         )}
       </AnimatePresence>
@@ -82,12 +88,14 @@ function DrawFlightInner({
   handRectGetter,
   onComplete,
   variant,
+  faceDown,
 }: {
   cardInstance: CardInstance;
   deckRectGetter: () => DOMRect | null;
   handRectGetter: () => DOMRect | null;
   onComplete: () => void;
   variant: DrawFlightVariant;
+  faceDown: boolean;
 }) {
   // Issue #130: variant ごとの色トークン (グロー / シマー / 中央保持ラベル)。
   // 内部 const にまとめ、props で個別色を渡さない (将来の variant 追加に備える)。
@@ -283,7 +291,7 @@ function DrawFlightInner({
           />
           {/* カード本体 + シマー (シマーはカード矩形内に収める) */}
           <div className="absolute inset-0 rounded-md shadow-2xl overflow-hidden">
-            <CardView card={cardInstance} size="xl" fullWidth />
+            <CardView card={cardInstance} faceDown={faceDown} size="xl" fullWidth />
             <motion.div
               initial={{ x: "-110%", opacity: 0 }}
               animate={{

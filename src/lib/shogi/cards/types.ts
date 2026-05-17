@@ -178,6 +178,18 @@ export type GameEvent =
   | { kind: "moveEvent"; move: Move; at: number }
   | { kind: "manaChargeEvent"; player: Player; amount: number; reason: "turn" | "card"; fastMove?: boolean; at: number }
   | { kind: "drawEvent"; player: Player; instance: CardInstance; source?: DrawSource; at: number }
-  | { kind: "cardPlayEvent"; player: Player; instance: CardInstance; target?: CardTarget; at: number }
+  // returnedPiece: pawn_return / piece_return が盤上 → 持ち駒に戻した駒の
+  // 元位置と unpromote 後の駒種。効果適用後は盤上から消えるため、相手 (AI)
+  // 使用時に駒フライト演出 (盤上 → 持ち駒) を再現するのに使う (Issue #193 /
+  // card-apply)。自分側は適用前に DOM から捕捉するため不要だが共通化のため
+  // イベントに載せる。駒移動を伴わないカードでは undefined。
+  | {
+      kind: "cardPlayEvent";
+      player: Player;
+      instance: CardInstance;
+      target?: CardTarget;
+      returnedPiece?: { row: number; col: number; pieceType: string };
+      at: number;
+    }
   | { kind: "trapSetEvent"; player: Player; instance: TrapInstance; at: number }
   | { kind: "trapTriggerEvent"; player: Player; instance: TrapInstance; reason: TrapTrigger; capturedPieces?: TrapCapturedPiece[]; at: number };

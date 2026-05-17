@@ -33,6 +33,7 @@ import type {
 } from "@/lib/shogi/types";
 import type { CardGameState } from "@/lib/shogi/cards/types";
 import type { SearchStats } from "@/lib/shogi/ai/search-context";
+import type { TurnAction } from "@/lib/shogi/ai/turn/types";
 
 export interface AiMoveRequestParams {
   gameId: string;
@@ -51,6 +52,11 @@ export interface AiMoveRequestParams {
 
 export interface AiMoveResponse {
   move: Move | null;
+  // Issue #193: AI が選んだ最良 TurnAction (move | draw | playCard)。
+  // route.ts は findBestMoveWithStats の result 全体を返すため、本フィールドを
+  // 型に追加するだけで action が呼び出し側 (use-card-shogi-game) に伝播する。
+  // null は action 未算出 (standard variant / cardState 未渡時、後方互換で move のみ使用)。
+  action: TurnAction | null;
   stats: SearchStats;
 }
 
