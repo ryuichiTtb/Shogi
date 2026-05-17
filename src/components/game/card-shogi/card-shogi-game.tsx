@@ -701,7 +701,16 @@ export function CardShogiGame({
           playSfx("card_play");
           const def = CARD_DEFS[ev.instance.defId];
           if (def.cost > 0) {
-            triggerManaFlight(-def.cost, getOriginRect(ev.instance.instanceId));
+            // Issue #193 / card-apply: 自分はキャッシュした使用カード位置を
+            // 起点にできるが、相手 (AI) は手札が裏面で個別カード DOM が無く
+            // getOriginRect が自分の手札へフォールバックしてしまう。相手の
+            // マナ消費表示は相手手札エリア (getAiHandRect) を起点にする。
+            triggerManaFlight(
+              -def.cost,
+              ev.player === playerColor
+                ? getOriginRect(ev.instance.instanceId)
+                : getAiHandRect(),
+            );
           }
           // Issue #82: 駒移動カード(歩戻し/駒戻し/二歩指し)は handleSquareClick 内で
           // flushSync により先回り発火済み。ここでは:
@@ -854,7 +863,16 @@ export function CardShogiGame({
           playSfx("trap_set");
           const def = CARD_DEFS[ev.instance.defId];
           if (def.cost > 0) {
-            triggerManaFlight(-def.cost, getOriginRect(ev.instance.instanceId));
+            // Issue #193 / card-apply: 自分はキャッシュした使用カード位置を
+            // 起点にできるが、相手 (AI) は手札が裏面で個別カード DOM が無く
+            // getOriginRect が自分の手札へフォールバックしてしまう。相手の
+            // マナ消費表示は相手手札エリア (getAiHandRect) を起点にする。
+            triggerManaFlight(
+              -def.cost,
+              ev.player === playerColor
+                ? getOriginRect(ev.instance.instanceId)
+                : getAiHandRect(),
+            );
           }
           // Issue #106: トラップセット時も中央へカード本体を表示
           // CardInstance に詰め直し (TrapInstance.owner は CardView 側で参照しないため捨てる)
@@ -960,7 +978,7 @@ export function CardShogiGame({
       }
     }
     lastEventIndexRef.current = eventLog.length;
-  }, [eventLog, isReady, playSfx, playerColor, triggerManaFlight, triggerFastMoveBadge, getDeckRect, getOriginRect, getBoardSquareRect, findVisibleCapturedPieceRect, scheduleTimer, nextFlightKey, finalizePlayCard, gameState]);
+  }, [eventLog, isReady, playSfx, playerColor, triggerManaFlight, triggerFastMoveBadge, getDeckRect, getOriginRect, getAiHandRect, getBoardSquareRect, findVisibleCapturedPieceRect, scheduleTimer, nextFlightKey, finalizePlayCard, gameState]);
 
   // Issue #78 / #82: 演出中(ドロー / カード使用 / 王手崩しトラップ)は盤面・手札・カード操作・背景クリックをロックする
   const handleSquareClick = useCallback(
