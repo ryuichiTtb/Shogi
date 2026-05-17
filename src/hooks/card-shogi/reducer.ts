@@ -320,7 +320,20 @@ function makeMoveWithEffects(
   let postTrapGameState = nextGameState;
   let triggeredCheckBreak = false;
   const opponentTrapPostMove = cardStateNext.trap[opponent];
+  // Issue #220: 二手指しの一手目 (double_move_first) は中間局面。トラップは
+  // ターン完了 (二手目 / 通常手) の最終局面で判定すべきで、中間で発動すると
+  // 相手トラップ種別が露見し、一手目キャンセルで戻せてしまう。よって
+  // double_move_first では原則スキップ (= 二手目 makeMoveWithEffects の最終
+  // 局面で判定 → ユーザー要望どおりターン完了後に発動)。
+  // 唯一の例外: 一手目だけで詰みが成立し二手指しがそこで終了する稀ケースは、
+  // ターンが事実上そこで終わるため発動を維持する (王手崩しは詰みを崩せる
+  // 必要があり、未発動で偽の詰み判定にしないため。MAKE_MOVE 1手目分岐の
+  // gameOver 経路と整合)。
+  const deferCheckBreak =
+    mode === "double_move_first" &&
+    evaluateGameEnd(nextGameState, CARD_SHOGI_VARIANT).status === "active";
   if (
+    !deferCheckBreak &&
     opponentTrapPostMove &&
     opponentTrapPostMove.defId === "check_break" &&
     isInCheck(nextGameState, opponent, CARD_SHOGI_VARIANT)
