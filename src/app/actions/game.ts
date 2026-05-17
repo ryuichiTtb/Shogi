@@ -94,6 +94,13 @@ export async function createGame(
   // ホーム新規対局など未指定の呼び出しは "-"。
   traceId: string = "-",
 ): Promise<string> {
+  // Issue #217: サーバーで本コードが実行開始した絶対時刻。client の
+  // `start at=` と比較して (A) クリック→サーバー実行開始 の dispatch /
+  // コールドスタート時間を、EXIT 行の Vercel タイムスタンプと client の
+  // `done at=` の差で (B) サーバー完了→クライアント受信 を切り分ける。
+  console.log(
+    `[rematch-perf] createGame ENTER id=${traceId} at=${new Date().toISOString()}`,
+  );
   const [user, authMs] = await measure(() => getCurrentAppUser());
   const variant = getVariantById(variantId);
   const initialState = createInitialGameState(variant);
