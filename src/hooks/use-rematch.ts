@@ -11,7 +11,6 @@
 
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createGame } from "@/app/actions/game";
 import type { Difficulty, Player } from "@/lib/shogi/types";
 
 export interface RematchConfig {
@@ -54,14 +53,28 @@ export function useRematch(): UseRematchResult {
         `[rematch-perf] start id=${traceId} at=${new Date().toISOString()}`,
       );
       try {
-        const newGameId = await createGame(
-          config.difficulty,
-          config.playerColor,
-          config.characterId,
-          config.variantId ?? "standard",
-          traceId,
-        );
-        // クライアント実測 (createGame 完了までの総待ち時間)。サーバ側
+        // Issue #217: 巨大ページ Server Action の cold start (Vercel
+        // Hobby/Preview で 503 + リトライ → 数分) を避けるため、対局生成は
+        // 軽量 Route Handler (/api/create-game) 経由にする。対局中に正常な
+        // /api/ai-move と同じ独立関数経路。
+        const res = await fetch("/api/create-game", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            difficulty: config.difficulty,
+            playerColor: config.playerColor,
+            characterId: config.characterId,
+            variantId: config.variantId ?? "standard",
+            traceId,
+          }),
+        });
+        if (!res.ok) {
+          throw new Error(`create-game responded ${res.status}`);
+        }
+        const { gameId: newGameId } = (await res.json()) as {
+          gameId: string;
+        };
+        // クライアント実測 (対局生成完了までの総待ち時間)。サーバ側
         // フェーズ計測と突き合わせる。
         console.info(
           `[rematch-perf] createGame done id=${traceId} clientWait=${Date.now() - clickedAt}ms at=${new Date().toISOString()} newGame=${newGameId}`,
