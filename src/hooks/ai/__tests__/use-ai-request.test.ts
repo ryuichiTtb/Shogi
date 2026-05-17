@@ -57,6 +57,7 @@ const sampleAiResponse: AiMoveResponse = {
     piece: "pawn",
     player: "gote",
   },
+  action: null,
   stats: {
     elapsedMs: 100,
     nodes: 1,
