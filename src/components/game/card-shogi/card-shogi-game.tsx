@@ -62,7 +62,7 @@ import { CardPlayDialog, CardTargetingNotice } from "./card-play-dialog";
 import { DoubleMoveNotice } from "./double-move-notice";
 import { ForbiddenMateDialog } from "./forbidden-mate-dialog";
 import { DrawFlightCard } from "./draw-flight-card";
-import { DRAW_FADE_IN_MS } from "./animation-constants";
+import { DRAW_FADE_IN_MS, PLAY_TOTAL_MS } from "./animation-constants";
 import { AutoDrawBurst } from "./auto-draw-burst";
 import { CardPlayFlight } from "./card-play-flight";
 import { PieceFlight, type PieceFlightSpec } from "./piece-flight";
@@ -725,6 +725,36 @@ export function CardShogiGame({
               playSfx("card_use_animation");
               setPlayFlight({ card: cardInstance, key: playFlightKeyRef.current, isTrap: false });
             }
+          } else {
+            // Issue #193 / card-apply: 相手 (AI) のカード使用。人間と違い
+            // handleSquareClick 経由の先回り駒フライトが無いため、ここで中央
+            // カード演出を直接発火する。CardPlayFlight の onComplete
+            // (handlePlayFlightComplete) が finalizePlayCard → COMMIT_PLAY_CARD
+            // を呼び、isPlayingCard を解除して手番を進める。これが無いと演出も
+            // COMMIT も発生せず手番が永久ロックする (相手ドローで finalizeDraw
+            // を明示予約しているのと同じ構造の対策)。
+            //
+            // 二歩指し (double_pawn) は moveCount を増やさず moveCount useEffect
+            // 経由の王手演出が出ないため、相手 (AI) の二歩指しで自玉が王手に
+            // なるケースをここで補う (自分側分岐 712-722 と対称)。
+            if (def.effectId === "double_pawn") {
+              const checkedSide: Player =
+                ev.player === "sente" ? "gote" : "sente";
+              if (
+                gameState.status === "active" &&
+                isInCheck(gameState, checkedSide, CARD_SHOGI_VARIANT)
+              ) {
+                playSfx("check");
+                setOverlayEvent({ event: "check", key: Date.now() });
+              }
+            }
+            playFlightKeyRef.current += 1;
+            playSfx("card_use_animation");
+            setPlayFlight({
+              card: ev.instance,
+              key: playFlightKeyRef.current,
+              isTrap: false,
+            });
           }
           break;
         }
@@ -766,6 +796,16 @@ export function CardShogiGame({
               key: playFlightKeyRef.current,
               isTrap: true,
             });
+          } else {
+            // Issue #193 / card-apply: 相手 (AI) のトラップ設置。トラップは
+            // 相手から見えない隠し情報なのでカード本体は出さず、種別を伏せた
+            // 汎用オーバーレイのみ表示する (ユーザー選択: 種別を隠して汎用演出)。
+            // 中央カード演出 (CardPlayFlight) を出さないため、相手ドローと同様に
+            // finalizePlayCard を明示予約しないと isPlayingCard が永続ロック
+            // する。オーバーレイ尺 (= 通常カード演出と同じ PLAY_TOTAL_MS) に
+            // 合わせて COMMIT_PLAY_CARD を発火させる。
+            setOverlayEvent({ event: "trap_set", key: Date.now() });
+            scheduleTimer(() => finalizePlayCard(), PLAY_TOTAL_MS);
           }
           break;
         }
@@ -851,7 +891,7 @@ export function CardShogiGame({
       }
     }
     lastEventIndexRef.current = eventLog.length;
-  }, [eventLog, isReady, playSfx, playerColor, triggerManaFlight, triggerFastMoveBadge, getDeckRect, getOriginRect, getBoardSquareRect, findVisibleCapturedPieceRect, scheduleTimer, nextFlightKey, finalizeDraw]);
+  }, [eventLog, isReady, playSfx, playerColor, triggerManaFlight, triggerFastMoveBadge, getDeckRect, getOriginRect, getBoardSquareRect, findVisibleCapturedPieceRect, scheduleTimer, nextFlightKey, finalizeDraw, finalizePlayCard, gameState]);
 
   // Issue #78 / #82: 演出中(ドロー / カード使用 / 王手崩しトラップ)は盤面・手札・カード操作・背景クリックをロックする
   const handleSquareClick = useCallback(
