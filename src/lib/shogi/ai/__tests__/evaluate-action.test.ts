@@ -11,7 +11,11 @@
 import { describe, it, expect } from "vitest";
 import { evaluateAction } from "../search";
 import { computeCardDigest } from "../cards/digest";
-import { DRAW_VALUE_BONUS } from "../cards/heuristics";
+import {
+  DRAW_VALUE_BONUS,
+  TRAP_VALUE_NO_PROMOTE,
+  TRAP_VALUE_CHECK_BREAK,
+} from "../cards/heuristics";
 import { evaluate } from "../evaluate";
 import { applyMoveForSearch } from "@/lib/shogi/board";
 import { createInitialCardState } from "@/lib/shogi/cards/state";
@@ -139,5 +143,44 @@ describe("evaluateAction (move / draw / playCard 統一評価)", () => {
     const resultWithDigest = evaluateAction(state, action, "sente", CARD_SHOGI_VARIANT, ctx);
     const nextState = applyMoveForSearch(state.gameState, moves[0]);
     expect(resultWithDigest).toBe(evaluate(nextState, CARD_SHOGI_VARIANT, cardDigest));
+  });
+
+  it("PR1d-4 playCard no_promote: 現局面評価 + TRAP_VALUE_NO_PROMOTE (sente)", () => {
+    const state = makeAiTurnState();
+    const action: TurnAction = {
+      kind: "playCard",
+      cardInstanceId: "np",
+      defId: "no_promote",
+      target: undefined,
+    };
+    const result = evaluateAction(state, action, "sente", CARD_SHOGI_VARIANT);
+    const baseEval = evaluate(state.gameState, CARD_SHOGI_VARIANT);
+    expect(result).toBe(baseEval + TRAP_VALUE_NO_PROMOTE);
+  });
+
+  it("PR1d-4 playCard check_break: 現局面評価 + TRAP_VALUE_CHECK_BREAK (sente)", () => {
+    const state = makeAiTurnState();
+    const action: TurnAction = {
+      kind: "playCard",
+      cardInstanceId: "cb",
+      defId: "check_break",
+      target: undefined,
+    };
+    const result = evaluateAction(state, action, "sente", CARD_SHOGI_VARIANT);
+    const baseEval = evaluate(state.gameState, CARD_SHOGI_VARIANT);
+    expect(result).toBe(baseEval + TRAP_VALUE_CHECK_BREAK);
+  });
+
+  it("PR1d-4 playCard no_promote: gote 視点は -baseEval + TRAP_VALUE_NO_PROMOTE (符号整合)", () => {
+    const state = makeAiTurnState();
+    const action: TurnAction = {
+      kind: "playCard",
+      cardInstanceId: "np",
+      defId: "no_promote",
+      target: undefined,
+    };
+    const result = evaluateAction(state, action, "gote", CARD_SHOGI_VARIANT);
+    const baseEval = evaluate(state.gameState, CARD_SHOGI_VARIANT);
+    expect(result).toBe(-baseEval + TRAP_VALUE_NO_PROMOTE);
   });
 });

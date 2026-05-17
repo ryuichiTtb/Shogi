@@ -22,6 +22,9 @@ import {
   HAND_VALUE_BASE,
   HAND_VALUE_DECAY,
   DRAW_PROGRESS_COEFFICIENT,
+  TRAP_VALUE_NO_PROMOTE,
+  TRAP_VALUE_CHECK_BREAK,
+  NO_PROMOTE_MARK_COEFFICIENT,
 } from "../cards/heuristics";
 import { createInitialCardState } from "@/lib/shogi/cards/state";
 import { INITIAL_MANA, MANA_CAP } from "@/lib/shogi/cards/definitions";
@@ -105,6 +108,8 @@ describe("evaluateCardDigest (W-3: variant ガード + W-2: sente 絶対視点)"
     manaCap: MANA_CAP,
     handValueDelta: 5,
     drawProgressDelta: 2,
+    trapPresence: { sente: null, gote: null },
+    noPromoteMarkCountDelta: 0,
   };
 
   it("variant.id === 'standard' は常に 0 を返す (W-3 反映)", () => {
@@ -127,6 +132,8 @@ describe("evaluateCardDigest (W-3: variant ガード + W-2: sente 絶対視点)"
       manaCap: MANA_CAP,
       handValueDelta: 0,
       drawProgressDelta: 0,
+      trapPresence: { sente: null, gote: null },
+      noPromoteMarkCountDelta: 0,
     };
     expect(evaluateCardDigest(emptyDigest, CARD_SHOGI_VARIANT)).toBe(0);
   });
@@ -195,5 +202,118 @@ describe("handValue 単調減衰関数 (F-5 仮基準)", () => {
     for (let i = 1; i < increments.length; i++) {
       expect(increments[i]).toBeLessThanOrEqual(increments[i - 1]);
     }
+  });
+});
+
+describe("computeCardDigest PR1d-4 拡張 (trapPresence / noPromoteMarkCountDelta)", () => {
+  it("初期 cardState は trapPresence={sente:null,gote:null} / noPromoteMarkCountDelta=0", () => {
+    const cardState = createInitialCardState(SAMPLE_DECK);
+    const digest = computeCardDigest(cardState);
+    expect(digest.trapPresence).toEqual({ sente: null, gote: null });
+    expect(digest.noPromoteMarkCountDelta).toBe(0);
+  });
+
+  it("sente 盤上トラップは trapPresence.sente に defId 反映、gote は null", () => {
+    const cardState = createInitialCardState(SAMPLE_DECK);
+    cardState.trap.sente = {
+      instanceId: "t-s1",
+      defId: "check_break",
+      owner: "sente",
+    };
+    const digest = computeCardDigest(cardState);
+    expect(digest.trapPresence.sente).toBe("check_break");
+    expect(digest.trapPresence.gote).toBeNull();
+  });
+
+  it("両者盤上トラップは sente/gote それぞれの defId を保持", () => {
+    const cardState = createInitialCardState(SAMPLE_DECK);
+    cardState.trap.sente = { instanceId: "t-s", defId: "no_promote", owner: "sente" };
+    cardState.trap.gote = { instanceId: "t-g", defId: "check_break", owner: "gote" };
+    const digest = computeCardDigest(cardState);
+    expect(digest.trapPresence).toEqual({
+      sente: "no_promote",
+      gote: "check_break",
+    });
+  });
+
+  it("noPromoteMarkCountDelta は sente 数 - gote 数 (ギャップ1=案A: 玉位置非依存)", () => {
+    const cardState = createInitialCardState(SAMPLE_DECK);
+    cardState.noPromoteMarks.sente = [
+      { row: 6, col: 0 },
+      { row: 6, col: 1 },
+    ];
+    cardState.noPromoteMarks.gote = [{ row: 2, col: 8 }];
+    const digest = computeCardDigest(cardState);
+    expect(digest.noPromoteMarkCountDelta).toBe(2 - 1);
+  });
+
+  it("noPromoteMarkCountDelta は gote 優勢で負 (sente 絶対視点 W-2 整合)", () => {
+    const cardState = createInitialCardState(SAMPLE_DECK);
+    cardState.noPromoteMarks.sente = [];
+    cardState.noPromoteMarks.gote = [
+      { row: 2, col: 0 },
+      { row: 2, col: 1 },
+      { row: 2, col: 2 },
+    ];
+    const digest = computeCardDigest(cardState);
+    expect(digest.noPromoteMarkCountDelta).toBe(0 - 3);
+  });
+
+  it("PR1d-4 コミット 2: sente 盤上 check_break trap は +TRAP_VALUE_CHECK_BREAK", () => {
+    const base = createInitialCardState(SAMPLE_DECK);
+    const withTrap = createInitialCardState(SAMPLE_DECK);
+    withTrap.trap.sente = { instanceId: "t", defId: "check_break", owner: "sente" };
+    const baseScore = evaluateCardDigest(
+      computeCardDigest(base),
+      CARD_SHOGI_VARIANT,
+    );
+    const trapScore = evaluateCardDigest(
+      computeCardDigest(withTrap),
+      CARD_SHOGI_VARIANT,
+    );
+    expect(trapScore - baseScore).toBe(TRAP_VALUE_CHECK_BREAK);
+  });
+
+  it("PR1d-4 コミット 2: gote 盤上 no_promote trap は -TRAP_VALUE_NO_PROMOTE (sente 絶対視点)", () => {
+    const base = createInitialCardState(SAMPLE_DECK);
+    const withTrap = createInitialCardState(SAMPLE_DECK);
+    withTrap.trap.gote = { instanceId: "t", defId: "no_promote", owner: "gote" };
+    const baseScore = evaluateCardDigest(
+      computeCardDigest(base),
+      CARD_SHOGI_VARIANT,
+    );
+    const trapScore = evaluateCardDigest(
+      computeCardDigest(withTrap),
+      CARD_SHOGI_VARIANT,
+    );
+    expect(trapScore - baseScore).toBe(-TRAP_VALUE_NO_PROMOTE);
+  });
+
+  it("PR1d-4 コミット 2: noPromoteMarkCountDelta × NO_PROMOTE_MARK_COEFFICIENT が評価に反映", () => {
+    const base = createInitialCardState(SAMPLE_DECK);
+    const withMarks = createInitialCardState(SAMPLE_DECK);
+    withMarks.noPromoteMarks.sente = [
+      { row: 6, col: 0 },
+      { row: 6, col: 1 },
+    ];
+    withMarks.noPromoteMarks.gote = [{ row: 2, col: 8 }];
+    const baseScore = evaluateCardDigest(
+      computeCardDigest(base),
+      CARD_SHOGI_VARIANT,
+    );
+    const markScore = evaluateCardDigest(
+      computeCardDigest(withMarks),
+      CARD_SHOGI_VARIANT,
+    );
+    expect(markScore - baseScore).toBe((2 - 1) * NO_PROMOTE_MARK_COEFFICIENT);
+  });
+
+  it("PR1d-4 コミット 2: standard variant はトラップ価値も 0 (W-3 ガード維持)", () => {
+    const withTrap = createInitialCardState(SAMPLE_DECK);
+    withTrap.trap.sente = { instanceId: "t", defId: "check_break", owner: "sente" };
+    withTrap.noPromoteMarks.sente = [{ row: 6, col: 0 }];
+    expect(
+      evaluateCardDigest(computeCardDigest(withTrap), STANDARD_VARIANT),
+    ).toBe(0);
   });
 });
