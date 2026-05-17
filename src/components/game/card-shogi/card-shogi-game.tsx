@@ -667,13 +667,20 @@ export function CardShogiGame({
             // Issue #193 / card-apply: 相手 (AI) ドローも自分と同じ
             // 山札→中央→手札フライトを再生する (中央でも裏面のまま=何を
             // 引いたかは見せない)。開始 SE は自分側と同じ
-            // (auto=card_auto_draw / manual=card_draw)。レア度別
-            // draw_card_open SE は「裏面で引いた札を伏せる」方針と矛盾する
-            // (耳でレア度が分かってしまう) ため相手側では鳴らさない。
+            // (auto=card_auto_draw / manual=card_draw)。中央到達時
+            // (T=DRAW_FADE_IN_MS) の開封 SE も自分側と同じタイミングで鳴らす
+            // が、相手側はレア度別キー (draw_card_open_${rarity}) ではなく
+            // レア度非依存の固定キー draw_card_open_common を使う。理由:
+            // 中央でも裏面で札を伏せる方針のため、dev サウンドチューナーで
+            // レア度別に音を差し替えられた場合に耳でレア度が漏れるのを防ぐ。
             // finalizeDraw はフライト完了 (handleOpponentDrawFlightComplete)
             // で呼ぶ。DrawFlightInner 側に保険タイマーがあるため、タブ非
             // アクティブでも isDrawing ロックは解除される。
             playSfx(source === "auto" ? "card_auto_draw" : "card_draw");
+            scheduleTimer(
+              () => playSfx("draw_card_open_common"),
+              DRAW_FADE_IN_MS,
+            );
             setOpponentDrawFlightQueue((q) => [
               ...q,
               { card: ev.instance, source, key: nextFlightKey() },
