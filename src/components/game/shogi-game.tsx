@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useShogiGame } from "@/hooks/use-shogi-game";
 import { useSound } from "@/hooks/use-sound";
 import { useBgm } from "@/hooks/use-bgm";
@@ -13,6 +13,7 @@ import { PromotionDialog } from "./promotion-dialog";
 import { BoardOverlay } from "./board-overlay";
 import type { OverlayEvent } from "./board-overlay";
 import { AiErrorModal } from "./ai-error-modal";
+import { RematchErrorBanner } from "./rematch-error-banner";
 import { CharacterPanel } from "@/components/character/character-panel";
 import { MobileDrawer } from "@/components/game/mobile-drawer";
 import { ThemeSelector } from "@/components/game/theme-selector";
@@ -27,11 +28,10 @@ import { STANDARD_VARIANT } from "@/lib/shogi/variants/standard";
 import { getVariantById } from "@/lib/shogi/variants/index";
 import type { GameConfig, GameState, Difficulty, Move, Player } from "@/lib/shogi/types";
 import type { CommentaryEvent } from "@/app/actions/commentary";
-import { createGame } from "@/app/actions/game";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import { MaskedLink } from "@/components/navigation/masked-link";
 import { LOADING_STAGES } from "@/lib/loading-stages";
-import { useRouter } from "next/navigation";
+import { useRematch } from "@/hooks/use-rematch";
 
 // Server→Client props に関数を含められないため、シリアライズ可能な型を定義
 interface SerializableGameConfig {
@@ -63,8 +63,11 @@ function shouldPlayJumpSfx(move: Move): boolean {
 export function ShogiGame({ initialGameState, gameId, gameConfig: serializableConfig }: ShogiGameProps) {
   const [commentEvent, setCommentEvent] = useState<CommentaryEvent | null>(null);
   const [overlayEvent, setOverlayEvent] = useState<{ event: OverlayEvent; key: number } | null>(null);
-  const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  // Issue #217: 旧 startTransition(async) は createGame 失敗時に永久ハング
+  // していた。明示的 loading/error state を持つ共通フックに置換 (router.push は
+  // フック内部で行うため本コンポーネントの useRouter は不要になった)。
+  const { isRematching, rematchError, rematch, clearRematchError } =
+    useRematch();
   const { squareSize, isMobile, viewportHeight } = useBoardSize();
 
   // クライアント側でバリアントを復元（関数を含むため props では渡せない）
@@ -79,15 +82,12 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
   const handlePlayAgain = useCallback(() => {
     // Issue #79 派生: forward 遷移 SFX (新規対局画面へ router.push する forward 系)
     playSfx("nav_forward");
-    startTransition(async () => {
-      const newGameId = await createGame(
-        gameConfig.difficulty,
-        gameConfig.playerColor,
-        gameConfig.characterId
-      );
-      router.push(`/game/${newGameId}`);
+    void rematch({
+      difficulty: gameConfig.difficulty,
+      playerColor: gameConfig.playerColor,
+      characterId: gameConfig.characterId,
     });
-  }, [gameConfig.difficulty, gameConfig.playerColor, gameConfig.characterId, router, playSfx]);
+  }, [gameConfig.difficulty, gameConfig.playerColor, gameConfig.characterId, rematch, playSfx]);
 
   const handleComment = useCallback((event: string) => {
     setCommentEvent(event as CommentaryEvent);
@@ -339,8 +339,8 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
                     ホームへ
                   </Button>
                 </MaskedLink>
-                <Button size="sm" onClick={handlePlayAgain} disabled={isPending}>
-                  {isPending ? "準備中..." : "もう一局"}
+                <Button size="sm" onClick={handlePlayAgain} disabled={isRematching}>
+                  {isRematching ? "準備中..." : "もう一局"}
                 </Button>
               </div>
             </Card>
@@ -358,7 +358,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
             gameStatus={gameState.status}
             gameWinner={gameState.winner}
             onPlayAgain={handlePlayAgain}
-            isPending={isPending}
+            isPending={isRematching}
             homeHref="/classic"
           />
         </div>
@@ -373,14 +373,20 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
       />
     </div>
     {/* Issue #163: 「もう一局」(=createGame Server Action 後 router.push) 中のローディングマスク。
-        PC/モバイル両方の同 isPending を共有しているため Overlay 1 つで両ボタンをカバー。
+        PC/モバイル両方の同 isRematching を共有しているため Overlay 1 つで両ボタンをカバー。
         ビジュアルは他のリッチローディング (回転カード + プログレスバー + ステージ文言) に統一。 */}
     <LoadingOverlay
-      show={isPending}
+      show={isRematching}
       fullScreen
       card
       progress
       stages={LOADING_STAGES.matchRestart}
+    />
+    {/* Issue #217: もう一局 (createGame) 失敗時のエラー通知 + 再試行 */}
+    <RematchErrorBanner
+      message={rematchError}
+      onRetry={handlePlayAgain}
+      onDismiss={clearRematchError}
     />
     {/* Issue #176: AI 思考が連続失敗した場合のリカバリ UI */}
     <AiErrorModal
