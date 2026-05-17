@@ -517,8 +517,8 @@ export function CardShogiGame({
   // 本ゲームは将棋の盤面向きの慣習上、相手側が常に画面上部・自分側が下部に
   // 配置される (全レスポンシブレイアウトで一貫)。AI 側専用 ref を全レイアウトに
   // 増設する代わりに、表示中要素のうち最も上 (top 最小) のものを AI 側とみなす。
-  // 既存セレクタ ([data-card-shogi-deck] / [data-hand-scroll]) を再利用し
-  // レイアウト JSX を変更しない (低リスク)。
+  // セレクタは山札= [data-card-shogi-deck] (既存)、手札= [data-hand-area]
+  // (HandArea の faceDown / stack root = 相手専用に付与) を使う。
   const getTopmostVisibleRect = useCallback((selector: string): DOMRect | null => {
     if (typeof document === "undefined") return null;
     const els = document.querySelectorAll<HTMLElement>(selector);
@@ -535,8 +535,11 @@ export function CardShogiGame({
     (): DOMRect | null => getTopmostVisibleRect("[data-card-shogi-deck]"),
     [getTopmostVisibleRect],
   );
+  // 相手 (AI) 手札は faceDown / stack 分岐で描画され data-hand-scroll を持た
+  // ない。自分側は常に scroll 分岐 (data-hand-scroll)。相手専用マーカー
+  // data-hand-area (faceDown / stack root のみ付与) で AI 手札を一意に取得する。
   const getAiHandRect = useCallback(
-    (): DOMRect | null => getTopmostVisibleRect("[data-hand-scroll]"),
+    (): DOMRect | null => getTopmostVisibleRect("[data-hand-area]"),
     [getTopmostVisibleRect],
   );
 
