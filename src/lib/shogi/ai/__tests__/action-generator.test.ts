@@ -185,3 +185,42 @@ describe("getCardActions トラップ系 (PR1d-4: no_promote / check_break)", ()
     expect(defIds.has("check_break")).toBe(true);
   });
 });
+
+describe("getCardActions 乱撃 (wild_strike #196)", () => {
+  it("targeting:none のため target 無しの単一 PlayCardAction を生成 (マナ十分・相手非玉駒あり)", () => {
+    const state = makeAiTurnState();
+    state.cardState.mana.sente = 10;
+    state.cardState.hand.sente = [makeCardInstance("wild_strike", "ws1")];
+    // 初期局面は gote の非玉駒が多数 → 使用条件 OK
+    const actions = Array.from(getCardActions(state, "sente", CARD_SHOGI_VARIANT));
+    const wsActions = actions.filter((a) => a.kind === "playCard" && a.defId === "wild_strike");
+    expect(wsActions).toHaveLength(1);
+    const first = wsActions[0];
+    expect(first.kind).toBe("playCard");
+    if (first.kind === "playCard") expect(first.target).toBeUndefined();
+  });
+
+  it("マナ不足 (cost 10 未満) では生成されない", () => {
+    const state = makeAiTurnState();
+    state.cardState.mana.sente = 9;
+    state.cardState.hand.sente = [makeCardInstance("wild_strike", "ws1")];
+    const actions = Array.from(getCardActions(state, "sente", CARD_SHOGI_VARIANT));
+    expect(actions).toEqual([]);
+  });
+
+  it("相手が玉だけなら CARD_USE_CONDITIONS で除外 (盤上の相手非玉駒なし)", () => {
+    const state = makeAiTurnState();
+    state.cardState.mana.sente = 10;
+    state.cardState.hand.sente = [makeCardInstance("wild_strike", "ws1")];
+    // 盤面から gote の非玉駒を全て除去 (玉のみ残す)
+    const board = state.gameState.board;
+    for (let r = 0; r < board.length; r++) {
+      for (let c = 0; c < board[r].length; c++) {
+        const p = board[r][c];
+        if (p && p.owner === "gote" && p.type !== "king") board[r][c] = null;
+      }
+    }
+    const actions = Array.from(getCardActions(state, "sente", CARD_SHOGI_VARIANT));
+    expect(actions).toEqual([]);
+  });
+});

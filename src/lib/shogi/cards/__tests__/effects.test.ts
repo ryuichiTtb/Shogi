@@ -24,7 +24,11 @@ import {
   moveNoPromoteMark,
   removeNoPromoteMark,
   simulateCardEffect,
+  collectEnemyNonKingPositions,
+  applyWildStrike,
+  WILD_STRIKE_MAX_TARGETS,
 } from "../effects";
+import { CARD_USE_CONDITIONS } from "../definitions";
 import {
   canEscapeCheckWithDoubleMove,
   getCheckingPieces,
@@ -1135,5 +1139,124 @@ describe("CARD_SHOGI_VARIANT 初期状態", () => {
     expect(state.board.length).toBe(9);
     expect(state.board[0].length).toBe(9);
     expect(state.currentPlayer).toBe("sente");
+  });
+});
+
+// ===== 乱撃 (wild_strike) #196 =====
+
+describe("乱撃 (wild_strike) #196", () => {
+  const wildStrikeCondition = CARD_USE_CONDITIONS.wild_strike!;
+
+  describe("collectEnemyNonKingPositions", () => {
+    it("相手の玉以外の盤上駒のみ列挙 (自駒・相手玉・空マスは除外)", () => {
+      const state = makeState();
+      placeKing(state, "sente", { row: 8, col: 4 });
+      placeKing(state, "gote", { row: 0, col: 4 });
+      place(state, { row: 2, col: 2 }, { type: "rook", owner: "gote" });
+      place(state, { row: 3, col: 3 }, { type: "pawn", owner: "gote" });
+      place(state, { row: 6, col: 6 }, { type: "gold", owner: "sente" }); // 自駒は対象外
+      const positions = collectEnemyNonKingPositions(state, "sente");
+      expect(positions).toHaveLength(2);
+      expect(positions).not.toContainEqual({ row: 0, col: 4 }); // 相手玉は除外
+      expect(positions).toContainEqual({ row: 2, col: 2 });
+      expect(positions).toContainEqual({ row: 3, col: 3 });
+    });
+
+    it("相手が玉だけなら空配列", () => {
+      const state = makeState();
+      placeKing(state, "sente", { row: 8, col: 4 });
+      placeKing(state, "gote", { row: 0, col: 4 });
+      expect(collectEnemyNonKingPositions(state, "sente")).toEqual([]);
+    });
+  });
+
+  describe("applyWildStrike (消滅 = 持ち駒化しない)", () => {
+    it("指定座標の相手駒を盤上から消し、どちらの持ち駒にも加えない", () => {
+      const state = makeState();
+      placeKing(state, "gote", { row: 0, col: 4 });
+      place(state, { row: 2, col: 2 }, { type: "rook", owner: "gote" });
+      place(state, { row: 3, col: 3 }, { type: "pawn", owner: "gote" });
+      const { gameState, destroyedPieces } = applyWildStrike(state, [
+        { row: 2, col: 2 },
+        { row: 3, col: 3 },
+      ]);
+      expect(gameState.board[2][2]).toBeNull();
+      expect(gameState.board[3][3]).toBeNull();
+      // 消滅 = ゲームから除外。両者の持ち駒は不変。
+      expect(gameState.hand.sente).toEqual({});
+      expect(gameState.hand.gote).toEqual({});
+      expect(destroyedPieces).toHaveLength(2);
+      // 純粋関数: 入力 state は不変
+      expect(state.board[2][2]).not.toBeNull();
+    });
+
+    it("成駒は実 type を destroyedPieces に保持 (演出のゴースト描画用)", () => {
+      const state = makeState();
+      place(state, { row: 4, col: 4 }, { type: "promoted_rook", owner: "gote" });
+      const { destroyedPieces } = applyWildStrike(state, [{ row: 4, col: 4 }]);
+      expect(destroyedPieces[0]).toMatchObject({
+        row: 4,
+        col: 4,
+        pieceType: "promoted_rook",
+        owner: "gote",
+      });
+    });
+
+    it("空マスを指定しても無視する (駒のある座標のみ消滅)", () => {
+      const state = makeState();
+      place(state, { row: 1, col: 1 }, { type: "silver", owner: "gote" });
+      const { destroyedPieces } = applyWildStrike(state, [
+        { row: 1, col: 1 },
+        { row: 7, col: 7 }, // 空マス
+      ]);
+      expect(destroyedPieces).toHaveLength(1);
+      expect(destroyedPieces[0]).toMatchObject({ row: 1, col: 1 });
+    });
+  });
+
+  describe("CARD_USE_CONDITIONS.wild_strike (王手中は全滅保証時のみ使用可)", () => {
+    it("非王手・相手非玉駒1枚以上 → 使用可", () => {
+      const state = makeState();
+      placeKing(state, "sente", { row: 8, col: 4 });
+      placeKing(state, "gote", { row: 0, col: 0 });
+      place(state, { row: 0, col: 8 }, { type: "lance", owner: "gote" });
+      expect(isInCheck(state, "sente", CARD_SHOGI_VARIANT)).toBe(false);
+      expect(wildStrikeCondition(state, "sente", makeCardState())).toBe(true);
+    });
+
+    it("相手が玉だけ → 使用不可", () => {
+      const state = makeState();
+      placeKing(state, "sente", { row: 8, col: 4 });
+      placeKing(state, "gote", { row: 0, col: 0 });
+      expect(wildStrikeCondition(state, "sente", makeCardState())).toBe(false);
+    });
+
+    it("王手中・相手非玉駒が撃破数以下 → 使用可 (全滅で必ず王手解除)", () => {
+      const state = makeState();
+      placeKing(state, "sente", { row: 4, col: 4 });
+      placeKing(state, "gote", { row: 0, col: 0 });
+      place(state, { row: 0, col: 4 }, { type: "rook", owner: "gote" }); // column 4 で王手
+      expect(isInCheck(state, "sente", CARD_SHOGI_VARIANT)).toBe(true);
+      const n = collectEnemyNonKingPositions(state, "sente").length;
+      expect(n).toBeLessThanOrEqual(WILD_STRIKE_MAX_TARGETS);
+      expect(wildStrikeCondition(state, "sente", makeCardState())).toBe(true);
+    });
+
+    it("王手中・相手非玉駒が撃破数超 → 使用不可 (全滅できず王手解除を保証できない)", () => {
+      const state = makeState();
+      placeKing(state, "sente", { row: 4, col: 4 });
+      placeKing(state, "gote", { row: 0, col: 0 });
+      place(state, { row: 0, col: 4 }, { type: "rook", owner: "gote" }); // 王手駒
+      // 王手と無関係な gote 駒を 6 枚追加 (合計 7 > 6)。column 4 の利きは塞がない。
+      const extra: Position[] = [
+        { row: 8, col: 0 }, { row: 8, col: 1 }, { row: 8, col: 2 },
+        { row: 8, col: 6 }, { row: 8, col: 7 }, { row: 8, col: 8 },
+      ];
+      for (const p of extra) place(state, p, { type: "pawn", owner: "gote" });
+      expect(isInCheck(state, "sente", CARD_SHOGI_VARIANT)).toBe(true);
+      const n = collectEnemyNonKingPositions(state, "sente").length;
+      expect(n).toBeGreaterThan(WILD_STRIKE_MAX_TARGETS);
+      expect(wildStrikeCondition(state, "sente", makeCardState())).toBe(false);
+    });
   });
 });

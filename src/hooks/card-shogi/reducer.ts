@@ -25,7 +25,7 @@ import { evaluateGameEnd } from "@/lib/shogi/rules";
 import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
 import { unpromotePieceType } from "@/lib/shogi/variants/standard";
 
-import type { CardAction, CardGameState, CardInstance, GameEvent } from "@/lib/shogi/cards/types";
+import type { CardAction, CardGameState, CardInstance, DestroyedPiece, GameEvent } from "@/lib/shogi/cards/types";
 import {
   CARD_DEFS,
   CARD_USE_CONDITIONS,
@@ -41,6 +41,9 @@ import {
   applyPieceReturn,
   applyDoublePawn,
   applyCheckBreak,
+  applyWildStrike,
+  collectEnemyNonKingPositions,
+  WILD_STRIKE_MAX_TARGETS,
   getCheckEscapingSquares,
   applyTrapSet,
   applyTrapClear,
@@ -1228,6 +1231,8 @@ export function reducer(
       // 適用前の盤面から捕捉し cardPlayEvent に載せる (相手 AI 使用時の
       // 駒フライト演出再現用、Issue #193 / card-apply)。
       let returnedPieceInfo: { row: number; col: number; pieceType: string } | undefined;
+      // 乱撃 (#196): 消滅させた相手駒のリスト。cardPlayEvent に載せて演出再現に使う。
+      let destroyedPieces: DestroyedPiece[] | undefined;
 
       if (def.kind === "trap") {
         // トラップは consumeNormalCard を使わず、マナ消費 + applyTrapSet
@@ -1286,6 +1291,28 @@ export function reducer(
         const newGameState = applyDoublePawn(state.gameState, player, targetPos);
         if (!newGameState) return state;
         nextGameState = newGameState;
+        const afterConsume = consumeNormalCard(state.cardState, player, pending.instance.instanceId, def.cost);
+        if (!afterConsume) return state;
+        nextCardState = afterConsume;
+      } else if (def.effectId === "wild_strike") {
+        // 乱撃 (#196): 相手の玉以外の盤上駒からランダムに最大 WILD_STRIKE_MAX_TARGETS 枚を消滅。
+        // ランダム選別はここで一度だけ行い、結果 (destroyedPieces) を cardPlayEvent に載せて
+        // 永続化する (盤面除去結果は gameState として保存されるため、リロード/リプレイで再抽選
+        // しない)。消滅駒は持ち駒化しない (applyWildStrike が board セルを null にするのみ)。
+        const candidates = collectEnemyNonKingPositions(state.gameState, player);
+        // 使用条件 (CARD_USE_CONDITIONS.wild_strike) で候補ゼロは弾かれる想定だが安全策。
+        if (candidates.length === 0) return state;
+        // Fisher-Yates でシャッフルし先頭 min(撃破数, 候補数) 枚を選別 (state.ts のデッキ
+        // シャッフルと同型)。
+        const shuffled = [...candidates];
+        for (let i = shuffled.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+        const chosen = shuffled.slice(0, Math.min(WILD_STRIKE_MAX_TARGETS, shuffled.length));
+        const result = applyWildStrike(state.gameState, chosen);
+        nextGameState = result.gameState;
+        destroyedPieces = result.destroyedPieces;
         const afterConsume = consumeNormalCard(state.cardState, player, pending.instance.instanceId, def.cost);
         if (!afterConsume) return state;
         nextCardState = afterConsume;
@@ -1361,6 +1388,7 @@ export function reducer(
               instance: pending.instance,
               target: pending.target,
               returnedPiece: returnedPieceInfo,
+              destroyedPieces,
               at: Date.now(),
             };
 

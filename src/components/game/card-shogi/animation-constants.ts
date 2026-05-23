@@ -96,3 +96,32 @@ export const AUTO_DRAW_PHASE_OFFSETS = {
 } as const;
 // 命名重複の防止 (二重メンテバグ回避): TOTAL_MS は cooldown の alias 再エクスポート。
 export const AUTO_DRAW_TOTAL_MS = AUTO_DRAW_PHASE_OFFSETS.cooldown;
+
+// ===== Wild Strike (#196 乱撃) =====
+// 相手の玉以外の盤上駒 (最大6枚) をランダム順に1枚ずつ「斬撃→白フラッシュ→血しぶき→消滅」
+// させる演出。各サブ尺は実機 (Vercel) で調整する前提の初期値。
+export const WILD_STRIKE_SLASH_COUNT = 3;        // 1駒あたりの斬撃本数
+export const WILD_STRIKE_SLASH_MS = 200;         // 斬撃1本の描画+余韻
+export const WILD_STRIKE_SLASH_GAP_MS = 80;      // 斬撃と斬撃の間隔
+export const WILD_STRIKE_VANISH_MS = 300;        // 血しぶき+消滅
+export const WILD_STRIKE_INTRO_MS = 160;         // 冒頭の一瞬暗転+白フラッシュ (全体1回)
+export const WILD_STRIKE_STAGGER_MS = 300;       // 駒間の発火間隔 (順次)
+export const WILD_STRIKE_TAIL_MS = 220;          // 最終駒消滅後の余韻
+// reduced-motion 時の簡易フォールバック総尺 (斬撃なしで即消滅)
+export const WILD_STRIKE_REDUCED_MS = 320;
+// 斬撃フェーズ長 = (本数-1)*間隔 + 斬撃1本。消滅はこの後に開始する。
+export const WILD_STRIKE_SLASH_PHASE_MS =
+  (WILD_STRIKE_SLASH_COUNT - 1) * WILD_STRIKE_SLASH_GAP_MS + WILD_STRIKE_SLASH_MS;
+// 1駒あたりの総尺 (斬撃フェーズ + 消滅)
+export const WILD_STRIKE_PIECE_DURATION_MS = WILD_STRIKE_SLASH_PHASE_MS + WILD_STRIKE_VANISH_MS;
+
+// n 駒を順次処理する演出全体の総尺 (ms)。最後の駒の消滅完了 + 余韻まで。
+export function wildStrikeTotalMs(n: number): number {
+  if (n <= 0) return WILD_STRIKE_INTRO_MS + WILD_STRIKE_TAIL_MS;
+  return (
+    WILD_STRIKE_INTRO_MS +
+    (n - 1) * WILD_STRIKE_STAGGER_MS +
+    WILD_STRIKE_PIECE_DURATION_MS +
+    WILD_STRIKE_TAIL_MS
+  );
+}

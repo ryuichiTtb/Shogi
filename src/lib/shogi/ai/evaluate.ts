@@ -7,7 +7,8 @@ import { evaluateCardDigest, type CardDigest } from "./cards/digest";
 // 正の値 = 先手有利、負の値 = 後手有利
 
 // 駒の価値テーブル（盤上）
-const PIECE_VALUES: Record<string, number> = {
+// 乱撃 (#196) の AI 期待値評価でも同一テーブルを参照し、材料価値の単位 (cp) を一致させる。
+export const PIECE_VALUES: Record<string, number> = {
   pawn: 100,
   lance: 300,
   knight: 400,

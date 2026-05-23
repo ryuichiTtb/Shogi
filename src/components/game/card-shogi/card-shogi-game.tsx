@@ -67,6 +67,7 @@ import { DRAW_FADE_IN_MS, PLAY_TOTAL_MS } from "./animation-constants";
 import { AutoDrawBurst } from "./auto-draw-burst";
 import { CardPlayFlight } from "./card-play-flight";
 import { PieceFlight, type PieceFlightSpec } from "./piece-flight";
+import { WildStrikeBurst, type WildStrikeTarget } from "./wild-strike-burst";
 import { useFlightParams } from "@/lib/dev/flight-params";
 import { ManaFlightLayer } from "./mana-flight";
 import { FastMoveBadgeLayer } from "./fast-move-badge";
@@ -261,6 +262,14 @@ export function CardShogiGame({
     hideTargets: FlightHideTarget[];
     pendingFlightCount: number;
   } | null>(null);
+  // Issue #196 (乱撃): 相手の玉以外の盤上駒を順次 斬撃→消滅 させる演出。
+  // reducer は既に駒を盤上から除去済 (cardPlayEvent.destroyedPieces にメタ情報)。
+  // ghosts: 元位置に重ねる消滅対象 (表示順はランダム)。key: 連続使用時の remount 用。
+  const [wildStrikeAnim, setWildStrikeAnim] = useState<{
+    ghosts: WildStrikeTarget[];
+    key: number;
+  } | null>(null);
+  const wildStrikeKeyRef = useRef(0);
   // Issue #82 (二手指し): 2手目で禁止された詰み手をクリックされたときに表示する案内ダイアログ。
   const [forbiddenMateDialogOpen, setForbiddenMateDialogOpen] = useState(false);
   const router = useRouter();
@@ -719,6 +728,32 @@ export function CardShogiGame({
                 ? getOriginRect(ev.instance.instanceId)
                 : getAiHandRect(),
             );
+          }
+          // Issue #196 (乱撃): 中央カード演出は出さず、消滅対象のゴースト駒への
+          // 斬撃→消滅シーケンスを盤上で再生する (自分・相手 AI とも同一体験)。reducer は
+          // 既に駒を盤上から除去済 (destroyedPieces にメタ情報) なので元位置にゴーストを重ねる。
+          // 完了 (handleWildStrikeComplete) で finalizePlayCard → COMMIT_PLAY_CARD。
+          if (def.effectId === "wild_strike") {
+            const destroyed = ev.destroyedPieces ?? [];
+            const ghosts: WildStrikeTarget[] = [];
+            for (const d of destroyed) {
+              const rect = getBoardSquareRect(d.row, d.col);
+              if (rect) ghosts.push({ rect, pieceType: d.pieceType, owner: d.owner });
+            }
+            // 表示順をランダム化 (issue: 消滅させる順番もランダム)。
+            for (let i = ghosts.length - 1; i > 0; i--) {
+              const j = Math.floor(Math.random() * (i + 1));
+              [ghosts[i], ghosts[j]] = [ghosts[j], ghosts[i]];
+            }
+            if (ghosts.length === 0) {
+              // rect 取得失敗フォールバック: isPlayingCard の永続ロックを避けるため finalize を予約。
+              scheduleTimer(() => finalizePlayCard(), PLAY_TOTAL_MS);
+            } else {
+              playSfx("card_use_animation");
+              wildStrikeKeyRef.current += 1;
+              setWildStrikeAnim({ ghosts, key: wildStrikeKeyRef.current });
+            }
+            break;
           }
           // Issue #82: 駒移動カード(歩戻し/駒戻し/二歩指し)は handleSquareClick 内で
           // flushSync により先回り発火済み。ここでは:
@@ -1196,6 +1231,13 @@ export function CardShogiGame({
 
   const handlePlayFlightComplete = useCallback(() => {
     setPlayFlight(null);
+    finalizePlayCard();
+  }, [finalizePlayCard]);
+
+  // Issue #196 (乱撃): 斬撃→消滅シーケンス完了。ゴーストを片付けて finalize
+  // (COMMIT_PLAY_CARD で手番交代・isPlayingCard 解除)。
+  const handleWildStrikeComplete = useCallback(() => {
+    setWildStrikeAnim(null);
     finalizePlayCard();
   }, [finalizePlayCard]);
 
@@ -2306,6 +2348,17 @@ export function CardShogiGame({
           </div>,
           document.body,
         )}
+
+      {/* Issue #196 (乱撃): 相手の玉以外の盤上駒を順次 斬撃→消滅 させる演出。
+          key で連続使用時に remount し、内部の完了タイマーをリセットする。 */}
+      {wildStrikeAnim && (
+        <WildStrikeBurst
+          key={`ws-${wildStrikeAnim.key}`}
+          targets={wildStrikeAnim.ghosts}
+          playerColor={playerColor}
+          onComplete={handleWildStrikeComplete}
+        />
+      )}
 
       {/* Issue #77: マナ加減算の浮遊テキスト (起点 UI 付近に表示) */}
       <ManaFlightLayer items={manaFlights} onComplete={removeManaFlight} />

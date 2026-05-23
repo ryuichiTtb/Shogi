@@ -26,6 +26,9 @@ const BENCH_DECK = [
   { defId: "pawn_return" as const, count: 4 },
   { defId: "double_move" as const, count: 4 },
   { defId: "no_promote" as const, count: 4 },
+  // Issue #196: 乱撃を bench デッキに含める。AI 評価は O(盤上駒数) + root 1 アクションのみ
+  // で探索コストへの寄与は軽微 (案A=測定のみ・baseline 比較は無効)。
+  { defId: "wild_strike" as const, count: 2 },
 ];
 
 // bench 用局面群: 初期局面 + sente/gote 交互に数手進めた代表局面。

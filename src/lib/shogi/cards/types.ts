@@ -15,7 +15,8 @@ export type CardId =
   | "double_pawn"
   | "piece_return"
   | "check_break"
-  | "double_move";
+  | "double_move"
+  | "wild_strike";
 
 export type CardTargeting = "none" | "ownPiece" | "enemyPiece" | "square";
 
@@ -168,6 +169,17 @@ export interface TrapCapturedPiece {
   originalOwner: Player;
 }
 
+// 乱撃 (#196) で「消滅」させた相手駒の情報。盤上から完全除去し持ち駒化しないため、
+// hand 種別は持たない。row/col は適用前の位置、pieceType は成駒含む実 type
+// (ゴースト描画で龍/馬等を正しく出すため)、owner は色描画用。
+// cardPlayEvent.destroyedPieces で UI が斬撃→消滅演出を組む。
+export interface DestroyedPiece {
+  row: number;
+  col: number;
+  pieceType: string;
+  owner: Player;
+}
+
 // Issue #130: ドロー発火源。手動 (DRAW_CARD コマンド) か、自動 (AUTO_DRAW_INTERVAL 到達)
 // かを区別する。UNDO のブロック判定 (auto はブロックしない) と UI 演出 (色味・規模) で参照。
 // optional とすることで、過去の DB 保存ログ (source 未記録時代) との互換を保つ。
@@ -189,6 +201,9 @@ export type GameEvent =
       instance: CardInstance;
       target?: CardTarget;
       returnedPiece?: { row: number; col: number; pieceType: string };
+      // 乱撃 (#196): 消滅させた相手駒のリスト。相手 (AI) 使用時の斬撃→消滅演出を
+      // 再現するために載せる。駒消滅を伴わないカードでは undefined。
+      destroyedPieces?: DestroyedPiece[];
       at: number;
     }
   | { kind: "trapSetEvent"; player: Player; instance: TrapInstance; at: number }

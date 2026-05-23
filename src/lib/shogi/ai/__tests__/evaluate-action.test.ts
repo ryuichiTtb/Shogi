@@ -16,7 +16,8 @@ import {
   TRAP_VALUE_NO_PROMOTE,
   TRAP_VALUE_CHECK_BREAK,
 } from "../cards/heuristics";
-import { evaluate } from "../evaluate";
+import { evaluate, PIECE_VALUES } from "../evaluate";
+import { collectEnemyNonKingPositions, WILD_STRIKE_MAX_TARGETS } from "@/lib/shogi/cards/effects";
 import { applyMoveForSearch } from "@/lib/shogi/board";
 import { createInitialCardState } from "@/lib/shogi/cards/state";
 import { createInitialGameState } from "@/lib/shogi/board";
@@ -182,5 +183,53 @@ describe("evaluateAction (move / draw / playCard 統一評価)", () => {
     const result = evaluateAction(state, action, "gote", CARD_SHOGI_VARIANT);
     const baseEval = evaluate(state.gameState, CARD_SHOGI_VARIANT);
     expect(result).toBe(-baseEval + TRAP_VALUE_NO_PROMOTE);
+  });
+
+  // Issue #196 (乱撃): ランダム消滅は決定論シミュレートできないため、期待除去材料
+  // (= 相手非玉駒の材料合計 S × min(6,N)/N) を現局面評価に加算する。
+  it("playCard wild_strike: 現局面評価 + 期待除去材料 (S*min(6,N)/N) が返る (sente)", () => {
+    const state = makeAiTurnState();
+    state.cardState.mana.sente = 10;
+    const action: TurnAction = {
+      kind: "playCard",
+      cardInstanceId: "ws",
+      defId: "wild_strike",
+      target: undefined,
+    };
+    const result = evaluateAction(state, action, "sente", CARD_SHOGI_VARIANT);
+
+    const positions = collectEnemyNonKingPositions(state.gameState, "sente");
+    const n = positions.length;
+    let s = 0;
+    for (const p of positions) {
+      const piece = state.gameState.board[p.row][p.col];
+      if (piece) s += PIECE_VALUES[piece.type] ?? 100;
+    }
+    const expectedRemoved = s * (Math.min(WILD_STRIKE_MAX_TARGETS, n) / n);
+    const baseEval = evaluate(state.gameState, CARD_SHOGI_VARIANT);
+    expect(result).toBeCloseTo(baseEval + expectedRemoved, 6);
+    // 相手戦力を期待除去するぶん、現局面評価より sente 有利に振れる
+    expect(result).toBeGreaterThan(baseEval);
+  });
+
+  it("playCard wild_strike: 盤上に相手非玉駒が無ければ NEGATIVE_INFINITY (候補から除外)", () => {
+    const state = makeAiTurnState();
+    state.cardState.mana.sente = 10;
+    // gote の非玉駒を全除去 (玉のみ)
+    const board = state.gameState.board;
+    for (let r = 0; r < board.length; r++) {
+      for (let c = 0; c < board[r].length; c++) {
+        const p = board[r][c];
+        if (p && p.owner === "gote" && p.type !== "king") board[r][c] = null;
+      }
+    }
+    const action: TurnAction = {
+      kind: "playCard",
+      cardInstanceId: "ws",
+      defId: "wild_strike",
+      target: undefined,
+    };
+    const result = evaluateAction(state, action, "sente", CARD_SHOGI_VARIANT);
+    expect(result).toBe(Number.NEGATIVE_INFINITY);
   });
 });

@@ -1,5 +1,8 @@
 import type { GameState, Player } from "@/lib/shogi/types";
+import { isInCheck } from "@/lib/shogi/moves";
+import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
 import type { CardDefinition, CardId, CardUseCondition } from "./types";
+import { WILD_STRIKE_MAX_TARGETS, collectEnemyNonKingPositions } from "./effects";
 
 // ----- 共通 useCondition ヘルパ -----
 
@@ -194,6 +197,31 @@ export const CARD_DEFS: Record<CardId, CardDefinition> = {
     addedAt: "2026-04-30",
     relatedIssues: [68, 80, 82, 105],
   },
+
+  wild_strike: {
+    id: "wild_strike",
+    kind: "normal",
+    name: "乱撃",
+    description: "相手の玉以外の盤上駒をランダムに最大6枚消滅させる",
+    cost: 10,
+    rarity: "epic",
+    effectId: "wild_strike",
+    targeting: "none",
+    icon: "🗡️",
+    status: "active",
+    // ランダム効果のため王手回避は確率的だが、相手の玉以外の盤上駒が撃破数 (6) 以下なら
+    // 全駒消滅 = 王手駒も必ず除去され王手解除が保証される。この「保証できるときだけ使用可」を
+    // CARD_USE_CONDITIONS.wild_strike で動的判定するため conditional とする
+    // (targeting:"none" × conditional = CARD_USE_CONDITIONS 個別判定経路。Issue #82 で設計済・乱撃が初使用)。
+    checkUsage: "conditional",
+    phase: "C",
+    detailDescription:
+      "相手の玉以外の盤上の駒から、ランダムに最大6枚を選び消滅させる。\n\n【対象】\n- 盤上の相手駒のみ (持ち駒は対象外)\n- 相手の玉は対象外\n- 対象が6枚に満たない場合は、ある分だけを消滅させる\n\n【効果】\n- 選ばれた駒は盤上から消滅する (どちらの持ち駒にもならない)\n- 先に消滅する駒を選別し、ランダムな順で1枚ずつ斬撃→消滅の演出が発動する\n\n【使用条件】\n- 盤上に相手の玉以外の駒が1枚以上ある (相手が玉だけのときは使用不可)\n- 王手中は、相手の玉以外の盤上駒が6枚以下のとき (=全消滅で必ず王手を解除できるとき) のみ使用可",
+    useConditionDescription:
+      "- 盤上に相手の玉以外の駒が1枚以上ある (相手が玉だけのときは使用不可)\n- 王手中は、相手の玉以外の盤上駒が6枚以下のときのみ使用可 (全消滅で必ず王手解除になるため)",
+    addedAt: "2026-05-23",
+    relatedIssues: [196],
+  },
 };
 
 export const ALL_CARD_DEFS: CardDefinition[] = Object.values(CARD_DEFS);
@@ -213,6 +241,18 @@ export const CARD_USE_CONDITIONS: Partial<Record<CardId, CardUseCondition>> = {
   // 自分の盤上に玉以外の駒が1枚以上あれば使用可。
   // ※ ピン駒しか残っていない極限状況では選択肢ゼロになるが、その判定は SELECT_SQUARE 側で行う。
   piece_return: (gameState, player) => hasOwnNonKingPieceOnBoard(gameState, player),
+  // 乱撃 (#196): 盤上に相手の玉以外の駒が1枚以上あれば使用可。ただし王手中は
+  // 「相手の玉以外の盤上駒 ≤ 撃破数(6)」のときのみ使用可とする (全消滅で王手駒も必ず除去され
+  // 王手解除が保証されるため)。targeting:"none" × checkUsage:"conditional" の
+  // 「target なし conditional は CARD_USE_CONDITIONS で個別判定」経路 (Issue #82 設計済・乱撃が初使用)。
+  wild_strike: (gameState, player) => {
+    const n = collectEnemyNonKingPositions(gameState, player).length;
+    if (n < 1) return false;
+    if (isInCheck(gameState, player, CARD_SHOGI_VARIANT)) {
+      return n <= WILD_STRIKE_MAX_TARGETS;
+    }
+    return true;
+  },
   // double_move: 固有の使用条件なし。王手中の使用可否は checkUsage="unconditional" で
   // 一括ガード (Issue #82)。「自分の手番開始時、王手中なら必ず1手で回避できる」前提から、
   // 2手以内回避は自明なので動的判定 (canEscapeCheckWithDoubleMove) は不要。

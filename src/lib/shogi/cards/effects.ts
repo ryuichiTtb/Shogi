@@ -7,7 +7,7 @@ import { cloneGameState } from "../board";
 import { isPawnDropCheckmate, isInCheck, getCheckingPieces } from "../moves";
 import { unpromotePieceType } from "../variants/standard";
 import { CARD_SHOGI_VARIANT } from "../variants/card-shogi";
-import type { CardGameState, CardId, CardTarget, TrapCapturedPiece } from "./types";
+import type { CardGameState, CardId, CardTarget, DestroyedPiece, TrapCapturedPiece } from "./types";
 
 // ----- no_promote 永続マーク管理 -----
 
@@ -392,6 +392,56 @@ export function applyCheckBreak(
     }
   }
   return { gameState: newState, capturedPieces };
+}
+
+// ----- 乱撃 (#196) -----
+
+// 乱撃の撃破上限。盤上の相手玉以外の駒からランダムに最大この枚数を消滅させる。
+// 使用条件 (definitions.ts) / reducer の抽選 / AI 評価 (search.ts) で共有し、
+// マジックナンバーの分散を防ぐ。
+export const WILD_STRIKE_MAX_TARGETS = 6;
+
+// 盤上の「相手 (player から見た敵) の玉以外の駒」座標を列挙する純粋関数。
+// 乱撃の対象候補列挙・使用条件 (枚数判定)・AI 評価で共用する。
+export function collectEnemyNonKingPositions(
+  state: GameState,
+  player: Player,
+): Position[] {
+  const opponent: Player = player === "sente" ? "gote" : "sente";
+  const result: Position[] = [];
+  for (let r = 0; r < state.board.length; r++) {
+    for (let c = 0; c < state.board[r].length; c++) {
+      const piece = state.board[r][c];
+      if (piece && piece.owner === opponent && piece.type !== "king") {
+        result.push({ row: r, col: c });
+      }
+    }
+  }
+  return result;
+}
+
+// 乱撃: 指定された座標の相手駒を盤上から「消滅」させる (持ち駒化しない)。
+// ランダム選別は呼び出し側 (reducer) が一度だけ行い、本関数は決定論的に除去のみ担う
+// (純粋関数としてテスト容易性を保つ)。戻り値 destroyedPieces は UI 演出
+// (斬撃→消滅) 用の適用前情報 (成駒含む実 type / owner)。
+export function applyWildStrike(
+  state: GameState,
+  targets: Position[],
+): { gameState: GameState; destroyedPieces: DestroyedPiece[] } {
+  const newState = cloneGameState(state);
+  const destroyedPieces: DestroyedPiece[] = [];
+  for (const pos of targets) {
+    const piece = newState.board[pos.row]?.[pos.col];
+    if (!piece) continue;
+    destroyedPieces.push({
+      row: pos.row,
+      col: pos.col,
+      pieceType: piece.type,
+      owner: piece.owner,
+    });
+    newState.board[pos.row][pos.col] = null;
+  }
+  return { gameState: newState, destroyedPieces };
 }
 
 // 同種トラップ重複チェック (Issue #105)。

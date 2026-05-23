@@ -5,8 +5,12 @@ import { STANDARD_VARIANT } from "../variants/standard";
 import { isInCheck } from "../moves";
 import { getSearchLegalMoves } from "./legal-moves";
 import { applyMoveForSearch } from "../board";
-import { evaluate, scoreMoveForOrdering } from "./evaluate";
-import { simulateCardEffect } from "../cards/effects";
+import { evaluate, scoreMoveForOrdering, PIECE_VALUES } from "./evaluate";
+import {
+  simulateCardEffect,
+  collectEnemyNonKingPositions,
+  WILD_STRIKE_MAX_TARGETS,
+} from "../cards/effects";
 import {
   DRAW_VALUE_BONUS,
   DOUBLE_MOVE_TOP_K,
@@ -759,6 +763,25 @@ export function evaluateAction(
             ? TRAP_VALUE_NO_PROMOTE
             : TRAP_VALUE_CHECK_BREAK;
         return trapSigned + trapBonus;
+      }
+      // 乱撃 (#196): ランダムに最大6枚の相手非玉駒を消滅させる。決定論的な
+      // simulateCardEffect には乗せられないため、専用に「期待除去材料」を見積もる。
+      // 盤上の相手非玉駒の材料合計 S に対し、各駒が min(6,N)/N の確率で消滅するので
+      // 期待除去量 = S * min(6,N)/N。これを現局面評価 (player 視点) に加算する
+      // (= trap/draw の「現局面評価 + ボーナス」型と同型。配置価値等の二次効果は近似で無視)。
+      if (action.defId === "wild_strike") {
+        const positions = collectEnemyNonKingPositions(state.gameState, player);
+        const n = positions.length;
+        if (n === 0) return Number.NEGATIVE_INFINITY; // 候補なし = 使用不可
+        let enemyMaterial = 0;
+        for (const pos of positions) {
+          const piece = state.gameState.board[pos.row][pos.col];
+          if (piece) enemyMaterial += PIECE_VALUES[piece.type] ?? 100;
+        }
+        const expectedRemoved = enemyMaterial * (Math.min(WILD_STRIKE_MAX_TARGETS, n) / n);
+        const raw = evaluate(state.gameState, variant, cardDigest);
+        const signed = player === "sente" ? raw : -raw;
+        return signed + expectedRemoved;
       }
       const nextGameState = simulateCardEffect(
         state.gameState,

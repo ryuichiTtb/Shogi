@@ -317,6 +317,83 @@
   animation: ghost-slash 1.5s ease-out forwards;
 }
 
+/* カード将棋 (Issue #196 乱撃): 冒頭の一瞬暗転 → 白フラッシュ (全体1回)。
+ * 全画面 overlay に適用。--ws-intro-ms で尺を制御。 */
+@keyframes wild-strike-intro {
+  0%   { opacity: 0; background-color: #000; }
+  35%  { opacity: 0.55; background-color: #000; }
+  55%  { opacity: 0.5; background-color: #fff; }
+  100% { opacity: 0; background-color: #fff; }
+}
+.wild-strike-intro {
+  animation: wild-strike-intro var(--ws-intro-ms, 160ms) ease-out forwards;
+}
+
+/* 乱撃: 白い斬撃を stroke-dasharray で高速描画 → フェード。--ws-delay で発火タイミングを
+ * 駒ごと・斬撃ごとにずらす。白主体 + 赤グローで「白で描画したフラッシュ斬撃」を表現。 */
+@keyframes wild-strike-slash {
+  0%   { stroke-dasharray: 0 240; opacity: 0; filter: drop-shadow(0 0 6px #fff) drop-shadow(0 0 12px rgba(239, 68, 68, 0.9)); }
+  18%  { stroke-dasharray: 240 0; opacity: 1; }
+  60%  { stroke-dasharray: 240 0; opacity: 1; filter: drop-shadow(0 0 4px #fff); }
+  100% { stroke-dasharray: 240 0; opacity: 0; filter: none; }
+}
+.wild-strike-slash-line {
+  stroke-dasharray: 0 240;
+  opacity: 0;
+  animation: wild-strike-slash var(--ws-slash-ms, 200ms) ease-out forwards;
+  animation-delay: var(--ws-delay, 0ms);
+}
+
+/* 乱撃: 斬撃の瞬間、対象駒を一瞬暗転 → 白フラッシュ。 */
+@keyframes wild-strike-hit {
+  0%   { filter: brightness(1); }
+  25%  { filter: brightness(0.2); }
+  45%  { filter: brightness(2.6) saturate(0.4); }
+  100% { filter: brightness(1); }
+}
+.wild-strike-hit {
+  animation: wild-strike-hit var(--ws-hit-ms, 200ms) ease-out forwards;
+  animation-delay: var(--ws-delay, 0ms);
+}
+
+/* 乱撃: 血しぶき (赤の放射状スプラッタ)。消滅と同タイミングで開始。 */
+@keyframes wild-strike-blood {
+  0%   { opacity: 0; transform: scale(0.3); }
+  20%  { opacity: 0.9; transform: scale(1.05); }
+  100% { opacity: 0; transform: scale(1.5); }
+}
+.wild-strike-blood {
+  opacity: 0;
+  animation: wild-strike-blood var(--ws-vanish-ms, 300ms) ease-out forwards;
+  animation-delay: var(--ws-vanish-delay, 0ms);
+}
+
+/* 乱撃: 駒の消滅 (縮小 + 軽い回転 + フェード)。斬撃フェーズ後に開始。 */
+@keyframes wild-strike-vanish {
+  0%   { opacity: 1; transform: scale(1) rotate(0deg); }
+  100% { opacity: 0; transform: scale(0.5) rotate(10deg); }
+}
+.wild-strike-vanish {
+  animation: wild-strike-vanish var(--ws-vanish-ms, 300ms) ease-in forwards;
+  animation-delay: var(--ws-vanish-delay, 0ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* 乱撃: 視覚演出を抑制 (斬撃・血しぶき・暗転は出さず、駒は即時に消す)。
+   * 完了タイミングはコンポーネント側 (matchMedia 判定) で短縮する。 */
+  .wild-strike-intro,
+  .wild-strike-slash-line,
+  .wild-strike-hit,
+  .wild-strike-blood {
+    animation: none;
+    opacity: 0;
+  }
+  .wild-strike-vanish {
+    animation: wild-strike-vanish 1ms linear forwards;
+    animation-delay: 0ms;
+  }
+}
+
 /* カード将棋: ドロー演出完了時に手札の対象カードがふわっと光る (Issue #78) */
 @keyframes hand-card-flash {
   0%   { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0); }

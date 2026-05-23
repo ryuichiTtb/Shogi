@@ -228,6 +228,57 @@ describe("reducer / カード系: 使用フロー", () => {
     expect(next.pendingPlayCardOpponent).toBe("gote");
   });
 
+  it("CONFIRM_PLAY_CARD (wild_strike): 相手非玉駒を最大6枚消滅 (持ち駒化なし) + カード消費 + 演出開始", () => {
+    const c = card("ws1", "wild_strike");
+    const gameState = createInitialGameState(CARD_SHOGI_VARIANT);
+    const state = makeInitialState(
+      gameState,
+      makeInitialCardState({
+        mana: { sente: 10, gote: 0 },
+        hand: { sente: [c], gote: [] },
+        pendingCard: { instance: c, player: "sente", phase: "confirm" },
+      }),
+    );
+
+    const countGoteNonKing = (gs: GameState) => {
+      let n = 0;
+      for (const row of gs.board) {
+        for (const p of row) {
+          if (p && p.owner === "gote" && p.type !== "king") n++;
+        }
+      }
+      return n;
+    };
+    const before = countGoteNonKing(state.gameState);
+
+    const next = reducer(state, { type: "CONFIRM_PLAY_CARD" });
+
+    // 撃破数 (6) ぶん盤上の gote 非玉駒が減る (初期局面は 19 枚 > 6)
+    expect(before).toBeGreaterThan(6);
+    expect(before - countGoteNonKing(next.gameState)).toBe(6);
+
+    // 消滅 = 持ち駒化しない: sente の持ち駒は増えない
+    const sumHand = (h: Partial<Record<string, number>>) =>
+      Object.values(h).reduce<number>((a, b) => a + (b ?? 0), 0);
+    expect(sumHand(next.gameState.hand.sente)).toBe(0);
+
+    // カード消費 + マナ -10
+    expect(next.cardState.hand.sente).toEqual([]);
+    expect(next.cardState.graveyard.sente.length).toBe(1);
+    expect(next.cardState.mana.sente).toBe(0);
+
+    // cardPlayEvent に destroyedPieces (6 件) が載り、演出再現に使える
+    const ev = next.eventLog[next.eventLog.length - 1];
+    expect(ev.kind).toBe("cardPlayEvent");
+    if (ev.kind === "cardPlayEvent") {
+      expect(ev.destroyedPieces).toHaveLength(6);
+    }
+
+    // 演出開始フラグ (COMMIT_PLAY_CARD まで手番交代を保留)
+    expect(next.isPlayingCard).toBe(true);
+    expect(next.pendingPlayCardOpponent).toBe("gote");
+  });
+
   it("CANCEL_PLAY_CARD: pendingCard をクリア", () => {
     const c = card("c1", "mana_up");
     const state = makeInitialState(
