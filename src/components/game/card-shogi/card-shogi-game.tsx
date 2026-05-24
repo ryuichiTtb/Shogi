@@ -49,7 +49,7 @@ import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
 import { getVariantById } from "@/lib/shogi/variants/index";
 import type { Difficulty, GameConfig, GameState, Move, Player, Position } from "@/lib/shogi/types";
 import type { CommentaryEvent } from "@/app/actions/commentary";
-import type { CardGameState, CardInstance } from "@/lib/shogi/cards/types";
+import type { CardGameState, CardInstance, GameEvent } from "@/lib/shogi/cards/types";
 import { CARD_DEFS, CARD_USE_CONDITIONS, DRAW_COST } from "@/lib/shogi/cards/definitions";
 import { isValidCardTargetSquare, canEscapeCheckWithCard, hasSameKindTrapPlaced } from "@/lib/shogi/cards/effects";
 import type { CardId } from "@/lib/shogi/cards/types";
@@ -63,7 +63,13 @@ import { CardPlayDialog, CardTargetingNotice } from "./card-play-dialog";
 import { DoubleMoveNotice } from "./double-move-notice";
 import { ForbiddenMateDialog } from "./forbidden-mate-dialog";
 import { DrawFlightCard } from "./draw-flight-card";
-import { DRAW_FADE_IN_MS, PLAY_TOTAL_MS } from "./animation-constants";
+import {
+  DRAW_FADE_IN_MS,
+  PLAY_TOTAL_MS,
+  CHECK_OVERLAY_TOTAL_MS,
+  TRAP_TRIGGER_OVERLAY_TOTAL_MS,
+} from "./animation-constants";
+import { deriveAnimationSteps, type AnimationStep } from "./animation-steps";
 import { AutoDrawBurst } from "./auto-draw-burst";
 import { CardPlayFlight } from "./card-play-flight";
 import { PieceFlight, type PieceFlightSpec } from "./piece-flight";
@@ -120,6 +126,28 @@ const NOOP_PIECE_CLICK: (pieceType: string) => void = () => {};
 // 毎レンダー [] を new するとメモ化が無効化されるため、フラグメンテーション回避。
 const EMPTY_POSITIONS: Position[] = [];
 const EMPTY_STRINGS: string[] = [];
+
+// Issue #222: 各演出ステップの保険タイムアウト (ms)。component の onComplete が
+// 来なくてもキューが前進し手番ロックが解除されるよう、実際の演出尺より十分長い値を
+// 置く。completeStep は先頭一致時のみ pop、COMMIT_* 系はロック未設定なら no-op の
+// ため、本タイマーが万一誤発火しても二重実行されず安全 (#217 系ハング再発防止)。
+const CARD_USE_STEP_FALLBACK_MS = 6000;
+const CHECK_BREAK_STEP_FALLBACK_MS = 8000;
+const DRAW_STEP_FALLBACK_MS = 6000;
+
+// Issue #222: イベントバッチの「手番主体」を導出する。駒移動 / カード使用 /
+// トラップ設置の最後の主体を採用する (trapTriggerEvent.player はトラップ所有者 =
+// 相手なので採用しない)。王手表示可否 (showCheck) で「相手玉が王手か」を判定する
+// 際の基準側を決めるために使う。move/card いずれも無いバッチ (自動ドロー単体等) は
+// null を返し、その場合は新たな王手演出を出さない。
+function deriveBatchActor(events: GameEvent[]): Player | null {
+  let actor: Player | null = null;
+  for (const ev of events) {
+    if (ev.kind === "moveEvent") actor = ev.move.player;
+    else if (ev.kind === "cardPlayEvent" || ev.kind === "trapSetEvent") actor = ev.player;
+  }
+  return actor;
+}
 
 export function CardShogiGame({
   initialGameState,
@@ -261,6 +289,15 @@ export function CardShogiGame({
     hideTargets: FlightHideTarget[];
     pendingFlightCount: number;
   } | null>(null);
+  // Issue #222: 演出直列化オーケストレータのキュー。reducer が 1 ターン分の
+  // イベントをまとめて eventLog へ積むため、従来は差分監視で各演出が即時・並行
+  // 発火し重なっていた。本キューに「カード使用→王手→トラップ→ドロー」の順で
+  // ステップを積み、先頭 1 件のみを activate して、完了で pop して次へ進める。
+  // これにより 4 種の大きな演出が必ず 1 つずつ完了してから次が再生される。
+  const [animationQueue, setAnimationQueue] = useState<AnimationStep[]>([]);
+  // 現在 activate 済みの先頭ステップ参照。再レンダー (gameState 変化等) での
+  // 二重 activate を防ぐガードに使う (object 参照一致で判定)。
+  const activeStepRef = useRef<AnimationStep | null>(null);
   // Issue #82 (二手指し): 2手目で禁止された詰み手をクリックされたときに表示する案内ダイアログ。
   const [forbiddenMateDialogOpen, setForbiddenMateDialogOpen] = useState(false);
   const router = useRouter();
@@ -455,12 +492,15 @@ export function CardShogiGame({
     } else {
       playSfx("piece_move");
     }
-    if (displayInCheck) {
+    // Issue #222: 通常プレイ中の王手演出は eventLog 監視のキュー
+    // (deriveAnimationSteps) が「カード使用→王手→トラップ→ドロー」の共通順序で
+    // 担う。ここでは詰み時のみ、従来の「王手→詰み」を保つため王手→詰みを発火する
+    // (詰みは終局で applyTurnEndEffects が走らずキューに乗らないため、キュー外で扱う)。
+    // 詰みは必ず王手中なので displayInCheck で gate せず status のみで判定する。
+    if (gameState.status === "checkmate") {
       playSfx("check");
       setOverlayEvent({ event: "check", key: Date.now() });
-    }
-    // 詰み: Issue #79 で王手 SFX (check) と分離した専用 checkmate SFX を再生。
-    if (gameState.status === "checkmate") {
+      // Issue #79 で王手 SFX (check) と分離した専用 checkmate SFX を 1000ms 後に再生。
       setTimeout(() => playSfx("checkmate"), 1000);
       setTimeout(() => setOverlayEvent({ event: "checkmate", key: Date.now() }), 1000);
     }
@@ -623,297 +663,150 @@ export function CardShogiGame({
     setDrawerOpen(false);
   }, [cachePendingCardRect, confirmPlayCard, playSfx]);
 
-  // カードイベント由来の SE 再生・画面演出・マナ浮遊テキストを eventLog の差分監視で発火
-  useEffect(() => {
-    if (!isReady) return;
-    const startIdx = lastEventIndexRef.current;
-    const newEvents = eventLog.slice(startIdx);
-    for (let i = 0; i < newEvents.length; i++) {
-      const ev = newEvents[i];
-      const absoluteIdx = startIdx + i;
-      switch (ev.kind) {
-        case "drawEvent": {
-          // Issue #130: source 別の挙動分岐。
-          // - SFX: 自分は即時、相手は 100ms 遅延 (連鎖時に重なり防止)
-          // - 演出キュー: 自分のドローのみ push (相手ドローは中央演出を出さない)
-          // - manaFlight: 手動ドロー (= マナ消費あり) のときのみ
-          // - aria-live: auto のとき (sente/gote 両方)「自動ドローしました」を 1500ms debounce で通知
-          //
-          // 【重要なロックバグ修正】
-          // 相手 (AI) 側の auto-draw でも reducer は isDrawing=true を立てる
-          // (applyTurnEndEffects の発火対象は player に依存しない)。
-          // 自分側 (isSelf=true) と異なり drawFlightQueue に push しないため、
-          // DrawFlightCard の onComplete → finalizeDraw が呼ばれず、isDrawing が
-          // 永続する。次に自分の手番が回ってきても selectSquare / drawCard /
-          // beginPlayCard の全ガードが効いて操作完全ロックという重大バグが
-          // 発生する。相手側ドローでも一定の視覚的待ち時間 (~600ms) を確保した上で
-          // 必ず finalizeDraw を呼んで isDrawing をクリアする。
-          const source = ev.source ?? "manual";
-          const isSelf = ev.player === playerColor;
-          if (isSelf) {
-            // Issue #79: 手動ドロー (山札クリック) と自動ドロー (relay) を別 SFX に分離。
-            playSfx(source === "auto" ? "card_auto_draw" : "card_draw");
-            // 中央表示タイミング (T=DRAW_FADE_IN_MS = 500ms) で
-            // レア度別 draw_card_open SE を発火。default 未割当なら playSfx 内で skip。
-            const rarity = CARD_DEFS[ev.instance.defId].rarity;
-            scheduleTimer(
-              () => playSfx(`draw_card_open_${rarity}` as never),
-              DRAW_FADE_IN_MS,
-            );
-            setDrawFlightQueue((q) => [
-              ...q,
-              { card: ev.instance, source, key: nextFlightKey() },
-            ]);
-          } else {
-            // Issue #193 / card-apply: 相手 (AI) ドローも自分と同じ
-            // 山札→中央→手札フライトを再生する (中央でも裏面のまま=何を
-            // 引いたかは見せない)。開始 SE は自分側と同じ
-            // (auto=card_auto_draw / manual=card_draw)。中央到達時
-            // (T=DRAW_FADE_IN_MS) の開封 SE も自分側と同じタイミングで鳴らす
-            // が、相手側はレア度別キー (draw_card_open_${rarity}) ではなく
-            // レア度非依存の固定キー draw_card_open_common を使う。理由:
-            // 中央でも裏面で札を伏せる方針のため、dev サウンドチューナーで
-            // レア度別に音を差し替えられた場合に耳でレア度が漏れるのを防ぐ。
-            // finalizeDraw はフライト完了 (handleOpponentDrawFlightComplete)
-            // で呼ぶ。DrawFlightInner 側に保険タイマーがあるため、タブ非
-            // アクティブでも isDrawing ロックは解除される。
-            playSfx(source === "auto" ? "card_auto_draw" : "card_draw");
-            scheduleTimer(
-              () => playSfx("draw_card_open_common"),
-              DRAW_FADE_IN_MS,
-            );
-            setOpponentDrawFlightQueue((q) => [
-              ...q,
-              { card: ev.instance, source, key: nextFlightKey() },
-            ]);
-          }
-          if (source === "manual" && isSelf) {
-            triggerManaFlight(-DRAW_COST, getDeckRect());
-          }
-          if (source === "auto") {
-            // 連続発火時 (sente auto → gote auto) は古いタイマーを cancel して
-            // 新しい 1500ms 計測を開始 (重複読み上げ防止)
-            if (liveMessageTimerRef.current !== null) {
-              window.clearTimeout(liveMessageTimerRef.current);
-              timersRef.current.delete(liveMessageTimerRef.current);
-            }
-            setAutoDrawLiveMessage("自動ドローしました");
-            liveMessageTimerRef.current = scheduleTimer(() => {
-              setAutoDrawLiveMessage("");
-              liveMessageTimerRef.current = null;
-            }, 1500);
-          }
-          break;
-        }
-        case "cardPlayEvent": {
-          playSfx("card_play");
+  // Issue #222: 演出ステップを 1 件消化したらキュー先頭を pop する。
+  // 「先頭が当該ステップのときだけ」pop することで、component の onComplete と
+  // 保険タイマーの両方から呼ばれても二重 pop しない (冪等)。pop により先頭が
+  // 次ステップ (別 object) に変わると driver effect が次を activate する。
+  const completeStep = useCallback((step: AnimationStep) => {
+    setAnimationQueue((q) => (q[0] === step ? q.slice(1) : q));
+  }, []);
+
+  // Issue #222: キュー先頭ステップを activate (実際の演出を起動) する。DOMRect
+  // 解決・SFX・state 反映といった副作用はすべてここで行う (順序決定は純粋関数
+  // deriveAnimationSteps が担う)。完了経路はステップ種別ごとに異なるが、いずれにも
+  // 保険タイマーを張り、完了通知が来なくてもキューが前進する (#217 系の手番永久
+  // ロック再発防止)。completeStep / COMMIT_* は冪等なので保険が誤発火しても安全。
+  const activateStep = useCallback(
+    (step: AnimationStep) => {
+      switch (step.kind) {
+        case "cardUse": {
+          const ev = step.event;
           const def = CARD_DEFS[ev.instance.defId];
-          if (def.cost > 0) {
-            // Issue #193 / card-apply: 自分はキャッシュした使用カード位置を
-            // 起点にできるが、相手 (AI) は手札が裏面で個別カード DOM が無く
-            // getOriginRect が自分の手札へフォールバックしてしまう。相手の
-            // マナ消費表示は相手手札エリア (getAiHandRect) を起点にする。
-            triggerManaFlight(
-              -def.cost,
-              ev.player === playerColor
-                ? getOriginRect(ev.instance.instanceId)
-                : getAiHandRect(),
-            );
-          }
-          // Issue #82: 駒移動カード(歩戻し/駒戻し/二歩指し)は handleSquareClick 内で
-          // flushSync により先回り発火済み。ここでは:
-          //  - pendingPieceFlightRef に新規駒種(toRect=null)ケースだけが残っている →
-          //    適用後の DOM から toRect を補完して発火
-          //  - それ以外(駒移動なしカード / 既に発火済み)→ 中央カード演出を即発火
-          if (ev.player === playerColor) {
-            const cardInstance = ev.instance;
-            const pending = pendingPieceFlightRef.current;
-            if (pending && pending.toRect === null) {
-              // 新規駒種: 適用後の DOM から to rect を取る
-              pendingPieceFlightRef.current = null;
-              const toRect = findVisibleCapturedPieceRect(playerColor, pending.pieceType);
-              if (toRect) {
-                pieceFlightKeyRef.current += 1;
-                // Issue #79: 駒フライト演出 SFX (default = 刀剣・投げナイフ)。
-                playSfx("piece_flight");
-                setPieceFlight({
-                  spec: {
-                    pieceType: pending.pieceType,
-                    owner: playerColor,
-                    fromX: pending.fromRect.left + pending.fromRect.width / 2,
-                    fromY: pending.fromRect.top + pending.fromRect.height / 2,
-                    toX: toRect.left + toRect.width / 2,
-                    toY: toRect.top + toRect.height / 2,
-                  },
-                  key: pieceFlightKeyRef.current,
-                  hideTarget: { kind: "captured", player: playerColor, pieceType: pending.pieceType },
-                });
-                pendingPlayFlightRef.current = { card: cardInstance, isTrap: false };
-              } else {
-                // 取得失敗 → 中央カード演出のみ
+          // カード消費マナの浮遊表示 (自分=使用カード位置 / 相手=相手手札エリア)。
+          const manaOrigin =
+            ev.player === playerColor
+              ? getOriginRect(ev.instance.instanceId)
+              : getAiHandRect();
+          if (ev.kind === "cardPlayEvent") {
+            playSfx("card_play");
+            if (def.cost > 0) triggerManaFlight(-def.cost, manaOrigin);
+            if (ev.player === playerColor) {
+              // Issue #82: 駒移動カードは handleSquareClick 内で flushSync 先回り
+              // 発火済み。ここでは pendingPieceFlightRef の新規駒種 (toRect=null)
+              // を適用後 DOM から補完するか、駒移動なしカードの中央演出を出す。
+              const cardInstance = ev.instance;
+              const pending = pendingPieceFlightRef.current;
+              if (pending && pending.toRect === null) {
+                pendingPieceFlightRef.current = null;
+                const toRect = findVisibleCapturedPieceRect(playerColor, pending.pieceType);
+                if (toRect) {
+                  pieceFlightKeyRef.current += 1;
+                  playSfx("piece_flight");
+                  setPieceFlight({
+                    spec: {
+                      pieceType: pending.pieceType,
+                      owner: playerColor,
+                      fromX: pending.fromRect.left + pending.fromRect.width / 2,
+                      fromY: pending.fromRect.top + pending.fromRect.height / 2,
+                      toX: toRect.left + toRect.width / 2,
+                      toY: toRect.top + toRect.height / 2,
+                    },
+                    key: pieceFlightKeyRef.current,
+                    hideTarget: { kind: "captured", player: playerColor, pieceType: pending.pieceType },
+                  });
+                  pendingPlayFlightRef.current = { card: cardInstance, isTrap: false };
+                } else {
+                  playFlightKeyRef.current += 1;
+                  playSfx("card_use_animation");
+                  setPlayFlight({ card: cardInstance, key: playFlightKeyRef.current, isTrap: false });
+                }
+              } else if (!pendingPlayFlightRef.current) {
+                // 駒フライト未発火 (駒移動なしカード or 二歩指し) → 中央カード演出。
+                // 王手演出は本ステップでは出さず、後続の check ステップに委譲する
+                // (Issue #222: カード使用 → 王手 の順を共通化)。
                 playFlightKeyRef.current += 1;
-                // Issue #79 派生: カード使用演出 SFX
                 playSfx("card_use_animation");
                 setPlayFlight({ card: cardInstance, key: playFlightKeyRef.current, isTrap: false });
               }
-            } else if (!pendingPlayFlightRef.current) {
-              // 駒フライト未発火 (= 駒移動なしカード or 二歩指し) → 中央カード演出を即発火
-              //
-              // Issue #173: 二歩指し (double_pawn) は moveCount を増やさないため
-              // moveCount useEffect 経由で王手 SFX/演出が発火しない。中央カード演出
-              // より前にここで発火する。
-              // 二手指し (double_move) は moveEvent と paired で moveCount が動くため
-              // moveCount useEffect 側で既に発火済み → effectId で gate して二重発火を回避。
-              if (def.effectId === "double_pawn") {
-                const opponentColor: Player =
-                  playerColor === "sente" ? "gote" : "sente";
-                if (
-                  gameState.status === "active" &&
-                  isInCheck(gameState, opponentColor, CARD_SHOGI_VARIANT)
-                ) {
-                  playSfx("check");
-                  setOverlayEvent({ event: "check", key: Date.now() });
+            } else {
+              // 相手 (AI) のカード使用。駒戻し/歩戻し (returnedPiece あり) は
+              // 盤上→持ち駒の駒フライト → 完了後に中央カード演出 (handlePieceFlightComplete
+              // → handlePlayFlightComplete) を再現する。
+              const rp = ev.returnedPiece;
+              let opponentPieceFlightFired = false;
+              if (rp) {
+                const fromRect = getBoardSquareRect(rp.row, rp.col);
+                const toRect = findVisibleCapturedPieceRect(aiColor, rp.pieceType);
+                if (fromRect && toRect) {
+                  pieceFlightKeyRef.current += 1;
+                  playSfx("piece_flight");
+                  setPieceFlight({
+                    spec: {
+                      pieceType: rp.pieceType,
+                      owner: aiColor,
+                      fromX: fromRect.left + fromRect.width / 2,
+                      fromY: fromRect.top + fromRect.height / 2,
+                      toX: toRect.left + toRect.width / 2,
+                      toY: toRect.top + toRect.height / 2,
+                    },
+                    key: pieceFlightKeyRef.current,
+                    hideTarget: { kind: "captured", player: aiColor, pieceType: rp.pieceType },
+                  });
+                  pendingPlayFlightRef.current = { card: ev.instance, isTrap: false };
+                  opponentPieceFlightFired = true;
                 }
               }
-              playFlightKeyRef.current += 1;
-              // Issue #79 派生: カード使用演出 SFX
-              playSfx("card_use_animation");
-              setPlayFlight({ card: cardInstance, key: playFlightKeyRef.current, isTrap: false });
+              if (!opponentPieceFlightFired) {
+                playFlightKeyRef.current += 1;
+                playSfx("card_use_animation");
+                setPlayFlight({ card: ev.instance, key: playFlightKeyRef.current, isTrap: false });
+              }
             }
           } else {
-            // Issue #193 / card-apply: 相手 (AI) のカード使用。自分が使った
-            // ときと同じ体験にするため、駒戻し/歩戻し (returnedPiece あり) は
-            // 「盤上 → 持ち駒の駒フライト → 完了後に中央カード演出 → finalize」
-            // を再現する。人間は handleSquareClick で適用前に fromRect を
-            // 捕捉するが、AI は適用後にしか介入できないため、reducer が
-            // cardPlayEvent に載せた returnedPiece (元位置 + unpromote 駒種)
-            // から復元する。駒フライト完了 (handlePieceFlightComplete) が
-            // pendingPlayFlightRef から中央カード演出を発火し、その onComplete
-            // (handlePlayFlightComplete) が finalizePlayCard → COMMIT_PLAY_CARD
-            // を呼んで手番を進める。この経路が無いと演出も COMMIT も発生せず
-            // 手番が永久ロックする (相手ドローで finalizeDraw を明示予約して
-            // いるのと同じ構造の対策)。
-            const rp = ev.returnedPiece;
-            let opponentPieceFlightFired = false;
-            if (rp) {
-              const fromRect = getBoardSquareRect(rp.row, rp.col);
-              const toRect = findVisibleCapturedPieceRect(aiColor, rp.pieceType);
-              if (fromRect && toRect) {
-                pieceFlightKeyRef.current += 1;
-                playSfx("piece_flight");
-                setPieceFlight({
-                  spec: {
-                    pieceType: rp.pieceType,
-                    owner: aiColor,
-                    fromX: fromRect.left + fromRect.width / 2,
-                    fromY: fromRect.top + fromRect.height / 2,
-                    toX: toRect.left + toRect.width / 2,
-                    toY: toRect.top + toRect.height / 2,
-                  },
-                  key: pieceFlightKeyRef.current,
-                  hideTarget: { kind: "captured", player: aiColor, pieceType: rp.pieceType },
-                });
-                pendingPlayFlightRef.current = { card: ev.instance, isTrap: false };
-                opponentPieceFlightFired = true;
-              }
-            }
-            if (!opponentPieceFlightFired) {
-              // 駒移動なしカード (mana_up 等) / rect 取得失敗フォールバック。
-              // 二歩指し (double_pawn) は moveCount を増やさず moveCount
-              // useEffect 経由の王手演出が出ないため、相手 (AI) の二歩指しで
-              // 自玉が王手になるケースをここで補う (自分側分岐 712-722 と対称)。
-              if (def.effectId === "double_pawn") {
-                const checkedSide: Player =
-                  ev.player === "sente" ? "gote" : "sente";
-                if (
-                  gameState.status === "active" &&
-                  isInCheck(gameState, checkedSide, CARD_SHOGI_VARIANT)
-                ) {
-                  playSfx("check");
-                  setOverlayEvent({ event: "check", key: Date.now() });
-                }
-              }
+            // trapSetEvent: トラップ設置。
+            playSfx("trap_set");
+            if (def.cost > 0) triggerManaFlight(-def.cost, manaOrigin);
+            if (ev.player === playerColor) {
+              // 自分のトラップ設置は中央へカード本体を表示 (CardPlayFlight)。
               playFlightKeyRef.current += 1;
-              playSfx("card_use_animation");
               setPlayFlight({
-                card: ev.instance,
+                card: { instanceId: ev.instance.instanceId, defId: ev.instance.defId },
                 key: playFlightKeyRef.current,
-                isTrap: false,
+                isTrap: true,
               });
+            } else {
+              // 相手 (AI) のトラップ設置は隠し情報なので種別を伏せた汎用オーバー
+              // レイのみ。中央カード演出を出さないため尺 (PLAY_TOTAL_MS) で
+              // finalizePlayCard + pop を予約する。
+              setOverlayEvent({ event: "trap_set", key: Date.now() });
+              scheduleTimer(() => {
+                finalizePlayCard();
+                completeStep(step);
+              }, PLAY_TOTAL_MS);
             }
           }
+          // 保険: 通常カード/自トラップは handlePlayFlightComplete、相手トラップは
+          // 上記タイマーで finalize+pop する。万一いずれも来なくても回収する。
+          scheduleTimer(() => {
+            finalizePlayCard();
+            completeStep(step);
+          }, CARD_USE_STEP_FALLBACK_MS);
           break;
         }
-        case "manaChargeEvent":
-          // ターン由来の自動チャージは駒移動 SE と被るため、カード由来のみ鳴らす
-          if (ev.reason === "card") playSfx("mana_charge");
-          // Issue #77: マナ加算を起点 UI 付近に表示
-          if (ev.reason === "turn") {
-            // 直前の同 player の moveEvent を遡って探し、移動先マスに表示
-            let moveTo: { row: number; col: number } | null = null;
-            for (let j = absoluteIdx - 1; j >= 0; j--) {
-              const m = eventLog[j];
-              if (m.kind === "moveEvent" && m.move.player === ev.player) {
-                moveTo = m.move.to;
-                break;
-              }
-            }
-            const rect = moveTo ? getBoardSquareRect(moveTo.row, moveTo.col) : null;
-            triggerManaFlight(ev.amount, rect);
-            if (ev.fastMove) triggerFastMoveBadge(rect);
-          } else {
-            // カード由来 (マナUP等): 直前に使用したカードの位置 (なければ手札中央)
-            triggerManaFlight(ev.amount, getOriginRect());
-          }
-          break;
-        case "trapSetEvent": {
-          // Issue #79: トラップセットは固有 SE (旧 card_play 流用は廃止)
-          playSfx("trap_set");
-          const def = CARD_DEFS[ev.instance.defId];
-          if (def.cost > 0) {
-            // Issue #193 / card-apply: 自分はキャッシュした使用カード位置を
-            // 起点にできるが、相手 (AI) は手札が裏面で個別カード DOM が無く
-            // getOriginRect が自分の手札へフォールバックしてしまう。相手の
-            // マナ消費表示は相手手札エリア (getAiHandRect) を起点にする。
-            triggerManaFlight(
-              -def.cost,
-              ev.player === playerColor
-                ? getOriginRect(ev.instance.instanceId)
-                : getAiHandRect(),
-            );
-          }
-          // Issue #106: トラップセット時も中央へカード本体を表示
-          // CardInstance に詰め直し (TrapInstance.owner は CardView 側で参照しないため捨てる)
-          if (ev.player === playerColor) {
-            playFlightKeyRef.current += 1;
-            setPlayFlight({
-              card: { instanceId: ev.instance.instanceId, defId: ev.instance.defId },
-              key: playFlightKeyRef.current,
-              isTrap: true,
-            });
-          } else {
-            // Issue #193 / card-apply: 相手 (AI) のトラップ設置。トラップは
-            // 相手から見えない隠し情報なのでカード本体は出さず、種別を伏せた
-            // 汎用オーバーレイのみ表示する (ユーザー選択: 種別を隠して汎用演出)。
-            // 中央カード演出 (CardPlayFlight) を出さないため、相手ドローと同様に
-            // finalizePlayCard を明示予約しないと isPlayingCard が永続ロック
-            // する。オーバーレイ尺 (= 通常カード演出と同じ PLAY_TOTAL_MS) に
-            // 合わせて COMMIT_PLAY_CARD を発火させる。
-            setOverlayEvent({ event: "trap_set", key: Date.now() });
-            scheduleTimer(() => finalizePlayCard(), PLAY_TOTAL_MS);
-          }
+        case "check": {
+          // 王手中央オーバーレイ。ロックを持たない短尺演出のため、尺経過で pop する。
+          playSfx("check");
+          setOverlayEvent({ event: "check", key: Date.now() });
+          scheduleTimer(() => completeStep(step), CHECK_OVERLAY_TOTAL_MS);
           break;
         }
-        case "trapTriggerEvent": {
+        case "trap": {
+          const ev = step.event;
           const trapDef = CARD_DEFS[ev.instance.defId];
-          // Issue #82 (王手崩し): 王手 → トラップ発動 → 駒フライト の3段演出
+          // Issue #82 (王手崩し): 王手 → トラップ発動 → 駒フライト の3段演出。
           if (trapDef.id === "check_break" && ev.capturedPieces && ev.capturedPieces.length > 0) {
             const trapOwner = ev.player;
             const captures = ev.capturedPieces;
-            // reducer は適用済 (盤上から駒除去・持ち駒に追加) なので、
-            // 王手中央表示+トラップ発動演出の間は元位置にゴースト駒を重ね描きする。
-            // fromRect: 元の盤面マス (空マスになっているがマス自体は存在)
-            // toRect: 持ち駒として既に追加されている表示位置 (hideTargets で隠す)
             const ghosts: Array<{ rect: DOMRect; pieceType: string; owner: Player }> = [];
             const flights: PieceFlightSpec[] = [];
             const hideTargets: FlightHideTarget[] = [];
@@ -940,53 +833,181 @@ export function CardShogiGame({
               });
               hideTargets.push({ kind: "captured", player: trapOwner, pieceType: cap.pieceType });
             }
-            // 演出ロックは reducer 側で isCheckBreakAnimating=true がセット済。
-            // ゴースト駒を盤面に重ね描きしつつ、持ち駒側はフライト着地まで隠す。
             pieceFlightKeyRef.current += captures.length;
             const flightKeyBase = pieceFlightKeyRef.current - captures.length + 1;
             setCheckBreakAnim({
               ghosts,
               hitActive: false,
-              flights: [],   // フライト発火前は空配列。ゴーストのみ表示。
+              flights: [], // フライト発火前は空配列。ゴーストのみ表示。
               flightKeyBase,
               hideTargets,
               pendingFlightCount: flights.length,
             });
-            // T=0: 王手中央表示 (1600ms = 100 fadeIn + 1000 hold + 500 fadeOut)
+            // T=0: 王手中央表示。
             playSfx("check");
             setOverlayEvent({ event: "check", key: Date.now() });
-            // T=1600: トラップ発動演出 (2300ms = 200 fadeIn + 1500 hold + 600 fadeOut)
-            //   + ゴースト駒へヒット演出 (紫フラッシュ + シェイク + 持続グロー)
-            window.setTimeout(() => {
+            // T=CHECK_OVERLAY_TOTAL: トラップ発動演出 + ゴースト駒ヒット演出。
+            scheduleTimer(() => {
               playSfx("trap_trigger");
-              setOverlayEvent({
-                event: "trap_trigger",
-                key: Date.now(),
-                trapName: trapDef.name,
-              });
+              setOverlayEvent({ event: "trap_trigger", key: Date.now(), trapName: trapDef.name });
               setCheckBreakAnim((prev) => (prev ? { ...prev, hitActive: true } : null));
-            }, 1600);
-            // T=3900: ゴーストを消し、駒フライト並行発火
-            window.setTimeout(() => {
-              // Issue #79: 駒フライト演出 SFX (王手崩し時)。
+            }, CHECK_OVERLAY_TOTAL_MS);
+            // T=CHECK_OVERLAY_TOTAL + TRAP_TRIGGER_OVERLAY_TOTAL: ゴースト消去 + 駒フライト発火。
+            // 完了は handleCheckBreakFlightComplete (全フライト着地で finalize+pop)。
+            scheduleTimer(() => {
               playSfx("piece_flight");
               setCheckBreakAnim((prev) => (prev ? { ...prev, ghosts: [], flights } : null));
-            }, 1600 + 2300);
-            break;
+            }, CHECK_OVERLAY_TOTAL_MS + TRAP_TRIGGER_OVERLAY_TOTAL_MS);
+            // 保険: フライトが 0 件 / onComplete 欠落でもロック解除 + pop する。
+            scheduleTimer(() => {
+              finalizeCheckBreak();
+              setCheckBreakAnim(null);
+              completeStep(step);
+            }, CHECK_BREAK_STEP_FALLBACK_MS);
+          } else {
+            // 既存トラップ (no_promote 等): 即時オーバーレイのみ。ロックなしのため
+            // 尺経過で pop する。
+            playSfx("trap_trigger");
+            setOverlayEvent({ event: "trap_trigger", key: Date.now(), trapName: trapDef.name });
+            scheduleTimer(() => completeStep(step), TRAP_TRIGGER_OVERLAY_TOTAL_MS);
           }
-          // 既存トラップ (no_promote 等): 即時オーバーレイ
-          playSfx("trap_trigger");
-          setOverlayEvent({
-            event: "trap_trigger",
-            key: Date.now(),
-            trapName: trapDef.name,
-          });
+          break;
+        }
+        case "draw": {
+          const ev = step.event;
+          const source = ev.source ?? "manual";
+          const isSelf = ev.player === playerColor;
+          if (isSelf) {
+            // Issue #79: 手動ドロー / 自動ドローを別 SFX に分離。中央到達
+            // (T=DRAW_FADE_IN_MS) でレア度別開封 SE。
+            playSfx(source === "auto" ? "card_auto_draw" : "card_draw");
+            const rarity = CARD_DEFS[ev.instance.defId].rarity;
+            scheduleTimer(() => playSfx(`draw_card_open_${rarity}` as never), DRAW_FADE_IN_MS);
+            setDrawFlightQueue((q) => [...q, { card: ev.instance, source, key: nextFlightKey() }]);
+          } else {
+            // 相手 (AI) ドローも同じ山札→中央→手札フライト (faceDown)。開封 SE は
+            // レア度非依存 (裏面で札を伏せるため耳でレア度が漏れないよう固定キー)。
+            playSfx(source === "auto" ? "card_auto_draw" : "card_draw");
+            scheduleTimer(() => playSfx("draw_card_open_common"), DRAW_FADE_IN_MS);
+            setOpponentDrawFlightQueue((q) => [...q, { card: ev.instance, source, key: nextFlightKey() }]);
+          }
+          if (source === "manual" && isSelf) {
+            triggerManaFlight(-DRAW_COST, getDeckRect());
+          }
+          if (source === "auto") {
+            // aria-live で自動ドローを通知 (連続発火時は最新のみ 1500ms 維持)。
+            if (liveMessageTimerRef.current !== null) {
+              window.clearTimeout(liveMessageTimerRef.current);
+              timersRef.current.delete(liveMessageTimerRef.current);
+            }
+            setAutoDrawLiveMessage("自動ドローしました");
+            liveMessageTimerRef.current = scheduleTimer(() => {
+              setAutoDrawLiveMessage("");
+              liveMessageTimerRef.current = null;
+            }, 1500);
+          }
+          // 完了は handleDrawFlightComplete / handleOpponentDrawFlightComplete
+          // (finalizeDraw + pop)。保険: onComplete 欠落でもロック解除 + pop する。
+          scheduleTimer(() => {
+            finalizeDraw();
+            completeStep(step);
+          }, DRAW_STEP_FALLBACK_MS);
           break;
         }
       }
-    }
+    },
+    [
+      playerColor,
+      aiColor,
+      playSfx,
+      triggerManaFlight,
+      getOriginRect,
+      getAiHandRect,
+      getDeckRect,
+      getBoardSquareRect,
+      findVisibleCapturedPieceRect,
+      scheduleTimer,
+      nextFlightKey,
+      finalizePlayCard,
+      finalizeDraw,
+      finalizeCheckBreak,
+      completeStep,
+    ],
+  );
+
+  // Issue #222: eventLog の差分を監視し、(1) 直列化しない軽量装飾 (マナ浮遊 /
+  // 早指しバッジ) を即時発火、(2) 大きな 4 演出を共通順序 (カード使用→王手→
+  // トラップ→ドロー) のステップ列に変換してキューへ積む。実際の演出起動は driver
+  // effect → activateStep が 1 件ずつ行う。
+  useEffect(() => {
+    if (!isReady) return;
+    const startIdx = lastEventIndexRef.current;
+    const newEvents = eventLog.slice(startIdx);
     lastEventIndexRef.current = eventLog.length;
-  }, [eventLog, isReady, playSfx, playerColor, triggerManaFlight, triggerFastMoveBadge, getDeckRect, getOriginRect, getAiHandRect, getBoardSquareRect, findVisibleCapturedPieceRect, scheduleTimer, nextFlightKey, finalizePlayCard, gameState]);
+    if (newEvents.length === 0) return;
+
+    // (1) 装飾: マナ浮遊 (ターン由来=移動先 / カード由来=カード位置) と早指しバッジ。
+    for (let i = 0; i < newEvents.length; i++) {
+      const ev = newEvents[i];
+      if (ev.kind !== "manaChargeEvent") continue;
+      if (ev.reason === "card") playSfx("mana_charge");
+      if (ev.reason === "turn") {
+        const absoluteIdx = startIdx + i;
+        let moveTo: { row: number; col: number } | null = null;
+        for (let j = absoluteIdx - 1; j >= 0; j--) {
+          const m = eventLog[j];
+          if (m.kind === "moveEvent" && m.move.player === ev.player) {
+            moveTo = m.move.to;
+            break;
+          }
+        }
+        const rect = moveTo ? getBoardSquareRect(moveTo.row, moveTo.col) : null;
+        triggerManaFlight(ev.amount, rect);
+        if (ev.fastMove) triggerFastMoveBadge(rect);
+      } else {
+        triggerManaFlight(ev.amount, getOriginRect());
+      }
+    }
+
+    // (2) 王手表示可否: バッチの手番主体 (actor) の相手玉が、適用後局面で王手かを
+    // 判定する。二手指し 1 手目の過渡状態 (movesLeft===1) は 2 手目で必ず解消される
+    // ため抑制する。詰みは終局演出を moveCount effect が担うためここでは出さない。
+    const actor = deriveBatchActor(newEvents);
+    let showCheck = false;
+    if (actor !== null && gameState.status === "active") {
+      const checkedSide: Player = actor === "sente" ? "gote" : "sente";
+      const inDoubleMoveMidway = doubleMove !== null && doubleMove.movesLeft === 1;
+      showCheck = !inDoubleMoveMidway && isInCheck(gameState, checkedSide, CARD_SHOGI_VARIANT);
+    }
+
+    const steps = deriveAnimationSteps(newEvents, { showCheck });
+    if (steps.length > 0) setAnimationQueue((q) => [...q, ...steps]);
+  }, [
+    eventLog,
+    isReady,
+    playSfx,
+    triggerManaFlight,
+    triggerFastMoveBadge,
+    getBoardSquareRect,
+    getOriginRect,
+    gameState,
+    doubleMove,
+  ]);
+
+  // Issue #222: 演出キューの driver。先頭 1 件のみを activate し、完了 (completeStep)
+  // で pop されると先頭が次ステップ (別 object) に変わり本 effect が次を activate する。
+  // activeStepRef で「同一先頭の二重 activate」を防ぐ (gameState 等の再レンダーで
+  // 再実行されても activate 済み先頭は再起動しない)。
+  useEffect(() => {
+    const head = animationQueue[0] ?? null;
+    if (!head) {
+      activeStepRef.current = null;
+      return;
+    }
+    if (activeStepRef.current === head) return;
+    activeStepRef.current = head;
+    activateStep(head);
+  }, [animationQueue, activateStep]);
 
   // Issue #78 / #82: 演出中(ドロー / カード使用 / 王手崩しトラップ)は盤面・手札・カード操作・背景クリックをロックする
   const handleSquareClick = useCallback(
@@ -1164,16 +1185,9 @@ export function CardShogiGame({
   const handlePieceFlightComplete = useCallback(() => {
     setPieceFlight(null);
 
-    const opponentColor: Player =
-      gameState.currentPlayer === "sente" ? "gote" : "sente";
-    if (
-      gameState.status === "active" &&
-      isInCheck(gameState, opponentColor, CARD_SHOGI_VARIANT)
-    ) {
-      playSfx("check");
-      setOverlayEvent({ event: "check", key: Date.now() });
-    }
-
+    // Issue #222: 王手演出は cardUse ステップの後続 check ステップが担うため、
+    // ここでは出さない (カード使用 → 王手 の順を共通化)。本ハンドラは cardUse
+    // ステップ内部の遷移 (駒フライト → 中央カード演出) なのでキューは pop しない。
     const pendingPlay = pendingPlayFlightRef.current;
     if (pendingPlay) {
       playFlightKeyRef.current += 1;
@@ -1189,15 +1203,20 @@ export function CardShogiGame({
       });
       pendingPlayFlightRef.current = null;
     } else {
-      // 中央カード演出が予約されていない異常系: 直接 finalize
+      // 中央カード演出が予約されていない異常系: 直接 finalize + キュー pop。
       finalizePlayCard();
+      const step = activeStepRef.current;
+      if (step) completeStep(step);
     }
-  }, [finalizePlayCard, gameState, playSfx]);
+  }, [finalizePlayCard, playSfx, completeStep]);
 
   const handlePlayFlightComplete = useCallback(() => {
     setPlayFlight(null);
     finalizePlayCard();
-  }, [finalizePlayCard]);
+    // Issue #222: cardUse ステップ完了 → キュー pop して次演出へ。
+    const step = activeStepRef.current;
+    if (step) completeStep(step);
+  }, [finalizePlayCard, completeStep]);
 
   // ドロー演出完了: queue から先頭を pop し、currentPlayer を相手に渡し、
   // 手札の対象カードを一瞬フラッシュさせる。
@@ -1244,7 +1263,10 @@ export function CardShogiGame({
         });
       });
     }
-  }, [currentDrawFlight, finalizeDraw, scheduleTimer, playSfx]);
+    // Issue #222: draw ステップ完了 → キュー pop して次演出へ。
+    const step = activeStepRef.current;
+    if (step) completeStep(step);
+  }, [currentDrawFlight, finalizeDraw, scheduleTimer, playSfx, completeStep]);
 
   // Issue #193 / card-apply: 相手 (AI) ドローフライト完了。queue 先頭を pop し、
   // finalizeDraw で COMMIT_DRAW (isDrawing 解除 + 手番交代) を実行。完了 SE は
@@ -1254,7 +1276,10 @@ export function CardShogiGame({
     setOpponentDrawFlightQueue((q) => q.slice(1));
     finalizeDraw();
     playSfx("card_to_hand");
-  }, [finalizeDraw, playSfx]);
+    // Issue #222: 相手ドローステップ完了 → キュー pop して次演出へ。
+    const step = activeStepRef.current;
+    if (step) completeStep(step);
+  }, [finalizeDraw, playSfx, completeStep]);
 
   // ----- レイアウト用ヘルパ -----
 
@@ -1330,13 +1355,15 @@ export function CardShogiGame({
       if (!prev) return null;
       const next = prev.pendingFlightCount - 1;
       if (next <= 0) {
-        // すべて完了 → finalize
+        // すべて完了 → finalize + Issue #222: trap ステップ完了でキュー pop。
         finalizeCheckBreak();
+        const step = activeStepRef.current;
+        if (step) completeStep(step);
         return null;
       }
       return { ...prev, pendingFlightCount: next };
     });
-  }, [finalizeCheckBreak]);
+  }, [finalizeCheckBreak, completeStep]);
 
   // 山札からのドロー可否 (Issue #82: pendingCard 中もドロー禁止に統一)
   // 二手指し中もドロー禁止 (Issue #82)

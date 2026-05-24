@@ -6,6 +6,12 @@ import {
   PLAY_POP_IN_MS,
   PLAY_HOLD_MS,
   PLAY_FADE_OUT_MS,
+  CHECK_OVERLAY_FADE_IN_MS,
+  CHECK_OVERLAY_HOLD_MS,
+  CHECK_OVERLAY_FADE_OUT_MS,
+  TRAP_TRIGGER_OVERLAY_FADE_IN_MS,
+  TRAP_TRIGGER_OVERLAY_HOLD_MS,
+  TRAP_TRIGGER_OVERLAY_FADE_OUT_MS,
 } from "./card-shogi/animation-constants";
 
 // trap_set: 相手 (AI) がトラップを設置したときの汎用通知。トラップは隠し情報
@@ -42,9 +48,9 @@ const OVERLAY_CONFIG: Record<OverlayEvent, OverlayConfig> = {
   },
   check: {
     text: "王手",
-    fadeIn: 100,
-    hold: 1000,
-    fadeOut: 500,
+    fadeIn: CHECK_OVERLAY_FADE_IN_MS,
+    hold: CHECK_OVERLAY_HOLD_MS,
+    fadeOut: CHECK_OVERLAY_FADE_OUT_MS,
     className: "text-white",
   },
   resign: {
@@ -63,9 +69,9 @@ const OVERLAY_CONFIG: Record<OverlayEvent, OverlayConfig> = {
   },
   trap_trigger: {
     text: "トラップ発動！",
-    fadeIn: 200,
-    hold: 1500,
-    fadeOut: 600,
+    fadeIn: TRAP_TRIGGER_OVERLAY_FADE_IN_MS,
+    hold: TRAP_TRIGGER_OVERLAY_HOLD_MS,
+    fadeOut: TRAP_TRIGGER_OVERLAY_FADE_OUT_MS,
     className: "text-purple-100",
   },
   // 相手トラップ設置の汎用通知。種別を伏せた控えめな表示で、長さは通常カード
