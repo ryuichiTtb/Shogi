@@ -951,6 +951,114 @@ describe("reducer / 二手指し × 王手崩し (Issue #220)", () => {
   });
 });
 
+// ===== 二手指し一手目が形式上詰みでも check_break は暴発しない (#222 検証修正) =====
+
+describe("reducer / 二手指し一手目が形式上詰みでも check_break 暴発しない (#222)", () => {
+  // gote 玉[0][0] を隅に追い込んだ詰み形。sente 金[2][1] が脱出マス [1][0]/[1][1] を、
+  // 二手指し一手目の 飛 [5][8]→[0][8] が行0 (王手) を抑える = トラップ未考慮なら「詰み」。
+  // ただし gote が check_break セット中なので真の詰みではない (トラップが飛を奪い解除する)。
+  function makeMateLikeFirstMoveState(withTrap: boolean): CardShogiGameStateInternal {
+    const gameState: GameState = {
+      ...createInitialGameState(CARD_SHOGI_VARIANT),
+      board: Array.from({ length: 9 }, () => Array(9).fill(null)),
+      hand: { sente: {}, gote: {} },
+      currentPlayer: "sente",
+    };
+    gameState.board[0][0] = { type: "king", owner: "gote" };
+    gameState.board[8][4] = { type: "king", owner: "sente" };
+    gameState.board[2][1] = { type: "gold", owner: "sente" };
+    gameState.board[5][8] = { type: "rook", owner: "sente" };
+    const cardState = makeInitialCardState({
+      trap: {
+        sente: null,
+        gote: withTrap
+          ? { instanceId: "trap-1", defId: "check_break", owner: "gote" }
+          : null,
+      },
+    });
+    const snapshot = {
+      gameState,
+      cardState,
+      eventLog: [] as GameEvent[],
+    };
+    return {
+      ...makeInitialState(gameState, cardState),
+      doubleMove: {
+        active: "sente",
+        movesLeft: 2,
+        mateInOneAvailable: false,
+        cardInstance: card("dm-1", "double_move"),
+        cardCost: 6,
+        preFirstMoveState: snapshot,
+        preCardState: snapshot,
+      },
+    };
+  }
+
+  // 一手目: 飛 [5][8]→[0][8]。行0 で gote 玉に王手 (トラップ未考慮なら詰み)。
+  const firstMoveMate = {
+    type: "move" as const,
+    player: "sente" as const,
+    piece: "rook",
+    from: { row: 5, col: 8 },
+    to: { row: 0, col: 8 },
+  };
+
+  it("一手目が形式上詰みでも check_break は発動せず、中間局面 active で二手指しが継続する", () => {
+    const next = reducer(makeMateLikeFirstMoveState(true), {
+      type: "MAKE_MOVE",
+      move: firstMoveMate,
+    });
+    // トラップ未発動 (隠し情報維持) / 飛は盤上に残り gote 持ち駒化されない
+    expect(next.cardState.trap.gote?.defId).toBe("check_break");
+    expect(next.isCheckBreakAnimating).toBe(false);
+    expect(next.eventLog.some((e) => e.kind === "trapTriggerEvent")).toBe(false);
+    expect(next.gameState.board[0][8]).toEqual({ type: "rook", owner: "sente" });
+    expect(next.gameState.hand.gote.rook).toBeUndefined();
+    // 偽の詰みで終局させず、中間局面 active として二手目を継続できる
+    expect(next.gameState.status).toBe("active");
+    expect(next.doubleMove?.movesLeft).toBe(1);
+    expect(next.gameState.currentPlayer).toBe("sente");
+  });
+
+  it("二手目完了後、最終局面で王手している駒が check_break の対象になる", () => {
+    const afterFirst = reducer(makeMateLikeFirstMoveState(true), {
+      type: "MAKE_MOVE",
+      move: firstMoveMate,
+    });
+    // 二手目: 王手している飛を [0][8]→[0][1] に寄せ、引き続き王手 (最終局面の王手駒)。
+    const secondMove = {
+      type: "move" as const,
+      player: "sente" as const,
+      piece: "rook",
+      from: { row: 0, col: 8 },
+      to: { row: 0, col: 1 },
+    };
+    const next = reducer(afterFirst, { type: "MAKE_MOVE", move: secondMove });
+
+    // 最終局面の王手駒 (飛 [0][1]) が奪われる
+    expect(next.cardState.trap.gote).toBeNull();
+    expect(next.gameState.hand.gote.rook).toBe(1);
+    expect(next.isCheckBreakAnimating).toBe(true);
+    const trapEvent = next.eventLog.find((e) => e.kind === "trapTriggerEvent");
+    const cap =
+      trapEvent?.kind === "trapTriggerEvent" ? trapEvent.capturedPieces?.[0] : undefined;
+    // 一手目の位置 [0][8] ではなく、二手目後の最終位置 [0][1] の駒が対象
+    expect(cap?.row).toBe(0);
+    expect(cap?.col).toBe(1);
+    expect(next.doubleMove).toBeNull();
+  });
+
+  it("回帰: check_break トラップが無ければ一手目の詰みでそのまま終局する", () => {
+    const next = reducer(makeMateLikeFirstMoveState(false), {
+      type: "MAKE_MOVE",
+      move: firstMoveMate,
+    });
+    expect(next.gameState.status).toBe("checkmate");
+    expect(next.doubleMove).toBeNull();
+  });
+});
+
 // ===== 自動ドロー (#130) =====
 
 describe("reducer / 自動ドロー (#130)", () => {
