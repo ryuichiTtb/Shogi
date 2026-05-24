@@ -7,7 +7,7 @@ import {
   finalizeStats,
   type SearchStats,
 } from "./search-context";
-import { evaluate, getLeastAttackerValue } from "./evaluate";
+import { evaluate, evaluateWithBreakdown, getLeastAttackerValue } from "./evaluate";
 import { chooseBlunderGuardMove, type SafeCandidate } from "./blunder-guard";
 import { getBookMove, MAX_BOOK_MOVES } from "./openingBook";
 import { getFullLegalMoves, isSquareAttackedByFast } from "../moves";
@@ -422,6 +422,21 @@ export function findBestMoveWithStats(
         }
       }
     }
+  }
+
+  // Issue #193 / PR2: 評価値内訳の本番有効化 (PR1c の evaluateWithBreakdown 足場を活用)。
+  // DEBUG_AI_EVAL=true のときだけ root 局面と採用手適用後の評価成分内訳を server ログへ
+  // 出力する。env ガードで短絡するため通常運用 (フラグ未設定) では一切コストが掛からない。
+  // findBestMoveWithStats は AI route (server) からのみ呼ばれるため process.env を参照可。
+  if (process.env.DEBUG_AI_EVAL === "true") {
+    const rootBreakdown = evaluateWithBreakdown(state, variant);
+    const movedBreakdown =
+      move !== null ? evaluateWithBreakdown(applyMoveForSearch(state, move), variant) : null;
+    console.log(
+      `[ai-eval] player=${player} difficulty=${difficulty} ` +
+        `root=${JSON.stringify(rootBreakdown)} ` +
+        `afterMove=${movedBreakdown ? JSON.stringify(movedBreakdown) : "null"}`,
+    );
   }
 
   return {
