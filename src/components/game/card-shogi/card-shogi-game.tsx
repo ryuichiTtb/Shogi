@@ -278,13 +278,19 @@ export function CardShogiGame({
   // ghosts: 王手中央表示+トラップ発動演出の間、reducer は既に駒を盤上から除去
   //   しているため、駒の元位置に「ゴースト駒」を絶対配置で重ね描きする。
   //   フライト開始時にクリア。
-  // hitActive: トラップ発動タイミング (T=1600) で true に切り替わり、
-  //   ゴースト駒に紫フラッシュ+シェイク+グローのヒット演出を付与する。
+  // hitActive: トラップ発動タイミングで true に切り替わり、ゴースト駒に紫フラッシュ
+  //   +シェイク+グローのヒット演出を付与する。
   // flights: 値ありになったらフライト開始。pendingFlightCount=0 で finalize。
+  // stagedFlights: Issue #222 修正 — ゴーストカバー (駒を消さないための覆い) は
+  //   捕獲された瞬間 (バッチ到着時 prepareCheckBreakCover) に設定し、実際の駒フライト
+  //   発火は trap ステップの最終フェーズまで保留する。そのため発火予定のフライト spec を
+  //   ここに退避しておき、フライトフェーズで flights へ移す。二手指し等でカード使用演出が
+  //   先行しても、その間ゴーストが駒を覆い続け「対象駒が一瞬消える」不具合を防ぐ。
   const [checkBreakAnim, setCheckBreakAnim] = useState<{
     ghosts: Array<{ rect: DOMRect; pieceType: string; owner: Player }>;
     hitActive: boolean;
     flights: PieceFlightSpec[];
+    stagedFlights: PieceFlightSpec[];
     flightKeyBase: number;
     hideTargets: FlightHideTarget[];
     pendingFlightCount: number;
@@ -671,6 +677,50 @@ export function CardShogiGame({
     setAnimationQueue((q) => (q[0] === step ? q.slice(1) : q));
   }, []);
 
+  // Issue #222 修正: 王手崩しの「ゴーストカバー」をバッチ到着時に即設定する。
+  // reducer は王手していた駒を捕獲して盤上から即削除するため、トラップ演出ステップまで
+  // ゴースト設定を遅らせると、その手前 (二手指しのカード使用演出など) の間だけ対象駒が
+  // 盤上から消えて見える。捕獲された瞬間にゴースト (元位置の駒) と持ち駒側の隠蔽を
+  // 設定し、駒を切れ目なく覆う。実際の駒フライト発火は trap ステップ最終フェーズで
+  // stagedFlights から行う。
+  const prepareCheckBreakCover = useCallback(
+    (ev: Extract<GameEvent, { kind: "trapTriggerEvent" }>) => {
+      const trapOwner = ev.player;
+      const captures = ev.capturedPieces ?? [];
+      const ghosts: Array<{ rect: DOMRect; pieceType: string; owner: Player }> = [];
+      const flights: PieceFlightSpec[] = [];
+      const hideTargets: FlightHideTarget[] = [];
+      for (const cap of captures) {
+        const fromRect = getBoardSquareRect(cap.row, cap.col);
+        const toRect = findVisibleCapturedPieceRect(trapOwner, cap.pieceType);
+        if (!fromRect) continue;
+        ghosts.push({
+          rect: fromRect,
+          pieceType: cap.originalPieceType,
+          owner: cap.originalOwner,
+        });
+        const fromX = fromRect.left + fromRect.width / 2;
+        const fromY = fromRect.top + fromRect.height / 2;
+        const toX = toRect ? toRect.left + toRect.width / 2 : fromX;
+        const toY = toRect ? toRect.top + toRect.height / 2 : fromY;
+        flights.push({ pieceType: cap.pieceType, owner: trapOwner, fromX, fromY, toX, toY });
+        hideTargets.push({ kind: "captured", player: trapOwner, pieceType: cap.pieceType });
+      }
+      pieceFlightKeyRef.current += captures.length;
+      const flightKeyBase = pieceFlightKeyRef.current - captures.length + 1;
+      setCheckBreakAnim({
+        ghosts,
+        hitActive: false,
+        flights: [], // フライト発火前は空。ゴーストのみ表示。
+        stagedFlights: flights, // trap ステップ最終フェーズで flights へ移す。
+        flightKeyBase,
+        hideTargets,
+        pendingFlightCount: flights.length,
+      });
+    },
+    [getBoardSquareRect, findVisibleCapturedPieceRect],
+  );
+
   // Issue #222: キュー先頭ステップを activate (実際の演出を起動) する。DOMRect
   // 解決・SFX・state 反映といった副作用はすべてここで行う (順序決定は純粋関数
   // deriveAnimationSteps が担う)。完了経路はステップ種別ごとに異なるが、いずれにも
@@ -804,45 +854,10 @@ export function CardShogiGame({
           const ev = step.event;
           const trapDef = CARD_DEFS[ev.instance.defId];
           // Issue #82 (王手崩し): 王手 → トラップ発動 → 駒フライト の3段演出。
+          // Issue #222 修正: ゴーストカバー (ghosts/hideTargets/stagedFlights) は
+          // バッチ到着時 prepareCheckBreakCover で設定済 (カード使用演出が先行しても
+          // その間 駒を覆い続ける)。本ステップは尺に沿った演出進行のみを担う。
           if (trapDef.id === "check_break" && ev.capturedPieces && ev.capturedPieces.length > 0) {
-            const trapOwner = ev.player;
-            const captures = ev.capturedPieces;
-            const ghosts: Array<{ rect: DOMRect; pieceType: string; owner: Player }> = [];
-            const flights: PieceFlightSpec[] = [];
-            const hideTargets: FlightHideTarget[] = [];
-            for (const cap of captures) {
-              const fromRect = getBoardSquareRect(cap.row, cap.col);
-              const toRect = findVisibleCapturedPieceRect(trapOwner, cap.pieceType);
-              if (!fromRect) continue;
-              ghosts.push({
-                rect: fromRect,
-                pieceType: cap.originalPieceType,
-                owner: cap.originalOwner,
-              });
-              const fromX = fromRect.left + fromRect.width / 2;
-              const fromY = fromRect.top + fromRect.height / 2;
-              const toX = toRect ? toRect.left + toRect.width / 2 : fromX;
-              const toY = toRect ? toRect.top + toRect.height / 2 : fromY;
-              flights.push({
-                pieceType: cap.pieceType,
-                owner: trapOwner,
-                fromX,
-                fromY,
-                toX,
-                toY,
-              });
-              hideTargets.push({ kind: "captured", player: trapOwner, pieceType: cap.pieceType });
-            }
-            pieceFlightKeyRef.current += captures.length;
-            const flightKeyBase = pieceFlightKeyRef.current - captures.length + 1;
-            setCheckBreakAnim({
-              ghosts,
-              hitActive: false,
-              flights: [], // フライト発火前は空配列。ゴーストのみ表示。
-              flightKeyBase,
-              hideTargets,
-              pendingFlightCount: flights.length,
-            });
             // T=0: 王手中央表示。
             playSfx("check");
             setOverlayEvent({ event: "check", key: Date.now() });
@@ -852,11 +867,14 @@ export function CardShogiGame({
               setOverlayEvent({ event: "trap_trigger", key: Date.now(), trapName: trapDef.name });
               setCheckBreakAnim((prev) => (prev ? { ...prev, hitActive: true } : null));
             }, CHECK_OVERLAY_TOTAL_MS);
-            // T=CHECK_OVERLAY_TOTAL + TRAP_TRIGGER_OVERLAY_TOTAL: ゴースト消去 + 駒フライト発火。
-            // 完了は handleCheckBreakFlightComplete (全フライト着地で finalize+pop)。
+            // T=CHECK_OVERLAY_TOTAL + TRAP_TRIGGER_OVERLAY_TOTAL: ゴースト消去 + 駒フライト発火
+            // (stagedFlights を flights へ移す)。完了は handleCheckBreakFlightComplete
+            // (全フライト着地で finalize+pop)。
             scheduleTimer(() => {
               playSfx("piece_flight");
-              setCheckBreakAnim((prev) => (prev ? { ...prev, ghosts: [], flights } : null));
+              setCheckBreakAnim((prev) =>
+                prev ? { ...prev, ghosts: [], flights: prev.stagedFlights } : null,
+              );
             }, CHECK_OVERLAY_TOTAL_MS + TRAP_TRIGGER_OVERLAY_TOTAL_MS);
             // 保険: フライトが 0 件 / onComplete 欠落でもロック解除 + pop する。
             scheduleTimer(() => {
@@ -969,7 +987,20 @@ export function CardShogiGame({
       }
     }
 
-    // (2) 王手表示可否: バッチの手番主体 (actor) の相手玉が、適用後局面で王手かを
+    // (2) 王手崩しのゴーストカバーをバッチ到着時に即設定する (Issue #222 修正)。
+    // 捕獲された駒が、後続のカード使用演出 (二手指し) の間に盤上から消えて見える
+    // 不具合を防ぐ。実際のトラップ演出進行は trap ステップが担う。
+    for (const ev of newEvents) {
+      if (
+        ev.kind === "trapTriggerEvent" &&
+        ev.instance.defId === "check_break" &&
+        (ev.capturedPieces?.length ?? 0) > 0
+      ) {
+        prepareCheckBreakCover(ev);
+      }
+    }
+
+    // (3) 王手表示可否: バッチの手番主体 (actor) の相手玉が、適用後局面で王手かを
     // 判定する。二手指し 1 手目の過渡状態 (movesLeft===1) は 2 手目で必ず解消される
     // ため抑制する。詰みは終局演出を moveCount effect が担うためここでは出さない。
     const actor = deriveBatchActor(newEvents);
@@ -990,6 +1021,7 @@ export function CardShogiGame({
     triggerFastMoveBadge,
     getBoardSquareRect,
     getOriginRect,
+    prepareCheckBreakCover,
     gameState,
     doubleMove,
   ]);
