@@ -5,7 +5,8 @@ import { useShogiGame } from "@/hooks/use-shogi-game";
 import { useSound } from "@/hooks/use-sound";
 import { useBgm } from "@/hooks/use-bgm";
 import { useBoardSize } from "@/hooks/use-board-size";
-import { ShogiBoard } from "./shogi-board";
+import { ShogiBoard, type ShogiBoardHandle } from "./shogi-board";
+import { KingSlashOverlay } from "./king-slash-overlay";
 import { CapturedPieces } from "./captured-pieces";
 import { MoveHistory } from "./move-history";
 import { GameControls } from "./game-controls";
@@ -23,7 +24,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { getCharacterById } from "@/data/characters";
 import { gameResultText } from "@/lib/shogi/notation";
-import { isInCheck } from "@/lib/shogi/moves";
+import { isInCheck, findKing } from "@/lib/shogi/moves";
 import { STANDARD_VARIANT } from "@/lib/shogi/variants/standard";
 import { getVariantById } from "@/lib/shogi/variants/index";
 import type { GameConfig, GameState, Difficulty, Move, Player } from "@/lib/shogi/types";
@@ -63,6 +64,14 @@ function shouldPlayJumpSfx(move: Move): boolean {
 export function ShogiGame({ initialGameState, gameId, gameConfig: serializableConfig }: ShogiGameProps) {
   const [commentEvent, setCommentEvent] = useState<CommentaryEvent | null>(null);
   const [overlayEvent, setOverlayEvent] = useState<{ event: OverlayEvent; key: number } | null>(null);
+  // Issue #225: 盤マス矩形取得用 ref (詰み時に玉マスへ斬撃演出を重ねるため)。
+  const boardRef = useRef<ShogiBoardHandle>(null);
+  // Issue #225: 詰み時の玉への赤い斬撃演出 (負けた側の玉マスに重ねる)。null で非表示。
+  const [kingSlash, setKingSlash] = useState<{
+    rect: DOMRect;
+    owner: Player;
+    key: number;
+  } | null>(null);
   // Issue #217: 旧 startTransition(async) は createGame 失敗時に永久ハング
   // していた。明示的 loading/error state を持つ共通フックに置換 (router.push は
   // フック内部で行うため本コンポーネントの useRouter は不要になった)。
@@ -188,6 +197,17 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
     if (gameState.status === "checkmate") {
       setTimeout(() => playSfx("checkmate"), 1000);
       setTimeout(() => setOverlayEvent({ event: "checkmate", key: Date.now() }), 1000);
+      // Issue #225: 詰み表示と同タイミングで、負けた側の玉へ赤い斬撃演出を重ねる。
+      const loser: Player = gameState.winner === "sente" ? "gote" : "sente";
+      setTimeout(() => {
+        const kingPos = findKing(gameState.board, loser, STANDARD_VARIANT.boardSize);
+        const rect = kingPos
+          ? boardRef.current?.getSquareRect(kingPos.row, kingPos.col) ?? null
+          : null;
+        if (rect) setKingSlash({ rect, owner: loser, key: Date.now() });
+      }, 1000);
+      // 斬撃尺 (ghost-slash 1.5s) 経過後にクリアし、下の実盤の玉表示へ戻す。
+      setTimeout(() => setKingSlash(null), 2700);
     }
   }, [gameState.moveCount]);
 
@@ -269,6 +289,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
           {/* 将棋盤 */}
           <div className="relative shrink-0 my-0.5">
             <ShogiBoard
+              ref={boardRef}
               board={gameState.board}
               currentPlayer={gameState.currentPlayer}
               playerColor={playerColor}
@@ -282,6 +303,13 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
               isMobile={isMobile}
             />
             <BoardOverlay key={overlayEvent?.key} event={overlayEvent?.event ?? null} />
+            {/* Issue #225: 詰み時に負けた側の玉へ赤い斬撃演出を重ねる */}
+            <KingSlashOverlay
+              rect={kingSlash?.rect ?? null}
+              kingOwner={kingSlash?.owner ?? null}
+              playerColor={playerColor}
+              animationKey={kingSlash?.key ?? 0}
+            />
           </div>
 
           {/* 先手（プレイヤー）の持ち駒 */}
