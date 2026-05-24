@@ -1,13 +1,14 @@
 import type { Difficulty, GameState, Move, Player, RuleVariant } from "../types";
 import type { CardGameState } from "../cards/types";
 import { STANDARD_VARIANT } from "../variants/standard";
-import { findBestMove, evaluateAction } from "./search";
+import { findBestMove, evaluateAction, movesEqual } from "./search";
 import {
   createSearchContext,
   finalizeStats,
   type SearchStats,
 } from "./search-context";
 import { evaluate, getLeastAttackerValue } from "./evaluate";
+import { chooseBlunderGuardMove, type SafeCandidate } from "./blunder-guard";
 import { getBookMove, MAX_BOOK_MOVES } from "./openingBook";
 import { getFullLegalMoves, isSquareAttackedByFast } from "../moves";
 import { applyMoveForSearch } from "../board";
@@ -78,6 +79,14 @@ const BLUNDER_PIECE_VALUES: Record<string, number> = {
   promoted_knight: 600, promoted_silver: 600, promoted_bishop: 1100,
   promoted_rook: 1300, king: 10000,
 };
+
+// Issue #193 / PR2: blunder guard 同点圏 tie-breaker の閾値 (cp)。
+// ハングする手 (探索の最善手) の深いスコアが、最善の安全手より本値を超えて高ければ
+// = 探索が明確な見返りを確認した戦術的犠牲とみなして尊重 (差替えない)。本値以内の
+// 僅差 (同点圏) なら horizon 起因の無意味なハングとみなし安全手へ差替える。
+// 旧実装の「無条件差替え」は戦術的犠牲も潰していたため棋力を落としていた。
+// 初期値は保守的設定。実対局観察 (Vercel / 自己対戦) で要調整 (tunable)。
+const BLUNDER_GUARD_TIE_MARGIN = 150;
 
 // ブランダーガード: 指した後に自駒がタダ取りまたは損な交換にさらされるかチェック
 function hasHangingPiece(
@@ -258,7 +267,7 @@ export function findBestMoveWithStats(
   }
 
   // 探索
-  const bestMove = findBestMove(
+  const searchResult = findBestMove(
     state,
     player,
     {
@@ -273,7 +282,9 @@ export function findBestMoveWithStats(
 
   // depth 1 すら完了しなかった場合の server fallback (合法手の先頭を返す)。
   // Issue #176: client 側 fallback は持たない方針なので、ここで必ず非 null を返したい。
-  let move = bestMove;
+  let move = searchResult?.move ?? null;
+  // Issue #193 / PR2: blunder guard の同点圏 tie-breaker 用に root 各手の深いスコアを保持。
+  const rootMoveScores = searchResult?.rootMoveScores ?? [];
   let usedFallback = false;
   if (move === null) {
     const legal = getFullLegalMoves(state, player, variant);
@@ -356,21 +367,59 @@ export function findBestMoveWithStats(
         return !hasHangingPiece(ns, player, variant);
       });
       if (safeMoves.length > 0) {
-        let bestSafeScore = -Infinity;
-        let bestSafeMove = safeMoves[0];
+        // Issue #193 / PR2: 同点圏 tie-breaker 化。
+        // 旧実装は「ハングする手を無条件で安全手へ差替え」ており、探索が見返りを
+        // 確認した戦術的駒捨て (犠牲) まで潰して棋力を落としていた。本実装では root の
+        // 深い探索スコアで「ハング手」と「最善安全手」を比較し:
+        //  - ハング手が安全手より TIE_MARGIN を超えて高い (= 探索が明確な見返りを確認した
+        //    犠牲) → 尊重し差替えない
+        //  - 僅差 (同点圏 = TIE_MARGIN 以内) → 安全手へ差替え (horizon 起因の無意味な
+        //    ハングを防ぐ安全網を維持)
+        // 深いスコアが取得できない場合 (root に無い安全手のみ等) は静的評価で代替し、
+        // 従来同様に差替える (安全網フォールバック)。
+        const deepScoreOf = (m: Move): number | undefined =>
+          rootMoveScores.find((rms) => movesEqual(rms.move, m))?.score;
+
+        const moveDeepScore = deepScoreOf(move);
+
+        // 安全手のうち深いスコアが取得できるものを候補化。
+        const safeCandidates: SafeCandidate[] = [];
         for (const m of safeMoves) {
-          const ns = applyMoveForSearch(state, m);
-          // PR1d-1: cardDigest を伝播 (W-1 root スカラー方式、未渡時は既存挙動)
-          const rawScore = evaluate(ns, variant, cardDigest);
-          const score = player === "sente" ? rawScore : -rawScore;
-          if (score > bestSafeScore) {
-            bestSafeScore = score;
-            bestSafeMove = m;
-          }
+          const d = deepScoreOf(m);
+          if (d !== undefined) safeCandidates.push({ move: m, deepScore: d });
         }
-        move = bestSafeMove;
-        // blunder guard で move が差替えられた場合、selectedAction の move も同期
-        selectedAction = { kind: "move", move };
+
+        if (moveDeepScore !== undefined && safeCandidates.length > 0) {
+          // 深いスコアで同点圏 tie-breaker (純粋関数で判定)。
+          const chosen = chooseBlunderGuardMove(
+            move,
+            moveDeepScore,
+            safeCandidates,
+            BLUNDER_GUARD_TIE_MARGIN,
+          );
+          if (chosen !== move) {
+            move = chosen;
+            selectedAction = { kind: "move", move };
+          }
+          // chosen === move のときは戦術的犠牲を尊重 (差替えない)
+        } else {
+          // 深いスコア未取得 (move が root に無い / 安全手が探索未考慮等) → 静的評価で
+          // 最善安全手を選び差替える (安全網フォールバック)。
+          let bestSafeScore = -Infinity;
+          let bestStaticSafeMove = safeMoves[0];
+          for (const m of safeMoves) {
+            const ns = applyMoveForSearch(state, m);
+            // PR1d-1: cardDigest を伝播 (W-1 root スカラー方式、未渡時は既存挙動)
+            const rawScore = evaluate(ns, variant, cardDigest);
+            const score = player === "sente" ? rawScore : -rawScore;
+            if (score > bestSafeScore) {
+              bestSafeScore = score;
+              bestStaticSafeMove = m;
+            }
+          }
+          move = bestStaticSafeMove;
+          selectedAction = { kind: "move", move };
+        }
       }
     }
   }

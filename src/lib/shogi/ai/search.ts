@@ -80,7 +80,9 @@ function updateKillerMove(move: Move, ply: number, ctx: SearchContext): void {
 }
 
 // 手の比較
-function movesEqual(a: Move, b: Move): boolean {
+// Issue #193 / PR2: blunder guard の同点圏 tie-breaker が rootMoveScores から
+// 指し手のスコアを引くために export 化。
+export function movesEqual(a: Move, b: Move): boolean {
   if (a.type !== b.type) return false;
   if (a.to.row !== b.to.row || a.to.col !== b.to.col) return false;
   if (a.type === "drop") return a.dropPiece === b.dropPiece;
@@ -517,16 +519,27 @@ function negamax(
 // Issue #176: SearchContext で deadline / abort / nodes / per-request stats を共有する。
 // `ctx` 省略時は options.timeLimitMs から SearchContext を生成する。通常は
 // engine.ts (findBestMoveWithStats) または Route Handler が ctx を渡す。
+// Issue #193 / PR2: findBestMove の戻り値。move に加え、root 各手の深い探索スコア
+// (player 視点、最終完了 depth の値) を rootMoveScores として公開する。
+// blunder guard の同点圏 tie-breaker が「ハング手 vs 最善安全手」を深いスコアで
+// 比較し、探索が見返りを確認した戦術的犠牲を尊重するために使う。
+// (静的 evaluate では犠牲の見返りが見えないため、深いスコアが必須)
+export interface RootSearchResult {
+  move: Move;
+  rootMoveScores: { move: Move; score: number }[];
+}
+
 export function findBestMove(
   state: GameState,
   player: Player,
   options: SearchOptions,
   variant: RuleVariant = STANDARD_VARIANT,
   ctx?: SearchContext
-): Move | null {
+): RootSearchResult | null {
   const moves = getSearchLegalMoves(state, player, variant);
   if (moves.length === 0) return null;
-  if (moves.length === 1) return moves[0];
+  // 合法手 1 つのみ: 比較対象が無いので rootMoveScores は空で返す。
+  if (moves.length === 1) return { move: moves[0], rootMoveScores: [] };
 
   const searchCtx: SearchContext =
     ctx ?? createSearchContext({ timeLimitMs: options.timeLimitMs });
@@ -694,7 +707,9 @@ export function findBestMove(
     bestMove = sortedMoves[randomIndex] ?? bestMove;
   }
 
-  return bestMove;
+  // Issue #193 / PR2: bestMove (noise / nearEqual 調整後) と root スコアを返す。
+  // rootMoveScores は最終完了 depth の各手スコア (player 視点)。
+  return { move: bestMove, rootMoveScores };
 }
 
 // Issue #193 / PR1d-2: TurnAction (move / draw / playCard) を player 視点のスカラー評価値に変換する純粋関数。
