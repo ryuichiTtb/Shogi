@@ -353,43 +353,41 @@ export function canEscapeCheckWithCard(
   return false;
 }
 
-// 王手崩し (#82): 自玉に王手をかけている相手駒すべてを盤上から除去し、
+// 王手崩し (#82): 自玉に王手をかけている相手駒を盤上から除去し、
 // player の持ち駒に unpromote した状態で加算する。両王手・複数王手にも対応。
 // 戻り値の capturedPieces は UI 演出 (各駒のフライト) で参照する適用前の位置情報。
 // 王手駒が 1 枚もない場合は null を返す (トリガーが空発火しないようガード)。
 //
-// 反復除去: ある駒を除去した結果、それを遮蔽していた裏にいた飛角等が新たに王手をかける
-// 「ディスカバードチェック」の可能性があるため、王手が解除されるまで繰り返す。
-// ループ上限は安全装置(理論上は数回で収束)。
+// 対象は「発動時点で直接玉に王手している駒」のみ (#229)。除去した結果に裏で
+// 遮蔽されていた飛角等が露出する「開き王手」は対象外 — 露出駒は元々この手で
+// 王手していたわけではないため、奪わずに盤上へ残す。露出駒が玉に王手し続ける
+// 局面は正当な盤面として許容し、トラップ所有者は自分の手番で対処する。
+// (本物の両王手 = 発動時点で複数駒が同時に玉を狙うケースは引き続き全て対象。)
 export function applyCheckBreak(
   state: GameState,
   player: Player,
 ): { gameState: GameState; capturedPieces: TrapCapturedPiece[] } | null {
-  const initial = getCheckingPieces(state, player, CARD_SHOGI_VARIANT);
-  if (initial.length === 0) return null;
+  const checking = getCheckingPieces(state, player, CARD_SHOGI_VARIANT);
+  if (checking.length === 0) return null;
 
   const newState = cloneGameState(state);
   const capturedPieces: TrapCapturedPiece[] = [];
-  for (let iter = 0; iter < 8; iter++) {
-    const checking = getCheckingPieces(newState, player, CARD_SHOGI_VARIANT);
-    if (checking.length === 0) break;
-    for (const pos of checking) {
-      const piece = newState.board[pos.row]?.[pos.col];
-      if (!piece) continue;
-      const handPieceType = unpromotePieceType(piece.type);
-      const originalPieceType = piece.type;
-      const originalOwner = piece.owner;
-      newState.board[pos.row][pos.col] = null;
-      const currentCount = newState.hand[player][handPieceType] ?? 0;
-      newState.hand[player][handPieceType] = currentCount + 1;
-      capturedPieces.push({
-        row: pos.row,
-        col: pos.col,
-        pieceType: handPieceType,
-        originalPieceType,
-        originalOwner,
-      });
-    }
+  for (const pos of checking) {
+    const piece = newState.board[pos.row]?.[pos.col];
+    if (!piece) continue;
+    const handPieceType = unpromotePieceType(piece.type);
+    const originalPieceType = piece.type;
+    const originalOwner = piece.owner;
+    newState.board[pos.row][pos.col] = null;
+    const currentCount = newState.hand[player][handPieceType] ?? 0;
+    newState.hand[player][handPieceType] = currentCount + 1;
+    capturedPieces.push({
+      row: pos.row,
+      col: pos.col,
+      pieceType: handPieceType,
+      originalPieceType,
+      originalOwner,
+    });
   }
   return { gameState: newState, capturedPieces };
 }
