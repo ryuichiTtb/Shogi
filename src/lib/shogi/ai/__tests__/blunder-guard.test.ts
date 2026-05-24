@@ -3,8 +3,14 @@
 // を網羅検証する。
 
 import { describe, it, expect } from "vitest";
-import { chooseBlunderGuardMove, type SafeCandidate } from "../blunder-guard";
-import type { Move } from "../../types";
+import {
+  chooseBlunderGuardMove,
+  cardResultIntroducesTadasute,
+  type SafeCandidate,
+} from "../blunder-guard";
+import type { GameState, Move } from "../../types";
+import { createInitialGameState } from "@/lib/shogi/board";
+import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
 
 // ----- テスト用 Move fixture (move 同一性は参照で判定するため最小フィールド) -----
 function mv(fromRow: number, toRow: number): Move {
@@ -88,5 +94,47 @@ describe("chooseBlunderGuardMove (同点圏 tie-breaker)", () => {
     expect(chooseBlunderGuardMove(hanging, 101, candidates, 0)).toBe(hanging);
     // 100 - 100 = 0 <= 0 → 差替え (完全同点のみ)
     expect(chooseBlunderGuardMove(hanging, 100, candidates, 0)).toBe(safe);
+  });
+});
+
+describe("cardResultIntroducesTadasute (カード経由タダ捨て検知)", () => {
+  // gote 飛車 [4][4] が列4・行4 を制圧。sente 玉[8][4] / gote 玉[0][4]。
+  function baseState(): GameState {
+    const gs: GameState = {
+      ...createInitialGameState(CARD_SHOGI_VARIANT),
+      board: Array.from({ length: 9 }, () => Array(9).fill(null)),
+      currentPlayer: "sente",
+    };
+    gs.board[8][4] = { type: "king", owner: "sente" };
+    gs.board[0][4] = { type: "king", owner: "gote" };
+    gs.board[4][4] = { type: "rook", owner: "gote" };
+    return gs;
+  }
+
+  it("相手飛車前に無防備な歩を打つ手はタダ捨てと判定 (true)", () => {
+    const before = baseState();
+    const after = baseState();
+    // gote 飛車 [4][4] の前 [5][4] に sente 歩 → 飛車に只取りされ無防備 (-85cp 悪化)
+    after.board[5][4] = { type: "pawn", owner: "sente" };
+    expect(cardResultIntroducesTadasute(before, after, "sente", CARD_SHOGI_VARIANT)).toBe(
+      true,
+    );
+  });
+
+  it("攻撃されない安全マスに歩を打つ手はタダ捨てでない (false)", () => {
+    const before = baseState();
+    const after = baseState();
+    after.board[7][0] = { type: "pawn", owner: "sente" }; // 隅、相手飛車の利きの外
+    expect(cardResultIntroducesTadasute(before, after, "sente", CARD_SHOGI_VARIANT)).toBe(
+      false,
+    );
+  });
+
+  it("盤面変化なし (新たな無防備駒の発生なし) は false", () => {
+    const before = baseState();
+    const after = baseState();
+    expect(cardResultIntroducesTadasute(before, after, "sente", CARD_SHOGI_VARIANT)).toBe(
+      false,
+    );
   });
 });

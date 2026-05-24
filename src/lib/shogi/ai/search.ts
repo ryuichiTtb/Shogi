@@ -6,6 +6,7 @@ import { isInCheck } from "../moves";
 import { getSearchLegalMoves } from "./legal-moves";
 import { applyMoveForSearch } from "../board";
 import { evaluate, scoreMoveForOrdering } from "./evaluate";
+import { cardResultIntroducesTadasute } from "./blunder-guard";
 import { simulateCardEffect } from "../cards/effects";
 import {
   DRAW_VALUE_BONUS,
@@ -741,6 +742,10 @@ export function evaluateAction(
   player: Player,
   variant: RuleVariant,
   ctx?: SearchContext,
+  // Issue #193 / PR2 (検証フィードバック): true のとき、カード使用結果がタダ捨て
+  // (手番側に無防備で取られる駒が新規発生) になる playCard を候補から除外 (-Inf)。
+  // 呼び出し側 (engine) が難易度に応じて渡す (全難易度で原則 true、初級のみ確率的に false)。
+  excludeTadasute = false,
 ): number {
   const cardDigest = ctx?.cardDigest;
   switch (action.kind) {
@@ -784,6 +789,16 @@ export function evaluateAction(
       if (!nextGameState) {
         // simulateCardEffect が null を返すその他の target なしカード
         // (mana_up 等) は PR1d-4 範囲外
+        return Number.NEGATIVE_INFINITY;
+      }
+      // Issue #193 / PR2 (検証フィードバック): タダ捨て除外。カード適用で手番側に
+      // 無防備で取られる駒が新たに生じる手 (例: 二歩指しで相手飛車前に歩を打つ) は
+      // 候補から外す。0 手先の静的評価では「次の手で只取りされる」損失が見えないため、
+      // pieceSafety の前後悪化で検知してここで除外する。
+      if (
+        excludeTadasute &&
+        cardResultIntroducesTadasute(state.gameState, nextGameState, player, variant)
+      ) {
         return Number.NEGATIVE_INFINITY;
       }
       const raw = evaluate(nextGameState, variant, cardDigest);

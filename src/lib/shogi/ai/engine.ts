@@ -88,6 +88,12 @@ const BLUNDER_PIECE_VALUES: Record<string, number> = {
 // 初期値は保守的設定。実対局観察 (Vercel / 自己対戦) で要調整 (tunable)。
 const BLUNDER_GUARD_TIE_MARGIN = 150;
 
+// Issue #193 / PR2 (検証フィードバック): タダ捨て (無防備な駒の只取り) は全難易度で
+// 原則防止する。ただし初級 (beginner / さくら) は弱さ演出として、この確率で guard を
+// skip し意図的にタダ捨てを許容する。中級以上は常に防止 (skip なし)。
+// 0.30 = 初級はタダ捨て機会の約 3 割で発生を許す初期値 (tunable、実対局観察で調整)。
+const BEGINNER_TADASUTE_ALLOW_RATE = 0.3;
+
 // ブランダーガード: 指した後に自駒がタダ取りまたは損な交換にさらされるかチェック
 function hasHangingPiece(
   state: GameState,
@@ -312,6 +318,13 @@ export function findBestMoveWithStats(
   let selectedAction: TurnAction | null = move !== null ? { kind: "move", move } : null;
   let usingCardAction = false;
 
+  // Issue #193 / PR2 (検証フィードバック): タダ捨て (無防備な駒の只取り) を全難易度で
+  // 原則防止する。初級 (beginner) のみ弱さ演出として確率的に guard を skip し許容する。
+  // この 1 つの判定でカード経由タダ捨て除外と駒移動 blunder guard の両方を制御し、
+  // 同一ターン内で挙動を一致させる。
+  const applyTadasuteGuard =
+    difficulty !== "beginner" || Math.random() >= BEGINNER_TADASUTE_ALLOW_RATE;
+
   if (
     !usedFallback &&
     move !== null &&
@@ -334,11 +347,21 @@ export function findBestMoveWithStats(
       player,
       variant,
       ctx,
+      applyTadasuteGuard,
     );
 
     for (const action of allActions) {
       if (action.kind === "move") continue; // move は上で評価済
-      const score = evaluateAction(aiTurnState, action, player, variant, ctx);
+      // applyTadasuteGuard 時、カード適用がタダ捨てになる手は evaluateAction が -Inf を返し
+      // 採用されない (例: 二歩指しで相手飛車前に歩を打つ)。
+      const score = evaluateAction(
+        aiTurnState,
+        action,
+        player,
+        variant,
+        ctx,
+        applyTadasuteGuard,
+      );
       if (score > bestActionScore) {
         bestActionScore = score;
         selectedAction = action;
@@ -347,18 +370,15 @@ export function findBestMoveWithStats(
     }
   }
 
-  // ブランダーガード (advanced / expert のみ、抑制版)。
-  // Issue #176: 戦術的駒捨てを潰すリスクがあるが、Stage A では現行挙動を維持する。
-  // Phase 4 (PR 2) で抑制ロジックを再設計する。
+  // ブランダーガード (駒移動のタダ捨て防止)。
+  // Issue #193 / PR2: 旧実装は advanced/expert 限定だったが、検証フィードバックを受け
+  // 「タダ捨ては全難易度で防止 (初級のみ確率的に許容)」へ変更。applyTadasuteGuard で
+  // 制御する (初級は BEGINNER_TADASUTE_ALLOW_RATE の確率で false = 許容)。
   // PR1d-2 (M-2 / N-7 反映): usingCardAction = true (= playCard / draw 採用) のとき
   // blunder guard を skip。理由: pawn_return / piece_return が「自駒タダ取り回避」役を
-  // 担う場合、hasHangingPiece による move 差替と二重発動するため、構造的排他制御で防ぐ。
-  if (
-    !usingCardAction &&
-    !usedFallback &&
-    move !== null &&
-    (difficulty === "advanced" || difficulty === "expert")
-  ) {
+  // 担う場合、hasHangingPiece による move 差替と二重発動するため、構造的排他制御で防ぐ
+  // (カード経由のタダ捨ては evaluateAction の excludeTadasute で別途除外済)。
+  if (applyTadasuteGuard && !usingCardAction && !usedFallback && move !== null) {
     const nextState = applyMoveForSearch(state, move);
     if (hasHangingPiece(nextState, player, variant)) {
       const legalMoves = getFullLegalMoves(state, player, variant);

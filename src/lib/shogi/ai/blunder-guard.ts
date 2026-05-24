@@ -9,7 +9,8 @@
 // 差替え可否を決める純粋関数。副作用 (盤面適用・evaluate 呼出) を持たないため
 // 単体テストで網羅検証できる (engine 統合は findBestMoveWithStats 側)。
 
-import type { Move } from "../types";
+import type { Move, GameState, Player, RuleVariant } from "../types";
+import { evaluatePieceSafety } from "./evaluate";
 
 export interface SafeCandidate {
   move: Move;
@@ -49,4 +50,31 @@ export function chooseBlunderGuardMove(
 
   // ハング手が安全手より tieMargin を超えて高ければ犠牲を尊重、以内なら安全手へ。
   return hangingDeepScore - best.deepScore > tieMargin ? hangingMove : best.move;
+}
+
+// Issue #193 / PR2 (検証フィードバック): カード使用の結果、手番側に「タダ捨て」
+// (無防備で取られる駒の新規発生) が生じたかを判定する純粋関数。
+//
+// 背景: カードアクションは 0 手先の静的評価で点数化されるため、二歩指しで相手の
+// 飛車前に歩を打つ等の「次の手でタダ取りされる」placement を選んでしまうことがあった。
+// カード適用前後の pieceSafety ペナルティ (負値、無防備な駒が多いほど小さい) を比較し、
+// カードが新たに閾値超の悪化を生んだら「タダ捨て」とみなす。歩のタダ取り (約 85cp 悪化)
+// も捕捉できるよう閾値は CARD_TADASUTE_THRESHOLD=80。
+
+// カード適用でタダ捨てとみなす pieceSafety 悪化幅の閾値 (cp)。
+export const CARD_TADASUTE_THRESHOLD = 80;
+
+/**
+ * カード使用の結果、手番側に無防備で取られる駒 (タダ捨て) が新たに生じたか。
+ * @returns after の pieceSafety が before より CARD_TADASUTE_THRESHOLD を超えて悪化したら true
+ */
+export function cardResultIntroducesTadasute(
+  before: GameState,
+  after: GameState,
+  player: Player,
+  variant: RuleVariant,
+): boolean {
+  const beforeSafety = evaluatePieceSafety(before, player, variant);
+  const afterSafety = evaluatePieceSafety(after, player, variant);
+  return afterSafety < beforeSafety - CARD_TADASUTE_THRESHOLD;
 }
