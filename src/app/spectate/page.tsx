@@ -73,7 +73,10 @@ export default function SpectatePage() {
   // AI 自動応手 useEffect が両プレイヤー (gameState.currentPlayer) を駆動する。
   if (game) {
     return (
+      // Issue #226: gameId を key にして「もう1局」時 (game 差替え) に CardShogiGame を
+      // 再マウントし、useCardShogiGame の初期 state を新しい揮発ゲームで作り直す。
       <CardShogiGame
+        key={game.gameId}
         initialGameState={game.initialState}
         initialCardState={game.initialCardState}
         gameId={game.gameId}
@@ -87,6 +90,11 @@ export default function SpectatePage() {
           spectatorMode: true,
           difficultyB: characterB.difficulty,
           characterIdB: characterIdB,
+        }}
+        // Issue #226: 観戦の「もう1局」は同じ2キャラの CPU 対 CPU を揮発再生成する
+        // (handleStart と同一処理。DB リマッチではなくページ内で新ゲームに差替え)。
+        onSpectatorRematch={() => {
+          void handleStart();
         }}
       />
     );

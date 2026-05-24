@@ -108,6 +108,11 @@ interface CardShogiGameProps {
   // Issue #79 (PR 1.7): dev page 等で BGM を抑止したい時に false。
   // default true: 通常対局画面では gameState.status から bgm_game / bgm_game_over を再生
   enableBgm?: boolean;
+  // Issue #226: 観戦 (CPU vs CPU) モードの「もう1局」コールバック。観戦は揮発生成
+  // (createSpectatorGameState) でページ内描画されるため、通常対局の DB リマッチ
+  // (createGame → /game/[id] 遷移) ではなく、本コールバックで親 (/spectate) に
+  // 新しい揮発ゲームの再生成を委譲する。未指定 (通常対局) 時は従来の DB リマッチ。
+  onSpectatorRematch?: () => void;
 }
 
 function shouldPlayJumpSfx(move: Move): boolean {
@@ -158,6 +163,7 @@ export function CardShogiGame({
   debugInitialUi,
   debugDisableServerEffects = false,
   enableBgm = true,
+  onSpectatorRematch,
 }: CardShogiGameProps) {
   const [commentEvent, setCommentEvent] = useState<CommentaryEvent | null>(null);
   const [overlayEvent, setOverlayEvent] = useState<{ event: OverlayEvent; key: number; trapName?: string } | null>(null);
@@ -348,13 +354,29 @@ export function CardShogiGame({
   const handlePlayAgain = useCallback(() => {
     // Issue #79 派生: forward 遷移 SFX (新規対局画面へ router.push する forward 系)
     playSfx("nav_forward");
+    // Issue #226: 観戦 (CPU vs CPU) は揮発生成・ページ内描画のため、通常対局の DB
+    // リマッチ (createGame → /game/[id] 遷移) を使うと「ユーザ対 CPU」になってしまう。
+    // 観戦時は親 (/spectate) の揮発再生成コールバックに委譲し、同じ 2 キャラの CPU 対
+    // CPU を再開する (キャラ・難易度は gameConfig 経由で維持)。
+    if (spectatorMode && onSpectatorRematch) {
+      onSpectatorRematch();
+      return;
+    }
     void rematch({
       difficulty: gameConfig.difficulty,
       playerColor: gameConfig.playerColor,
       characterId: gameConfig.characterId,
       variantId: "card-shogi",
     });
-  }, [gameConfig.difficulty, gameConfig.playerColor, gameConfig.characterId, rematch, playSfx]);
+  }, [
+    spectatorMode,
+    onSpectatorRematch,
+    gameConfig.difficulty,
+    gameConfig.playerColor,
+    gameConfig.characterId,
+    rematch,
+    playSfx,
+  ]);
 
   const handleComment = useCallback((event: string) => {
     setCommentEvent(event as CommentaryEvent);
