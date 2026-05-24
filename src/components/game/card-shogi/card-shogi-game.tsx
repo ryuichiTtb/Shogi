@@ -162,8 +162,9 @@ export function CardShogiGame({
   const [commentEvent, setCommentEvent] = useState<CommentaryEvent | null>(null);
   const [overlayEvent, setOverlayEvent] = useState<{ event: OverlayEvent; key: number; trapName?: string } | null>(null);
   // Issue #225: 詰み時の玉への赤い斬撃演出 (負けた側の玉マスに重ねる)。null で非表示。
+  // pos を保持し、矩形算出と resize 追従は KingSlashOverlay 側に委譲する (永続表示のため)。
   const [kingSlash, setKingSlash] = useState<{
-    rect: DOMRect;
+    pos: Position;
     owner: Player;
     key: number;
   } | null>(null);
@@ -516,16 +517,16 @@ export function CardShogiGame({
       // Issue #79 で王手 SFX (check) と分離した専用 checkmate SFX を 1000ms 後に再生。
       setTimeout(() => playSfx("checkmate"), 1000);
       setTimeout(() => setOverlayEvent({ event: "checkmate", key: Date.now() }), 1000);
-      // Issue #225: 詰み表示と同タイミングで、負けた側の玉へ赤い斬撃演出を重ねる
-      // (王手崩しと同じ ghost-trap-hit + ghost-slash)。
+      // Issue #225: 詰み表示と同タイミングで、負けた側の玉へ赤い斬撃演出を発火。
+      // 斬撃は演出後もフェードさせず永続表示する (クリアしない)。対局再開・離脱で解消。
       const loser: Player = gameState.winner === "sente" ? "gote" : "sente";
-      setTimeout(() => {
-        const kingPos = findKing(gameState.board, loser, CARD_SHOGI_VARIANT.boardSize);
-        const rect = kingPos ? getBoardSquareRect(kingPos.row, kingPos.col) : null;
-        if (rect) setKingSlash({ rect, owner: loser, key: Date.now() });
-      }, 1000);
-      // 斬撃尺 (ghost-slash 1.5s) 経過後にクリアし、下の実盤の玉表示へ戻す。
-      setTimeout(() => setKingSlash(null), 2700);
+      const kingPos = findKing(gameState.board, loser, CARD_SHOGI_VARIANT.boardSize);
+      if (kingPos) {
+        setTimeout(
+          () => setKingSlash({ pos: kingPos, owner: loser, key: Date.now() }),
+          1000,
+        );
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState.moveCount]);
@@ -2383,11 +2384,12 @@ export function CardShogiGame({
           document.body,
         )}
 
-      {/* Issue #225: 詰み時に負けた側の玉へ赤い斬撃演出 (王手崩しと同じ見た目) を重ねる */}
+      {/* Issue #225: 詰み時に負けた側の玉へ赤い斬撃演出 (永続) を重ねる */}
       <KingSlashOverlay
-        rect={kingSlash?.rect ?? null}
+        kingPos={kingSlash?.pos ?? null}
         kingOwner={kingSlash?.owner ?? null}
         playerColor={playerColor}
+        getSquareRect={getBoardSquareRect}
         animationKey={kingSlash?.key ?? 0}
       />
 
