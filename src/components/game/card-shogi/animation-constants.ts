@@ -67,6 +67,31 @@ export const FAST_MOVE_OFFSET_BELOW_PIECE_PX = 4;
 // マナ増減セグメントのフェード時間。
 export const MANA_GAUGE_SEGMENT_DURATION_S = 2.4;
 
+// ===== Board Overlay 中央テキスト演出 (board-overlay.tsx) =====
+// Issue #222: 演出直列化オーケストレータが「王手」「トラップ発動」の中央オーバーレイ
+// ステップを timer 駆動で前進させるため、board-overlay.tsx の OVERLAY_CONFIG と
+// 尺を共有する (単一情報源)。従来 board-overlay と王手崩しセレモニー (1600 / 2300
+// リテラル) に同じ数値が散在していたのを集約する。
+// 王手オーバーレイ ("王手")。Issue #222: 演出直列化でテンポ悪化を抑えるため尺を
+// 短縮 (旧 100/1000/500=1600 → 100/700/300=1100)。2 文字表示には十分な可読時間で、
+// 単純な opacity 遷移のみ (CSS keyframe 結合なし) のため安全に短縮できる。
+export const CHECK_OVERLAY_FADE_IN_MS = 100;
+export const CHECK_OVERLAY_HOLD_MS = 700;
+export const CHECK_OVERLAY_FADE_OUT_MS = 300;
+export const CHECK_OVERLAY_TOTAL_MS =
+  CHECK_OVERLAY_FADE_IN_MS + CHECK_OVERLAY_HOLD_MS + CHECK_OVERLAY_FADE_OUT_MS;
+// トラップ発動オーバーレイ ("トラップ発動！")。Issue #222: 同じく短縮 (旧
+// 200/1500/600=2300 → 200/1400/400=2000)。ただし overlay の CSS 演出
+// (trap-trigger-flash 1.6s) と王手崩しのゴーストヒット (ghost-trap-hit 1.5s) を
+// 途中で切らないよう、TOTAL は >=2000ms を保つ (fadeIn+hold=1600 >= flash 1.6s)。
+export const TRAP_TRIGGER_OVERLAY_FADE_IN_MS = 200;
+export const TRAP_TRIGGER_OVERLAY_HOLD_MS = 1400;
+export const TRAP_TRIGGER_OVERLAY_FADE_OUT_MS = 400;
+export const TRAP_TRIGGER_OVERLAY_TOTAL_MS =
+  TRAP_TRIGGER_OVERLAY_FADE_IN_MS +
+  TRAP_TRIGGER_OVERLAY_HOLD_MS +
+  TRAP_TRIGGER_OVERLAY_FADE_OUT_MS;
+
 // ===== Auto Draw Ceremony (#130) =====
 // 経過手数による自動ドロー専用の演出パラメータ。
 // 既存 manual draw (DRAW_*) とは色味・前段 (Burst+Trail) が異なる。

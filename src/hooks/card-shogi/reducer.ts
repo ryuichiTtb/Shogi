@@ -320,24 +320,19 @@ function makeMoveWithEffects(
   let postTrapGameState = nextGameState;
   let triggeredCheckBreak = false;
   const opponentTrapPostMove = cardStateNext.trap[opponent];
-  // Issue #220: 二手指しの一手目 (double_move_first) は中間局面。トラップは
-  // ターン完了 (二手目 / 通常手) の最終局面で判定すべきで、中間で発動すると
-  // 相手トラップ種別が露見し、一手目キャンセルで戻せてしまう。よって
-  // double_move_first では原則スキップ (= 二手目 makeMoveWithEffects の最終
-  // 局面で判定 → ユーザー要望どおりターン完了後に発動)。
-  // 唯一の例外: 一手目だけで詰みが成立し二手指しがそこで終了する稀ケースは、
-  // ターンが事実上そこで終わるため発動を維持する (王手崩しは詰みを崩せる
-  // 必要があり、未発動で偽の詰み判定にしないため。MAKE_MOVE 1手目分岐の
-  // gameOver 経路と整合)。
-  const deferCheckBreak =
-    mode === "double_move_first" &&
-    evaluateGameEnd(nextGameState, CARD_SHOGI_VARIANT).status === "active";
-  if (
-    !deferCheckBreak &&
-    opponentTrapPostMove &&
+  // この手の結果、相手の check_break トラップが発動条件 (相手玉が王手中) を満たすか。
+  const wouldTriggerCheckBreak =
+    !!opponentTrapPostMove &&
     opponentTrapPostMove.defId === "check_break" &&
-    isInCheck(nextGameState, opponent, CARD_SHOGI_VARIANT)
-  ) {
+    isInCheck(nextGameState, opponent, CARD_SHOGI_VARIANT);
+  // Issue #220 / #222 検証修正: 二手指しの一手目 (double_move_first) は中間局面。
+  // トラップはターン完了 (二手目) の最終局面でのみ発動すべきで、一手目では常に保留する。
+  // 旧実装は「一手目が (トラップ未考慮の盤面で) 詰みなら例外的に発動」していたが、
+  // check_break トラップがセットされている限り真の詰みは成立しない (トラップが王手駒を
+  // 奪い王手を解除するため)。よって一手目発動は誤りで、二手目を指す前にトラップが暴発し、
+  // 最終局面で王手している駒ではなく一手目の駒が奪われる不具合になっていた (検証で判明)。
+  const deferCheckBreak = mode === "double_move_first";
+  if (!deferCheckBreak && wouldTriggerCheckBreak) {
     const result = applyCheckBreak(nextGameState, opponent);
     if (result) {
       postTrapGameState = result.gameState;
@@ -365,6 +360,13 @@ function makeMoveWithEffects(
 
   // 5. ゲーム終了判定 + 移動イベントログ
   const evaluated = evaluateGameEnd(postTrapGameState, CARD_SHOGI_VARIANT);
+  // Issue #220 / #222 検証修正: 二手指し一手目で check_break を保留した場合、形式上の
+  // 詰み (トラップ未適用の盤面) は真の終局ではない (ターン完了後にトラップが王手を解除
+  // する)。中間局面として active を維持し二手目を継続させる。これがないと MAKE_MOVE 側
+  // gameOver 判定が偽の詰みで二手指しを打ち切り、二手目を指せなくなる。
+  // (nextGameState は applyMove 直後で status="active"。evaluateGameEnd を通す前の値。)
+  const resultGameState =
+    deferCheckBreak && wouldTriggerCheckBreak ? nextGameState : evaluated;
   events.push({ kind: "moveEvent", move: finalMove, at: Date.now() });
 
   // 6. マナチャージ + lastTurnStartedAt クリア (mode で挙動を切替)
@@ -415,7 +417,7 @@ function makeMoveWithEffects(
   // mode === "double_move_first": どちらもしない (ターン継続中のため)
 
   return {
-    gameState: evaluated,
+    gameState: resultGameState,
     cardState: cardStateNext,
     events,
     finalMove,
