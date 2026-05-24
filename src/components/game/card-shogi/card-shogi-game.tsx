@@ -21,6 +21,7 @@ import { CardShogiHistory } from "./card-shogi-history";
 import { GameControls, GAME_CONTROLS_HEIGHT } from "../game-controls";
 import { PromotionDialog } from "../promotion-dialog";
 import { BoardOverlay, type OverlayEvent } from "../board-overlay";
+import { KingSlashOverlay } from "../king-slash-overlay";
 import { AiErrorModal } from "../ai-error-modal";
 import { RematchErrorBanner } from "../rematch-error-banner";
 import { CharacterPanel } from "@/components/character/character-panel";
@@ -43,7 +44,7 @@ import { getShogiBoardCellSize } from "@/lib/shogi/board-layout";
 
 import { getCharacterById } from "@/data/characters";
 import { gameResultText } from "@/lib/shogi/notation";
-import { isInCheck } from "@/lib/shogi/moves";
+import { isInCheck, findKing } from "@/lib/shogi/moves";
 import { unpromotePieceType } from "@/lib/shogi/variants/standard";
 import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
 import { getVariantById } from "@/lib/shogi/variants/index";
@@ -166,6 +167,13 @@ export function CardShogiGame({
 }: CardShogiGameProps) {
   const [commentEvent, setCommentEvent] = useState<CommentaryEvent | null>(null);
   const [overlayEvent, setOverlayEvent] = useState<{ event: OverlayEvent; key: number; trapName?: string } | null>(null);
+  // Issue #225: 詰み時の玉への赤い斬撃演出 (負けた側の玉マスに重ねる)。null で非表示。
+  // pos を保持し、矩形算出と resize 追従は KingSlashOverlay 側に委譲する (永続表示のため)。
+  const [kingSlash, setKingSlash] = useState<{
+    pos: Position;
+    owner: Player;
+    key: number;
+  } | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(() => Boolean(debugInitialUi?.drawerOpen));
   // Step S4 (Issue #107): モバイル/タブレットの終了カードを最小化できるように
   // する。閉じると盤面・持ち駒が見え、再度展開して「もう一局」「ホームへ」を
@@ -531,6 +539,16 @@ export function CardShogiGame({
       // Issue #79 で王手 SFX (check) と分離した専用 checkmate SFX を 1000ms 後に再生。
       setTimeout(() => playSfx("checkmate"), 1000);
       setTimeout(() => setOverlayEvent({ event: "checkmate", key: Date.now() }), 1000);
+      // Issue #225: 詰み表示と同タイミングで、負けた側の玉へ赤い斬撃演出を発火。
+      // 斬撃は演出後もフェードさせず永続表示する (クリアしない)。対局再開・離脱で解消。
+      const loser: Player = gameState.winner === "sente" ? "gote" : "sente";
+      const kingPos = findKing(gameState.board, loser, CARD_SHOGI_VARIANT.boardSize);
+      if (kingPos) {
+        setTimeout(
+          () => setKingSlash({ pos: kingPos, owner: loser, key: Date.now() }),
+          1000,
+        );
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState.moveCount]);
@@ -2387,6 +2405,15 @@ export function CardShogiGame({
           </div>,
           document.body,
         )}
+
+      {/* Issue #225: 詰み時に負けた側の玉へ赤い斬撃演出 (永続) を重ねる */}
+      <KingSlashOverlay
+        kingPos={kingSlash?.pos ?? null}
+        kingOwner={kingSlash?.owner ?? null}
+        playerColor={playerColor}
+        getSquareRect={getBoardSquareRect}
+        animationKey={kingSlash?.key ?? 0}
+      />
 
       {/* Issue #77: マナ加減算の浮遊テキスト (起点 UI 付近に表示) */}
       <ManaFlightLayer items={manaFlights} onComplete={removeManaFlight} />

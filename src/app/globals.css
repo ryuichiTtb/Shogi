@@ -317,6 +317,34 @@
   animation: ghost-slash 1.5s ease-out forwards;
 }
 
+/* Issue #225: 詰み時、負けた側の玉への被弾フラッシュ。王手崩しの ghost-trap-hit と
+ * 異なり (1) 紫でなく赤系 (詰めの決着色) (2) インパクト後は通常状態へ戻し持続グローを
+ * 残さない (残すのは赤い斬撃のみ)。0-280ms で衝撃 + 振動 → 100% で完全に通常へ。 */
+@keyframes checkmate-king-hit {
+  0%   { filter: brightness(1); transform: rotate(0deg) scale(1); }
+  7%   { filter: drop-shadow(0 0 24px rgba(239, 68, 68, 0.95)) brightness(1.6); transform: rotate(-5deg) scale(1.1); }
+  14%  { filter: drop-shadow(0 0 20px rgba(239, 68, 68, 0.9)) brightness(1.4); transform: rotate(4deg) scale(1.07); }
+  28%  { filter: drop-shadow(0 0 12px rgba(239, 68, 68, 0.6)) brightness(1.2); transform: rotate(-2deg) scale(1.03); }
+  100% { filter: brightness(1); transform: rotate(0deg) scale(1); }
+}
+.checkmate-king-hit {
+  animation: checkmate-king-hit 0.8s ease-out forwards;
+}
+
+/* Issue #225: 詰み時の赤い斬撃。王手崩しの ghost-slash と異なり、描画後フェード
+ * させず opacity 1 のまま残し続ける (玉に斬られた跡を永続表示)。0-120ms で
+ * 右上→左下に高速描画 → 以降は赤グローを保ったまま静止。 */
+@keyframes ghost-slash-draw-persist {
+  0%   { stroke-dasharray: 0 200; opacity: 1; filter: drop-shadow(0 0 14px rgba(239, 68, 68, 1)) brightness(1.4); }
+  8%   { stroke-dasharray: 200 0; opacity: 1; filter: drop-shadow(0 0 14px rgba(239, 68, 68, 1)) brightness(1.4); }
+  30%  { stroke-dasharray: 200 0; opacity: 1; filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.85)) brightness(1.1); }
+  100% { stroke-dasharray: 200 0; opacity: 1; filter: drop-shadow(0 0 6px rgba(239, 68, 68, 0.75)); }
+}
+.ghost-slash-line-persist {
+  stroke-dasharray: 0 200;
+  animation: ghost-slash-draw-persist 0.6s ease-out forwards;
+}
+
 /* カード将棋: ドロー演出完了時に手札の対象カードがふわっと光る (Issue #78) */
 @keyframes hand-card-flash {
   0%   { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0); }
