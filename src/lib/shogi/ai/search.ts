@@ -6,6 +6,7 @@ import { isInCheck } from "../moves";
 import { getSearchLegalMoves } from "./legal-moves";
 import { applyMoveForSearch } from "../board";
 import { evaluate, scoreMoveForOrdering } from "./evaluate";
+import { cardResultIntroducesTadasute } from "./blunder-guard";
 import { simulateCardEffect } from "../cards/effects";
 import {
   DRAW_VALUE_BONUS,
@@ -80,7 +81,9 @@ function updateKillerMove(move: Move, ply: number, ctx: SearchContext): void {
 }
 
 // 手の比較
-function movesEqual(a: Move, b: Move): boolean {
+// Issue #193 / PR2: blunder guard の同点圏 tie-breaker が rootMoveScores から
+// 指し手のスコアを引くために export 化。
+export function movesEqual(a: Move, b: Move): boolean {
   if (a.type !== b.type) return false;
   if (a.to.row !== b.to.row || a.to.col !== b.to.col) return false;
   if (a.type === "drop") return a.dropPiece === b.dropPiece;
@@ -517,16 +520,27 @@ function negamax(
 // Issue #176: SearchContext で deadline / abort / nodes / per-request stats を共有する。
 // `ctx` 省略時は options.timeLimitMs から SearchContext を生成する。通常は
 // engine.ts (findBestMoveWithStats) または Route Handler が ctx を渡す。
+// Issue #193 / PR2: findBestMove の戻り値。move に加え、root 各手の深い探索スコア
+// (player 視点、最終完了 depth の値) を rootMoveScores として公開する。
+// blunder guard の同点圏 tie-breaker が「ハング手 vs 最善安全手」を深いスコアで
+// 比較し、探索が見返りを確認した戦術的犠牲を尊重するために使う。
+// (静的 evaluate では犠牲の見返りが見えないため、深いスコアが必須)
+export interface RootSearchResult {
+  move: Move;
+  rootMoveScores: { move: Move; score: number }[];
+}
+
 export function findBestMove(
   state: GameState,
   player: Player,
   options: SearchOptions,
   variant: RuleVariant = STANDARD_VARIANT,
   ctx?: SearchContext
-): Move | null {
+): RootSearchResult | null {
   const moves = getSearchLegalMoves(state, player, variant);
   if (moves.length === 0) return null;
-  if (moves.length === 1) return moves[0];
+  // 合法手 1 つのみ: 比較対象が無いので rootMoveScores は空で返す。
+  if (moves.length === 1) return { move: moves[0], rootMoveScores: [] };
 
   const searchCtx: SearchContext =
     ctx ?? createSearchContext({ timeLimitMs: options.timeLimitMs });
@@ -694,7 +708,9 @@ export function findBestMove(
     bestMove = sortedMoves[randomIndex] ?? bestMove;
   }
 
-  return bestMove;
+  // Issue #193 / PR2: bestMove (noise / nearEqual 調整後) と root スコアを返す。
+  // rootMoveScores は最終完了 depth の各手スコア (player 視点)。
+  return { move: bestMove, rootMoveScores };
 }
 
 // Issue #193 / PR1d-2: TurnAction (move / draw / playCard) を player 視点のスカラー評価値に変換する純粋関数。
@@ -726,6 +742,10 @@ export function evaluateAction(
   player: Player,
   variant: RuleVariant,
   ctx?: SearchContext,
+  // Issue #193 / PR2 (検証フィードバック): true のとき、カード使用結果がタダ捨て
+  // (手番側に無防備で取られる駒が新規発生) になる playCard を候補から除外 (-Inf)。
+  // 呼び出し側 (engine) が難易度に応じて渡す (全難易度で原則 true、初級のみ確率的に false)。
+  excludeTadasute = false,
 ): number {
   const cardDigest = ctx?.cardDigest;
   switch (action.kind) {
@@ -769,6 +789,16 @@ export function evaluateAction(
       if (!nextGameState) {
         // simulateCardEffect が null を返すその他の target なしカード
         // (mana_up 等) は PR1d-4 範囲外
+        return Number.NEGATIVE_INFINITY;
+      }
+      // Issue #193 / PR2 (検証フィードバック): タダ捨て除外。カード適用で手番側に
+      // 無防備で取られる駒が新たに生じる手 (例: 二歩指しで相手飛車前に歩を打つ) は
+      // 候補から外す。0 手先の静的評価では「次の手で只取りされる」損失が見えないため、
+      // pieceSafety の前後悪化で検知してここで除外する。
+      if (
+        excludeTadasute &&
+        cardResultIntroducesTadasute(state.gameState, nextGameState, player, variant)
+      ) {
         return Number.NEGATIVE_INFINITY;
       }
       const raw = evaluate(nextGameState, variant, cardDigest);

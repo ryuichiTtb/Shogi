@@ -1,13 +1,14 @@
 import type { Difficulty, GameState, Move, Player, RuleVariant } from "../types";
 import type { CardGameState } from "../cards/types";
 import { STANDARD_VARIANT } from "../variants/standard";
-import { findBestMove, evaluateAction } from "./search";
+import { findBestMove, evaluateAction, movesEqual } from "./search";
 import {
   createSearchContext,
   finalizeStats,
   type SearchStats,
 } from "./search-context";
-import { evaluate, getLeastAttackerValue } from "./evaluate";
+import { evaluate, evaluateWithBreakdown, getLeastAttackerValue } from "./evaluate";
+import { chooseBlunderGuardMove, type SafeCandidate } from "./blunder-guard";
 import { getBookMove, MAX_BOOK_MOVES } from "./openingBook";
 import { getFullLegalMoves, isSquareAttackedByFast } from "../moves";
 import { applyMoveForSearch } from "../board";
@@ -78,6 +79,20 @@ const BLUNDER_PIECE_VALUES: Record<string, number> = {
   promoted_knight: 600, promoted_silver: 600, promoted_bishop: 1100,
   promoted_rook: 1300, king: 10000,
 };
+
+// Issue #193 / PR2: blunder guard 同点圏 tie-breaker の閾値 (cp)。
+// ハングする手 (探索の最善手) の深いスコアが、最善の安全手より本値を超えて高ければ
+// = 探索が明確な見返りを確認した戦術的犠牲とみなして尊重 (差替えない)。本値以内の
+// 僅差 (同点圏) なら horizon 起因の無意味なハングとみなし安全手へ差替える。
+// 旧実装の「無条件差替え」は戦術的犠牲も潰していたため棋力を落としていた。
+// 初期値は保守的設定。実対局観察 (Vercel / 自己対戦) で要調整 (tunable)。
+const BLUNDER_GUARD_TIE_MARGIN = 150;
+
+// Issue #193 / PR2 (検証フィードバック): タダ捨て (無防備な駒の只取り) は全難易度で
+// 原則防止する。ただし初級 (beginner / さくら) は弱さ演出として、この確率で guard を
+// skip し意図的にタダ捨てを許容する。中級以上は常に防止 (skip なし)。
+// 0.30 = 初級はタダ捨て機会の約 3 割で発生を許す初期値 (tunable、実対局観察で調整)。
+const BEGINNER_TADASUTE_ALLOW_RATE = 0.3;
 
 // ブランダーガード: 指した後に自駒がタダ取りまたは損な交換にさらされるかチェック
 function hasHangingPiece(
@@ -258,7 +273,7 @@ export function findBestMoveWithStats(
   }
 
   // 探索
-  const bestMove = findBestMove(
+  const searchResult = findBestMove(
     state,
     player,
     {
@@ -273,7 +288,9 @@ export function findBestMoveWithStats(
 
   // depth 1 すら完了しなかった場合の server fallback (合法手の先頭を返す)。
   // Issue #176: client 側 fallback は持たない方針なので、ここで必ず非 null を返したい。
-  let move = bestMove;
+  let move = searchResult?.move ?? null;
+  // Issue #193 / PR2: blunder guard の同点圏 tie-breaker 用に root 各手の深いスコアを保持。
+  const rootMoveScores = searchResult?.rootMoveScores ?? [];
   let usedFallback = false;
   if (move === null) {
     const legal = getFullLegalMoves(state, player, variant);
@@ -301,6 +318,13 @@ export function findBestMoveWithStats(
   let selectedAction: TurnAction | null = move !== null ? { kind: "move", move } : null;
   let usingCardAction = false;
 
+  // Issue #193 / PR2 (検証フィードバック): タダ捨て (無防備な駒の只取り) を全難易度で
+  // 原則防止する。初級 (beginner) のみ弱さ演出として確率的に guard を skip し許容する。
+  // この 1 つの判定でカード経由タダ捨て除外と駒移動 blunder guard の両方を制御し、
+  // 同一ターン内で挙動を一致させる。
+  const applyTadasuteGuard =
+    difficulty !== "beginner" || Math.random() >= BEGINNER_TADASUTE_ALLOW_RATE;
+
   if (
     !usedFallback &&
     move !== null &&
@@ -323,11 +347,21 @@ export function findBestMoveWithStats(
       player,
       variant,
       ctx,
+      applyTadasuteGuard,
     );
 
     for (const action of allActions) {
       if (action.kind === "move") continue; // move は上で評価済
-      const score = evaluateAction(aiTurnState, action, player, variant, ctx);
+      // applyTadasuteGuard 時、カード適用がタダ捨てになる手は evaluateAction が -Inf を返し
+      // 採用されない (例: 二歩指しで相手飛車前に歩を打つ)。
+      const score = evaluateAction(
+        aiTurnState,
+        action,
+        player,
+        variant,
+        ctx,
+        applyTadasuteGuard,
+      );
       if (score > bestActionScore) {
         bestActionScore = score;
         selectedAction = action;
@@ -336,18 +370,15 @@ export function findBestMoveWithStats(
     }
   }
 
-  // ブランダーガード (advanced / expert のみ、抑制版)。
-  // Issue #176: 戦術的駒捨てを潰すリスクがあるが、Stage A では現行挙動を維持する。
-  // Phase 4 (PR 2) で抑制ロジックを再設計する。
+  // ブランダーガード (駒移動のタダ捨て防止)。
+  // Issue #193 / PR2: 旧実装は advanced/expert 限定だったが、検証フィードバックを受け
+  // 「タダ捨ては全難易度で防止 (初級のみ確率的に許容)」へ変更。applyTadasuteGuard で
+  // 制御する (初級は BEGINNER_TADASUTE_ALLOW_RATE の確率で false = 許容)。
   // PR1d-2 (M-2 / N-7 反映): usingCardAction = true (= playCard / draw 採用) のとき
   // blunder guard を skip。理由: pawn_return / piece_return が「自駒タダ取り回避」役を
-  // 担う場合、hasHangingPiece による move 差替と二重発動するため、構造的排他制御で防ぐ。
-  if (
-    !usingCardAction &&
-    !usedFallback &&
-    move !== null &&
-    (difficulty === "advanced" || difficulty === "expert")
-  ) {
+  // 担う場合、hasHangingPiece による move 差替と二重発動するため、構造的排他制御で防ぐ
+  // (カード経由のタダ捨ては evaluateAction の excludeTadasute で別途除外済)。
+  if (applyTadasuteGuard && !usingCardAction && !usedFallback && move !== null) {
     const nextState = applyMoveForSearch(state, move);
     if (hasHangingPiece(nextState, player, variant)) {
       const legalMoves = getFullLegalMoves(state, player, variant);
@@ -356,23 +387,76 @@ export function findBestMoveWithStats(
         return !hasHangingPiece(ns, player, variant);
       });
       if (safeMoves.length > 0) {
-        let bestSafeScore = -Infinity;
-        let bestSafeMove = safeMoves[0];
+        // Issue #193 / PR2: 同点圏 tie-breaker 化。
+        // 旧実装は「ハングする手を無条件で安全手へ差替え」ており、探索が見返りを
+        // 確認した戦術的駒捨て (犠牲) まで潰して棋力を落としていた。本実装では root の
+        // 深い探索スコアで「ハング手」と「最善安全手」を比較し:
+        //  - ハング手が安全手より TIE_MARGIN を超えて高い (= 探索が明確な見返りを確認した
+        //    犠牲) → 尊重し差替えない
+        //  - 僅差 (同点圏 = TIE_MARGIN 以内) → 安全手へ差替え (horizon 起因の無意味な
+        //    ハングを防ぐ安全網を維持)
+        // 深いスコアが取得できない場合 (root に無い安全手のみ等) は静的評価で代替し、
+        // 従来同様に差替える (安全網フォールバック)。
+        const deepScoreOf = (m: Move): number | undefined =>
+          rootMoveScores.find((rms) => movesEqual(rms.move, m))?.score;
+
+        const moveDeepScore = deepScoreOf(move);
+
+        // 安全手のうち深いスコアが取得できるものを候補化。
+        const safeCandidates: SafeCandidate[] = [];
         for (const m of safeMoves) {
-          const ns = applyMoveForSearch(state, m);
-          // PR1d-1: cardDigest を伝播 (W-1 root スカラー方式、未渡時は既存挙動)
-          const rawScore = evaluate(ns, variant, cardDigest);
-          const score = player === "sente" ? rawScore : -rawScore;
-          if (score > bestSafeScore) {
-            bestSafeScore = score;
-            bestSafeMove = m;
-          }
+          const d = deepScoreOf(m);
+          if (d !== undefined) safeCandidates.push({ move: m, deepScore: d });
         }
-        move = bestSafeMove;
-        // blunder guard で move が差替えられた場合、selectedAction の move も同期
-        selectedAction = { kind: "move", move };
+
+        if (moveDeepScore !== undefined && safeCandidates.length > 0) {
+          // 深いスコアで同点圏 tie-breaker (純粋関数で判定)。
+          const chosen = chooseBlunderGuardMove(
+            move,
+            moveDeepScore,
+            safeCandidates,
+            BLUNDER_GUARD_TIE_MARGIN,
+          );
+          if (chosen !== move) {
+            move = chosen;
+            selectedAction = { kind: "move", move };
+          }
+          // chosen === move のときは戦術的犠牲を尊重 (差替えない)
+        } else {
+          // 深いスコア未取得 (move が root に無い / 安全手が探索未考慮等) → 静的評価で
+          // 最善安全手を選び差替える (安全網フォールバック)。
+          let bestSafeScore = -Infinity;
+          let bestStaticSafeMove = safeMoves[0];
+          for (const m of safeMoves) {
+            const ns = applyMoveForSearch(state, m);
+            // PR1d-1: cardDigest を伝播 (W-1 root スカラー方式、未渡時は既存挙動)
+            const rawScore = evaluate(ns, variant, cardDigest);
+            const score = player === "sente" ? rawScore : -rawScore;
+            if (score > bestSafeScore) {
+              bestSafeScore = score;
+              bestStaticSafeMove = m;
+            }
+          }
+          move = bestStaticSafeMove;
+          selectedAction = { kind: "move", move };
+        }
       }
     }
+  }
+
+  // Issue #193 / PR2: 評価値内訳の本番有効化 (PR1c の evaluateWithBreakdown 足場を活用)。
+  // DEBUG_AI_EVAL=true のときだけ root 局面と採用手適用後の評価成分内訳を server ログへ
+  // 出力する。env ガードで短絡するため通常運用 (フラグ未設定) では一切コストが掛からない。
+  // findBestMoveWithStats は AI route (server) からのみ呼ばれるため process.env を参照可。
+  if (process.env.DEBUG_AI_EVAL === "true") {
+    const rootBreakdown = evaluateWithBreakdown(state, variant);
+    const movedBreakdown =
+      move !== null ? evaluateWithBreakdown(applyMoveForSearch(state, move), variant) : null;
+    console.log(
+      `[ai-eval] player=${player} difficulty=${difficulty} ` +
+        `root=${JSON.stringify(rootBreakdown)} ` +
+        `afterMove=${movedBreakdown ? JSON.stringify(movedBreakdown) : "null"}`,
+    );
   }
 
   return {
