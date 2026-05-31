@@ -838,7 +838,6 @@ function searchDoubleMoveSuperAction(
   ctx?: SearchContext,
   excludeTadasute = false,
 ): number {
-  const cardDigest = ctx?.cardDigest;
   const rules = new CurrentRules(variant);
 
   // Step 1: double_move カード適用 (doubleMove フラグ ON、turnEnded=false)
@@ -848,8 +847,54 @@ function searchDoubleMoveSuperAction(
     defId: "double_move",
   }).next;
 
+  // PR3-3 C-11 (adversarial verify F-1 残課題解消):
+  // CurrentRules.applyAction の double_move 分岐は旧設計 (= cost を cardDigest 側で扱う)
+  // の名残で cardState を変更しない。PR3-3 C-6 で updateCardDigest を per-action wiring
+  // 化した今、本関数でも cardState を実遷移 (mana -=cost, hand -=1 double_move) させて
+  // digest を更新する必要がある (= 死にマナ C-3 / handValue C-4 が super-action 経路でも
+  // 効くようになる)。drawProgress も整合性のため +1 加算 (C-12 と同方針、production
+  // applyTurnEndEffects 等価)。
+  const doubleMoveCost = CARD_DEFS["double_move"].cost;
+  const dmHandIdx = state.cardState.hand[player].findIndex(
+    (c) => c.defId === "double_move",
+  );
+  const newHand =
+    dmHandIdx >= 0
+      ? [
+          ...state.cardState.hand[player].slice(0, dmHandIdx),
+          ...state.cardState.hand[player].slice(dmHandIdx + 1),
+        ]
+      : state.cardState.hand[player]; // 想定外: 候補生成時の checks で除外されているはず
+  const newCardState: CardGameState = {
+    ...state.cardState,
+    mana: {
+      ...state.cardState.mana,
+      [player]: state.cardState.mana[player] - doubleMoveCost,
+    },
+    hand: { ...state.cardState.hand, [player]: newHand },
+    drawProgress: {
+      ...state.cardState.drawProgress,
+      [player]: state.cardState.drawProgress[player] + 1,
+    },
+  };
+  // afterCard.cardState を corrected newCardState で上書き
+  // (以降の move 連鎖は CurrentRules.applyAction(move) が cardState を入力からそのまま
+  //  propagate するため、newCardState が自動的に afterFirst/afterSecond にも継承される)
+  const afterCardWiredCS = { ...afterCard, cardState: newCardState };
+
+  // digest を更新: ctx 未渡時は computeCardDigest フォールバック (C-6 と同パターン)
+  const prevDigest =
+    ctx?.cardDigest ??
+    (variant.id === "card-shogi"
+      ? computeCardDigest(state.cardState)
+      : undefined);
+  const innerDigest =
+    prevDigest !== undefined
+      ? updateCardDigest(prevDigest, state.cardState, newCardState)
+      : undefined;
+
   // Step 2: 1 手目候補生成 (move-only)。性能配慮で heuristic 上位 K 手に絞る。
-  const firstMovesAll = getSearchLegalMoves(afterCard.gameState, player, variant);
+  const firstMovesAll = getSearchLegalMoves(afterCardWiredCS.gameState, player, variant);
   if (firstMovesAll.length === 0) return NEG_INF; // 1 手目なし = 二手指し不成立で負
   const firstMoves =
     firstMovesAll.length > DOUBLE_MOVE_TOP_K
@@ -862,7 +907,7 @@ function searchDoubleMoveSuperAction(
   let bestScoreIgnoringTadasute = NEG_INF; // PR3-3 C-3: フォールバック (R-3)
   // Step 3: 各 1 手目 × 全 2 手目を局所探索、2 手指し後を depth=0 評価
   for (const firstMove of firstMoves) {
-    const afterFirst = rules.applyAction(afterCard, { kind: "move", move: firstMove });
+    const afterFirst = rules.applyAction(afterCardWiredCS, { kind: "move", move: firstMove });
     // 不変条件: 二手指し 1 手目は turnEnded=false (= player 反転禁止の構造的保証)
     if (afterFirst.turnEnded) {
       throw new Error(
@@ -882,8 +927,8 @@ function searchDoubleMoveSuperAction(
           "Invariant violation: double_move 2 手目で turnEnded が false",
         );
       }
-      // 案 B: 2 手指し後の局面を depth=0 評価 (player 視点、PR1d-2 evaluateAction と整合)
-      const raw = evaluate(afterSecond.next.gameState, variant, cardDigest);
+      // PR3-3 C-11: innerDigest (= double_move 適用後の cardState 反映済) を evaluate に渡す
+      const raw = evaluate(afterSecond.next.gameState, variant, innerDigest);
       const score = player === "sente" ? raw : -raw;
       if (score > bestScoreIgnoringTadasute) bestScoreIgnoringTadasute = score;
       // PR3-3 C-3 (PR2 残課題解消): 2 手指し完了局面で「タダ捨て」(自駒がハングする手)
@@ -936,24 +981,40 @@ function searchDoubleMoveSuperAction(
  * PR3-3 C-6: action 適用後の (gameState, cardState) を計算する純粋関数。
  *
  * lookahead で digest を per-action 更新するために、各 action 種別ごとの状態遷移を集約。
- * - move:        applyMoveForSearch → gameState 変化、cardState 不変
- * - draw:        gameState 不変、cardState: mana-=DRAW_COST / hand+=1 / drawProgress=0
+ * - move:        applyMoveForSearch → gameState 変化、cardState は drawProgress[player] += 1 のみ
+ * - draw:        gameState 不変、cardState: mana-=DRAW_COST / hand+=1 / drawProgress[player] += 1
  * - playCard trap (no_promote / check_break): gameState 不変、cardState: mana-=cost /
- *                hand-=1 / trap[player] セット
+ *                hand-=1 / drawProgress[player] += 1 / trap[player] セット
  * - playCard 通常 (pawn_return / piece_return / double_pawn): simulateCardEffect →
- *                gameState 変化、cardState: mana-=cost / hand-=1
+ *                gameState 変化、cardState: mana-=cost / hand-=1 / drawProgress[player] += 1
  * - playCard double_move: null を返す (呼出側が searchDoubleMoveSuperAction に delegate)
  * - 山札枯渇 (draw) / simulateCardEffect 失敗 (mana_up 等の本 PR 対象外カード) も null
+ *
+ * PR3-3 C-12 (adversarial verify F-1 残課題解消):
+ * drawProgress は全 action 種別で +1 加算 (= production の applyTurnEndEffects 等価)。
+ * 旧実装は draw のみ =0 リセットしていたが、production の DRAW_CARD は drawProgress を
+ * 触らず後続 COMMIT_DRAW → applyTurnEndEffects で +=1 加算する。move/playCard でも
+ * applyTurnEndEffects は呼ばれるため +=1 が必要。3 種すべてで +1 統一することで
+ * action 間の比較対称性を確保 (production-equivalent な post-action state)。
  */
 function applyActionForLookahead(
   state: AiTurnState,
   action: TurnAction,
   player: Player,
 ): { gameState: GameState; cardState: CardGameState } | null {
+  // PR3-3 C-12: 全 action 種別で drawProgress[player] += 1 (production 等価)
+  const advancedDrawProgress = {
+    ...state.cardState.drawProgress,
+    [player]: state.cardState.drawProgress[player] + 1,
+  };
+
   if (action.kind === "move") {
     return {
       gameState: applyMoveForSearch(state.gameState, action.move),
-      cardState: state.cardState,
+      cardState: {
+        ...state.cardState,
+        drawProgress: advancedDrawProgress,
+      },
     };
   }
   if (action.kind === "draw") {
@@ -977,10 +1038,10 @@ function applyActionForLookahead(
           ...state.cardState.deck,
           [player]: state.cardState.deck[player].slice(1),
         },
-        drawProgress: {
-          ...state.cardState.drawProgress,
-          [player]: 0,
-        },
+        // PR3-3 C-12: production は drawProgress 0 リセットせず +=1 (DRAW_CARD は触らず、
+        // 後続 applyTurnEndEffects(drawer) で current+1。canDraw は <AUTO_DRAW_INTERVAL-1=4
+        // で gate されるため、手動ドロー後の drawProgress は最大 5)。
+        drawProgress: advancedDrawProgress,
       },
     };
   }
@@ -998,6 +1059,7 @@ function applyActionForLookahead(
       [player]: state.cardState.mana[player] - def.cost,
     },
     hand: { ...state.cardState.hand, [player]: newHand },
+    drawProgress: advancedDrawProgress,
   };
   if (action.defId === "no_promote" || action.defId === "check_break") {
     return {
@@ -1091,8 +1153,10 @@ export function evaluateActionWithLookahead(
   // C-3 (死にマナ) / C-4 (handValue) の効果が打ち消されて inert になっていた。
   // updateCardDigest (PR3-2 API) で applied.cardState への遷移を反映した digest を生成し、
   // opp scan の eval / final eval に伝播することで C-3/C-4 が actually に効くようになる。
-  // - move は cardState 不変なので prev digest を流用 (updateCardDigest 呼出も不要)
-  // - draw / playCard は applied.cardState が変化、updateCardDigest で digest 更新
+  // - draw / playCard / trap は applied.cardState (mana / hand / drawProgress / trap) が変化
+  // - move も PR3-3 C-12 で applied.cardState.drawProgress[player] += 1 が入るため変化する。
+  //   旧実装の「move は updateCardDigest 呼出 skip」最適化は廃止 (drawProgress 差分のみのケース
+  //   では updateCardDigest 内で handChanged=false により exp() 呼出 skip されるため軽量)。
   // - card-shogi で prev digest が未渡 (ctx 未指定のテスト/エッジケース) でも適切に動くよう、
   //   その場合は computeCardDigest(state.cardState) でフォールバック生成 (O(1)+exp×2 のみ)。
   //   production は engine.ts で root digest が常に渡るためフォールバック発火しない。
@@ -1102,7 +1166,7 @@ export function evaluateActionWithLookahead(
     prevDigest = computeCardDigest(state.cardState);
   }
   const newDigest =
-    prevDigest !== undefined && action.kind !== "move"
+    prevDigest !== undefined
       ? updateCardDigest(prevDigest, state.cardState, applied.cardState)
       : prevDigest;
 
