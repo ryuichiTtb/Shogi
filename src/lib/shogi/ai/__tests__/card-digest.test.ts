@@ -25,6 +25,8 @@ import {
   TRAP_VALUE_NO_PROMOTE,
   TRAP_VALUE_CHECK_BREAK,
   NO_PROMOTE_MARK_COEFFICIENT,
+  DEAD_MANA_THRESHOLD,
+  DEAD_MANA_PENALTY_COEF,
 } from "../cards/heuristics";
 import { createInitialCardState } from "@/lib/shogi/cards/state";
 import { INITIAL_MANA, MANA_CAP } from "@/lib/shogi/cards/definitions";
@@ -110,6 +112,9 @@ describe("evaluateCardDigest (W-3: variant ガード + W-2: sente 絶対視点)"
     drawProgressDelta: 2,
     trapPresence: { sente: null, gote: null },
     noPromoteMarkCountDelta: 0,
+    // PR3-1: 両者 DEAD_MANA_THRESHOLD 以下に設定し、死にマナペナルティ=0 で
+    // 既存アサーションの数式 (manaDelta×COEF + handValueDelta + drawProgressDelta×COEF) を維持。
+    manaAbsolute: { sente: 10, gote: 7 },
   };
 
   it("variant.id === 'standard' は常に 0 を返す (W-3 反映)", () => {
@@ -134,6 +139,7 @@ describe("evaluateCardDigest (W-3: variant ガード + W-2: sente 絶対視点)"
       drawProgressDelta: 0,
       trapPresence: { sente: null, gote: null },
       noPromoteMarkCountDelta: 0,
+      manaAbsolute: { sente: 0, gote: 0 },
     };
     expect(evaluateCardDigest(emptyDigest, CARD_SHOGI_VARIANT)).toBe(0);
   });
@@ -314,6 +320,85 @@ describe("computeCardDigest PR1d-4 拡張 (trapPresence / noPromoteMarkCountDelt
     withTrap.noPromoteMarks.sente = [{ row: 6, col: 0 }];
     expect(
       evaluateCardDigest(computeCardDigest(withTrap), STANDARD_VARIANT),
+    ).toBe(0);
+  });
+});
+
+describe("PR3-1 manaAbsolute + 死にマナペナルティ", () => {
+  it("computeCardDigest が manaAbsolute (sente/gote) を生マナで保持する", () => {
+    const cs = createInitialCardState(SAMPLE_DECK);
+    cs.mana.sente = 13;
+    cs.mana.gote = 18;
+    const d = computeCardDigest(cs);
+    expect(d.manaAbsolute).toEqual({ sente: 13, gote: 18 });
+  });
+
+  it("両者しきい値以下では penalty = 0 (差分計算が不要なケース)", () => {
+    const base = createInitialCardState(SAMPLE_DECK);
+    base.mana.sente = DEAD_MANA_THRESHOLD;
+    base.mana.gote = DEAD_MANA_THRESHOLD - 5;
+    const v = evaluateCardDigest(computeCardDigest(base), CARD_SHOGI_VARIANT);
+    // manaDelta=5 が COEF=10 で +50 のみ加算され、penalty 項は 0
+    expect(v).toBe(5 * MANA_DELTA_COEFFICIENT);
+  });
+
+  it("sente だけが過剰 → sente にとってマイナス (機会損失)", () => {
+    const base = createInitialCardState(SAMPLE_DECK);
+    base.mana.sente = DEAD_MANA_THRESHOLD - 1;
+    base.mana.gote = DEAD_MANA_THRESHOLD - 1;
+    const overflow = 3;
+    const high = createInitialCardState(SAMPLE_DECK);
+    high.mana.sente = DEAD_MANA_THRESHOLD + overflow;
+    high.mana.gote = DEAD_MANA_THRESHOLD - 1;
+    const baseScore = evaluateCardDigest(computeCardDigest(base), CARD_SHOGI_VARIANT);
+    const highScore = evaluateCardDigest(computeCardDigest(high), CARD_SHOGI_VARIANT);
+    // sente が高い分 manaDelta も増えるので、その寄与を除いた差分を確認:
+    //   (高 manaDelta - 低 manaDelta) × COEF + (- overflow × PENALTY_COEF)
+    const baseDelta = base.mana.sente - base.mana.gote;
+    const highDelta = high.mana.sente - high.mana.gote;
+    const manaDeltaContribution = (highDelta - baseDelta) * MANA_DELTA_COEFFICIENT;
+    const penaltyContribution = -overflow * DEAD_MANA_PENALTY_COEF;
+    expect(highScore - baseScore).toBe(manaDeltaContribution + penaltyContribution);
+  });
+
+  it("gote だけが過剰 → sente にとってプラス (相手の機会損失)", () => {
+    const a = createInitialCardState(SAMPLE_DECK);
+    a.mana.sente = 5;
+    a.mana.gote = DEAD_MANA_THRESHOLD - 1;
+    const b = createInitialCardState(SAMPLE_DECK);
+    b.mana.sente = 5;
+    const overflow = 4;
+    b.mana.gote = DEAD_MANA_THRESHOLD + overflow;
+    const aScore = evaluateCardDigest(computeCardDigest(a), CARD_SHOGI_VARIANT);
+    const bScore = evaluateCardDigest(computeCardDigest(b), CARD_SHOGI_VARIANT);
+    // manaDelta 差は実状態から算出 (gote が 15 → 20 で +5 増えるが overflow=4 と異なるため)。
+    // penalty は a.gote=15 (overflow=0) → b.gote=20 (overflow=4) で +overflow×PENALTY_COEF。
+    const aDelta = a.mana.sente - a.mana.gote;
+    const bDelta = b.mana.sente - b.mana.gote;
+    const manaDeltaContribution = (bDelta - aDelta) * MANA_DELTA_COEFFICIENT;
+    const penaltyContribution = overflow * DEAD_MANA_PENALTY_COEF;
+    expect(bScore - aScore).toBe(manaDeltaContribution + penaltyContribution);
+  });
+
+  it("両者同時に過剰 → penalty は対称 (差分で打ち消し) + manaDelta は変化しない", () => {
+    const base = createInitialCardState(SAMPLE_DECK);
+    base.mana.sente = 10;
+    base.mana.gote = 10;
+    const both = createInitialCardState(SAMPLE_DECK);
+    both.mana.sente = DEAD_MANA_THRESHOLD + 3;
+    both.mana.gote = DEAD_MANA_THRESHOLD + 3;
+    const baseScore = evaluateCardDigest(computeCardDigest(base), CARD_SHOGI_VARIANT);
+    const bothScore = evaluateCardDigest(computeCardDigest(both), CARD_SHOGI_VARIANT);
+    // 両者同じ増分なら manaDelta は変化なし。penalty も sente/gote で打ち消し合って 0。
+    expect(bothScore - baseScore).toBe(0);
+  });
+
+  it("standard variant は死にマナペナルティも 0 (W-3 ガード維持)", () => {
+    const cs = createInitialCardState(SAMPLE_DECK);
+    cs.mana.sente = MANA_CAP;
+    cs.mana.gote = 0;
+    expect(
+      evaluateCardDigest(computeCardDigest(cs), STANDARD_VARIANT),
     ).toBe(0);
   });
 });

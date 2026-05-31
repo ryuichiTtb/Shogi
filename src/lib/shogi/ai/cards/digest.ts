@@ -27,6 +27,8 @@ import {
   TRAP_VALUE_NO_PROMOTE,
   TRAP_VALUE_CHECK_BREAK,
   NO_PROMOTE_MARK_COEFFICIENT,
+  DEAD_MANA_THRESHOLD,
+  DEAD_MANA_PENALTY_COEF,
 } from "./heuristics";
 
 export interface CardDigest {
@@ -47,6 +49,10 @@ export interface CardDigest {
   // evaluateCardDigest が GameState/玉位置非依存 (W-1 root スカラー方式) のため
   // 実装不可 → 玉位置非依存の単純カウント差に簡略化 (ZZ 反映)。
   noPromoteMarkCountDelta: number;
+  // PR3-1: 死にマナペナルティ用の絶対マナ (sente/gote それぞれの生マナ値)。
+  // manaDelta だけでは「両者上限到達」を識別できないため、絶対値を別途保持。
+  // 計画 md docs/plans/issue-193-pr3-1-card-calibration.md 4.2.2 章。
+  manaAbsolute: { sente: number; gote: number };
 }
 
 /**
@@ -79,6 +85,8 @@ export function computeCardDigest(cardState: CardGameState): CardDigest {
     drawProgressDelta,
     trapPresence,
     noPromoteMarkCountDelta,
+    // PR3-1: 死にマナペナルティ用に絶対値を併せて保持 (O(1) 追加のみ)。
+    manaAbsolute: { sente: cardState.mana.sente, gote: cardState.mana.gote },
   };
 }
 
@@ -108,6 +116,11 @@ export function evaluateCardDigest(
   // PR1d-4 (ギャップ1=案A): no_promote マーク数差 × 係数 (玉位置非依存)。
   // sente 絶対視点: sente の no_promote マークが多いほど + (敵の成りを抑止して有利)。
   value += digest.noPromoteMarkCountDelta * NO_PROMOTE_MARK_COEFFICIENT;
+  // PR3-1: 死にマナペナルティ (sente 絶対視点)。マナが MANA_CAP=20 に近いほど
+  // 「マナ上限到達後の manaCharge が無効化」する機会損失を負価値として表現。
+  // 退化原因 ④ (マナ上限で manaDelta 価値消失) を解消し、AI に「マナ余剰時は
+  // カードを使ってマナを消費」する判断を促す。
+  value += evaluateDeadManaPenalty(digest);
   return value;
 }
 
@@ -122,4 +135,14 @@ function evaluateTrapPresence(
   if (trapPresence.gote === "no_promote") v -= TRAP_VALUE_NO_PROMOTE;
   else if (trapPresence.gote === "check_break") v -= TRAP_VALUE_CHECK_BREAK;
   return v;
+}
+
+// PR3-1: 死にマナペナルティ (sente 絶対視点)。
+//   sente が DEAD_MANA_THRESHOLD を超えた分 = sente にとって - (機会損失大)
+//   gote が DEAD_MANA_THRESHOLD を超えた分 = sente にとって + (相手の機会損失)
+//   差分 (goteOverflow - senteOverflow) × DEAD_MANA_PENALTY_COEF で対称に算出。
+function evaluateDeadManaPenalty(digest: CardDigest): number {
+  const senteOverflow = Math.max(0, digest.manaAbsolute.sente - DEAD_MANA_THRESHOLD);
+  const goteOverflow = Math.max(0, digest.manaAbsolute.gote - DEAD_MANA_THRESHOLD);
+  return (goteOverflow - senteOverflow) * DEAD_MANA_PENALTY_COEF;
 }
