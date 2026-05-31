@@ -12,7 +12,7 @@ import { describe, it, expect } from "vitest";
 import { evaluateAction } from "../search";
 import { computeCardDigest } from "../cards/digest";
 import {
-  DRAW_VALUE_BONUS,
+  getDrawValue,
   TRAP_VALUE_NO_PROMOTE,
   TRAP_VALUE_CHECK_BREAK,
 } from "../cards/heuristics";
@@ -64,21 +64,27 @@ describe("evaluateAction (move / draw / playCard 統一評価)", () => {
     expect(senteResult + goteResult).toBe(0);
   });
 
-  it("draw: 現局面評価値 + DRAW_VALUE_BONUS が返る (sente)", () => {
+  it("draw: 現局面評価値 + getDrawValue(state, sente, cardState) が返る (sente)", () => {
     const state = makeAiTurnState();
     const action: TurnAction = { kind: "draw" };
     const result = evaluateAction(state, action, "sente", CARD_SHOGI_VARIANT);
     const baseEval = evaluate(state.gameState, CARD_SHOGI_VARIANT);
-    expect(result).toBe(baseEval + DRAW_VALUE_BONUS);
+    // PR3-1: 旧 DRAW_VALUE_BONUS=30 固定を getDrawValue() に置換 (退化原因 ① 解消)。
+    // テストも同じ引数で算出した動的値で行うことで定数調整に追従。
+    expect(result).toBe(
+      baseEval + getDrawValue(state.gameState, "sente", state.cardState),
+    );
   });
 
-  it("draw: gote 視点でも DRAW_VALUE_BONUS は加算される (符号反転後)", () => {
+  it("draw: gote 視点でも getDrawValue が加算される (符号反転後)", () => {
     const state = makeAiTurnState();
     const action: TurnAction = { kind: "draw" };
     const result = evaluateAction(state, action, "gote", CARD_SHOGI_VARIANT);
     const baseEval = evaluate(state.gameState, CARD_SHOGI_VARIANT);
-    // gote 視点 = -baseEval (sente 絶対) + DRAW_VALUE_BONUS
-    expect(result).toBe(-baseEval + DRAW_VALUE_BONUS);
+    // gote 視点 = -baseEval (sente 絶対) + getDrawValue(gote, ...)
+    expect(result).toBe(
+      -baseEval + getDrawValue(state.gameState, "gote", state.cardState),
+    );
   });
 
   it("playCard (double_pawn): simulateCardEffect 後の評価値が返る", () => {
