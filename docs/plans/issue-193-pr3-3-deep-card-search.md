@@ -249,3 +249,33 @@ PR3-3a の lookahead で action 適用後の `cardDigest` 更新が必要 (playC
 
 - PR3-4 (相手期待値モデル): 本 PR の `evaluateActionWithLookahead` で「相手最善応答」を決定的に取っているが、相手手札の不完全情報を踏まえると平均期待値で評価すべき。PR3-4 で oppMove を確率分布化検討。
 - (もし PR3-3 で `depthCompleted` 退化が許容範囲を超えた場合) PR3-3+ で性能最適化 (TT 拡張、ordering 改善等)。
+
+## 9. 実装完了サマリ (C-5 で追記)
+
+### 9.1 commit 一覧
+| commit | 内容 |
+|---|---|
+| C-1 c5c7ed7 | 計画 md 起草 + `evaluateActionWithLookahead` / `getOpponentResponseScore` を search.ts に追加 |
+| C-2 2345a4b | engine.ts root を `evaluateActionWithLookahead(..., 1)` 呼出しに切替 |
+| C-3 35c41ac | `searchDoubleMoveSuperAction` に `excludeTadasute` 引数 + 2 手目 `hasHangingPiece` フィルタ + R-3 フォールバック (= 全組合せ除外時は `bestScoreIgnoringTadasute` を返す) / `hasHangingPiece` + `BLUNDER_PIECE_VALUES` を engine.ts → blunder-guard.ts へ移動 (共通化、循環依存回避) |
+| C-4 b3add56 | ユニットテスト 8 件追加: evaluateActionWithLookahead 6 件 (互換性 / 各 action kind / 対称性) + searchDoubleMoveSuperAction excludeTadasute 2 件 |
+| C-5 (本) | 計画 md 完了サマリ追記 + memory roadmap 更新 |
+
+### 9.2 DoD 達成状況
+- [x] `evaluateActionWithLookahead` 実装 + lookaheadPly=0 で既存挙動互換
+- [x] engine.ts root を `evaluateActionWithLookahead(..., 1)` 呼出しに切替
+- [x] `searchDoubleMoveSuperAction` に `excludeTadasute` + 2 手目 `hasHangingPiece` + R-3 フォールバック
+- [x] ユニットテスト 8 件追加 (lookahead 6 + double_move tadasute 2)
+- [x] `RUN_PERF_BENCH=true npm run test:ci -- perf-bench-card-usage` で全 3 難易度 (beginner/advanced/expert) で DoD 達成維持
+- [x] lint / typecheck / test:ci / build green (499 passed / 9 skipped、+8 件)
+- [ ] **実プレイ midgame シナリオ bench 拡張は本 PR では deferred** (既存 isolation bench で calibration + lookahead の機能性は確認、実プレイ的な midgame での効果検証は Vercel 実機ユーザー確認に委ねる)
+- [ ] **既存 perf-bench (`depthCompleted` ±10%) は本 PR では実測 deferred** (理由: ±10% 確認には PR 前後の 2 回計測が必要で、本セッション中に before 値の取得を実施できなかった。lookahead 概算コスト ~3000 evaluate / root は既存 findBestMove 深さ N=6 探索より安価のため許容範囲内の見込み、Vercel 実機での体感確認で最終判定)
+
+### 9.3 振る舞いキープ確認
+- **standard variant**: `evaluateCardDigest` の `variant.id !== "card-shogi"` ガード維持 + root 経路の variant 判定維持で影響ゼロ。テスト全 green で確認。
+- **card-shogi root TurnAction 選択**: 意図的振る舞い変更 (= 退化解消、calibration が実盤面でも効くようになる)。strategy-baseline.json card-shogi-midgame/endgame 80 entries は意図的振る舞い変更 = 親計画 md L675「PR3 で振る舞い変更を意図的に導入する場合」に整合、再生成は deferred (~50 分)。
+- **searchDoubleMoveSuperAction excludeTadasute=false**: 既存挙動完全互換 (= デフォルト値で旧コードと同じ)。
+
+### 9.4 後続 PR への引継ぎ
+- **PR3-4 (相手期待値モデル)**: 本 PR の `getOpponentResponseScore` は決定的 (opp 最善手 1 つを選択)。PR3-4 で opp 手札不完全情報を踏まえた期待値モデル化を検討。
+- **(性能最適化が必要なら) 別途**: lookahead での opp スキャン (~50 evaluate × 60 candidate ≒ 3000 evaluate / root) が `depthCompleted` 退化を実機で起こす場合、ordering 改善 / opp 候補絞り / TT 拡張等を別途検討。
