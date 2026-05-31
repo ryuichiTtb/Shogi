@@ -15,6 +15,7 @@ import { describe, it, expect } from "vitest";
 import {
   computeCardDigest,
   evaluateCardDigest,
+  updateCardDigest,
   type CardDigest,
 } from "../cards/digest";
 import {
@@ -401,4 +402,301 @@ describe("PR3-1 manaAbsolute + 死にマナペナルティ", () => {
       evaluateCardDigest(computeCardDigest(cs), STANDARD_VARIANT),
     ).toBe(0);
   });
+});
+
+describe("PR3-2 updateCardDigest (増分更新)", () => {
+  // cardState の deep clone (各テストで mutate するため)
+  function clone(cs: ReturnType<typeof createInitialCardState>) {
+    return {
+      mana: { sente: cs.mana.sente, gote: cs.mana.gote },
+      manaCap: cs.manaCap,
+      hand: {
+        sente: [...cs.hand.sente],
+        gote: [...cs.hand.gote],
+      },
+      deck: {
+        sente: [...cs.deck.sente],
+        gote: [...cs.deck.gote],
+      },
+      graveyard: {
+        sente: [...cs.graveyard.sente],
+        gote: [...cs.graveyard.gote],
+      },
+      trap: { sente: cs.trap.sente, gote: cs.trap.gote },
+      pendingCard: cs.pendingCard,
+      lastTurnStartedAt: {
+        sente: cs.lastTurnStartedAt.sente,
+        gote: cs.lastTurnStartedAt.gote,
+      },
+      noPromoteMarks: {
+        sente: [...cs.noPromoteMarks.sente],
+        gote: [...cs.noPromoteMarks.gote],
+      },
+      drawProgress: {
+        sente: cs.drawProgress.sente,
+        gote: cs.drawProgress.gote,
+      },
+    };
+  }
+
+  it("変化なし (deep equal な cardState) → digest 全フィールド prev と同値", () => {
+    const cs = createInitialCardState(SAMPLE_DECK);
+    const prev = computeCardDigest(cs);
+    const csNew = clone(cs);
+    const updated = updateCardDigest(prev, cs, csNew);
+    expect(updated).toEqual(prev);
+    // 変化なしフィールドはオブジェクトを参照流用 (再生成なし) で性能寄与
+    expect(updated.manaAbsolute).toBe(prev.manaAbsolute);
+    expect(updated.trapPresence).toBe(prev.trapPresence);
+  });
+
+  it("マナのみ変化 → manaDelta / manaAbsolute 更新、他は prev 流用", () => {
+    const cs = createInitialCardState(SAMPLE_DECK);
+    const prev = computeCardDigest(cs);
+    const csNew = clone(cs);
+    csNew.mana.sente = cs.mana.sente + 5;
+    const updated = updateCardDigest(prev, cs, csNew);
+    expect(updated.manaDelta).toBe(csNew.mana.sente - csNew.mana.gote);
+    expect(updated.manaAbsolute).toEqual({ sente: csNew.mana.sente, gote: cs.mana.gote });
+    // 他フィールドは prev と reference equality
+    expect(updated.trapPresence).toBe(prev.trapPresence);
+    expect(updated.handValueDelta).toBe(prev.handValueDelta);
+    expect(updated.drawProgressDelta).toBe(prev.drawProgressDelta);
+    expect(updated.noPromoteMarkCountDelta).toBe(prev.noPromoteMarkCountDelta);
+  });
+
+  it("手札増加 (draw 想定) → handValueDelta 更新、mana/trap は流用", () => {
+    const cs = createInitialCardState(SAMPLE_DECK);
+    const prev = computeCardDigest(cs);
+    const csNew = clone(cs);
+    const drawn = csNew.deck.sente.pop()!;
+    csNew.hand.sente.push(drawn);
+    const updated = updateCardDigest(prev, cs, csNew);
+    expect(updated.handValueDelta).toBeGreaterThan(prev.handValueDelta);
+    // mana / trap / drawProgress / marks は変化なし
+    expect(updated.manaAbsolute).toBe(prev.manaAbsolute);
+    expect(updated.trapPresence).toBe(prev.trapPresence);
+    expect(updated.drawProgressDelta).toBe(prev.drawProgressDelta);
+    expect(updated.noPromoteMarkCountDelta).toBe(prev.noPromoteMarkCountDelta);
+  });
+
+  it("トラップ設置 (gote: check_break) → trapPresence 更新", () => {
+    const cs = createInitialCardState(SAMPLE_DECK);
+    const prev = computeCardDigest(cs);
+    const csNew = clone(cs);
+    csNew.trap.gote = {
+      instanceId: "tg-1",
+      defId: "check_break",
+      owner: "gote",
+    };
+    const updated = updateCardDigest(prev, cs, csNew);
+    expect(updated.trapPresence).toEqual({ sente: null, gote: "check_break" });
+    // 他は流用
+    expect(updated.manaAbsolute).toBe(prev.manaAbsolute);
+    expect(updated.handValueDelta).toBe(prev.handValueDelta);
+  });
+
+  it("トラップ解除 (gote: check_break → null) → trapPresence 更新", () => {
+    const cs = createInitialCardState(SAMPLE_DECK);
+    cs.trap.gote = {
+      instanceId: "tg-1",
+      defId: "check_break",
+      owner: "gote",
+    };
+    const prev = computeCardDigest(cs);
+    const csNew = clone(cs);
+    csNew.trap.gote = null;
+    const updated = updateCardDigest(prev, cs, csNew);
+    expect(updated.trapPresence).toEqual({ sente: null, gote: null });
+  });
+
+  it("noPromote マーク追加 → noPromoteMarkCountDelta 更新", () => {
+    const cs = createInitialCardState(SAMPLE_DECK);
+    const prev = computeCardDigest(cs);
+    const csNew = clone(cs);
+    csNew.noPromoteMarks.sente.push({ row: 6, col: 0 });
+    csNew.noPromoteMarks.sente.push({ row: 6, col: 1 });
+    const updated = updateCardDigest(prev, cs, csNew);
+    expect(updated.noPromoteMarkCountDelta).toBe(2);
+  });
+
+  it("drawProgress 変化 → drawProgressDelta 更新、他流用", () => {
+    const cs = createInitialCardState(SAMPLE_DECK);
+    const prev = computeCardDigest(cs);
+    const csNew = clone(cs);
+    csNew.drawProgress.sente = 3;
+    csNew.drawProgress.gote = 1;
+    const updated = updateCardDigest(prev, cs, csNew);
+    expect(updated.drawProgressDelta).toBe(2);
+    expect(updated.manaAbsolute).toBe(prev.manaAbsolute);
+  });
+
+  it("複数フィールド同時変化 (playCard 想定: mana-2 + hand-1) も正しく更新", () => {
+    const cs = createInitialCardState(SAMPLE_DECK);
+    const prev = computeCardDigest(cs);
+    const csNew = clone(cs);
+    csNew.mana.sente = cs.mana.sente - 2;
+    csNew.hand.sente.pop(); // hand -1
+    const updated = updateCardDigest(prev, cs, csNew);
+    expect(updated.manaDelta).toBe(csNew.mana.sente - csNew.mana.gote);
+    expect(updated.manaAbsolute).toEqual({ sente: csNew.mana.sente, gote: cs.mana.gote });
+    expect(updated.handValueDelta).toBeLessThan(prev.handValueDelta);
+    // 変化なしフィールドは流用
+    expect(updated.trapPresence).toBe(prev.trapPresence);
+    expect(updated.drawProgressDelta).toBe(prev.drawProgressDelta);
+  });
+
+  it("manaCap は常に prev 流用 (現状静的 MANA_CAP=20 固定)", () => {
+    const cs = createInitialCardState(SAMPLE_DECK);
+    const prev = computeCardDigest(cs);
+    const csNew = clone(cs);
+    csNew.mana.sente += 5; // 別フィールド変化
+    const updated = updateCardDigest(prev, cs, csNew);
+    expect(updated.manaCap).toBe(prev.manaCap);
+  });
+});
+
+describe("PR3-2 updateCardDigest 等価性 fixture (= computeCardDigest と byte-level 一致)", () => {
+  // cardState の deep clone (再利用)
+  function clone(cs: ReturnType<typeof createInitialCardState>) {
+    return {
+      mana: { sente: cs.mana.sente, gote: cs.mana.gote },
+      manaCap: cs.manaCap,
+      hand: {
+        sente: [...cs.hand.sente],
+        gote: [...cs.hand.gote],
+      },
+      deck: {
+        sente: [...cs.deck.sente],
+        gote: [...cs.deck.gote],
+      },
+      graveyard: {
+        sente: [...cs.graveyard.sente],
+        gote: [...cs.graveyard.gote],
+      },
+      trap: { sente: cs.trap.sente, gote: cs.trap.gote },
+      pendingCard: cs.pendingCard,
+      lastTurnStartedAt: {
+        sente: cs.lastTurnStartedAt.sente,
+        gote: cs.lastTurnStartedAt.gote,
+      },
+      noPromoteMarks: {
+        sente: [...cs.noPromoteMarks.sente],
+        gote: [...cs.noPromoteMarks.gote],
+      },
+      drawProgress: {
+        sente: cs.drawProgress.sente,
+        gote: cs.drawProgress.gote,
+      },
+    };
+  }
+
+  // 各遷移シナリオ: (label, mutate) で prev → new を生成し、
+  // updateCardDigest(computeCardDigest(prev), prev, new) === computeCardDigest(new)
+  // を全フィールドで toEqual 検証する。
+  const scenarios: {
+    label: string;
+    mutate: (cs: ReturnType<typeof clone>) => void;
+  }[] = [
+    {
+      label: "no-op (deep clone のみ)",
+      mutate: () => {},
+    },
+    {
+      label: "draw 想定 (mana-2 + hand+1 + drawProgress reset)",
+      mutate: (cs) => {
+        cs.mana.sente -= 2;
+        cs.hand.sente.push(cs.deck.sente.pop()!);
+        cs.drawProgress.sente = 0;
+      },
+    },
+    {
+      label: "playCard 想定 (mana-2 + hand-1)",
+      mutate: (cs) => {
+        cs.mana.gote -= 2;
+        cs.hand.gote.pop();
+      },
+    },
+    {
+      label: "トラップ設置 (sente: no_promote)",
+      mutate: (cs) => {
+        cs.mana.sente -= 3;
+        cs.hand.sente.pop();
+        cs.trap.sente = {
+          instanceId: "ts-1",
+          defId: "no_promote",
+          owner: "sente",
+        };
+      },
+    },
+    {
+      label: "トラップ発動 (gote: check_break → null + 持ち駒化は別フィールドで未反映)",
+      mutate: (cs) => {
+        cs.trap.gote = null;
+      },
+    },
+    {
+      label: "no_promote マーク追加 (両者)",
+      mutate: (cs) => {
+        cs.noPromoteMarks.sente.push({ row: 6, col: 0 });
+        cs.noPromoteMarks.gote.push({ row: 2, col: 8 });
+        cs.noPromoteMarks.gote.push({ row: 2, col: 7 });
+      },
+    },
+    {
+      label: "マナ上限到達 (両者 MANA_CAP)",
+      mutate: (cs) => {
+        cs.mana.sente = MANA_CAP;
+        cs.mana.gote = MANA_CAP;
+      },
+    },
+    {
+      label: "drawProgress 増加 (両者)",
+      mutate: (cs) => {
+        cs.drawProgress.sente = 4;
+        cs.drawProgress.gote = 2;
+      },
+    },
+    {
+      label: "複合: mana 変化 + hand 変化 + trap 設置 + マーク追加",
+      mutate: (cs) => {
+        cs.mana.sente -= 4;
+        cs.mana.gote += 2;
+        cs.hand.sente.push(cs.deck.sente.pop()!);
+        cs.hand.gote.pop();
+        cs.trap.sente = {
+          instanceId: "ts-x",
+          defId: "check_break",
+          owner: "sente",
+        };
+        cs.noPromoteMarks.gote.push({ row: 3, col: 4 });
+      },
+    },
+  ];
+
+  for (const sc of scenarios) {
+    it(`等価性: ${sc.label}`, () => {
+      // prev = ある程度成熟した cardState (初期 + 既存トラップ + マークあり) で出発し、
+      // sc.mutate で更にバリエーション。エッジを広く突くため。
+      const prev = createInitialCardState(SAMPLE_DECK);
+      prev.trap.gote = {
+        instanceId: "tg-base",
+        defId: "check_break",
+        owner: "gote",
+      };
+      prev.noPromoteMarks.sente.push({ row: 6, col: 4 });
+
+      const next = clone(prev);
+      sc.mutate(next);
+
+      const prevDigest = computeCardDigest(prev);
+      const updated = updateCardDigest(prevDigest, prev, next);
+      const recomputed = computeCardDigest(next);
+
+      // byte-level 一致 (各フィールドが厳密に同値)
+      expect(updated).toEqual(recomputed);
+      // 浮動小数点 (handValueDelta) も含めて完全一致を確認
+      expect(updated.handValueDelta).toBe(recomputed.handValueDelta);
+    });
+  }
 });
