@@ -700,3 +700,69 @@ describe("PR3-2 updateCardDigest 等価性 fixture (= computeCardDigest と byte
     });
   }
 });
+
+// PR3-3 C-8 (F-5 解消): evaluateCardDigest 数値固定 assert
+// レビュー指摘: 既存テスト (L141-148) は expected を `(5-(-5)) * MANA_DELTA_COEFFICIENT` のように
+// 実装定数で組み立てており、定数を変えても自動追従して regression を見逃す。
+// 本セクションでは特定 input で実値を hard-code し、定数変更時に意図的に更新する運用に。
+describe("PR3-3 C-8 evaluateCardDigest 数値固定 (F-5 解消)", () => {
+  it("数値固定: 純粋 manaDelta のみ (sente +3 manaDelta、他全 0) → 30 cp", () => {
+    // MANA_DELTA_COEFFICIENT=10 が変われば fail する
+    const d: CardDigest = {
+      manaDelta: 3,
+      manaCap: MANA_CAP,
+      handValueDelta: 0,
+      drawProgressDelta: 0,
+      trapPresence: { sente: null, gote: null },
+      noPromoteMarkCountDelta: 0,
+      manaAbsolute: { sente: 10, gote: 7 }, // 両者しきい値以下で dead mana penalty=0
+    };
+    expect(evaluateCardDigest(d, CARD_SHOGI_VARIANT)).toBe(30);
+  });
+
+  it("数値固定: 純粋 trapPresence sente=check_break (他全 0) → +80 cp", () => {
+    // TRAP_VALUE_CHECK_BREAK=80 が変われば fail
+    const d: CardDigest = {
+      manaDelta: 0,
+      manaCap: MANA_CAP,
+      handValueDelta: 0,
+      drawProgressDelta: 0,
+      trapPresence: { sente: "check_break", gote: null },
+      noPromoteMarkCountDelta: 0,
+      manaAbsolute: { sente: 10, gote: 10 },
+    };
+    expect(evaluateCardDigest(d, CARD_SHOGI_VARIANT)).toBe(80);
+  });
+
+  it("数値固定: 純粋 dead mana sente=20 (上限) → sente 過剰 4 で -4*4 = -16 cp", () => {
+    // DEAD_MANA_THRESHOLD=16, DEAD_MANA_PENALTY_COEF=4 が変われば fail
+    const d: CardDigest = {
+      manaDelta: 0, // manaDelta は 0 にして dead mana 効果のみ抽出
+      manaCap: MANA_CAP,
+      handValueDelta: 0,
+      drawProgressDelta: 0,
+      trapPresence: { sente: null, gote: null },
+      noPromoteMarkCountDelta: 0,
+      manaAbsolute: { sente: 20, gote: 16 }, // sente overflow=4, gote overflow=0
+    };
+    // (gote 0 - sente 4) * 4 = -16
+    expect(evaluateCardDigest(d, CARD_SHOGI_VARIANT)).toBe(-16);
+  });
+
+  it("相対: manaDelta が増えれば evaluate も単調増加 (MANA_DELTA_COEFFICIENT > 0 の確認)", () => {
+    const base: CardDigest = {
+      manaDelta: 0,
+      manaCap: MANA_CAP,
+      handValueDelta: 0,
+      drawProgressDelta: 0,
+      trapPresence: { sente: null, gote: null },
+      noPromoteMarkCountDelta: 0,
+      manaAbsolute: { sente: 10, gote: 10 },
+    };
+    const v0 = evaluateCardDigest(base, CARD_SHOGI_VARIANT);
+    const v3 = evaluateCardDigest({ ...base, manaDelta: 3 }, CARD_SHOGI_VARIANT);
+    const v5 = evaluateCardDigest({ ...base, manaDelta: 5 }, CARD_SHOGI_VARIANT);
+    expect(v3).toBeGreaterThan(v0);
+    expect(v5).toBeGreaterThan(v3);
+  });
+});

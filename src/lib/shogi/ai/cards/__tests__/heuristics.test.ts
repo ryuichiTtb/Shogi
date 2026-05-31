@@ -161,3 +161,93 @@ describe("getDrawValue (PR3-1 C-2 動的ドロー価値)", () => {
     expect(Number.isFinite(v)).toBe(true);
   });
 });
+
+// PR3-3 C-8 (F-5 解消): 数値固定 / 相対 assert で calibration 定数変更を検出可能化
+//
+// レビュー指摘: 既存テストは expected を実装式そのまま組み立てる (e.g.,
+// `BASE + surplus*COEF + ...`) ため、定数を変えても expected が追従して常に緑となり
+// regression を検出できない。本セクションでは:
+// - 数値固定 assert: 特定 input で実値を hard-code (constant が動けば fail)
+// - 相対 assert: f(x) > f(y) 等の単調性で「設計意図 (= 因果方向)」を担保
+//
+// 仮値変更時は数値固定 assert の値を意図的に更新する運用 (= 校正コミットでテスト数値も
+// 同時更新、レビュー時に両方の整合性を確認可能)。
+describe("PR3-3 C-8 getDrawValue 数値固定 / 相対 assert (F-5 解消)", () => {
+  function makeState(moveCount: number): GameState {
+    return { ...createInitialGameState(CARD_SHOGI_VARIANT), moveCount };
+  }
+
+  function makeCS(opts: { handSize: number; mana: number; goteMana?: number }): CardGameState {
+    const mkHand = (n: number): CardInstance[] =>
+      Array.from({ length: n }, (_, i) => ({
+        instanceId: `t-${i}`,
+        defId: "pawn_return",
+      }));
+    return {
+      mana: { sente: opts.mana, gote: opts.goteMana ?? opts.mana },
+      manaCap: 20,
+      hand: { sente: mkHand(opts.handSize), gote: [] },
+      deck: { sente: [], gote: [] },
+      graveyard: { sente: [], gote: [] },
+      trap: { sente: null, gote: null },
+      pendingCard: null,
+      lastTurnStartedAt: { sente: null, gote: null },
+      noPromoteMarks: { sente: [], gote: [] },
+      drawProgress: { sente: 0, gote: 0 },
+    };
+  }
+
+  // 数値固定: 現行定数 (BASE=20, MANA_SURPLUS_COEF=3, PHASE_MID_BONUS=15,
+  //   HAND_PENALTY_PER_CARD=8, MANA_SURPLUS_THRESHOLD=8, HAND_THRESHOLD=4) における実値。
+  // 定数が変われば fail する → calibration regression を機械検出。
+  it("数値固定: mana=19, hand=3, phase=mid → 20 + (19-8)*3 + 15 - 0 = 68", () => {
+    const v = getDrawValue(
+      makeState(50), // phase=1 (mid)
+      "sente",
+      makeCS({ handSize: 3, mana: 19 }),
+    );
+    expect(v).toBe(68);
+  });
+
+  it("数値固定: mana=20 (cap), hand=5, phase=end → 20 + (20-8)*3 + 5 - (5-4)*8 = 53", () => {
+    const v = getDrawValue(
+      makeState(120), // phase=2 (end)
+      "sente",
+      makeCS({ handSize: 5, mana: 20 }),
+    );
+    expect(v).toBe(53);
+  });
+
+  it("数値固定: mana=2, hand=0, phase=opening → BASE のみ = 20", () => {
+    const v = getDrawValue(
+      makeState(0), // phase=0
+      "sente",
+      makeCS({ handSize: 0, mana: 2 }),
+    );
+    expect(v).toBe(20);
+  });
+
+  // 相対: 単調性で因果方向を担保 (定数値が変わっても方向性は保たれるべき)
+  it("相対: 同条件下では mana が多いほど getDrawValue は単調増加 (manaBonus の符号)", () => {
+    const state = makeState(50);
+    const v15 = getDrawValue(state, "sente", makeCS({ handSize: 2, mana: 15 }));
+    const v19 = getDrawValue(state, "sente", makeCS({ handSize: 2, mana: 19 }));
+    expect(v19).toBeGreaterThan(v15);
+  });
+
+  it("相対: 同条件下では hand が多いほど getDrawValue は単調減少 (handPenalty の符号)", () => {
+    const state = makeState(50);
+    const v4 = getDrawValue(state, "sente", makeCS({ handSize: 4, mana: 10 }));
+    const v7 = getDrawValue(state, "sente", makeCS({ handSize: 7, mana: 10 }));
+    expect(v7).toBeLessThan(v4);
+  });
+
+  it("相対: 同条件下で phase 進行 (序盤→中盤→終盤) で getDrawValue は midgame が最大", () => {
+    const open = getDrawValue(makeState(0), "sente", makeCS({ handSize: 2, mana: 10 }));
+    const mid = getDrawValue(makeState(50), "sente", makeCS({ handSize: 2, mana: 10 }));
+    const end = getDrawValue(makeState(120), "sente", makeCS({ handSize: 2, mana: 10 }));
+    // 設計: 中盤 = +15 (最大)、終盤 = +5、序盤 = 0
+    expect(mid).toBeGreaterThan(end);
+    expect(end).toBeGreaterThan(open);
+  });
+});
