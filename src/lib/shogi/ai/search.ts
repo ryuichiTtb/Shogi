@@ -9,7 +9,7 @@ import { evaluate, scoreMoveForOrdering } from "./evaluate";
 import { cardResultIntroducesTadasute } from "./blunder-guard";
 import { simulateCardEffect } from "../cards/effects";
 import {
-  DRAW_VALUE_BONUS,
+  getDrawValue,
   DOUBLE_MOVE_TOP_K,
   TRAP_VALUE_NO_PROMOTE,
   TRAP_VALUE_CHECK_BREAK,
@@ -724,7 +724,8 @@ export function findBestMove(
 // 評価方針:
 // - move: applyMoveForSearch 後の局面で evaluate (= 既存 root 評価と同じ depth=0 評価)
 // - draw: 局面は変わらず、cardDigest も root スカラー固定のため evaluate 値は同じ。
-//   ドローを促進するため DRAW_VALUE_BONUS を加算 (heuristics.ts の名前付き定数)
+//   ドローを促進するため getDrawValue(state, player, cardState) を加算 (PR3-1: 旧 DRAW_VALUE_BONUS=30
+//   固定を動的化、手札枚数/マナ余剰/局面段階に応じて算出。退化原因 ① 解消)
 // - playCard (通常カード): simulateCardEffect で仮想 GameState 遷移後の局面で evaluate。
 //   simulateCardEffect が null を返す target なしカード (mana_up 等) は
 //   Number.NEGATIVE_INFINITY を返して候補から除外
@@ -757,7 +758,7 @@ export function evaluateAction(
     case "draw": {
       const raw = evaluate(state.gameState, variant, cardDigest);
       const signed = player === "sente" ? raw : -raw;
-      return signed + DRAW_VALUE_BONUS;
+      return signed + getDrawValue(state.gameState, player, state.cardState);
     }
     case "playCard": {
       // PR1d-3 (判断 1 = 案 B): double_move は super-action 内部探索で 2 手指しの
@@ -768,7 +769,7 @@ export function evaluateAction(
       }
       // PR1d-4: トラップ系 (no_promote / check_break) は targeting:none で盤面不変
       // (simulateCardEffect は null)。カード使用で自盤面にトラップがセットされる
-      // 増分価値を現局面評価 (player 視点) に加算 (= draw の DRAW_VALUE_BONUS と同型)。
+      // 増分価値を現局面評価 (player 視点) に加算 (= draw の getDrawValue 加算と同型)。
       // 「いつ使うべきか」(序盤 / king safety) の精度は固定価値の近似で代替し、
       // heuristics.ts の TRAP_VALUE_* を bench で調整 (計画 md L1267 警告に対応)。
       if (action.defId === "no_promote" || action.defId === "check_break") {
