@@ -279,3 +279,57 @@ PR3-3a の lookahead で action 適用後の `cardDigest` 更新が必要 (playC
 ### 9.4 後続 PR への引継ぎ
 - **PR3-4 (相手期待値モデル)**: 本 PR の `getOpponentResponseScore` は決定的 (opp 最善手 1 つを選択)。PR3-4 で opp 手札不完全情報を踏まえた期待値モデル化を検討。
 - **(性能最適化が必要なら) 別途**: lookahead での opp スキャン (~50 evaluate × 60 candidate ≒ 3000 evaluate / root) が `depthCompleted` 退化を実機で起こす場合、ordering 改善 / opp 候補絞り / TT 拡張等を別途検討。
+
+## 10. レビュー反映 (C-6〜C-9 追加) — F-1〜F-10 対応
+
+PR3-3 初版 (C-1〜C-5) の push 後、PR3-1/PR3-2 マージ後レビュー
+[`docs/reviews/issue-193-pr3-1-pr3-2-review.md`](../reviews/issue-193-pr3-1-pr3-2-review.md) で
+重大指摘 (F-1, F-2) と中軽指摘 (F-3〜F-10) を受領。本 PR3-3 を「PR3-1/PR3-2 の
+本質的修正 + 言行不一致の正直化」として拡張し、F-1〜F-10 すべてを本 PR で対応する。
+
+### 10.1 重大指摘への対応
+
+| # | レビュー指摘 | 対応 | commit |
+|---|---|---|---|
+| **F-1** | **C-3 (死にマナ) / C-4 (handValue) は root スカラー digest が argmax で打ち消されアクション選択に inert (= PR3-1 単体では効いていない)** | **C-6 で `evaluateActionWithLookahead` に `updateCardDigest` を per-action wiring**。新規 helper `applyActionForLookahead` で各 action 種別の (gameState, cardState) 遷移を計算 → `updateCardDigest(prev, prevCS, newCS)` で per-action digest 生成 → opp scan / 最終 eval に伝播。C-3/C-4 が実際にアクション選択へ効くようになり F-1 解消 | `cd000e8` |
+| **F-2** | **DoD bench が calibration を全く検証できない (全シナリオで pawn_return 一択 = 校正の有無に関わらず常に pass)** | **C-7 で bench を calibration discriminator として強化**: 旧 4 シナリオ (pawn_return ハンド) を維持しつつ、新 3 シナリオ (e〜g、手札を空 or trap のみに絞り calibration が選択を決定) を追加。期待 action 種別を per-scenario の `expected` フィールドで宣言し、beginner で厳密 assert (深さ探索の影響が小さい)。advanced/expert は log のみで深さ探索による構造的制約を観測可能化 | `93afc44` |
+
+### 10.2 中軽指摘への対応
+
+| # | レビュー指摘 | 対応 | commit |
+|---|---|---|---|
+| F-3 | `HAND_VALUE_DECAY` 数値が約 2 倍誤り (実は DECAY=5.0 で 3 枚→45% 9.02 cp、コメントは「91% 18.2 cp」と誤計算) | `heuristics.ts` コメント + 計画 md §1.2③/§4.3 を実値+限界価値表に訂正 | `0c9ff00` |
+| F-4 | C-3/C-4 のコメント・コミットメッセージで「解消」と即時効果を主張、updateCardDigest と整合性なし | `digest.ts` の死にマナ加算箇所 + `heuristics.ts` DEAD_MANA 定数群コメントで「PR3-1 単体では inert、PR3-3 C-6 wiring 後に発現」を honest に明記 | `0c9ff00` |
+| F-5 | テストが実装式追従で calibration 定数変更を検出できない | `heuristics.test.ts` に数値固定 3 件 + 相対 3 件、`card-digest.test.ts` に数値固定 3 件 + 相対 1 件追加。仮値変更時はテスト数値も意図的に更新する運用 | `7f2d34b` |
+| F-6 | `_state` 接頭辞 (未使用慣例) が実は使用していて誤解 | `getDrawValue(_state, ...)` → `getDrawValue(state, ...)` リネーム | `0c9ff00` |
+| F-7 | `manaCap` 動的化時の拡張方法が不明 | `digest.ts updateCardDigest` JSDoc に拡張手順 (条件チェック+値更新+関連項追加) を箇条書きで追記 | `0c9ff00` |
+| F-8 | `DRAW_MANA_SURPLUS_THRESHOLD=8` 〜 `DEAD_MANA_THRESHOLD=16` の中間帯の意図が無説明 | 「マナ 8〜16 はベースライン帯 (ボーナス/ペナルティ無し)」と明記 | `0c9ff00` |
+| F-9 | phase 閾値 40/100 が実対局未検証の仮値 | 「実対局統計で要校正、bench fixture / 実プレイログから ply ヒストグラムで再校正手順」を追記 | `0c9ff00` |
+| F-10 | trap 比較が `defId` のみで `instanceId` 無視な設計意図コメントが hand 比較 (明示あり) と非対称 | trapChanged 判定箇所に「defId のみ依存、同 defId のトラップは同等価値」設計意図コメント追記 | `0c9ff00` |
+
+### 10.3 C-6〜C-9 commit 一覧 (PR3-3 拡張部分)
+
+| commit | 内容 |
+|---|---|
+| C-6 `cd000e8` | `evaluateActionWithLookahead` に `updateCardDigest` を per-action wiring (F-1 解消)。`applyActionForLookahead` helper 新規、trap 明示加算削除 (digest 経由に統一)、テスト 1 件更新 (cost 差が score に反映される新仕様に追従) |
+| C-7 `93afc44` | card-usage bench を calibration discriminator として強化 (F-2 解消)。calib シナリオ 3 件追加、beginner で per-scenario expected assert、advanced/expert は log |
+| C-8 `7f2d34b` | 数値固定/相対 assert 追加 (F-5 解消)。heuristics 6 件 + card-digest 4 件 |
+| C-9 `0c9ff00` | F-3/F-4/F-6/F-7/F-8/F-9/F-10 のコメント修正 (主に honesty + 設計意図明示) |
+| C-10 (本) | 本 10 章追記 + memory roadmap 更新 |
+
+### 10.4 検証結果
+
+- `npm run lint`: 0 errors (21 既存 warning、変更ファイルに該当なし)
+- `npm run typecheck`: クリーン
+- `npm run test:ci`: **509 passed / 9 skipped** (499 → 509、+10 件 = C-8 数値固定+相対 assert)
+- `RUN_PERF_BENCH=true card-usage bench`:
+  - **beginner**: rate=100% (7/7)、calib 3/3 期待通り選択 (DoD-B pass)
+  - **advanced**: rate=57% (4/7)、calib 0/3 (深さ探索が move を後押し、構造的制約を log で観測)
+  - **expert**: 同上
+- `npm run build`: 成功
+
+### 10.5 残課題 (Vercel 実機検証で最終判定)
+
+- **実プレイ midgame での AI カード使用率向上**: isolation シナリオでは beginner で 100% / advanced/expert でも trap 等で発現を確認 (一部 move 採用残)。実盤面では深さ探索と calibration の競合が動的に決まるため Vercel 実機で観察。
+- **`depthCompleted` ±10% 退化なし**: lookahead 追加コスト想定 ~3000 evaluate / root は既存 findBestMove (深さ N=6) より安価で許容範囲内見込み、Vercel 体感で最終判定。
+- **`strategy-baseline` 再生成**: ~50 分タスク、CI 外、deferred (PR3-1 と同様、ユーザー/オフライン作業で実施)。
