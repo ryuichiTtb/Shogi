@@ -870,22 +870,28 @@ describe("applyCheckBreak", () => {
     expect(state.hand.sente.pawn).toBeUndefined();
   });
 
-  it("ディスカバードチェック (ブロッカー除去で別の駒が王手露出) も反復で解消", () => {
+  it("開き王手 (ブロッカー除去で裏の駒が露出) → 直接の王手駒のみ回収し露出駒は対象外 (#229)", () => {
     const state = makeState();
     placeKing(state, "sente", { row: 4, col: 4 });
     placeKing(state, "gote", { row: 0, col: 0 });
-    // gote 飛車 (列 4 縦に通せるが gote 自分の歩で遮蔽されている)
+    // gote 飛車 (列 4 縦に通せるが gote 自分の歩で遮蔽されており、この時点では王手していない)
     place(state, { row: 0, col: 4 }, { type: "rook", owner: "gote" });
-    // gote 歩 (sente 玉の真上 = 王手駒)。これを除去すると後ろの飛車が露出して王手継続。
+    // gote 歩 (sente 玉の真上 = 直接の王手駒)。これが唯一の王手駒。
     place(state, { row: 3, col: 4 }, { type: "pawn", owner: "gote" });
     const result = applyCheckBreak(state, "sente");
     expect(result).not.toBeNull();
-    // 反復で歩 + 飛車 の 2 枚が回収される
-    expect(result!.capturedPieces).toHaveLength(2);
+    // 直接王手していた歩のみ回収。除去で露出するだけの飛車は対象外。
+    expect(result!.capturedPieces).toEqual([
+      { row: 3, col: 4, pieceType: "pawn", originalPieceType: "pawn", originalOwner: "gote" },
+    ]);
     expect(result!.gameState.hand.sente.pawn).toBe(1);
-    expect(result!.gameState.hand.sente.rook).toBe(1);
-    // 王手解除
-    expect(isInCheck(result!.gameState, "sente", CARD_SHOGI_VARIANT)).toBe(false);
+    expect(result!.gameState.hand.sente.rook).toBeUndefined();
+    // 歩は除去、飛車は盤上に残る
+    expect(result!.gameState.board[3][4]).toBeNull();
+    expect(result!.gameState.board[0][4]).toEqual({ type: "rook", owner: "gote" });
+    // 露出した飛車が玉に王手し続ける局面は正当な盤面として許容する
+    // (トラップ所有者は自分の手番で対処する)
+    expect(isInCheck(result!.gameState, "sente", CARD_SHOGI_VARIANT)).toBe(true);
   });
 });
 
