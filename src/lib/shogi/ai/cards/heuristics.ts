@@ -1,10 +1,14 @@
 // Issue #193 / PR1d-1: cardDigest 評価関連の名前付き定数集約 (マジックナンバー禁止)。
 //
 // 親計画 md L411-413 / PR1d 計画 md L460-470 参照。
+// PR3-1 (本コミット) で動的ドロー価値・死にマナペナルティ・phase 判定の定数群を追加
+// (計画 md docs/plans/issue-193-pr3-1-card-calibration.md 4.1〜4.3 章)。
 //
 // 注: SPECTATOR_TIME_LIMIT_MS / SPECTATOR_MAX_MOVES / SPECTATOR_MAX_CARD_OPS_PER_TURN
 // 等の観戦モード関連定数は既存の src/lib/shogi/ai/strategy 配下で管理 (PR1a で導入済)。
 // 重複 export を避けるため本ファイルには再定義しない (将来 refactor PR で集約検討)。
+
+import type { GameState } from "../../types";
 
 // ドロー判定 (PR1d-1):
 //   ・MIN_MANA_RESERVE: ドロー判定で「手動ドロー使用後もマナ余裕を保つ」しきい値 (マナ単位)
@@ -70,3 +74,43 @@ export const NO_PROMOTE_MARK_COEFFICIENT = 30;
 export const EARLY_GAME_THRESHOLD = 40;
 export const MIN_MANA_RESERVE_FOR_TRAP = 6;
 export const CHECK_BREAK_TRIGGER_THRESHOLD = -200;
+
+// ===== PR3-1: 局面段階判定 + 動的ドロー価値 + 死にマナペナルティ =====
+//
+// 計画 md docs/plans/issue-193-pr3-1-card-calibration.md (4.1〜4.3 章)。
+// 本コミット (C-1) では定数定義と phase 判定ヘルパのみ追加し、既存挙動は変更しない
+// (C-2 でドロー経路、C-3 で死にマナ項を実際に呼び出す)。
+
+// computePhaseStage: GameState.moveCount (両者合計 ply) で序盤(0)/中盤(1)/終盤(2) を判定。
+// 既存 EARLY_GAME_THRESHOLD=40 を 0→1 境界に流用 (no_promote 序盤判定と共通閾値で
+// 意味も整合)。ENDGAME_THRESHOLD=100 は仮値で bench 校正可能。
+export const ENDGAME_THRESHOLD = 100;
+
+export function computePhaseStage(state: GameState): 0 | 1 | 2 {
+  const ply = state.moveCount;
+  if (ply < EARLY_GAME_THRESHOLD) return 0;
+  if (ply < ENDGAME_THRESHOLD) return 1;
+  return 2;
+}
+
+// 動的ドロー価値 (C-2 で getDrawValue から参照):
+//   getDrawValue(state, player, cardState)
+//     = DRAW_VALUE_BASE
+//     + max(0, mana - DRAW_MANA_SURPLUS_THRESHOLD) * DRAW_MANA_SURPLUS_COEF (死にマナ回収)
+//     + (phase === 1 ? DRAW_PHASE_MID_BONUS : phase === 2 ? DRAW_PHASE_END_BONUS : 0)
+//     - max(0, handSize - DRAW_HAND_THRESHOLD) * DRAW_HAND_PENALTY_PER_CARD
+//   退化原因 ① (固定 DRAW_VALUE_BONUS=30) を解消。各仮値は bench で再校正。
+export const DRAW_VALUE_BASE = 20;
+export const DRAW_HAND_THRESHOLD = 4;
+export const DRAW_HAND_PENALTY_PER_CARD = 8;
+export const DRAW_MANA_SURPLUS_THRESHOLD = 8;
+export const DRAW_MANA_SURPLUS_COEF = 3;
+export const DRAW_PHASE_MID_BONUS = 15;
+export const DRAW_PHASE_END_BONUS = 5;
+
+// 死にマナペナルティ (C-3 で evaluateDeadManaPenalty から参照):
+//   evaluateCardDigest に絶対マナ上限近接ペナルティ項を追加 (sente 絶対視点)。
+//   DEAD_MANA_THRESHOLD=16 (MANA_CAP=20 の 80%) を超えた分に DEAD_MANA_PENALTY_COEF=4 cp/マナ。
+//   退化原因 ④ (マナ上限で manaDelta 価値消失) を解消。
+export const DEAD_MANA_THRESHOLD = 16;
+export const DEAD_MANA_PENALTY_COEF = 4;
