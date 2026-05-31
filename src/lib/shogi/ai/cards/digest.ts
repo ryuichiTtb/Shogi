@@ -146,3 +146,76 @@ function evaluateDeadManaPenalty(digest: CardDigest): number {
   const goteOverflow = Math.max(0, digest.manaAbsolute.gote - DEAD_MANA_THRESHOLD);
   return (goteOverflow - senteOverflow) * DEAD_MANA_PENALTY_COEF;
 }
+
+/**
+ * PR3-2: cardDigest の増分更新 API。
+ *
+ * 既存 digest (= prevCardState から computeCardDigest で生成済) を基に、新 cardState への
+ * 遷移で**変化があったフィールドのみ再計算**して新 digest を返す。変化がないフィールドは
+ * prev の値をそのまま流用 (オブジェクトも参照流用、=== 比較成立)。
+ *
+ * 目的 (PR3-3 の前提整備):
+ * - PR3-3 で深さ N の子ノードがカード/ドロー候補を取るとき、毎ノードで
+ *   computeCardDigest (= 2× Math.exp() 呼び出しを含む全再計算) を回すのを避ける。
+ * - 比較は length / 数値 === / null チェックのみで O(1)、変化がないフィールドは
+ *   exp() 呼び出しもスキップ。
+ *
+ * 振る舞いキープ (本 PR スコープ):
+ * - 本関数は新規追加のみで production コードからは未呼び出し。PR3-3 で wiring。
+ * - 等価性: updateCardDigest(computeCardDigest(prev), prev, new) は computeCardDigest(new) と
+ *   完全に同じ値を返す (本ファイル隣接の `card-digest.test.ts` 等価性 fixture で保証)。
+ *
+ * 注意 (W-2 sente 絶対視点維持):
+ * - 全フィールドの符号方針は computeCardDigest と同一 (sente が有利なら正)。
+ * - prev に含まれる manaCap は静的値のため常に流用 (将来動的化したら本関数も拡張要)。
+ */
+export function updateCardDigest(
+  prev: CardDigest,
+  prevCardState: CardGameState,
+  newCardState: CardGameState,
+): CardDigest {
+  const manaChanged =
+    prevCardState.mana.sente !== newCardState.mana.sente ||
+    prevCardState.mana.gote !== newCardState.mana.gote;
+  const handChanged =
+    prevCardState.hand.sente.length !== newCardState.hand.sente.length ||
+    prevCardState.hand.gote.length !== newCardState.hand.gote.length;
+  const drawChanged =
+    prevCardState.drawProgress.sente !== newCardState.drawProgress.sente ||
+    prevCardState.drawProgress.gote !== newCardState.drawProgress.gote;
+  const senteTrapDefId = newCardState.trap.sente?.defId ?? null;
+  const goteTrapDefId = newCardState.trap.gote?.defId ?? null;
+  const trapChanged =
+    senteTrapDefId !== prev.trapPresence.sente ||
+    goteTrapDefId !== prev.trapPresence.gote;
+  const marksChanged =
+    prevCardState.noPromoteMarks.sente.length !==
+      newCardState.noPromoteMarks.sente.length ||
+    prevCardState.noPromoteMarks.gote.length !==
+      newCardState.noPromoteMarks.gote.length;
+
+  return {
+    manaDelta: manaChanged
+      ? newCardState.mana.sente - newCardState.mana.gote
+      : prev.manaDelta,
+    // manaCap は現状 MANA_CAP 固定 (将来動的化想定で枠は維持、本関数も常に prev 流用)。
+    manaCap: prev.manaCap,
+    manaAbsolute: manaChanged
+      ? { sente: newCardState.mana.sente, gote: newCardState.mana.gote }
+      : prev.manaAbsolute,
+    handValueDelta: handChanged
+      ? computeHandValue(newCardState.hand.sente.length) -
+        computeHandValue(newCardState.hand.gote.length)
+      : prev.handValueDelta,
+    drawProgressDelta: drawChanged
+      ? newCardState.drawProgress.sente - newCardState.drawProgress.gote
+      : prev.drawProgressDelta,
+    trapPresence: trapChanged
+      ? { sente: senteTrapDefId, gote: goteTrapDefId }
+      : prev.trapPresence,
+    noPromoteMarkCountDelta: marksChanged
+      ? newCardState.noPromoteMarks.sente.length -
+        newCardState.noPromoteMarks.gote.length
+      : prev.noPromoteMarkCountDelta,
+  };
+}
