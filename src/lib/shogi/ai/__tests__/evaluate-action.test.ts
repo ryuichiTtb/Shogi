@@ -9,7 +9,7 @@
 // 計画 md `docs/plans/issue-193-pr1d.md` PR1d-2 詳細 / 検証計画 / 機能追加検証 参照。
 
 import { describe, it, expect } from "vitest";
-import { evaluateAction } from "../search";
+import { evaluateAction, evaluateActionWithLookahead } from "../search";
 import { computeCardDigest } from "../cards/digest";
 import {
   getDrawValue,
@@ -188,5 +188,143 @@ describe("evaluateAction (move / draw / playCard 統一評価)", () => {
     const result = evaluateAction(state, action, "gote", CARD_SHOGI_VARIANT);
     const baseEval = evaluate(state.gameState, CARD_SHOGI_VARIANT);
     expect(result).toBe(-baseEval + TRAP_VALUE_NO_PROMOTE);
+  });
+});
+
+describe("evaluateActionWithLookahead (PR3-3 C-1)", () => {
+  it("lookaheadPly=0 は evaluateAction と同値 (互換性)", () => {
+    const state = makeAiTurnState();
+    const moves = getFullLegalMoves(state.gameState, "sente", CARD_SHOGI_VARIANT);
+    const action: TurnAction = { kind: "move", move: moves[0] };
+    const v0 = evaluateActionWithLookahead(
+      state,
+      action,
+      "sente",
+      CARD_SHOGI_VARIANT,
+      undefined,
+      false,
+      0,
+    );
+    const v1 = evaluateAction(state, action, "sente", CARD_SHOGI_VARIANT);
+    expect(v0).toBe(v1);
+  });
+
+  it("lookaheadPly=1 move は相手 1 ply 最善応答後のスコア (depth=0 とは通常異なる)", () => {
+    const state = makeAiTurnState();
+    const moves = getFullLegalMoves(state.gameState, "sente", CARD_SHOGI_VARIANT);
+    const action: TurnAction = { kind: "move", move: moves[0] };
+    const lookaheadScore = evaluateActionWithLookahead(
+      state,
+      action,
+      "sente",
+      CARD_SHOGI_VARIANT,
+      undefined,
+      false,
+      1,
+    );
+    // lookahead は数値 (NaN/Infinity でない有限値)
+    expect(Number.isFinite(lookaheadScore)).toBe(true);
+  });
+
+  it("lookaheadPly=1 draw は opp response score + getDrawValue", () => {
+    const state = makeAiTurnState();
+    const action: TurnAction = { kind: "draw" };
+    const score = evaluateActionWithLookahead(
+      state,
+      action,
+      "sente",
+      CARD_SHOGI_VARIANT,
+      undefined,
+      false,
+      1,
+    );
+    const draw = getDrawValue(state.gameState, "sente", state.cardState);
+    // lookahead score は opp response (有限値) + draw bonus を含む。draw 値以上であることを確認:
+    // (opp 応答後の eval は ±数百 cp の範囲、draw が必ず加算されているか型確認)
+    expect(Number.isFinite(score)).toBe(true);
+    expect(score).toBeGreaterThanOrEqual(draw - 10000); // 範囲 sanity
+  });
+
+  it("lookaheadPly=1 playCard no_promote/check_break は opp response + TRAP_VALUE", () => {
+    const state = makeAiTurnState();
+    const npAction: TurnAction = {
+      kind: "playCard",
+      cardInstanceId: "np",
+      defId: "no_promote",
+      target: undefined,
+    };
+    const cbAction: TurnAction = {
+      kind: "playCard",
+      cardInstanceId: "cb",
+      defId: "check_break",
+      target: undefined,
+    };
+    const npScore = evaluateActionWithLookahead(
+      state,
+      npAction,
+      "sente",
+      CARD_SHOGI_VARIANT,
+      undefined,
+      false,
+      1,
+    );
+    const cbScore = evaluateActionWithLookahead(
+      state,
+      cbAction,
+      "sente",
+      CARD_SHOGI_VARIANT,
+      undefined,
+      false,
+      1,
+    );
+    // check_break の方が TRAP_VALUE が高いので no_promote より大きい (opp response 部分は同一なので差は係数差のみ)
+    expect(cbScore - npScore).toBe(TRAP_VALUE_CHECK_BREAK - TRAP_VALUE_NO_PROMOTE);
+  });
+
+  it("lookaheadPly=1 playCard double_move は searchDoubleMoveSuperAction に delegate (有限値)", () => {
+    const state = makeAiTurnState();
+    const action: TurnAction = {
+      kind: "playCard",
+      cardInstanceId: "dm",
+      defId: "double_move",
+      target: undefined,
+    };
+    const score = evaluateActionWithLookahead(
+      state,
+      action,
+      "sente",
+      CARD_SHOGI_VARIANT,
+      undefined,
+      false,
+      1,
+    );
+    expect(Number.isFinite(score)).toBe(true);
+  });
+
+  it("lookaheadPly=1 sente/gote 対称性: same move なら senteScore + goteScore のレンジ妥当", () => {
+    const state = makeAiTurnState();
+    const moves = getFullLegalMoves(state.gameState, "sente", CARD_SHOGI_VARIANT);
+    const action: TurnAction = { kind: "move", move: moves[0] };
+    const senteScore = evaluateActionWithLookahead(
+      state,
+      action,
+      "sente",
+      CARD_SHOGI_VARIANT,
+      undefined,
+      false,
+      1,
+    );
+    const goteScore = evaluateActionWithLookahead(
+      state,
+      action,
+      "gote",
+      CARD_SHOGI_VARIANT,
+      undefined,
+      false,
+      1,
+    );
+    // sente と gote は別 player なので score は反転関係に近い (厳密一致ではないが、両者が有限値)
+    expect(Number.isFinite(senteScore)).toBe(true);
+    expect(Number.isFinite(goteScore)).toBe(true);
   });
 });

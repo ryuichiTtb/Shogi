@@ -184,3 +184,53 @@ describe("searchDoubleMoveSuperAction (PR1d-3 コミット 2、evaluateAction �
     expect(hasDoubleMove).toBe(false);
   });
 });
+
+describe("PR3-3 C-3 searchDoubleMoveSuperAction excludeTadasute", () => {
+  it("excludeTadasute=true でも有限スコアを返す (フォールバック含む)", () => {
+    const state = makeAiTurnState();
+    const action: TurnAction = {
+      kind: "playCard",
+      cardInstanceId: "dm",
+      defId: "double_move",
+      target: undefined,
+    };
+    // evaluateAction の excludeTadasute=true を伝播 (search.ts:768 経由)
+    const score = evaluateAction(
+      state,
+      action,
+      "sente",
+      CARD_SHOGI_VARIANT,
+      undefined,
+      true, // excludeTadasute
+    );
+    expect(Number.isFinite(score)).toBe(true);
+  });
+
+  it("excludeTadasute=false のスコアと、=true のスコアの差は ≤ 0 (除外で候補減 = スコア低下のみ)", () => {
+    const state = makeAiTurnState();
+    const action: TurnAction = {
+      kind: "playCard",
+      cardInstanceId: "dm",
+      defId: "double_move",
+      target: undefined,
+    };
+    const scoreFalse = evaluateAction(
+      state,
+      action,
+      "sente",
+      CARD_SHOGI_VARIANT,
+      undefined,
+      false,
+    );
+    const scoreTrue = evaluateAction(
+      state,
+      action,
+      "sente",
+      CARD_SHOGI_VARIANT,
+      undefined,
+      true,
+    );
+    // 除外で候補が減るとスコアは下がる方向 (フォールバックで同値もあり)。上がることはない。
+    expect(scoreTrue).toBeLessThanOrEqual(scoreFalse);
+  });
+});
