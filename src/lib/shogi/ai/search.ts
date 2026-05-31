@@ -16,6 +16,7 @@ import {
 } from "./cards/heuristics";
 import { CurrentRules } from "./turn/current-rules";
 import type { AiTurnState, TurnAction } from "./turn/types";
+import type { CardDigest } from "./cards/digest";
 import {
   computeHash,
   PIECE_KEYS, PIECE_KEYS_HI,
@@ -880,4 +881,129 @@ function searchDoubleMoveSuperAction(
     }
   }
   return bestScore;
+}
+
+// =========================================================================
+// PR3-3a: TurnAction lookahead 評価 (= 相手 1 ply 最善応答後のスコア)
+// =========================================================================
+//
+// 計画 md docs/plans/issue-193-pr3-3-deep-card-search.md 3.1 章。
+//
+// 設計:
+// - 既存 evaluateAction (depth=0 評価) は move の深い tactical 値が直接出るが、
+//   playCard/draw も同じ depth=0 で比較されると move の駒得 +100cp に card の
+//   calibration +30〜60cp が負ける構造的非対称が発生 (PR3-1 で校正完了するも残存)。
+// - 本関数は各 TurnAction 候補に「相手 1 ply 最善応答 (move-only、O(opp_moves) スキャン)」を
+//   加えた lookahead スコアを返す。move 側の見かけ +100cp は相手が取り返すと ±0 に
+//   収束、card 側の +50cp が tempo として残ることで card が公平に競争可能に。
+// - double_move は既存 searchDoubleMoveSuperAction が 2 手指し後を直接評価しており、
+//   lookahead 不要 (むしろ 2 重評価でコストが上がるため delegate)。
+//
+// 性能配慮:
+// - 各 lookahead = O(opp_moves) ≒ 30-50 evaluate 呼び出し
+// - 候補数 (60 程度) × 50 = ~3000 evaluate / root。1 evaluate ≒ O(81 squares + small) で
+//   既存 findBestMove (深さ 6) の探索コストよりは安価 (depthCompleted への影響軽微)。
+// - cardDigest は簡略化: digest 更新はせず prev digest を使う (digest 影響 ~20cp で
+//   opp tactical 数百 cp に対し誤差小、本 PR の lookahead 範囲では許容)。
+//
+// 互換性:
+// - lookaheadPly=0 で呼ぶと既存 evaluateAction にフォールバック (= 振る舞いキープ)
+function getOpponentResponseScore(
+  stateAfterOurAction: GameState,
+  ourPlayer: Player,
+  variant: RuleVariant,
+  cardDigest: CardDigest | undefined,
+): number {
+  const opp: Player = ourPlayer === "sente" ? "gote" : "sente";
+  const oppMoves = getSearchLegalMoves(stateAfterOurAction, opp, variant);
+  if (oppMoves.length === 0) {
+    // 相手の合法手なし (詰み or stalemate)。terminal 局面として通常評価値を返す。
+    const raw = evaluate(stateAfterOurAction, variant, cardDigest);
+    return ourPlayer === "sente" ? raw : -raw;
+  }
+  // 相手は our perspective score を最小化する手を選ぶ (= 我々を最も不利にする手)
+  let worstForUs = Number.POSITIVE_INFINITY;
+  for (const oppMove of oppMoves) {
+    const next = applyMoveForSearch(stateAfterOurAction, oppMove);
+    const raw = evaluate(next, variant, cardDigest);
+    const ourScore = ourPlayer === "sente" ? raw : -raw;
+    if (ourScore < worstForUs) worstForUs = ourScore;
+  }
+  return worstForUs;
+}
+
+export function evaluateActionWithLookahead(
+  state: AiTurnState,
+  action: TurnAction,
+  player: Player,
+  variant: RuleVariant,
+  ctx?: SearchContext,
+  excludeTadasute = false,
+  lookaheadPly: 0 | 1 = 1,
+): number {
+  if (lookaheadPly === 0) {
+    return evaluateAction(state, action, player, variant, ctx, excludeTadasute);
+  }
+  // double_move は super-action 内部探索が既に 2 手後 (= 1 ply 以上) を評価済のため delegate。
+  // (2 手目タダ捨て除外は PR3-3 C-3 で searchDoubleMoveSuperAction に追加予定、本 C-1 では未対応)
+  if (action.kind === "playCard" && action.defId === "double_move") {
+    return searchDoubleMoveSuperAction(state, player, variant, ctx);
+  }
+  const cardDigest = ctx?.cardDigest;
+  switch (action.kind) {
+    case "move": {
+      const next = applyMoveForSearch(state.gameState, action.move);
+      return getOpponentResponseScore(next, player, variant, cardDigest);
+    }
+    case "draw": {
+      // draw は盤面不変、cardState のみ変化 (digest 更新は簡略化、PR3-3 範囲では誤差小)
+      const oppScore = getOpponentResponseScore(
+        state.gameState,
+        player,
+        variant,
+        cardDigest,
+      );
+      return oppScore + getDrawValue(state.gameState, player, state.cardState);
+    }
+    case "playCard": {
+      // トラップ系 (no_promote / check_break) は targeting:none で盤面不変
+      if (
+        action.defId === "no_promote" ||
+        action.defId === "check_break"
+      ) {
+        const oppScore = getOpponentResponseScore(
+          state.gameState,
+          player,
+          variant,
+          cardDigest,
+        );
+        const trapBonus =
+          action.defId === "no_promote"
+            ? TRAP_VALUE_NO_PROMOTE
+            : TRAP_VALUE_CHECK_BREAK;
+        return oppScore + trapBonus;
+      }
+      // 通常カード (pawn_return / piece_return / double_pawn): simulateCardEffect で盤面変化
+      const nextGameState = simulateCardEffect(
+        state.gameState,
+        player,
+        action.defId,
+        action.target ?? null,
+      );
+      if (!nextGameState) return Number.NEGATIVE_INFINITY;
+      // タダ捨て除外 (既存 evaluateAction 同型)
+      if (
+        excludeTadasute &&
+        cardResultIntroducesTadasute(
+          state.gameState,
+          nextGameState,
+          player,
+          variant,
+        )
+      ) {
+        return Number.NEGATIVE_INFINITY;
+      }
+      return getOpponentResponseScore(nextGameState, player, variant, cardDigest);
+    }
+  }
 }
