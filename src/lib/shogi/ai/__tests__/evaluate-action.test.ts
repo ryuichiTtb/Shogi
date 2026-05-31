@@ -338,3 +338,126 @@ describe("evaluateActionWithLookahead (PR3-3 C-1)", () => {
     expect(Number.isFinite(goteScore)).toBe(true);
   });
 });
+
+// PR3-3 C-13 (Workflow adversarial verify F-2 残課題解消):
+// calibration regression を deterministic に検出する unit test。
+//
+// 背景: perf-bench-card-usage.test.ts の旧 strict assert は findBestMove のランダム要素
+// (addNoise / nearEqualThreshold / BEGINNER_TADASUTE_ALLOW_RATE) で flaky だった
+// (10 回中 2 回 fail)。本セクションは evaluateActionWithLookahead を直接呼ぶことで
+// ランダム要素を完全に排除し、calibration が意図通り action 選択を駆動するかを
+// 安定的に検証する。
+//
+// 検証方針: action 単独のスコアを直接 assert するのは盤面 eval の値に依存して脆い
+// (盤面評価の改修で値が動く) ため、**同じ AiTurnState 上で複数 action のスコアを
+// 計算し相対関係を assert** する (盤面 eval が共通成分で打ち消し、calibration 差のみ残る)。
+describe("evaluateActionWithLookahead calibration regression (deterministic、PR3-3 C-13)", () => {
+  function buildState(opts: {
+    moveCount: number;
+    handSize: number;
+    manaSente: number;
+    manaGote: number;
+    handCardId?: "pawn_return" | "no_promote";
+    emptyDeck?: boolean;
+  }): AiTurnState {
+    const initial = createInitialGameState(CARD_SHOGI_VARIANT);
+    const cs = createInitialCardState([
+      { defId: "pawn_return" as const, count: 4 },
+      { defId: "no_promote" as const, count: 4 },
+    ]);
+    const handCardId = opts.handCardId ?? "pawn_return";
+    cs.hand.sente = Array.from({ length: opts.handSize }, (_, i) => ({
+      instanceId: `t-${handCardId}-${i}`,
+      defId: handCardId,
+    }));
+    if (opts.emptyDeck) cs.deck.sente = [];
+    cs.mana.sente = opts.manaSente;
+    cs.mana.gote = opts.manaGote;
+    return {
+      gameState: { ...initial, moveCount: opts.moveCount },
+      cardState: cs,
+      doubleMove: null,
+      isRoot: true,
+    };
+  }
+
+  function someMove(state: AiTurnState): TurnAction {
+    const moves = getFullLegalMoves(state.gameState, "sente", CARD_SHOGI_VARIANT);
+    return { kind: "move", move: moves[0] };
+  }
+
+  it("空手札 + マナ余剰 (mana=15) で draw が move を上回る (getDrawValue が機能)", () => {
+    const state = buildState({
+      moveCount: 50, // phase=1 mid
+      handSize: 0,
+      manaSente: 15,
+      manaGote: 8,
+    });
+    const moveScore = evaluateActionWithLookahead(
+      state, someMove(state), "sente", CARD_SHOGI_VARIANT, undefined, false, 1,
+    );
+    const drawScore = evaluateActionWithLookahead(
+      state, { kind: "draw" }, "sente", CARD_SHOGI_VARIANT, undefined, false, 1,
+    );
+    // getDrawValue = BASE(20) + (15-8)*3 + PHASE_MID(15) - 0 = 56cp が move 評価を上回るはず。
+    // calibration regression (例: DRAW_VALUE_BASE=0) なら逆転して fail。
+    expect(drawScore).toBeGreaterThan(moveScore);
+  });
+
+  it("trap-only 手札 + 山札空 + マナ上限近接 (mana=19) で trap が move を上回る (digest.trapPresence が機能)", () => {
+    const state = buildState({
+      moveCount: 50,
+      handSize: 2,
+      manaSente: 19,
+      manaGote: 12,
+      handCardId: "no_promote",
+      emptyDeck: true, // draw を候補から外す → 純粋に move vs trap の比較
+    });
+    const moveScore = evaluateActionWithLookahead(
+      state, someMove(state), "sente", CARD_SHOGI_VARIANT, undefined, false, 1,
+    );
+    const trapAction: TurnAction = {
+      kind: "playCard",
+      cardInstanceId: state.cardState.hand.sente[0].instanceId,
+      defId: "no_promote",
+      target: undefined,
+    };
+    const trapScore = evaluateActionWithLookahead(
+      state, trapAction, "sente", CARD_SHOGI_VARIANT, undefined, false, 1,
+    );
+    // digest.trapPresence で +TRAP_VALUE_NO_PROMOTE (=50) が opp scan の eval に乗る。
+    // mana 19 → 16 (cost 3 消費) で死にマナ overflow 3 → 0、+12cp 改善。
+    // 合計 +50+12=+62cp が manaDelta -3*10=-30cp と hand -1 の小減を上回り、move を超える。
+    // calibration regression (例: TRAP_VALUE_NO_PROMOTE=0) なら逆転して fail。
+    expect(trapScore).toBeGreaterThan(moveScore);
+  });
+
+  // (3つ目: pawn_return + dead mana 組合せのテストは simulateCardEffect の target 要件が
+  //  厳しく値が脆い (返却対象マスの選択で結果が大きく変動) ため削除。pawn_return 自体の
+  //  動作は effects.test.ts でカバー済、digest update wiring は C-6 で trap テスト経由でも
+  //  検証済 (trap 経由で digest が変化する確認が wiring 動作の保証になる)。)
+
+  it("getDrawValue が calibration を反映: mana surplus を増やすと draw score も単調増加", () => {
+    // 同盤面 / 同手札で mana のみ変えて draw score の単調性を確認 (relative regression test)
+    const stateLow = buildState({
+      moveCount: 50,
+      handSize: 1,
+      manaSente: 10,
+      manaGote: 8,
+    });
+    const stateHigh = buildState({
+      moveCount: 50,
+      handSize: 1,
+      manaSente: 18,
+      manaGote: 8,
+    });
+    const drawLow = evaluateActionWithLookahead(
+      stateLow, { kind: "draw" }, "sente", CARD_SHOGI_VARIANT, undefined, false, 1,
+    );
+    const drawHigh = evaluateActionWithLookahead(
+      stateHigh, { kind: "draw" }, "sente", CARD_SHOGI_VARIANT, undefined, false, 1,
+    );
+    // mana 余剰増 → getDrawValue 増 (DRAW_MANA_SURPLUS_COEF=3 経由) + opp scan は同盤面
+    expect(drawHigh).toBeGreaterThan(drawLow);
+  });
+});

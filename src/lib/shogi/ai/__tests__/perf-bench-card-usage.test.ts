@@ -227,34 +227,22 @@ describe.skipIf(!RUN_PERF_BENCH)(
               `(${cardCount}/${scenarios.length}) | ${breakdown.join(", ")}`,
           );
 
-          // DoD-A (粗い): 全 7 シナリオで 1 件以上カード/ドロー使用
-          // (退化原因 ①②③④ 解消の sanity check、全難易度共通)
+          // DoD (粗い、全難易度共通): 全 7 シナリオで 1 件以上カード/ドロー使用
+          // (退化原因 ①②③④ 解消の sanity check、AI がカード使用導線を持つことの確認)
           expect(cardCount).toBeGreaterThanOrEqual(1);
 
-          // DoD-B (calibration discriminator、PR3-3 C-7 で追加):
-          // 期待アクションが指定された calibration シナリオ (e〜g) で、AI の選択が期待と一致するか
-          // 個別 assert。calibration が機能していなければ "move" 等になり fail する (= calibration
-          // regression detection)。
+          // PR3-3 C-13 (Workflow adversarial verify F-2 残課題解消):
+          // 旧 C-7 で beginner-only の per-scenario strict assert を導入したが、beginner の
+          // addNoise=0.50 / nearEqualThreshold=200 / BEGINNER_TADASUTE_ALLOW_RATE=0.30 による
+          // 非決定性で test が 10 回中 2 回 fail する flaky 状態になっていた (= calibration
+          // regression を検出する場面で逆に false positive を量産)。
+          // → strict assert は本 bench から削除し、calibration 機能検証は `evaluate-action.test.ts`
+          //   の deterministic unit test (findBestMove のランダム要素を回避して evaluateActionWithLookahead
+          //   を直接呼ぶ) に移動。本 bench は cardCount sanity + breakdown log によるテレメトリに専念。
+          // 期待アクション (sc.expected) フィールドは breakdown log にて参考情報として表示。
           //
-          // 厳密 assert は beginner のみに限定する理由:
-          // - beginner は targetReadingPly=1 で深さ探索が浅いため、calibration の +30〜80cp が
-          //   選択を決定的に左右する (本 PR の検証で beginner は 3/3 期待通り選択を確認済)
-          // - advanced/expert (depth 5-6) は findBestMove の深い探索が move を後押しすることが
-          //   多く、calibration の +50cp 程度では逆転できないシナリオが残る (構造的制約、
-          //   PR3-3 C-6 wiring 後も完全解消には deep search への calibration 波及が必要、
-          //   将来 PR スコープ)。calibration が機能していること自体は beginner で確認可能。
-          // - advanced/expert では breakdown を log で記録し、calibration の効きを観測可能に
-          //   留める (assert はせず、ユーザー/レビュアーが log を確認する形)
-          if (difficulty === "beginner") {
-            scenarios.forEach((sc, i) => {
-              if (sc.expected !== undefined && sc.expected !== null) {
-                expect(
-                  choices[i],
-                  `${sc.label}: expected ${sc.expected} (calibration が機能していれば) but got ${choices[i]}`,
-                ).toBe(sc.expected);
-              }
-            });
-          }
+          // 関連: src/lib/shogi/ai/__tests__/evaluate-action.test.ts
+          //   "evaluateActionWithLookahead calibration regression (deterministic)" describe
         },
         60_000,
       );
