@@ -1,7 +1,11 @@
 import type { Difficulty, GameState, Move, Player, RuleVariant } from "../types";
 import type { CardGameState } from "../cards/types";
 import { STANDARD_VARIANT } from "../variants/standard";
-import { findBestMove, evaluateAction, movesEqual } from "./search";
+import {
+  findBestMove,
+  evaluateActionWithLookahead,
+  movesEqual,
+} from "./search";
 import {
   createSearchContext,
   finalizeStats,
@@ -340,27 +344,33 @@ export function findBestMoveWithStats(
     };
     const allActions = rules.getLegalActions(aiTurnState, player);
 
-    // move を evaluateAction で浅く再評価 (= 比較基準を統一)
-    let bestActionScore = evaluateAction(
+    // PR3-3 C-2: 旧 evaluateAction (depth=0 評価) を evaluateActionWithLookahead に
+    // 置換。各 TurnAction 候補に「相手 1 ply 最善応答」を加えた lookahead score で
+    // 比較することで、move 側の見かけ +100cp tactical が opp 応答後に ±0 へ収束し、
+    // card 側の tempo 価値が残る形で公平に競争できる。実プレイ midgame の AI
+    // カード使用ゼロ退化 (PR3-1 で static eval は校正済だが残存) の解消が目的。
+    // 計画 md docs/plans/issue-193-pr3-3-deep-card-search.md 3.1 章参照。
+    let bestActionScore = evaluateActionWithLookahead(
       aiTurnState,
       { kind: "move", move },
       player,
       variant,
       ctx,
       applyTadasuteGuard,
+      1,
     );
 
     for (const action of allActions) {
       if (action.kind === "move") continue; // move は上で評価済
-      // applyTadasuteGuard 時、カード適用がタダ捨てになる手は evaluateAction が -Inf を返し
-      // 採用されない (例: 二歩指しで相手飛車前に歩を打つ)。
-      const score = evaluateAction(
+      // applyTadasuteGuard 時、カード適用がタダ捨てになる手は -Inf を返し採用されない。
+      const score = evaluateActionWithLookahead(
         aiTurnState,
         action,
         player,
         variant,
         ctx,
         applyTadasuteGuard,
+        1,
       );
       if (score > bestActionScore) {
         bestActionScore = score;
