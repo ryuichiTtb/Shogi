@@ -10,7 +10,8 @@
 // 単体テストで網羅検証できる (engine 統合は findBestMoveWithStats 側)。
 
 import type { Move, GameState, Player, RuleVariant } from "../types";
-import { evaluatePieceSafety } from "./evaluate";
+import { evaluatePieceSafety, getLeastAttackerValue } from "./evaluate";
+import { isSquareAttackedByFast } from "../moves";
 
 export interface SafeCandidate {
   move: Move;
@@ -77,4 +78,53 @@ export function cardResultIntroducesTadasute(
   const beforeSafety = evaluatePieceSafety(before, player, variant);
   const afterSafety = evaluatePieceSafety(after, player, variant);
   return afterSafety < beforeSafety - CARD_TADASUTE_THRESHOLD;
+}
+
+// ===== ブランダーガード: hanging piece 判定 =====
+// (PR3-3 C-3 で engine.ts から移動: search.ts double_move でも使うため共通化)
+
+// ブランダーガード用: 駒の価値テーブル (engine.ts から移動)
+const BLUNDER_PIECE_VALUES: Record<string, number> = {
+  pawn: 100, lance: 300, knight: 400, silver: 500, gold: 600,
+  bishop: 800, rook: 1000, promoted_pawn: 600, promoted_lance: 600,
+  promoted_knight: 600, promoted_silver: 600, promoted_bishop: 1100,
+  promoted_rook: 1300, king: 10000,
+};
+
+/**
+ * 指した後に手番側の駒がタダ取りまたは損な交換にさらされるかチェック。
+ * @param minValue ハングと判定する駒価値の閾値 (cp、デフォルト 300 = 香車以上)
+ */
+export function hasHangingPiece(
+  state: GameState,
+  player: Player,
+  variant: RuleVariant,
+  minValue: number = 300,
+): boolean {
+  const board = state.board;
+  const { rows, cols } = variant.boardSize;
+  const opponent: Player = player === "sente" ? "gote" : "sente";
+
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const piece = board[row][col];
+      if (!piece || piece.owner !== player || piece.type === "king") continue;
+
+      const value = BLUNDER_PIECE_VALUES[piece.type] ?? 0;
+      if (value < minValue) continue;
+
+      const pos = { row, col };
+      if (isSquareAttackedByFast(board, pos, opponent, variant.boardSize)) {
+        if (!isSquareAttackedByFast(board, pos, player, variant.boardSize)) {
+          return true; // 攻撃されているが守られていない → タダ取り
+        }
+        // 守られているが、最安攻撃駒との交換で損する場合もブランダー
+        const leastAttacker = getLeastAttackerValue(board, pos, opponent, variant.boardSize);
+        if (leastAttacker > 0 && (value - leastAttacker) >= minValue) {
+          return true; // 損な交換 (例: 飛車を歩で攻撃されている)
+        }
+      }
+    }
+  }
+  return false;
 }

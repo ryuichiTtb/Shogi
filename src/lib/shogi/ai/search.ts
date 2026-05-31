@@ -6,7 +6,7 @@ import { isInCheck } from "../moves";
 import { getSearchLegalMoves } from "./legal-moves";
 import { applyMoveForSearch } from "../board";
 import { evaluate, scoreMoveForOrdering } from "./evaluate";
-import { cardResultIntroducesTadasute } from "./blunder-guard";
+import { cardResultIntroducesTadasute, hasHangingPiece } from "./blunder-guard";
 import { simulateCardEffect } from "../cards/effects";
 import {
   getDrawValue,
@@ -766,7 +766,7 @@ export function evaluateAction(
       // 最良組合せを depth=0 評価 (simulateCardEffect は targeting:none で null を
       // 返すため、専用経路で扱う)。
       if (action.defId === "double_move") {
-        return searchDoubleMoveSuperAction(state, player, variant, ctx);
+        return searchDoubleMoveSuperAction(state, player, variant, ctx, excludeTadasute);
       }
       // PR1d-4: トラップ系 (no_promote / check_break) は targeting:none で盤面不変
       // (simulateCardEffect は null)。カード使用で自盤面にトラップがセットされる
@@ -830,6 +830,7 @@ function searchDoubleMoveSuperAction(
   player: Player,
   variant: RuleVariant,
   ctx?: SearchContext,
+  excludeTadasute = false,
 ): number {
   const cardDigest = ctx?.cardDigest;
   const rules = new CurrentRules(variant);
@@ -852,6 +853,7 @@ function searchDoubleMoveSuperAction(
       : firstMovesAll;
 
   let bestScore = NEG_INF;
+  let bestScoreIgnoringTadasute = NEG_INF; // PR3-3 C-3: フォールバック (R-3)
   // Step 3: 各 1 手目 × 全 2 手目を局所探索、2 手指し後を depth=0 評価
   for (const firstMove of firstMoves) {
     const afterFirst = rules.applyAction(afterCard, { kind: "move", move: firstMove });
@@ -877,9 +879,22 @@ function searchDoubleMoveSuperAction(
       // 案 B: 2 手指し後の局面を depth=0 評価 (player 視点、PR1d-2 evaluateAction と整合)
       const raw = evaluate(afterSecond.next.gameState, variant, cardDigest);
       const score = player === "sente" ? raw : -raw;
+      if (score > bestScoreIgnoringTadasute) bestScoreIgnoringTadasute = score;
+      // PR3-3 C-3 (PR2 残課題解消): 2 手指し完了局面で「タダ捨て」(自駒がハングする手)
+      // になる組合せを除外。double_move 2 手目で相手駒の前に自駒を打つ等を抑止する。
+      if (
+        excludeTadasute &&
+        hasHangingPiece(afterSecond.next.gameState, player, variant)
+      ) {
+        continue;
+      }
       if (score > bestScore) bestScore = score;
     }
   }
+  // PR3-3 C-3 フォールバック (R-3): 全組合せがタダ捨て除外で消えた場合、
+  // タダ捨てを許容してでも super-action として有限スコアを返す
+  // (空集合で NEG_INF を返すと double_move カードが過剰に減点される問題を回避)。
+  if (bestScore === NEG_INF) return bestScoreIgnoringTadasute;
   return bestScore;
 }
 
@@ -945,9 +960,9 @@ export function evaluateActionWithLookahead(
     return evaluateAction(state, action, player, variant, ctx, excludeTadasute);
   }
   // double_move は super-action 内部探索が既に 2 手後 (= 1 ply 以上) を評価済のため delegate。
-  // (2 手目タダ捨て除外は PR3-3 C-3 で searchDoubleMoveSuperAction に追加予定、本 C-1 では未対応)
+  // PR3-3 C-3: excludeTadasute を伝播して 2 手目タダ捨て組合せを除外させる。
   if (action.kind === "playCard" && action.defId === "double_move") {
-    return searchDoubleMoveSuperAction(state, player, variant, ctx);
+    return searchDoubleMoveSuperAction(state, player, variant, ctx, excludeTadasute);
   }
   const cardDigest = ctx?.cardDigest;
   switch (action.kind) {

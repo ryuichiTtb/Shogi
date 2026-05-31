@@ -11,10 +11,14 @@ import {
   finalizeStats,
   type SearchStats,
 } from "./search-context";
-import { evaluate, evaluateWithBreakdown, getLeastAttackerValue } from "./evaluate";
-import { chooseBlunderGuardMove, type SafeCandidate } from "./blunder-guard";
+import { evaluate, evaluateWithBreakdown } from "./evaluate";
+import {
+  chooseBlunderGuardMove,
+  hasHangingPiece,
+  type SafeCandidate,
+} from "./blunder-guard";
 import { getBookMove, MAX_BOOK_MOVES } from "./openingBook";
-import { getFullLegalMoves, isSquareAttackedByFast } from "../moves";
+import { getFullLegalMoves } from "../moves";
 import { applyMoveForSearch } from "../board";
 import { computeCardDigest, type CardDigest } from "./cards/digest";
 import { CurrentRules } from "./turn/current-rules";
@@ -76,14 +80,6 @@ export const DIFFICULTY_PARAMS: Record<Difficulty, DifficultyParams> = {
 
 // Issue #176: 旧 calculateAiMove は完全置換。findBestMoveWithStats (本ファイル末尾) を使う。
 
-// ブランダーガード用: 駒の価値テーブル
-const BLUNDER_PIECE_VALUES: Record<string, number> = {
-  pawn: 100, lance: 300, knight: 400, silver: 500, gold: 600,
-  bishop: 800, rook: 1000, promoted_pawn: 600, promoted_lance: 600,
-  promoted_knight: 600, promoted_silver: 600, promoted_bishop: 1100,
-  promoted_rook: 1300, king: 10000,
-};
-
 // Issue #193 / PR2: blunder guard 同点圏 tie-breaker の閾値 (cp)。
 // ハングする手 (探索の最善手) の深いスコアが、最善の安全手より本値を超えて高ければ
 // = 探索が明確な見返りを確認した戦術的犠牲とみなして尊重 (差替えない)。本値以内の
@@ -98,40 +94,7 @@ const BLUNDER_GUARD_TIE_MARGIN = 150;
 // 0.30 = 初級はタダ捨て機会の約 3 割で発生を許す初期値 (tunable、実対局観察で調整)。
 const BEGINNER_TADASUTE_ALLOW_RATE = 0.3;
 
-// ブランダーガード: 指した後に自駒がタダ取りまたは損な交換にさらされるかチェック
-function hasHangingPiece(
-  state: GameState,
-  player: Player,
-  variant: RuleVariant,
-  minValue: number = 300
-): boolean {
-  const board = state.board;
-  const { rows, cols } = variant.boardSize;
-  const opponent: Player = player === "sente" ? "gote" : "sente";
-
-  for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < cols; col++) {
-      const piece = board[row][col];
-      if (!piece || piece.owner !== player || piece.type === "king") continue;
-
-      const value = BLUNDER_PIECE_VALUES[piece.type] ?? 0;
-      if (value < minValue) continue;
-
-      const pos = { row, col };
-      if (isSquareAttackedByFast(board, pos, opponent, variant.boardSize)) {
-        if (!isSquareAttackedByFast(board, pos, player, variant.boardSize)) {
-          return true; // 攻撃されているが守られていない → タダ取り
-        }
-        // 守られているが、最安攻撃駒との交換で損する場合もブランダー
-        const leastAttacker = getLeastAttackerValue(board, pos, opponent, variant.boardSize);
-        if (leastAttacker > 0 && (value - leastAttacker) >= minValue) {
-          return true; // 損な交換（例: 飛車を歩で攻撃されている）
-        }
-      }
-    }
-  }
-  return false;
-}
+// hasHangingPiece は PR3-3 C-3 で blunder-guard.ts へ移動 (search.ts double_move でも利用するため共通化)
 
 // 難易度の表示名
 export const DIFFICULTY_LABELS: Record<Difficulty, string> = {
