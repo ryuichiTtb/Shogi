@@ -20,13 +20,18 @@ import type { CardGameState } from "../../cards/types";
 //   ・AUTO_DRAW_INTERVAL は src/lib/shogi/cards/definitions.ts:238 で 5 と定義済 (本ファイルでは参照のみ)
 export const MIN_MANA_RESERVE = 2;
 
-// handValue 単調減衰関数 (PR1d-1、第 5 次レビュー F-5 仮基準):
+// handValue 単調減衰関数 (PR1d-1 仮基準 → PR3-1 で再校正):
 //   handValue(handSize) = HAND_VALUE_BASE × (1 - exp(-handSize / HAND_VALUE_DECAY))
 //   ・HAND_VALUE_BASE: 手札 1 枚目の最大価値 (cp、歩 = 90 cp の 1/4 ≒ 22.5、本仮基準は 20)
-//   ・HAND_VALUE_DECAY: 手札増加に対する減衰係数 (3 枚で 95% 価値、bench で調整)
+//   ・HAND_VALUE_DECAY: 手札増加に対する減衰係数。
+//     旧 3.0 (3 枚で 95% 飽和) → 新 5.0 (PR3-1、退化原因 ③ 解消):
+//     旧値は 3-4 枚目以降の追加価値が 1 cp 未満になり、中盤に手札 3-4 枚を想定する
+//     カード将棋ではドロー価値が事実上消失していた。5.0 にすることで
+//     3 枚 → 約 91% (18.2 cp)、5 枚 → 約 99% (19.7 cp) となり、4 枚目までの
+//     差を +1.5 cp 程度残せる (bench で再校正可)。
 //   ・HAND_LIMIT は導入しない (= しきい値方式は不要、単調減衰関数で滑らかに価値が下がる、親計画 md L412-413)
 export const HAND_VALUE_BASE = 20;
-export const HAND_VALUE_DECAY = 3.0;
+export const HAND_VALUE_DECAY = 5.0;
 
 // cardDigest 評価係数 (PR1d-1、F-5 仮基準で歩 = 90 cp に整合):
 //   ・MANA_DELTA_COEFFICIENT: マナ 1 差 = 10 cp (歩 1/9 ≒ 10 cp)
