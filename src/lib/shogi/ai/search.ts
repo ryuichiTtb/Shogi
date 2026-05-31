@@ -16,7 +16,13 @@ import {
 } from "./cards/heuristics";
 import { CurrentRules } from "./turn/current-rules";
 import type { AiTurnState, TurnAction } from "./turn/types";
-import type { CardDigest } from "./cards/digest";
+import type { CardGameState } from "../cards/types";
+import { CARD_DEFS, DRAW_COST } from "../cards/definitions";
+import {
+  type CardDigest,
+  computeCardDigest,
+  updateCardDigest,
+} from "./cards/digest";
 import {
   computeHash,
   PIECE_KEYS, PIECE_KEYS_HI,
@@ -918,11 +924,108 @@ function searchDoubleMoveSuperAction(
 // - 各 lookahead = O(opp_moves) ≒ 30-50 evaluate 呼び出し
 // - 候補数 (60 程度) × 50 = ~3000 evaluate / root。1 evaluate ≒ O(81 squares + small) で
 //   既存 findBestMove (深さ 6) の探索コストよりは安価 (depthCompleted への影響軽微)。
-// - cardDigest は簡略化: digest 更新はせず prev digest を使う (digest 影響 ~20cp で
-//   opp tactical 数百 cp に対し誤差小、本 PR の lookahead 範囲では許容)。
+// - cardDigest は **PR3-3 C-6 で per-action 更新化** (旧: prev digest 流用)。
+//   updateCardDigest (PR3-2 で追加済 API) を使い、action 適用後の cardState 差分のみ
+//   再計算。これにより PR3-1 C-3 (死にマナペナルティ) / C-4 (HAND_VALUE_DECAY) が
+//   実際にアクション選択へ効くようになる (旧 root スカラー方式では argmax で打ち消されていた)。
 //
 // 互換性:
 // - lookaheadPly=0 で呼ぶと既存 evaluateAction にフォールバック (= 振る舞いキープ)
+
+/**
+ * PR3-3 C-6: action 適用後の (gameState, cardState) を計算する純粋関数。
+ *
+ * lookahead で digest を per-action 更新するために、各 action 種別ごとの状態遷移を集約。
+ * - move:        applyMoveForSearch → gameState 変化、cardState 不変
+ * - draw:        gameState 不変、cardState: mana-=DRAW_COST / hand+=1 / drawProgress=0
+ * - playCard trap (no_promote / check_break): gameState 不変、cardState: mana-=cost /
+ *                hand-=1 / trap[player] セット
+ * - playCard 通常 (pawn_return / piece_return / double_pawn): simulateCardEffect →
+ *                gameState 変化、cardState: mana-=cost / hand-=1
+ * - playCard double_move: null を返す (呼出側が searchDoubleMoveSuperAction に delegate)
+ * - 山札枯渇 (draw) / simulateCardEffect 失敗 (mana_up 等の本 PR 対象外カード) も null
+ */
+function applyActionForLookahead(
+  state: AiTurnState,
+  action: TurnAction,
+  player: Player,
+): { gameState: GameState; cardState: CardGameState } | null {
+  if (action.kind === "move") {
+    return {
+      gameState: applyMoveForSearch(state.gameState, action.move),
+      cardState: state.cardState,
+    };
+  }
+  if (action.kind === "draw") {
+    if (state.cardState.deck[player].length === 0) return null;
+    // 引いたカード自体は handValueDelta = f(hand.length) のみに影響するため、
+    // 山札先頭をそのまま hand に追加するだけで digest 計算には十分。
+    const drawnCard = state.cardState.deck[player][0];
+    return {
+      gameState: state.gameState,
+      cardState: {
+        ...state.cardState,
+        mana: {
+          ...state.cardState.mana,
+          [player]: state.cardState.mana[player] - DRAW_COST,
+        },
+        hand: {
+          ...state.cardState.hand,
+          [player]: [...state.cardState.hand[player], drawnCard],
+        },
+        deck: {
+          ...state.cardState.deck,
+          [player]: state.cardState.deck[player].slice(1),
+        },
+        drawProgress: {
+          ...state.cardState.drawProgress,
+          [player]: 0,
+        },
+      },
+    };
+  }
+  // playCard
+  if (action.defId === "double_move") return null; // delegate
+  const def = CARD_DEFS[action.defId];
+  if (!def) return null; // 未知 cardId は安全側で除外
+  const newHand = state.cardState.hand[player].filter(
+    (c) => c.instanceId !== action.cardInstanceId,
+  );
+  const baseCardState: CardGameState = {
+    ...state.cardState,
+    mana: {
+      ...state.cardState.mana,
+      [player]: state.cardState.mana[player] - def.cost,
+    },
+    hand: { ...state.cardState.hand, [player]: newHand },
+  };
+  if (action.defId === "no_promote" || action.defId === "check_break") {
+    return {
+      gameState: state.gameState,
+      cardState: {
+        ...baseCardState,
+        trap: {
+          ...baseCardState.trap,
+          [player]: {
+            instanceId: action.cardInstanceId,
+            defId: action.defId,
+            owner: player,
+          },
+        },
+      },
+    };
+  }
+  // 通常 (pawn_return / piece_return / double_pawn): 盤面変化を simulateCardEffect で適用
+  const nextGameState = simulateCardEffect(
+    state.gameState,
+    player,
+    action.defId,
+    action.target ?? null,
+  );
+  if (!nextGameState) return null;
+  return { gameState: nextGameState, cardState: baseCardState };
+}
+
 function getOpponentResponseScore(
   stateAfterOurAction: GameState,
   ourPlayer: Player,
@@ -964,61 +1067,63 @@ export function evaluateActionWithLookahead(
   if (action.kind === "playCard" && action.defId === "double_move") {
     return searchDoubleMoveSuperAction(state, player, variant, ctx, excludeTadasute);
   }
-  const cardDigest = ctx?.cardDigest;
-  switch (action.kind) {
-    case "move": {
-      const next = applyMoveForSearch(state.gameState, action.move);
-      return getOpponentResponseScore(next, player, variant, cardDigest);
-    }
-    case "draw": {
-      // draw は盤面不変、cardState のみ変化 (digest 更新は簡略化、PR3-3 範囲では誤差小)
-      const oppScore = getOpponentResponseScore(
-        state.gameState,
-        player,
-        variant,
-        cardDigest,
-      );
-      return oppScore + getDrawValue(state.gameState, player, state.cardState);
-    }
-    case "playCard": {
-      // トラップ系 (no_promote / check_break) は targeting:none で盤面不変
-      if (
-        action.defId === "no_promote" ||
-        action.defId === "check_break"
-      ) {
-        const oppScore = getOpponentResponseScore(
-          state.gameState,
-          player,
-          variant,
-          cardDigest,
-        );
-        const trapBonus =
-          action.defId === "no_promote"
-            ? TRAP_VALUE_NO_PROMOTE
-            : TRAP_VALUE_CHECK_BREAK;
-        return oppScore + trapBonus;
-      }
-      // 通常カード (pawn_return / piece_return / double_pawn): simulateCardEffect で盤面変化
-      const nextGameState = simulateCardEffect(
-        state.gameState,
-        player,
-        action.defId,
-        action.target ?? null,
-      );
-      if (!nextGameState) return Number.NEGATIVE_INFINITY;
-      // タダ捨て除外 (既存 evaluateAction 同型)
-      if (
-        excludeTadasute &&
-        cardResultIntroducesTadasute(
-          state.gameState,
-          nextGameState,
-          player,
-          variant,
-        )
-      ) {
-        return Number.NEGATIVE_INFINITY;
-      }
-      return getOpponentResponseScore(nextGameState, player, variant, cardDigest);
-    }
+  const applied = applyActionForLookahead(state, action, player);
+  if (!applied) return Number.NEGATIVE_INFINITY;
+
+  // 通常カードのタダ捨て除外 (action 適用後の盤面で判定、既存 evaluateAction 同型)
+  if (
+    excludeTadasute &&
+    action.kind === "playCard" &&
+    action.defId !== "no_promote" &&
+    action.defId !== "check_break" &&
+    cardResultIntroducesTadasute(
+      state.gameState,
+      applied.gameState,
+      player,
+      variant,
+    )
+  ) {
+    return Number.NEGATIVE_INFINITY;
   }
+
+  // PR3-3 C-6: per-action cardDigest 更新 (F-1 解消)。
+  // 旧実装は prev (root) digest を流用していたため、全候補で digest が同値 → argmax で
+  // C-3 (死にマナ) / C-4 (handValue) の効果が打ち消されて inert になっていた。
+  // updateCardDigest (PR3-2 API) で applied.cardState への遷移を反映した digest を生成し、
+  // opp scan の eval / final eval に伝播することで C-3/C-4 が actually に効くようになる。
+  // - move は cardState 不変なので prev digest を流用 (updateCardDigest 呼出も不要)
+  // - draw / playCard は applied.cardState が変化、updateCardDigest で digest 更新
+  // - card-shogi で prev digest が未渡 (ctx 未指定のテスト/エッジケース) でも適切に動くよう、
+  //   その場合は computeCardDigest(state.cardState) でフォールバック生成 (O(1)+exp×2 のみ)。
+  //   production は engine.ts で root digest が常に渡るためフォールバック発火しない。
+  // - standard variant (variant.id !== "card-shogi") では digest は意味を持たないため undefined のまま
+  let prevDigest = ctx?.cardDigest;
+  if (prevDigest === undefined && variant.id === "card-shogi") {
+    prevDigest = computeCardDigest(state.cardState);
+  }
+  const newDigest =
+    prevDigest !== undefined && action.kind !== "move"
+      ? updateCardDigest(prevDigest, state.cardState, applied.cardState)
+      : prevDigest;
+
+  const oppScore = getOpponentResponseScore(
+    applied.gameState,
+    player,
+    variant,
+    newDigest,
+  );
+
+  // draw: digest は post-draw 状態 (mana-2 / hand+1 / drawProgress=0) を反映するが、
+  // getDrawValue は「ドローを引き起こすヒューリスティック encouragement」で独立。
+  // digest 経由の値 (mana 変化 -20cp + hand 増 +2cp + drawProgress reset 等で実質負方向)
+  // だけでは draw が選ばれないため、getDrawValue を加算して push する設計。
+  if (action.kind === "draw") {
+    return oppScore + getDrawValue(state.gameState, player, state.cardState);
+  }
+
+  // PR3-3 C-6: トラップ系 (no_promote / check_break) は digest.trapPresence で
+  // TRAP_VALUE_* が既に反映されている (newDigest.trapPresence に当該 trap が set)。
+  // 旧実装は ここで TRAP_VALUE_* を明示加算していたが、digest 経由で自然に反映される
+  // ようになったので削除 (重複加算回避)。
+  return oppScore;
 }

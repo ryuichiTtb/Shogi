@@ -15,7 +15,9 @@ import {
   getDrawValue,
   TRAP_VALUE_NO_PROMOTE,
   TRAP_VALUE_CHECK_BREAK,
+  MANA_DELTA_COEFFICIENT,
 } from "../cards/heuristics";
+import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
 import { evaluate } from "../evaluate";
 import { applyMoveForSearch } from "@/lib/shogi/board";
 import { createInitialCardState } from "@/lib/shogi/cards/state";
@@ -277,8 +279,16 @@ describe("evaluateActionWithLookahead (PR3-3 C-1)", () => {
       false,
       1,
     );
-    // check_break の方が TRAP_VALUE が高いので no_promote より大きい (opp response 部分は同一なので差は係数差のみ)
-    expect(cbScore - npScore).toBe(TRAP_VALUE_CHECK_BREAK - TRAP_VALUE_NO_PROMOTE);
+    // PR3-3 C-6 wiring 後: 差分は digest 経由で TRAP_VALUE 差 (cb=+80 / np=+50 = +30) と
+    // mana cost 差 (cb=4 / np=3 = +1 → manaDelta -1 → eval -MANA_DELTA_COEFFICIENT) の合算。
+    // 期待値 = (TRAP_VALUE_CHECK_BREAK - TRAP_VALUE_NO_PROMOTE)
+    //        - (CARD_DEFS.check_break.cost - CARD_DEFS.no_promote.cost) * MANA_DELTA_COEFFICIENT
+    //        = 30 - 10 = 20
+    const trapDiff = TRAP_VALUE_CHECK_BREAK - TRAP_VALUE_NO_PROMOTE;
+    const costDiff =
+      (CARD_DEFS["check_break"].cost - CARD_DEFS["no_promote"].cost) *
+      MANA_DELTA_COEFFICIENT;
+    expect(cbScore - npScore).toBe(trapDiff - costDiff);
   });
 
   it("lookaheadPly=1 playCard double_move は searchDoubleMoveSuperAction に delegate (有限値)", () => {
