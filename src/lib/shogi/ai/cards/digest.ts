@@ -118,8 +118,14 @@ export function evaluateCardDigest(
   value += digest.noPromoteMarkCountDelta * NO_PROMOTE_MARK_COEFFICIENT;
   // PR3-1: 死にマナペナルティ (sente 絶対視点)。マナが MANA_CAP=20 に近いほど
   // 「マナ上限到達後の manaCharge が無効化」する機会損失を負価値として表現。
-  // 退化原因 ④ (マナ上限で manaDelta 価値消失) を解消し、AI に「マナ余剰時は
-  // カードを使ってマナを消費」する判断を促す。
+  // 退化原因 ④ (マナ上限で manaDelta 価値消失) への係数追加。
+  //
+  // PR3-3 C-9 (レビュー F-4) 補足: PR3-1 単体では cardDigest が root スカラーで
+  // 全候補に同値加算 → argmax で打ち消されアクション選択に効かなかった (= inert)。
+  // **PR3-3 C-6 で evaluateActionWithLookahead に updateCardDigest を per-action
+  // wiring したことで初めてアクション選択に効くようになった**。
+  // すなわち「AI にマナ消費を促す」効果は C-6 wiring 後に発現するもので、
+  // 本項目 (digest 評価) 単独では不十分。
   value += evaluateDeadManaPenalty(digest);
   return value;
 }
@@ -167,7 +173,11 @@ function evaluateDeadManaPenalty(digest: CardDigest): number {
  *
  * 注意 (W-2 sente 絶対視点維持):
  * - 全フィールドの符号方針は computeCardDigest と同一 (sente が有利なら正)。
- * - prev に含まれる manaCap は静的値のため常に流用 (将来動的化したら本関数も拡張要)。
+ * - prev に含まれる manaCap は静的値 (現状 MANA_CAP=20 固定) のため常に流用。
+ *   **将来動的化時の拡張手順 (PR3-3 C-9 / レビュー F-7)**:
+ *     1. `prevCardState.manaCap !== newCardState.manaCap` チェックを追加
+ *     2. 変化時は `manaCap: newCardState.manaCap` を返却 (非変化時は prev 流用)
+ *     3. 動的 manaCap が evaluateCardDigest 計算に組み込まれる場合は併せて該当項も追加
  */
 export function updateCardDigest(
   prev: CardDigest,
@@ -183,6 +193,10 @@ export function updateCardDigest(
   const drawChanged =
     prevCardState.drawProgress.sente !== newCardState.drawProgress.sente ||
     prevCardState.drawProgress.gote !== newCardState.drawProgress.gote;
+  // PR3-3 C-9 (レビュー F-10) 補足: trap 比較は `defId` のみで `instanceId` は無視。
+  // digest.trapPresence は CardId | null 型で `evaluateTrapPresence` も defId のみに
+  // 依存するため (同 defId のトラップは同等価値)、instanceId 差分は digest 変化を
+  // 引き起こさない。hand 比較 (length のみ) と整合する設計判断。
   const senteTrapDefId = newCardState.trap.sente?.defId ?? null;
   const goteTrapDefId = newCardState.trap.gote?.defId ?? null;
   const trapChanged =

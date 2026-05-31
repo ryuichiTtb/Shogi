@@ -20,15 +20,31 @@ import type { CardGameState } from "../../cards/types";
 //   ・AUTO_DRAW_INTERVAL は src/lib/shogi/cards/definitions.ts:238 で 5 と定義済 (本ファイルでは参照のみ)
 export const MIN_MANA_RESERVE = 2;
 
-// handValue 単調減衰関数 (PR1d-1 仮基準 → PR3-1 で再校正):
+// handValue 単調減衰関数 (PR1d-1 仮基準 → PR3-1 で 3.0→5.0 に変更、PR3-3 で再検証):
 //   handValue(handSize) = HAND_VALUE_BASE × (1 - exp(-handSize / HAND_VALUE_DECAY))
 //   ・HAND_VALUE_BASE: 手札 1 枚目の最大価値 (cp、歩 = 90 cp の 1/4 ≒ 22.5、本仮基準は 20)
-//   ・HAND_VALUE_DECAY: 手札増加に対する減衰係数。
-//     旧 3.0 (3 枚で 95% 飽和) → 新 5.0 (PR3-1、退化原因 ③ 解消):
-//     旧値は 3-4 枚目以降の追加価値が 1 cp 未満になり、中盤に手札 3-4 枚を想定する
-//     カード将棋ではドロー価値が事実上消失していた。5.0 にすることで
-//     3 枚 → 約 91% (18.2 cp)、5 枚 → 約 99% (19.7 cp) となり、4 枚目までの
-//     差を +1.5 cp 程度残せる (bench で再校正可)。
+//   ・HAND_VALUE_DECAY: 手札増加に対する減衰係数。3.0 → 5.0 (PR3-1)。
+//
+// PR3-3 C-9/C-14 (レビュー F-3 / Workflow adversarial verify): 実値・narrative 訂正
+// (旧コメント「3 枚で 95% 飽和 / 3 枚以降ほぼ無価値」は分母 DECAY を取り違えた誤計算)。
+//
+//     | n | DECAY=5.0 (現)    | DECAY=3.0 (旧)     | DECAY=5.0 限界 (n-1→n) |
+//     |---|-------------------|--------------------|------------------------|
+//     | 1 |  3.63 cp (18.1%)  |  5.67 cp (28.4%)   | —                      |
+//     | 3 |  9.02 cp (45.1%)  | 12.64 cp (63.2%)   | n=3→4: +1.99 cp        |
+//     | 5 | 12.64 cp (63.2%)  | 16.22 cp (81.1%)   | n=4→5: +1.63 cp        |
+//     | 7 | 15.07 cp (75.3%)  | 18.06 cp (90.3%)   | n=6→7: +1.09 cp        |
+//     |10 | 17.29 cp (86.5%)  | 19.29 cp (96.4%)   | n=9→10: +0.60 cp       |
+//
+//     DECAY=3.0 限界: 3→4 = +2.09 cp, 4→5 = +1.49 cp, 5→6 = +1.07 cp
+//
+// 実は **DECAY=3.0 でも 3-5 枚帯の限界価値 (1〜2 cp) は十分残っており**、PR3-1 当初の
+// 「3-4 枚で価値ほぼゼロ」narrative は実値ベースでは事実誤認。実際の DECAY=5.0 への
+// 変更効果は「絶対値を下げる + 飽和点を後ろにずらす」(DECAY=3.0 が n=5 で 81%、
+// DECAY=5.0 が n=5 で 63%) ことで、digest の handValueDelta が card 使用/draw 時に
+// 動く範囲が広がる (手札 5+ 枚帯でも +1〜2 cp 差が出る) という観点で意味がある。
+// 校正後の動作は PR3-3 C-6 wiring 後の card-usage bench で検証済。
+//
 //   ・HAND_LIMIT は導入しない (= しきい値方式は不要、単調減衰関数で滑らかに価値が下がる、親計画 md L412-413)
 export const HAND_VALUE_BASE = 20;
 export const HAND_VALUE_DECAY = 5.0;
@@ -85,7 +101,12 @@ export const CHECK_BREAK_TRIGGER_THRESHOLD = -200;
 
 // computePhaseStage: GameState.moveCount (両者合計 ply) で序盤(0)/中盤(1)/終盤(2) を判定。
 // 既存 EARLY_GAME_THRESHOLD=40 を 0→1 境界に流用 (no_promote 序盤判定と共通閾値で
-// 意味も整合)。ENDGAME_THRESHOLD=100 は仮値で bench 校正可能。
+// 意味も整合)。ENDGAME_THRESHOLD=100 は仮値。
+//
+// PR3-3 C-9 (レビュー F-9) 補足: 閾値 40/100 は実対局の moveCount 分布で未校正の仮値。
+// 実対局統計 (例: 平均終局 ply、midgame 入口の手数分布) で逸脱が判明したら更新する。
+// 校正手順: bench fixture または実プレイログから phase 別の moveCount ヒストグラムを
+// 取り、midgame/endgame 入口の頻出 ply を採用。
 export const ENDGAME_THRESHOLD = 100;
 
 export function computePhaseStage(state: GameState): 0 | 1 | 2 {
@@ -102,6 +123,11 @@ export function computePhaseStage(state: GameState): 0 | 1 | 2 {
 //     + (phase === 1 ? DRAW_PHASE_MID_BONUS : phase === 2 ? DRAW_PHASE_END_BONUS : 0)
 //     - max(0, handSize - DRAW_HAND_THRESHOLD) * DRAW_HAND_PENALTY_PER_CARD
 //   退化原因 ① (固定 DRAW_VALUE_BONUS=30) を解消。各仮値は bench で再校正。
+//
+// PR3-3 C-9 (レビュー F-8) 補足: 「マナ 8〜16 の中間帯」は意図的に
+// ボーナス/ペナルティ無しのベースライン帯として設計。8 未満ではドロー余裕がないため
+// 動機薄、16 超は死にマナ域 (DEAD_MANA_THRESHOLD 参照)。中間帯はドロー価値が
+// 単純に BASE + phase でのみ決まる。
 export const DRAW_VALUE_BASE = 20;
 export const DRAW_HAND_THRESHOLD = 4;
 export const DRAW_HAND_PENALTY_PER_CARD = 8;
@@ -113,7 +139,12 @@ export const DRAW_PHASE_END_BONUS = 5;
 // 死にマナペナルティ (C-3 で evaluateDeadManaPenalty から参照):
 //   evaluateCardDigest に絶対マナ上限近接ペナルティ項を追加 (sente 絶対視点)。
 //   DEAD_MANA_THRESHOLD=16 (MANA_CAP=20 の 80%) を超えた分に DEAD_MANA_PENALTY_COEF=4 cp/マナ。
-//   退化原因 ④ (マナ上限で manaDelta 価値消失) を解消。
+//
+// PR3-1 単体では cardDigest が root スカラーで全候補に同値加算されるため argmax で
+// 打ち消されアクション選択に効かなかった (= inert、レビュー F-1)。
+// **PR3-3 C-6 で evaluateActionWithLookahead に updateCardDigest を per-action wiring
+// したことで効果発現。** 退化原因 ④ (マナ上限で manaDelta 価値消失) はこの wiring と
+// 併せて解消。
 export const DEAD_MANA_THRESHOLD = 16;
 export const DEAD_MANA_PENALTY_COEF = 4;
 
@@ -127,7 +158,7 @@ export const DEAD_MANA_PENALTY_COEF = 4;
 //     +DRAW_PHASE_MID_BONUS / DRAW_PHASE_END_BONUS        局面段階ボーナス (序盤=0)
 //     -max(0, handSize - DRAW_HAND_THRESHOLD) * PENALTY   手札過多ペナルティ
 export function getDrawValue(
-  _state: GameState,
+  state: GameState,
   player: Player,
   cardState: CardGameState,
 ): number {
@@ -142,7 +173,9 @@ export function getDrawValue(
 
   // phase は GameState 経由で computePhaseStage が判定。本関数は cardState だけでなく
   // state も受けることで将来の phase 拡張 (材料残量等) も同じシグネチャで吸収可能。
-  const phase = computePhaseStage(_state);
+  // PR3-3 C-9 (レビュー F-6): 引数名を `_state` (未使用 prefix) → `state` に修正。
+  // 実際は computePhaseStage で参照しており、underscore prefix は誤解を招くため。
+  const phase = computePhaseStage(state);
   const phaseBonus =
     phase === 1 ? DRAW_PHASE_MID_BONUS : phase === 2 ? DRAW_PHASE_END_BONUS : 0;
 
