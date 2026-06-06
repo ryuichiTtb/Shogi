@@ -1,0 +1,406 @@
+{
+  "schema": "issue-235-before-baseline/v1",
+  "description": "Issue #235 S0 before-baseline: canonical main (PR3-3 マージ済) の探索性能・カード使用率。以降の全段 DoD はこの中央値を基準に判定する。",
+  "measuredAt": "2026-06-06T13:34:45.253Z",
+  "commitSHA": "414981d66b92908738d4f5a19ebc3fbbacceebb0",
+  "runs": 3,
+  "difficulties": [
+    "beginner",
+    "intermediate",
+    "advanced",
+    "expert"
+  ],
+  "aggregation": "median",
+  "conditions": {
+    "harness": "scripts/measure-baseline-235.ts (standalone tsx、vitest 非依存)",
+    "command": "npx tsx scripts/measure-baseline-235.ts 3",
+    "difficultyParams": {
+      "beginner": {
+        "maxDepth": 3,
+        "timeLimitMs": 800
+      },
+      "intermediate": {
+        "maxDepth": 6,
+        "timeLimitMs": 1800
+      },
+      "advanced": {
+        "maxDepth": 16,
+        "timeLimitMs": 3000
+      },
+      "expert": {
+        "maxDepth": 24,
+        "timeLimitMs": 3500
+      }
+    },
+    "note": "findBestMoveWithStats を直接呼び bench fixture を再現。depthCompleted は time-budget 探索のため計測機 CPU 性能依存 → 各段/PoC の ±10% 比較は同一機・同一条件で取得すること。",
+    "metrics": {
+      "perfBench": "makeBenchPositions() の 9 局面 (initial + 8 ply) を全難易度で探索し、stats.depthCompleted / nodes / elapsedMs の局面平均。",
+      "cardUsage": "makeScenarios() の isolation 局面 7 シナリオで action 種別を集計。cardCount = move/none 以外 (draw / playCard) の件数、ratePct = cardCount/7。",
+      "scope": "S0 before-baseline は depthCompleted / nodes / card-usage の三軸。rootMoveScore 等の 棋力スコア指標は本段では scope 外 (PoC-1 以降で必要に応じ engine 拡張)。"
+    }
+  },
+  "perfBench": {
+    "beginner": {
+      "avgDepth": 3,
+      "avgNodes": 2263,
+      "avgMs": 133,
+      "positions": 9
+    },
+    "intermediate": {
+      "avgDepth": 5.33,
+      "avgNodes": 30877,
+      "avgMs": 1371,
+      "positions": 9
+    },
+    "advanced": {
+      "avgDepth": 5.78,
+      "avgNodes": 48634,
+      "avgMs": 2269,
+      "positions": 9
+    },
+    "expert": {
+      "avgDepth": 6,
+      "avgNodes": 63918,
+      "avgMs": 2834,
+      "positions": 9
+    }
+  },
+  "cardUsage": {
+    "beginner": {
+      "cardCount": 7,
+      "ratePct": 100,
+      "totalScenarios": 7,
+      "breakdownPerRun": [
+        "midgame-mana-surplus=playCard:board(pawn_return), midgame-mana-cap=playCard:board(pawn_return), endgame-hand-surplus=playCard:board(pawn_return), midgame-hand-pressure=playCard:board(pawn_return), calib-empty-hand-mana-surplus=draw, calib-trap-only-no-draw=playCard:trap(no_promote), calib-endgame-empty-hand-mana-mid=draw",
+        "midgame-mana-surplus=playCard:board(pawn_return), midgame-mana-cap=playCard:board(pawn_return), endgame-hand-surplus=playCard:board(pawn_return), midgame-hand-pressure=playCard:board(pawn_return), calib-empty-hand-mana-surplus=draw, calib-trap-only-no-draw=playCard:trap(no_promote), calib-endgame-empty-hand-mana-mid=draw",
+        "midgame-mana-surplus=playCard:board(pawn_return), midgame-mana-cap=playCard:board(pawn_return), endgame-hand-surplus=playCard:board(pawn_return), midgame-hand-pressure=playCard:board(pawn_return), calib-empty-hand-mana-surplus=draw, calib-trap-only-no-draw=playCard:trap(no_promote), calib-endgame-empty-hand-mana-mid=draw"
+      ]
+    },
+    "intermediate": {
+      "cardCount": 7,
+      "ratePct": 100,
+      "totalScenarios": 7,
+      "breakdownPerRun": [
+        "midgame-mana-surplus=playCard:board(pawn_return), midgame-mana-cap=playCard:board(pawn_return), endgame-hand-surplus=playCard:board(pawn_return), midgame-hand-pressure=playCard:board(pawn_return), calib-empty-hand-mana-surplus=draw, calib-trap-only-no-draw=playCard:trap(no_promote), calib-endgame-empty-hand-mana-mid=draw",
+        "midgame-mana-surplus=playCard:board(pawn_return), midgame-mana-cap=playCard:board(pawn_return), endgame-hand-surplus=playCard:board(pawn_return), midgame-hand-pressure=playCard:board(pawn_return), calib-empty-hand-mana-surplus=draw, calib-trap-only-no-draw=playCard:trap(no_promote), calib-endgame-empty-hand-mana-mid=draw",
+        "midgame-mana-surplus=playCard:board(pawn_return), midgame-mana-cap=playCard:board(pawn_return), endgame-hand-surplus=playCard:board(pawn_return), midgame-hand-pressure=playCard:board(pawn_return), calib-empty-hand-mana-surplus=draw, calib-trap-only-no-draw=playCard:trap(no_promote), calib-endgame-empty-hand-mana-mid=draw"
+      ]
+    },
+    "advanced": {
+      "cardCount": 4,
+      "ratePct": 57,
+      "totalScenarios": 7,
+      "breakdownPerRun": [
+        "midgame-mana-surplus=playCard:board(pawn_return), midgame-mana-cap=playCard:board(pawn_return), endgame-hand-surplus=playCard:board(pawn_return), midgame-hand-pressure=playCard:board(pawn_return), calib-empty-hand-mana-surplus=move, calib-trap-only-no-draw=move, calib-endgame-empty-hand-mana-mid=move",
+        "midgame-mana-surplus=playCard:board(pawn_return), midgame-mana-cap=playCard:board(pawn_return), endgame-hand-surplus=playCard:board(pawn_return), midgame-hand-pressure=playCard:board(pawn_return), calib-empty-hand-mana-surplus=move, calib-trap-only-no-draw=move, calib-endgame-empty-hand-mana-mid=move",
+        "midgame-mana-surplus=playCard:board(pawn_return), midgame-mana-cap=playCard:board(pawn_return), endgame-hand-surplus=playCard:board(pawn_return), midgame-hand-pressure=playCard:board(pawn_return), calib-empty-hand-mana-surplus=move, calib-trap-only-no-draw=move, calib-endgame-empty-hand-mana-mid=move"
+      ]
+    },
+    "expert": {
+      "cardCount": 4,
+      "ratePct": 57,
+      "totalScenarios": 7,
+      "breakdownPerRun": [
+        "midgame-mana-surplus=playCard:board(pawn_return), midgame-mana-cap=playCard:board(pawn_return), endgame-hand-surplus=playCard:board(pawn_return), midgame-hand-pressure=playCard:board(pawn_return), calib-empty-hand-mana-surplus=move, calib-trap-only-no-draw=move, calib-endgame-empty-hand-mana-mid=move",
+        "midgame-mana-surplus=playCard:board(pawn_return), midgame-mana-cap=playCard:board(pawn_return), endgame-hand-surplus=playCard:board(pawn_return), midgame-hand-pressure=playCard:board(pawn_return), calib-empty-hand-mana-surplus=move, calib-trap-only-no-draw=move, calib-endgame-empty-hand-mana-mid=move",
+        "midgame-mana-surplus=playCard:board(pawn_return), midgame-mana-cap=playCard:board(pawn_return), endgame-hand-surplus=playCard:board(pawn_return), midgame-hand-pressure=playCard:board(pawn_return), calib-empty-hand-mana-surplus=move, calib-trap-only-no-draw=move, calib-endgame-empty-hand-mana-mid=move"
+      ]
+    }
+  },
+  "rawRuns": [
+    {
+      "perf": {
+        "beginner": {
+          "avgDepth": 3,
+          "avgNodes": 2263,
+          "avgMs": 155,
+          "positions": 9,
+          "perPositionDepth": [
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3
+          ]
+        },
+        "intermediate": {
+          "avgDepth": 5.33,
+          "avgNodes": 30877,
+          "avgMs": 1371,
+          "positions": 9,
+          "perPositionDepth": [
+            6,
+            5,
+            5,
+            6,
+            6,
+            6,
+            6,
+            3,
+            5
+          ]
+        },
+        "advanced": {
+          "avgDepth": 5.78,
+          "avgNodes": 44715,
+          "avgMs": 2093,
+          "positions": 9,
+          "perPositionDepth": [
+            6,
+            6,
+            6,
+            6,
+            6,
+            6,
+            8,
+            3,
+            5
+          ]
+        },
+        "expert": {
+          "avgDepth": 6,
+          "avgNodes": 64146,
+          "avgMs": 2834,
+          "positions": 9,
+          "perPositionDepth": [
+            7,
+            6,
+            6,
+            6,
+            6,
+            7,
+            8,
+            3,
+            5
+          ]
+        }
+      },
+      "card": {
+        "beginner": {
+          "cardCount": 7,
+          "totalScenarios": 7,
+          "ratePct": 100,
+          "breakdown": "midgame-mana-surplus=playCard:board(pawn_return), midgame-mana-cap=playCard:board(pawn_return), endgame-hand-surplus=playCard:board(pawn_return), midgame-hand-pressure=playCard:board(pawn_return), calib-empty-hand-mana-surplus=draw, calib-trap-only-no-draw=playCard:trap(no_promote), calib-endgame-empty-hand-mana-mid=draw"
+        },
+        "intermediate": {
+          "cardCount": 7,
+          "totalScenarios": 7,
+          "ratePct": 100,
+          "breakdown": "midgame-mana-surplus=playCard:board(pawn_return), midgame-mana-cap=playCard:board(pawn_return), endgame-hand-surplus=playCard:board(pawn_return), midgame-hand-pressure=playCard:board(pawn_return), calib-empty-hand-mana-surplus=draw, calib-trap-only-no-draw=playCard:trap(no_promote), calib-endgame-empty-hand-mana-mid=draw"
+        },
+        "advanced": {
+          "cardCount": 4,
+          "totalScenarios": 7,
+          "ratePct": 57,
+          "breakdown": "midgame-mana-surplus=playCard:board(pawn_return), midgame-mana-cap=playCard:board(pawn_return), endgame-hand-surplus=playCard:board(pawn_return), midgame-hand-pressure=playCard:board(pawn_return), calib-empty-hand-mana-surplus=move, calib-trap-only-no-draw=move, calib-endgame-empty-hand-mana-mid=move"
+        },
+        "expert": {
+          "cardCount": 4,
+          "totalScenarios": 7,
+          "ratePct": 57,
+          "breakdown": "midgame-mana-surplus=playCard:board(pawn_return), midgame-mana-cap=playCard:board(pawn_return), endgame-hand-surplus=playCard:board(pawn_return), midgame-hand-pressure=playCard:board(pawn_return), calib-empty-hand-mana-surplus=move, calib-trap-only-no-draw=move, calib-endgame-empty-hand-mana-mid=move"
+        }
+      }
+    },
+    {
+      "perf": {
+        "beginner": {
+          "avgDepth": 3,
+          "avgNodes": 2263,
+          "avgMs": 129,
+          "positions": 9,
+          "perPositionDepth": [
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3
+          ]
+        },
+        "intermediate": {
+          "avgDepth": 5.33,
+          "avgNodes": 31332,
+          "avgMs": 1355,
+          "positions": 9,
+          "perPositionDepth": [
+            6,
+            5,
+            5,
+            6,
+            6,
+            6,
+            6,
+            3,
+            5
+          ]
+        },
+        "advanced": {
+          "avgDepth": 5.78,
+          "avgNodes": 49086,
+          "avgMs": 2269,
+          "positions": 9,
+          "perPositionDepth": [
+            6,
+            6,
+            6,
+            6,
+            6,
+            6,
+            8,
+            3,
+            5
+          ]
+        },
+        "expert": {
+          "avgDepth": 5.78,
+          "avgNodes": 57606,
+          "avgMs": 2713,
+          "positions": 9,
+          "perPositionDepth": [
+            6,
+            6,
+            6,
+            6,
+            6,
+            6,
+            8,
+            3,
+            5
+          ]
+        }
+      },
+      "card": {
+        "beginner": {
+          "cardCount": 7,
+          "totalScenarios": 7,
+          "ratePct": 100,
+          "breakdown": "midgame-mana-surplus=playCard:board(pawn_return), midgame-mana-cap=playCard:board(pawn_return), endgame-hand-surplus=playCard:board(pawn_return), midgame-hand-pressure=playCard:board(pawn_return), calib-empty-hand-mana-surplus=draw, calib-trap-only-no-draw=playCard:trap(no_promote), calib-endgame-empty-hand-mana-mid=draw"
+        },
+        "intermediate": {
+          "cardCount": 7,
+          "totalScenarios": 7,
+          "ratePct": 100,
+          "breakdown": "midgame-mana-surplus=playCard:board(pawn_return), midgame-mana-cap=playCard:board(pawn_return), endgame-hand-surplus=playCard:board(pawn_return), midgame-hand-pressure=playCard:board(pawn_return), calib-empty-hand-mana-surplus=draw, calib-trap-only-no-draw=playCard:trap(no_promote), calib-endgame-empty-hand-mana-mid=draw"
+        },
+        "advanced": {
+          "cardCount": 4,
+          "totalScenarios": 7,
+          "ratePct": 57,
+          "breakdown": "midgame-mana-surplus=playCard:board(pawn_return), midgame-mana-cap=playCard:board(pawn_return), endgame-hand-surplus=playCard:board(pawn_return), midgame-hand-pressure=playCard:board(pawn_return), calib-empty-hand-mana-surplus=move, calib-trap-only-no-draw=move, calib-endgame-empty-hand-mana-mid=move"
+        },
+        "expert": {
+          "cardCount": 4,
+          "totalScenarios": 7,
+          "ratePct": 57,
+          "breakdown": "midgame-mana-surplus=playCard:board(pawn_return), midgame-mana-cap=playCard:board(pawn_return), endgame-hand-surplus=playCard:board(pawn_return), midgame-hand-pressure=playCard:board(pawn_return), calib-empty-hand-mana-surplus=move, calib-trap-only-no-draw=move, calib-endgame-empty-hand-mana-mid=move"
+        }
+      }
+    },
+    {
+      "perf": {
+        "beginner": {
+          "avgDepth": 3,
+          "avgNodes": 2263,
+          "avgMs": 133,
+          "positions": 9,
+          "perPositionDepth": [
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3
+          ]
+        },
+        "intermediate": {
+          "avgDepth": 5.33,
+          "avgNodes": 30877,
+          "avgMs": 1375,
+          "positions": 9,
+          "perPositionDepth": [
+            6,
+            5,
+            5,
+            6,
+            6,
+            6,
+            6,
+            3,
+            5
+          ]
+        },
+        "advanced": {
+          "avgDepth": 5.78,
+          "avgNodes": 48634,
+          "avgMs": 2272,
+          "positions": 9,
+          "perPositionDepth": [
+            6,
+            6,
+            6,
+            6,
+            6,
+            6,
+            8,
+            3,
+            5
+          ]
+        },
+        "expert": {
+          "avgDepth": 6,
+          "avgNodes": 63918,
+          "avgMs": 2854,
+          "positions": 9,
+          "perPositionDepth": [
+            7,
+            6,
+            6,
+            6,
+            6,
+            7,
+            8,
+            3,
+            5
+          ]
+        }
+      },
+      "card": {
+        "beginner": {
+          "cardCount": 7,
+          "totalScenarios": 7,
+          "ratePct": 100,
+          "breakdown": "midgame-mana-surplus=playCard:board(pawn_return), midgame-mana-cap=playCard:board(pawn_return), endgame-hand-surplus=playCard:board(pawn_return), midgame-hand-pressure=playCard:board(pawn_return), calib-empty-hand-mana-surplus=draw, calib-trap-only-no-draw=playCard:trap(no_promote), calib-endgame-empty-hand-mana-mid=draw"
+        },
+        "intermediate": {
+          "cardCount": 7,
+          "totalScenarios": 7,
+          "ratePct": 100,
+          "breakdown": "midgame-mana-surplus=playCard:board(pawn_return), midgame-mana-cap=playCard:board(pawn_return), endgame-hand-surplus=playCard:board(pawn_return), midgame-hand-pressure=playCard:board(pawn_return), calib-empty-hand-mana-surplus=draw, calib-trap-only-no-draw=playCard:trap(no_promote), calib-endgame-empty-hand-mana-mid=draw"
+        },
+        "advanced": {
+          "cardCount": 4,
+          "totalScenarios": 7,
+          "ratePct": 57,
+          "breakdown": "midgame-mana-surplus=playCard:board(pawn_return), midgame-mana-cap=playCard:board(pawn_return), endgame-hand-surplus=playCard:board(pawn_return), midgame-hand-pressure=playCard:board(pawn_return), calib-empty-hand-mana-surplus=move, calib-trap-only-no-draw=move, calib-endgame-empty-hand-mana-mid=move"
+        },
+        "expert": {
+          "cardCount": 4,
+          "totalScenarios": 7,
+          "ratePct": 57,
+          "breakdown": "midgame-mana-surplus=playCard:board(pawn_return), midgame-mana-cap=playCard:board(pawn_return), endgame-hand-surplus=playCard:board(pawn_return), midgame-hand-pressure=playCard:board(pawn_return), calib-empty-hand-mana-surplus=move, calib-trap-only-no-draw=move, calib-endgame-empty-hand-mana-mid=move"
+        }
+      }
+    }
+  ]
+}

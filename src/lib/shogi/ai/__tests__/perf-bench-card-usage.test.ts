@@ -187,7 +187,15 @@ function makeScenarios(): BenchScenario[] {
 describe.skipIf(!RUN_PERF_BENCH)(
   "perf-bench card 使用率 (PR3-3 calibration discriminator)",
   () => {
-    const difficulties: Difficulty[] = ["beginner", "advanced", "expert"];
+    // Issue #235 S0: before-baseline で全4難易度のカード使用率を測るため intermediate を追加。
+    // 設計 doc §8.2「全4難易度 = 中級含む」/ PR3-3-2 レビュー「中級未測定」の是正。
+    // intermediate は telemetry のみ (cardCount>=1 の sanity assert は全難易度共通)。
+    const difficulties: Difficulty[] = [
+      "beginner",
+      "intermediate",
+      "advanced",
+      "expert",
+    ];
     const scenarios = makeScenarios();
 
     for (const difficulty of difficulties) {
