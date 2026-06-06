@@ -72,7 +72,7 @@ reducer 側は抽出後、各フェーズで kernel 関数を呼び **UI state (
 ## 7. property-based 等価テスト (S1a、§8.3.4 + DP-1〜7)
 - **framework (依存追加なし)**: fast-check は package.json 未導入 + AGENTS.md §7 (パッケージ追加は要確認) のため**使わない**。PoC-3 と同じ **hand-rolled seeded PRNG (mulberry32) + 手書き generator** で実装 (vitest のみで完結、決定的・再現可能)。
 - **generator**: seeded WorldState から各ステップで合法 TurnAction (`getFullLegalMoves` + canDraw?draw + `getCardActions`) を seeded PRNG 選択。reducer 経路 (BEGIN→[SELECT]→CONFIRM→COMMIT / DRAW→COMMIT / MAKE_MOVE を**プログラム的に dispatch**) と applyTurnAction の両方に同一 action 適用。double_move は複合列展開。reducer は現状不変 (S1a) のため、これは**独立2実装 (既存 reducer vs 新 kernel) の等価検証**になる (= 「委譲で自明」ではなく真の regression guard)。
-- **決定論化 (DP-4)**: spectatorMode=true 固定 + Date.now() stub (fake clock)。
+- **決定論化 (DP-4)**: spectatorMode=true 固定 (早指しボーナス無効 = fastMove=false 確定)。event の `at` (Date.now()) は射影 (projectEvents/stripAt) で除外するため **Date.now() stub は不要** (S1a part2 実装で確定。当初案の fake clock は採用せず)。
 - **射影 (DP-1〜7)**: must-match 12 (mana/manaCap/hand[順序]/deck[順序]/graveyard[順序]/trap/noPromoteMarks[集合 DP-5]/drawProgress + board zobrist + turnEnded + events[kind+ドメイン射影, at除外, manaChargeEvent除外 DP-4])。must-not-match (pendingCard/lastTurnStartedAt/演出flag/UI) は捨象。
 - **assertion**: 各適用後 deep-equal / 保存則 hand+deck+graveyard+trap (DP-3) / drawProgress 5到達で reset+auto-draw / double_move 1手目 turnEnded=false で currentPlayer 不変 / events 順序一致。
 - **seed エッジケース**: 自動ドロー境界(4→5) / 山札空 / manaCap飽和 / 両者異種trap / double_move中 check_break defer→2手目発火 / double_move 1手目詰み / 捕獲駒の no_promote マーク削除 / 終局手後 turn-end スキップ。
@@ -82,7 +82,7 @@ reducer 側は抽出後、各フェーズで kernel 関数を呼び **UI state (
 - DP-1 drawProgress: `advanceDrawProgress` が reducer semantics (遅延+条件 reset+auto-draw)。AI 旧 immediate+1 (applyActionForLookahead) は S1b でカーネル委譲時に解消。
 - DP-2 double_move: applyTurnAction がマルチ ply (1手目 turnEnded=false / 2手目 finalize 遅延消費)。
 - DP-3 保存則: setTrap は hand→trap (graveyard 不変)、通常カードは hand→graveyard。
-- DP-4 決定論化: opts.spectatorMode + Date.now stub、manaChargeEvent は events 射影除外。
+- DP-4 決定論化: opts.spectatorMode (fastMove=false) + event `at` を射影除外 (Date.now stub 不要) + manaChargeEvent を events 射影除外。
 - DP-5 noPromoteMarks: 集合一致。
 - DP-6 manaCap: 不変 (kernel 内代入なし)。
 - DP-7 check_break: applyCheckBreak が getCheckingPieces (直接王手駒のみ)。double_move_first は defer。
@@ -99,13 +99,13 @@ reducer 側は抽出後、各フェーズで kernel 関数を呼び **UI state (
 - **R-S1-4 二手指し orchestration の複雑性**: finalize の pendingPlayCardOpponent re-flip ロジック (reducer.ts:692) を kernel の turnEnded 決定に正しく移植。property test の double_move エッジケースで担保。
 
 ## 11. S1a DoD (additive のみ・production 不変)
-- [ ] `world-kernel.ts`: WorldState + building-block + applyTurnAction 実装 (新規ファイル)
-- [ ] reducer.ts: `makeMoveWithEffects` 等の `export` 付与のみ (振る舞い不変、呼出経路・ロジック不変)
-- [ ] property-based 等価テスト新設・green (現 reducer 経路 vs 新 applyTurnAction の独立2実装比較、DP-1〜7 + エッジケース、**hand-rolled seeded generator = fast-check 等の依存追加なし**)
-- [ ] reducer.test / undo-policy.test / effects.test 全 green (不変ゲート = production 不変の証跡)
-- [ ] lint / typecheck / test:ci / build green
-- [ ] standard variant byte-level 不変 (kernel は card-shogi 専用、standard は kernel 非経由)
-- [ ] **reducer の薄ラッパ化・AI 配線は含めない (S1c/S1b へ隔離)**
+- [x] `world-kernel.ts`: WorldState + building-block + applyTurnAction 実装 (新規ファイル) — part1 commit `29d1e1e`
+- [x] reducer.ts: `makeMoveWithEffects` 等の `export` 付与のみ (振る舞い不変、呼出経路・ロジック不変) — part1
+- [x] property-based 等価テスト新設・green (現 reducer 経路 vs 新 applyTurnAction の独立2実装比較、DP-1〜7 + エッジケース、**hand-rolled seeded generator = fast-check 等の依存追加なし**) — part2: `src/lib/shogi/kernel/__tests__/world-kernel-equivalence.test.ts` (16 件: ランダム harness 180 seed×40 ply + targeted 15)
+- [x] reducer.test / undo-policy.test / effects.test 全 green (不変ゲート = production 不変の証跡) — test:ci 528 passed
+- [x] lint / typecheck / test:ci / build green — part2 完了時点で全 green
+- [x] standard variant byte-level 不変 (kernel は card-shogi 専用、standard は kernel 非経由)
+- [x] **reducer の薄ラッパ化・AI 配線は含めない (S1c/S1b へ隔離)** — additive のみ維持
 
 ## 12. マイルストーン1レビュー反映 (2026-06-07、AGENTS.md ルール8)
 本計画初版を 3観点 adversarial workflow (#109 観点 + reducer 実コード照合) でレビューし、以下を反映:
@@ -118,3 +118,15 @@ reducer 側は抽出後、各フェーズで kernel 関数を呼び **UI state (
 - **playCard は単一 union メンバ + defId dispatch** (§4 注): 新 union メンバを増やさない。
 - 妥当と確認: 中核戦略 (抽出して委譲)・二層構造・DP-1〜7 射影・check_break reuse・feature-flag+多層 rollback・evaluateGameEnd 共有。
 - 着手前提: S0 design doc はユーザー承認済 (2026-06-07、epic §8.6)。本 worktree に epic SSOT を co-locate 済 (design ブランチ merge)。
+
+## 13. マイルストーン2レビュー反映 (実装後、2026-06-07、AGENTS.md ルール8)
+S1a part2 (property-based 等価テスト) 実装完了時点で、5観点 adversarial workflow (#109 観点 + 実コード照合 + 計装 coverage probe、16 agents) を実施。**16 findings → high/medium 11 件を独立検証 = 全件 confirmed (refuted/uncertain 0)**。指摘は「計画 §8.3.4 必須エッジのうち**終局 (status≠active) 系がランダム harness でも targeted でも未踏**」に収束。下記をすべて反映:
+- **[high] 通常 move 終局の turn-end スキップ**: 固定盤面 (head-gold 詰み) で詰ます手を適用し、`advanceDrawProgress` の status≠active no-op (drawProgress 境界 4 でも reset/auto-draw しない) と status/winner/flip 等価を pin。
+- **[high] double_move 1手目詰みの即 finalize** (world-kernel.ts:258-274): 1手目で詰む固定盤面で、flip 戻し抑止・カード遅延消費 (hand→graveyard, mana-=5, cardPlayEvent)・drawProgress スキップを reducer 経路と等価 pin。
+- **[medium] DP-5×カード**: pawn_return で戻した駒の no_promote マーク削除 (removeNoPromoteMark) を pin。
+- **[medium] DP-7**: double_move 中の check_break が 1手目で defer (トラップ残置)・2手目で発火 (王手駒捕獲・トラップ消費・trapTriggerEvent) する複合列を pin。捕獲駒の no_promote マーク削除も pin。
+- **[medium] 王手中 double_move (checkUsage=unconditional)**: 王手中の double_move 開始 + RELAXED 1手目 (自玉王手のまま) → 2手目で解消、を等価 pin (王手中カード orchestration / RELAXED 1手目の双方をカバー)。
+- **[low] OBS4-5**: ランダム harness の doubleMove 同期チェックに cardInstance.instanceId / cardCost 比較を追加 (遅延消費パラメータの一致を直接 pin)。
+- **[low] OBS5-3**: deprecated `mana_up` 分岐 (kernel/reducer 両在) の等価を targeted で pin しデッドカバレッジ解消。
+- **[low] F-3 (doc)**: 本計画 §4/§8 の「Date.now() stub」記述を実態 (stripAt による at 射影除外 = stub 不要) に訂正。
+- 結果テスト: ランダム harness 180 seed×40 ply + targeted 15 = 計 16 件 green。test:ci 528 passed / build green。
