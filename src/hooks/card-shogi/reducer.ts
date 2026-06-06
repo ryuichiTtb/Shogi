@@ -236,7 +236,9 @@ function pushUndoSnapshot(state: CardShogiGameStateInternal): UndoSnapshot[] {
 
 // 移動 + マナチャージ + トラップフィルタ を一括適用。
 // CONFIRM_PROMOTION と MAKE_MOVE の両方から呼ばれる。
-function makeMoveWithEffects(
+// Issue #235 S1a: world-kernel.ts が move ロジックを reuse するため export。
+// 振る舞い不変 (関数本体・呼出経路は一切変更なし)。物理移設と reducer 薄ラッパ化は S1c。
+export function makeMoveWithEffects(
   gameState: GameState,
   cardState: CardGameState,
   move: Move,
