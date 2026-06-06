@@ -293,7 +293,7 @@ L0 統合 (reducer/AI が単一カーネル `applyTurnAction` に委譲) は最�
 - [x] PoC-1/2/3 完了・各合否判定 (§8.4.5、adversarial verify 反映: PoC-1 CONDITIONAL PASS / PoC-2・3 PASS)
 - [x] S1 実装計画 + rollback 手順を doc 化 (§8.5、feature-flag + 段階統合 S1a〜d + 多層 rollback)
 - [x] PoC 結果に基づき S4 を S4a/S4b 分割確定 (§8.4.5 / §7 S4 行)。S2-S6 の数値目標は各段 plan doc で operationalize (本 epic doc はアーキ + S0 確定層)
-- [ ] **本設計 doc 確定 = ユーザーレビュー + 合意待ち** (AGENTS.md ルール8 マイルストーン2: 実装後レビュー相当を adversarial workflow で実施済、ユーザー最終確認が残)
+- [x] **本設計 doc 確定 = ユーザー承認済 (2026-06-07)**。S0 PoC de-risk をユーザー承認 (「承認とします」)、S1 着手指示を受領。レビュー依頼コメントは不要との指示。AGENTS.md ルール8 マイルストーン2 (実装後レビュー相当) は adversarial workflow で実施済。
 
 ---
 
