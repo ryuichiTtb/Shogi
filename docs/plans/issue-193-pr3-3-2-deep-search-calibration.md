@@ -171,6 +171,7 @@ evaluateActionDeep(state, action, player, variant, ctx, excludeTadasute, budget)
 - **before-baseline ゲート (T9)**: C-2 で K=0(現状経路)の `depthCompleted` を fixture で記録 → C-3 以降の比較基準に(PR3-3 で before 値未取得だった反省)。
 - **deadline 打ち切り (T10)**: `ctx.deadlineAt`/`shouldStop` 超過時は深掘りを打ち切り、**既に findBestMove が選定済の move にフォールバック**(部分結果でなく確定済 move を使うため安全)。
 - **±10% が K=1 で未達なら**(T9): K 据え置き / 深掘り candidate を上位 M 手(`scoreMoveForOrdering`)に絞る / playCard のみ深掘り(move は深掘りしない)を C-5 で検討。
+- **C-2 実測知見 (2026-06-01)**: 枝刈りなしの深掘りコストは `cost(B) ≈ (自分分岐 ~35 × 相手分岐 ~30)^B`。フル盤面で **budget=3 が約 130 万 evaluate に達し非現実的**(unit test で 132s)。**K=1 は root 全体で ~38k evaluate で許容内**だが、**K≥2 は候補上位 M 手への枝刈り(`scoreMoveForOrdering`)が前提**。よって枝刈りを「未達時の対策」から **K≥2 引き上げの前提条件**に格上げし、C-3 で K=1(枝刈りなし)→ C-5 で枝刈り導入 + K=2 の順とする。
 
 ### 3.7 難易度ティア (D-1/D-2 反映)
 

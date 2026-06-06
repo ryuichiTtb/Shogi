@@ -14,7 +14,8 @@ import {
   TRAP_VALUE_NO_PROMOTE,
   TRAP_VALUE_CHECK_BREAK,
 } from "./cards/heuristics";
-import { CurrentRules } from "./turn/current-rules";
+import { CurrentRules, canDraw } from "./turn/current-rules";
+import { getCardActions } from "./turn/action-generator";
 import type { AiTurnState, TurnAction } from "./turn/types";
 import type { CardGameState } from "../cards/types";
 import { CARD_DEFS, DRAW_COST } from "../cards/definitions";
@@ -1088,28 +1089,48 @@ function applyActionForLookahead(
   return { gameState: nextGameState, cardState: baseCardState };
 }
 
+// PR3-3-2: 相手 1-ply 最善応答のスコア (player 視点) と、その応答後の局面を返す。
+// negamax / TT を経由せず evaluate 直呼びのため、card-aware 深掘り (evaluateActionDeep) が
+// 安全に再帰できる (同一盤面・異 cardDigest を TT に書く経路が無く、誤キャッシュ hazard なし)。
+// oppState は深掘り継続用 (相手手後 = 自分の次の手番の局面)。terminal (相手合法手なし) は null。
+function scanOpponentResponse(
+  stateAfterOurAction: GameState,
+  ourPlayer: Player,
+  variant: RuleVariant,
+  cardDigest: CardDigest | undefined,
+): { score: number; oppState: GameState | null } {
+  const opp: Player = ourPlayer === "sente" ? "gote" : "sente";
+  const oppMoves = getSearchLegalMoves(stateAfterOurAction, opp, variant);
+  if (oppMoves.length === 0) {
+    // 相手の合法手なし (詰み or stalemate)。terminal 局面として通常評価値を返す (深掘り不可)。
+    const raw = evaluate(stateAfterOurAction, variant, cardDigest);
+    return { score: ourPlayer === "sente" ? raw : -raw, oppState: null };
+  }
+  // 相手は our perspective score を最小化する手を選ぶ (= 我々を最も不利にする手)。
+  // 最小を達成した応答後局面を保持し、深掘り再帰の「自分の次の手番」起点に使う。
+  let worstForUs = Number.POSITIVE_INFINITY;
+  let worstState: GameState | null = null;
+  for (const oppMove of oppMoves) {
+    const next = applyMoveForSearch(stateAfterOurAction, oppMove);
+    const raw = evaluate(next, variant, cardDigest);
+    const ourScore = ourPlayer === "sente" ? raw : -raw;
+    if (ourScore < worstForUs) {
+      worstForUs = ourScore;
+      worstState = next;
+    }
+  }
+  return { score: worstForUs, oppState: worstState };
+}
+
+// 後方互換: スコアのみ必要な呼出 (evaluateActionWithLookahead) 用の薄いラッパ。
 function getOpponentResponseScore(
   stateAfterOurAction: GameState,
   ourPlayer: Player,
   variant: RuleVariant,
   cardDigest: CardDigest | undefined,
 ): number {
-  const opp: Player = ourPlayer === "sente" ? "gote" : "sente";
-  const oppMoves = getSearchLegalMoves(stateAfterOurAction, opp, variant);
-  if (oppMoves.length === 0) {
-    // 相手の合法手なし (詰み or stalemate)。terminal 局面として通常評価値を返す。
-    const raw = evaluate(stateAfterOurAction, variant, cardDigest);
-    return ourPlayer === "sente" ? raw : -raw;
-  }
-  // 相手は our perspective score を最小化する手を選ぶ (= 我々を最も不利にする手)
-  let worstForUs = Number.POSITIVE_INFINITY;
-  for (const oppMove of oppMoves) {
-    const next = applyMoveForSearch(stateAfterOurAction, oppMove);
-    const raw = evaluate(next, variant, cardDigest);
-    const ourScore = ourPlayer === "sente" ? raw : -raw;
-    if (ourScore < worstForUs) worstForUs = ourScore;
-  }
-  return worstForUs;
+  return scanOpponentResponse(stateAfterOurAction, ourPlayer, variant, cardDigest)
+    .score;
 }
 
 export function evaluateActionWithLookahead(
@@ -1190,4 +1211,140 @@ export function evaluateActionWithLookahead(
   // 旧実装は ここで TRAP_VALUE_* を明示加算していたが、digest 経由で自然に反映される
   // ようになったので削除 (重複加算回避)。
   return oppScore;
+}
+
+// PR3-3-2: card-aware 深掘りの「自分ノード」で生成する TurnAction 候補。
+// move (getSearchLegalMoves) + draw (canDraw) + playCard (getCardActions、double_move 除外)。
+//
+// getLegalActions の isRoot ゲートは流用せず別経路にすることで、production の move-only 探索
+// (findBestMove → getSearchLegalMoves) には一切波及しない (計画 md §3.2)。
+// double_move は MVP では深掘り再帰に含めない (root の searchDoubleMoveSuperAction で評価、§3.5)。
+function getCardAwareActions(
+  state: AiTurnState,
+  player: Player,
+  variant: RuleVariant,
+): TurnAction[] {
+  const actions: TurnAction[] = getSearchLegalMoves(
+    state.gameState,
+    player,
+    variant,
+  ).map((move) => ({ kind: "move", move }));
+  if (variant.id === "card-shogi") {
+    if (canDraw(state.cardState, player)) actions.push({ kind: "draw" });
+    for (const cardAction of getCardActions(state, player, variant)) {
+      if (cardAction.kind === "playCard" && cardAction.defId === "double_move") {
+        continue;
+      }
+      actions.push(cardAction);
+    }
+  }
+  return actions;
+}
+
+// PR3-3-2: 深さ budget 付き card-aware 評価。evaluateActionWithLookahead(1-ply) の再帰版。
+//
+// 設計 (計画 md docs/plans/issue-193-pr3-3-2-deep-search-calibration.md §3.1):
+// - budget=0: 既存 evaluateActionWithLookahead(lookaheadPly=1) と同一スコア (後方互換)。
+// - budget>0 (card-shogi のみ): 自 action 適用 → 相手 1-ply scan → 相手応答後 (= 自分の次の
+//   手番) で再び自分の TurnAction を深掘りし、最大スコアを採用。「自分のカードプランを K 手深く読む」。
+// - 相手応答は scanOpponentResponse (evaluate 直呼び、negamax/TT 非経由) のため TT 誤キャッシュなし。
+// - 戻り値は全レベル player 視点 (player 有利が +)。符号反転は scanOpponentResponse 内 1 箇所のみ。
+// - getDrawValue は action 評価ごと 1 回だけ (selfBonus、再帰結果には子の bonus が内包される)。
+// - double_move は searchDoubleMoveSuperAction に委譲 (深掘り再帰に含めない、§3.5)。
+// - prevDigest は state.cardState に対応する cardDigest (root では ctx.cardDigest)。再帰では
+//   親が生成した newDigest を渡す (ctx.cardDigest は root 固定のため子ノードでは使えない)。
+export function evaluateActionDeep(
+  state: AiTurnState,
+  action: TurnAction,
+  player: Player,
+  variant: RuleVariant,
+  ctx: SearchContext | undefined,
+  excludeTadasute: boolean,
+  budget: number,
+  prevDigest?: CardDigest,
+): number {
+  // double_move: 既存 super-action 内部探索が 2 手後を評価済 (深掘り再帰には含めない、§3.5)。
+  if (action.kind === "playCard" && action.defId === "double_move") {
+    return searchDoubleMoveSuperAction(state, player, variant, ctx, excludeTadasute);
+  }
+
+  const applied = applyActionForLookahead(state, action, player);
+  if (!applied) return Number.NEGATIVE_INFINITY;
+
+  // 通常カードのタダ捨て除外 (既存 evaluateActionWithLookahead 同型)。
+  if (
+    excludeTadasute &&
+    action.kind === "playCard" &&
+    action.defId !== "no_promote" &&
+    action.defId !== "check_break" &&
+    cardResultIntroducesTadasute(
+      state.gameState,
+      applied.gameState,
+      player,
+      variant,
+    )
+  ) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  // per-action cardDigest 更新 (card-shogi のみ)。prevDigest 未渡時は computeCardDigest フォールバック。
+  let newDigest: CardDigest | undefined;
+  if (variant.id === "card-shogi") {
+    const base = prevDigest ?? computeCardDigest(state.cardState);
+    newDigest = updateCardDigest(base, state.cardState, applied.cardState);
+  }
+
+  const { score: oppScore, oppState } = scanOpponentResponse(
+    applied.gameState,
+    player,
+    variant,
+    newDigest,
+  );
+
+  // draw の encouragement は「この action が draw のとき」だけ 1 回。再帰結果には伝播させない。
+  const selfBonus =
+    action.kind === "draw"
+      ? getDrawValue(state.gameState, player, state.cardState)
+      : 0;
+
+  // 深掘り停止: budget 切れ / standard variant / terminal (相手応答なし) / 時間切れ。
+  if (
+    budget <= 0 ||
+    variant.id !== "card-shogi" ||
+    oppState === null ||
+    (ctx !== undefined && shouldStop(ctx))
+  ) {
+    return oppScore + selfBonus;
+  }
+
+  // 不変条件 (現行ルール「1 action = 1 turn」): 相手 1 手後は必ず自分の手番に戻る
+  // (applyMoveForSearch が move.player(=opp) で currentPlayer を反転するため常に成立)。
+  // 将来ルールで崩れたら深掘りせず oppScore を返す安全弁。
+  if (oppState.currentPlayer !== player) {
+    return oppScore + selfBonus;
+  }
+
+  // 相手応答後 (= 自分の次の手番) で再び自分の TurnAction を深掘り。探索プレイヤー視点で
+  // 「自分が最も得する続き」を取る (max)。best は oppScore を floor とするため budget 単調非減少。
+  const nextState: AiTurnState = {
+    gameState: oppState,
+    cardState: applied.cardState,
+    doubleMove: null,
+    isRoot: false,
+  };
+  let best = oppScore;
+  for (const nextAction of getCardAwareActions(nextState, player, variant)) {
+    const sub = evaluateActionDeep(
+      nextState,
+      nextAction,
+      player,
+      variant,
+      ctx,
+      excludeTadasute,
+      budget - 1,
+      newDigest,
+    );
+    if (sub > best) best = sub;
+  }
+  return best + selfBonus;
 }

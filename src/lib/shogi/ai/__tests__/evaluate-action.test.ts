@@ -9,8 +9,13 @@
 // 計画 md `docs/plans/issue-193-pr1d.md` PR1d-2 詳細 / 検証計画 / 機能追加検証 参照。
 
 import { describe, it, expect } from "vitest";
-import { evaluateAction, evaluateActionWithLookahead } from "../search";
+import {
+  evaluateAction,
+  evaluateActionWithLookahead,
+  evaluateActionDeep,
+} from "../search";
 import { computeCardDigest } from "../cards/digest";
+import { STANDARD_VARIANT } from "@/lib/shogi/variants/standard";
 import {
   getDrawValue,
   TRAP_VALUE_NO_PROMOTE,
@@ -459,5 +464,127 @@ describe("evaluateActionWithLookahead calibration regression (deterministic、PR
     );
     // mana 余剰増 → getDrawValue 増 (DRAW_MANA_SURPLUS_COEF=3 経由) + opp scan は同盤面
     expect(drawHigh).toBeGreaterThan(drawLow);
+  });
+});
+
+// PR3-3-2 C-2: evaluateActionDeep (深さ budget 付き card-aware 評価) の土台検証。
+//
+// 検証方針 (計画 md docs/plans/issue-193-pr3-3-2-deep-search-calibration.md §5.1):
+// - budget=0 で既存 evaluateActionWithLookahead(lookaheadPly=1) と完全一致 (後方互換)
+// - budget 単調非減少: deep(budget=1) >= deep(budget=0) (探索プレイヤー視点、深掘りで損しない)
+// - standard variant では card 再帰に入らず budget に依らず同値 (非デグレ)
+// - 再帰停止 (大きな budget でも有限値) / double_move は delegate
+//
+// 本コミット (C-2) 時点では production (engine.ts) は依然 evaluateActionWithLookahead を使い、
+// evaluateActionDeep は未 wiring。engine 切替は C-3。
+describe("evaluateActionDeep (PR3-3-2 C-2 土台)", () => {
+  function midState(): AiTurnState {
+    // 中盤 phase=1 / sente マナ余剰・手札ありで深掘りに意味が出る局面
+    const cs = createInitialCardState(TEST_DECK);
+    cs.mana.sente = 12;
+    cs.mana.gote = 10;
+    return {
+      gameState: { ...createInitialGameState(CARD_SHOGI_VARIANT), moveCount: 50 },
+      cardState: cs,
+      doubleMove: null,
+      isRoot: true,
+    };
+  }
+  function firstMove(state: AiTurnState, player: "sente" | "gote" = "sente"): TurnAction {
+    const moves = getFullLegalMoves(state.gameState, player, CARD_SHOGI_VARIANT);
+    return { kind: "move", move: moves[0] };
+  }
+
+  it("budget=0 は evaluateActionWithLookahead(lookaheadPly=1) と一致: move", () => {
+    const state = midState();
+    const action = firstMove(state);
+    const deep0 = evaluateActionDeep(state, action, "sente", CARD_SHOGI_VARIANT, undefined, false, 0);
+    const look1 = evaluateActionWithLookahead(state, action, "sente", CARD_SHOGI_VARIANT, undefined, false, 1);
+    expect(deep0).toBe(look1);
+  });
+
+  it("budget=0 は evaluateActionWithLookahead(lookaheadPly=1) と一致: draw", () => {
+    const state = midState();
+    const action: TurnAction = { kind: "draw" };
+    const deep0 = evaluateActionDeep(state, action, "sente", CARD_SHOGI_VARIANT, undefined, false, 0);
+    const look1 = evaluateActionWithLookahead(state, action, "sente", CARD_SHOGI_VARIANT, undefined, false, 1);
+    expect(deep0).toBe(look1);
+  });
+
+  it("budget=0 は evaluateActionWithLookahead(lookaheadPly=1) と一致: trap (no_promote)", () => {
+    const state = midState();
+    const action: TurnAction = {
+      kind: "playCard",
+      cardInstanceId: "np",
+      defId: "no_promote",
+      target: undefined,
+    };
+    const deep0 = evaluateActionDeep(state, action, "sente", CARD_SHOGI_VARIANT, undefined, false, 0);
+    const look1 = evaluateActionWithLookahead(state, action, "sente", CARD_SHOGI_VARIANT, undefined, false, 1);
+    expect(deep0).toBe(look1);
+  });
+
+  it("budget=0 は evaluateActionWithLookahead(lookaheadPly=1) と一致: double_move delegate", () => {
+    const state = midState();
+    const action: TurnAction = {
+      kind: "playCard",
+      cardInstanceId: "dm",
+      defId: "double_move",
+      target: undefined,
+    };
+    const deep0 = evaluateActionDeep(state, action, "sente", CARD_SHOGI_VARIANT, undefined, false, 0);
+    const look1 = evaluateActionWithLookahead(state, action, "sente", CARD_SHOGI_VARIANT, undefined, false, 1);
+    expect(deep0).toBe(look1);
+  });
+
+  it("budget 単調非減少: deep(budget=1) >= deep(budget=0) (move、探索プレイヤー視点)", () => {
+    const state = midState();
+    const action = firstMove(state);
+    const deep0 = evaluateActionDeep(state, action, "sente", CARD_SHOGI_VARIANT, undefined, false, 0);
+    const deep1 = evaluateActionDeep(state, action, "sente", CARD_SHOGI_VARIANT, undefined, false, 1);
+    // best は oppScore を floor に max を取るため、深掘りで自分のスコアは下がらない
+    expect(deep1).toBeGreaterThanOrEqual(deep0);
+  });
+
+  it("budget 単調非減少: deep(budget=1) >= deep(budget=0) (draw)", () => {
+    const state = midState();
+    const action: TurnAction = { kind: "draw" };
+    const deep0 = evaluateActionDeep(state, action, "sente", CARD_SHOGI_VARIANT, undefined, false, 0);
+    const deep1 = evaluateActionDeep(state, action, "sente", CARD_SHOGI_VARIANT, undefined, false, 1);
+    expect(deep1).toBeGreaterThanOrEqual(deep0);
+  });
+
+  it("standard variant: budget>0 でも card 再帰に入らず budget=0 と同値 (非デグレ)", () => {
+    const stdState: AiTurnState = {
+      gameState: createInitialGameState(STANDARD_VARIANT),
+      cardState: createInitialCardState(TEST_DECK), // standard では未使用
+      doubleMove: null,
+      isRoot: true,
+    };
+    const moves = getFullLegalMoves(stdState.gameState, "sente", STANDARD_VARIANT);
+    const action: TurnAction = { kind: "move", move: moves[0] };
+    const deep0 = evaluateActionDeep(stdState, action, "sente", STANDARD_VARIANT, undefined, false, 0);
+    const deep5 = evaluateActionDeep(stdState, action, "sente", STANDARD_VARIANT, undefined, false, 5);
+    expect(deep5).toBe(deep0);
+  });
+
+  it("budget=2 でも再帰が停止し有限値を返す (枝刈りなしのため重いが収束)", () => {
+    // 注 (C-2 知見): 枝刈りなしの深掘りは cost(B) ≈ (自分分岐 × 相手分岐)^B でフル盤面では
+    // budget=3 が ~130 万 evaluate に達し非現実的。production の K は ≤1 から開始し、K≥2 は
+    // 候補上位 M 手への枝刈り (scoreMoveForOrdering) を C-3/C-5 で導入してから引き上げる。
+    // 本テストは「再帰が確実に停止し有限値を返す」ことの確認 (budget=2、余裕を持った timeout)。
+    const state = midState();
+    const action = firstMove(state);
+    const score = evaluateActionDeep(state, action, "sente", CARD_SHOGI_VARIANT, undefined, false, 2);
+    expect(Number.isFinite(score)).toBe(true);
+  }, 30_000);
+
+  it("prevDigest を渡しても渡さなくても budget=0 の結果は一致 (fallback computeCardDigest)", () => {
+    const state = midState();
+    const action = firstMove(state);
+    const digest = computeCardDigest(state.cardState);
+    const withDigest = evaluateActionDeep(state, action, "sente", CARD_SHOGI_VARIANT, undefined, false, 0, digest);
+    const withoutDigest = evaluateActionDeep(state, action, "sente", CARD_SHOGI_VARIANT, undefined, false, 0);
+    expect(withDigest).toBe(withoutDigest);
   });
 });
