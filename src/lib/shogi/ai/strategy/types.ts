@@ -51,6 +51,9 @@ export interface SearchStrategy {
   readonly nearEqualThreshold: number;
   readonly useBook: boolean;
   readonly spectator: boolean;
+  // Issue #193 / PR3-3-2: card-aware 深掘り探索の深さ budget (DIFFICULTY_PARAMS パススルー)。
+  // 0 = 1-ply lookahead 相当。card-shogi root の evaluateActionDeep に渡る。
+  readonly cardSearchBudget: number;
 
   // 一手選択。PR1a 段階では内部で findBestMoveWithStats を呼ぶアダプタ実装。
   selectMove(input: SelectMoveInput): SelectMoveResult;

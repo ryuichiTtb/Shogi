@@ -3,7 +3,7 @@ import type { CardGameState } from "../cards/types";
 import { STANDARD_VARIANT } from "../variants/standard";
 import {
   findBestMove,
-  evaluateActionWithLookahead,
+  evaluateActionDeep,
   movesEqual,
 } from "./search";
 import {
@@ -35,6 +35,10 @@ export interface DifficultyParams {
   addNoise: number;
   useBook: boolean;
   nearEqualThreshold: number; // 接戦時ランダム選択の閾値（cp）
+  // Issue #193 / PR3-3-2: card-aware 深掘り探索の深さ budget (自分の TurnAction を K 手深読み)。
+  // 0 = 既存 1-ply lookahead 相当 (低難易度 / standard)。card-shogi の root から
+  // evaluateActionDeep に渡る。K≥2 は候補枝刈り (C-5) 導入後に引き上げる (計画 md §3.6/§3.7)。
+  cardSearchBudget: number;
 }
 
 // 難易度別探索パラメータ。
@@ -54,6 +58,7 @@ export const DIFFICULTY_PARAMS: Record<Difficulty, DifficultyParams> = {
     addNoise: 0.50,        // 高ノイズ: 半分の確率でランダムな手
     useBook: false,        // 定石なし: 自然な弱さを演出
     nearEqualThreshold: 200, // 広い閾値: 大きくブレる
+    cardSearchBudget: 0,   // PR3-3-2: 浅い読み + 校正で十分 (弱さ演出を維持)
   },
   intermediate: {
     maxDepth: 6,
@@ -61,6 +66,7 @@ export const DIFFICULTY_PARAMS: Record<Difficulty, DifficultyParams> = {
     addNoise: 0.10,        // 10%のノイズ
     useBook: true,
     nearEqualThreshold: 80, // 中程度の閾値
+    cardSearchBudget: 0,   // PR3-3-2: 当面 0 (校正のみ)。C-5 bench で中級の card 使用率を見て調整
   },
   advanced: {
     maxDepth: 16,          // 反復深化で到達できる限り深く
@@ -68,6 +74,7 @@ export const DIFFICULTY_PARAMS: Record<Difficulty, DifficultyParams> = {
     addNoise: 0,           // ノイズなし: ブランダー排除
     useBook: true,
     nearEqualThreshold: 0, // 常に最善手を選択
+    cardSearchBudget: 1,   // PR3-3-2: 深い tactical 優位に対抗し自分のカードプランを 1 段深読み
   },
   expert: {
     maxDepth: 24,          // 反復深化で到達できる限り深く
@@ -75,6 +82,7 @@ export const DIFFICULTY_PARAMS: Record<Difficulty, DifficultyParams> = {
     addNoise: 0,           // ノイズなし: ブランダー排除
     useBook: true,
     nearEqualThreshold: 0, // 常に最善手を選択
+    cardSearchBudget: 1,   // PR3-3-2: K=1 から開始 (K≥2 は枝刈り C-5 導入後)。相手カード考慮は PR3-4
   },
 };
 
@@ -307,33 +315,36 @@ export function findBestMoveWithStats(
     };
     const allActions = rules.getLegalActions(aiTurnState, player);
 
-    // PR3-3 C-2: 旧 evaluateAction (depth=0 評価) を evaluateActionWithLookahead に
-    // 置換。各 TurnAction 候補に「相手 1 ply 最善応答」を加えた lookahead score で
-    // 比較することで、move 側の見かけ +100cp tactical が opp 応答後に ±0 へ収束し、
-    // card 側の tempo 価値が残る形で公平に競争できる。実プレイ midgame の AI
-    // カード使用ゼロ退化 (PR3-1 で static eval は校正済だが残存) の解消が目的。
-    // 計画 md docs/plans/issue-193-pr3-3-deep-card-search.md 3.1 章参照。
-    let bestActionScore = evaluateActionWithLookahead(
+    // PR3-3 C-2 → PR3-3-2 C-3: evaluateActionWithLookahead(1-ply) を evaluateActionDeep に
+    // 置換し、難易度別 budget (strategy.cardSearchBudget) で「自分の TurnAction を K 手深掘り」する。
+    // budget=0 (初級/中級) は 1-ply lookahead 相当で従来挙動キープ、budget≥1 (上級/超上級) は
+    // カードプランを深く読み、深い tactical move と公平に競争させる (実プレイ midgame の
+    // カード使用ゼロ退化を構造的に解消)。prevDigest は root の ctx.cardDigest (state.cardState 対応)。
+    // 計画 md docs/plans/issue-193-pr3-3-2-deep-search-calibration.md §3.1/§3.7 参照。
+    const cardSearchBudget = strategy.cardSearchBudget;
+    let bestActionScore = evaluateActionDeep(
       aiTurnState,
       { kind: "move", move },
       player,
       variant,
       ctx,
       applyTadasuteGuard,
-      1,
+      cardSearchBudget,
+      ctx.cardDigest,
     );
 
     for (const action of allActions) {
       if (action.kind === "move") continue; // move は上で評価済
       // applyTadasuteGuard 時、カード適用がタダ捨てになる手は -Inf を返し採用されない。
-      const score = evaluateActionWithLookahead(
+      const score = evaluateActionDeep(
         aiTurnState,
         action,
         player,
         variant,
         ctx,
         applyTadasuteGuard,
-        1,
+        cardSearchBudget,
+        ctx.cardDigest,
       );
       if (score > bestActionScore) {
         bestActionScore = score;

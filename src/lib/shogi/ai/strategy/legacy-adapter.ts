@@ -31,6 +31,7 @@ export class LegacyStrategyAdapter implements SearchStrategy {
   readonly nearEqualThreshold: number;
   readonly useBook: boolean;
   readonly spectator: boolean;
+  readonly cardSearchBudget: number;
 
   constructor(
     characterId: string,
@@ -53,6 +54,9 @@ export class LegacyStrategyAdapter implements SearchStrategy {
     this.addNoise = params.addNoise;
     this.nearEqualThreshold = params.nearEqualThreshold;
     this.useBook = params.useBook;
+    // Issue #193 / PR3-3-2: card-aware 深掘り深さ (DIFFICULTY_PARAMS パススルー)。
+    // 観戦モードでも値は維持 (探索の time 上限は deadline 打ち切りで吸収、evaluateActionDeep 内)。
+    this.cardSearchBudget = params.cardSearchBudget;
   }
 
   selectMove(input: SelectMoveInput): SelectMoveResult {
