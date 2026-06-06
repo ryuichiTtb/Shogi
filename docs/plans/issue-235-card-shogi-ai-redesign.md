@@ -25,10 +25,10 @@
 | # | 根本問題 | 実体 (path) |
 |---|---|---|
 | **P1** | 探索の深さ非対称・二重探索 | move は深さN本物探索 (`search.ts:322` negamax)、card/draw は `engine.ts` root の別系統 (`evaluateActionWithLookahead`、`search.ts:1115`) が並走。相手応答は常に move-only 1-ply (`getOpponentResponseScore`)。※ parked ブランチ `feature/#193-pr3-3-2` は本経路を `evaluateActionDeep`(budget再帰)に拡張済だが未マージ・本再設計で L2 に吸収 |
-| **P2** | カード価値が内容非依存のスカラー圧縮 | `CardDigest` 6スカラー (`digest.ts:34`) = mana/手札枚数/draw/trap有無。各カードが盤面を何 cp 改善するか・局面/コスト依存値を持たない。トラップは固定 (`TRAP_VALUE_*`) |
+| **P2** | カード価値が内容非依存のスカラー圧縮 | `CardDigest` 7フィールド (`digest.ts:34`、PR3-1 で `manaAbsolute`(死にマナ) 追加) = mana/手札枚数/draw/trap有無。各カードが盤面を何 cp 改善するか・局面/コスト依存値を持たない。トラップは固定 (`TRAP_VALUE_*`) |
 | **P3** | 相手手札の隠れ情報モデルが皆無 | `cardState.hand[opponent]` が完全透視 (`state.ts` serialize、AI も参照可)。eventLog は AI に渡らず DB 非永続。相手デッキ構成は初期化後破棄 |
 | **P4** | ルール/状態の二重実装と分離 | 権威 `reducer.ts` (makeMoveWithEffects/applyTurnEndEffects/二手指し/トラップ遅延) と AI 側 (`current-rules.ts`/`action-generator.ts`/`search.ts`) が独立再実装。`GameState`(盤) と `CardGameState`(マナ・手札) も分離し都度手動同期 |
-| **P5** | カード追加が9箇所横断の手作業 | 新カード1枚で types/definitions(+CARD_USE_CONDITIONS)/effects/reducer/undo-policy/digest+heuristics/action-generator/test/seed を手動更新。`effectId` 族別 switch が散在 |
+| **P5** | カード追加が9〜13箇所横断の手作業 | 新カード1枚で types/definitions(+CARD_USE_CONDITIONS)/effects/reducer/undo-policy/digest+heuristics/action-generator/test/seed を手動更新 (実測 11〜13 touch point)。`effectId` 族別 switch が散在 |
 | **P6** | TT が cardState 非対応 | `zobrist.computeHash` は GameState のみ。同一盤面・別 cardState で誤キャッシュ |
 | **P7** | 時間軸価値が反映されない | PR3-3 C-6 で root の 1-ply lookahead は per-action digest 更新済 (`updateCardDigest`) だが、**深部 negamax/quiescence ノードは root scalar digest 固定**。「N手後に自動ドロー発火」「相手が王手なら check_break 価値UP」等の多手 (N>1) 時間軸価値を捕捉不可 |
 
@@ -163,7 +163,7 @@ type EffectSpec =
 | **S1** | refactor | L0 状態/ルールカーネル統合 | `WorldState`+`applyTurnAction` 新設、reducer/AI がカーネル委譲。reducer.test/undo-policy.test/effects.test 不変 (property-based 等価)。standard byte-level 不変 |
 | **S2** | refactor+feature | L1 カードフレームワーク化 | `CardSpec` registry + EffectSpec。既存7カード移植 (legacy wrapper 経由の段階移行可)。CardId codegen。effects/reducer分岐/undo を registry 駆動 |
 | **S3** | feature | L1 内容依存値付け | ValueModel でカードを局面・コスト依存に。固定係数 (TRAP_VALUE_* 等) 脱却。digest は集約キャッシュへ。bench で旧評価比較・校正 |
-| **S4** | feature | L2 TurnAction 単一探索 + TT 拡張 **(最重要)** | card-shogi 専用 TurnAction-negamax (standard 温存)。zobrist cardState 拡張・誤hit対策。selector(M/K/budget)。double_move 木統合。before-baseline 比 depthCompleted ±10% + カード使用率改善 |
+| **S4** | feature | L2 TurnAction 単一探索 + TT 拡張 **(最重要)** | card-shogi 専用 TurnAction-negamax (standard 温存)。zobrist cardState 拡張・誤hit対策。selector(M/K/budget)。double_move 木統合。**S4a で実エンジンに selector を載せ M/K 再校正 → before-baseline 比 depthCompleted ±10%** (PoC-1 は same-engine 比で枝刈り余地を確認済、production 絶対比は S4a 実測) + カード使用率改善 |
 | **S5** | feature | L3 相手モデル/期待値読み (超上級) | OpponentModel (ベイズ残り手札)。eventLog 伝播+永続化。相手ノード確率分岐+閾値枝刈り。超上級のみ。フェアネス (手札非透視) を test 固定。**依存 (blocking): eventLog 永続化は #193 PR1e の DB schema と協調が前提 → S5 着手条件に PR1e completion を明記** |
 | **S6** | chore+feature | 仕上げ・新カード運用確立 | テンプレ化された追加フロー (AGENTS.md 更新)。phase 別レアリティ上限 config 化。exhaustive fixture。Phase A カードを新フローで1枚追加し工数・品質実証 |
 
@@ -179,33 +179,121 @@ critique が「方向性は正当だが理想像、PoC で実現性を先に確�
 本ファイル + adversarial verify + ユーザーレビュー (= 現在地)。
 
 ### 8.2 before-baseline 計測・固定 (completeness-3)
-- **対象**: canonical main (`1185067`) の (a) `perf-bench.test.ts` depthCompleted/nodes (全4難易度・代表 midgame fixture)、(b) `perf-bench-card-usage.test.ts` カード使用率 (**全4難易度 = 中級含む**)、(c) 代表局面の棋力指標 (rootMoveScore 等)。
-- **方法**: `RUN_PERF_BENCH=true` で 3 回計測し中央値。
-- **保存先**: `docs/bench-results/issue-235-before-baseline.json` (commit)。以降の全段 DoD は本ファイル比で判定。
+- **対象**: canonical main (`1185067`) の (a) `perf-bench.test.ts` depthCompleted(avgDepth)/nodes/elapsedMs (全4難易度・代表 midgame fixture、実装済)、(b) `perf-bench-card-usage.test.ts` カード使用率 (全4難易度 = 中級含む)。
+  - **S0 是正**: `perf-bench-card-usage.test.ts` は現状 `["beginner","advanced","expert"]` のみで **intermediate が欠落**していた (PR3-3-2 レビューの「中級未測定」指摘点)。S0 で intermediate を追加 (test-only・AI 挙動不変)。
+- **scope**: S0 before-baseline は **depthCompleted / nodes / card-usage の三軸**に限定。`(c) rootMoveScore 等の棋力スコア指標`は現 bench に未実装のため **S0 scope 外** (PoC-1 以降で必要に応じ `findBestMoveWithStats` の `SearchStats` を拡張)。
+- **方法 (確定、standalone tsx 方式)**: 計測ハーネス `scripts/measure-baseline-235.ts` を `npx tsx` で実行し全4難易度を 3 回計測・中央値で集約。`findBestMoveWithStats` を**直接呼び**、bench fixture (`makeBenchPositions()` 9 局面 / `makeScenarios()` 7 シナリオ) のロジックを再現する。
+  - **vitest parse 方式を採らない理由 (前セッションの教訓)**: ① `perf-bench.test.ts` は `test()` に timeout 未指定 (vitest 既定 5000ms) のため intermediate/advanced/expert が timeout 失敗し計測値が欠落、② vitest は合格テストの `console.log` を既定で非表示にするため値が回収不能。よって vitest 非依存の standalone tsx ハーネスで全難易度を確実計測する。
+  - design ブランチ `feature/#235-design` は canonical main (`1185067`) からの **doc/script/test-only 差分**で `src/` の探索コードは同一 → design worktree での計測 = canonical main の計測 (commitSHA は計測時の HEAD を記録)。
+- **保存先**: `docs/bench-results/issue-235-before-baseline.json` (commit)。以降の全段 DoD は本ファイル比で判定。**注意**: depthCompleted は time-budget 探索のため計測機 CPU 性能に依存 → 各段/PoC の ±10% 比較は同一機・同一条件で取得する。
+- **計測結果 (2026-06-06、commit `414981d`、3 run median)**:
 
-### 8.3 PoC-0 ルール等価 property 仕様確定 (completeness-2 / S1 前提)
-S1 (L0 カーネル統合) の「振る舞い完全等価」を担保する **property list** を S1 着手前に固定:
-- 等価対象: `applyTurnAction` 後の `WorldState` が既存 reducer 経路と {盤面 zobrist, mana, hand 構成, deck, graveyard, trap, drawProgress, noPromoteMarks, turnEnded, events 列} で一致。
-- 等価が**許容されない**箇所 (演出 flag・タイムスタンプ等) を明示。
-- 検証手段: reducer.test/undo-policy.test/effects.test を不変ゲート + property-based (ランダム局面列で reducer 経路 vs カーネル経路の状態一致)。
+  | 難易度 | avgDepth | avgNodes | avgMs | card 使用率 |
+  |---|---|---|---|---|
+  | beginner | 3.00 | 2,263 | 133 | **100%** (7/7) |
+  | intermediate | 5.33 | 30,877 | 1,371 | **100%** (7/7) |
+  | advanced | 5.78 | 48,634 | 2,269 | **57%** (4/7) |
+  | expert | 6.00 | 63,918 | 2,834 | **57%** (4/7) |
+
+  - **再現性**: per-position depthCompleted は 3 run 間でほぼ同一 (expert で一部局面が 6↔7 の微ジッタのみ) → ±10% バンド判定に十分な安定性。
+  - **示唆 (再設計の動機の実証)**: 深い move-only 探索が支配する **advanced/expert で calibration discriminator 3 シナリオ (空手札+マナ余剰/トラップのみ/終盤空手札) が全て `move` に倒れ、card 使用率 100%→57% に低下**。これは P1 (深さ非対称) + P2 (カード価値スカラー圧縮) の帰結であり、L2 単一探索木 + L1 ValueModel で是正すべき構造的非対称が定量化された。pawn_return 4 シナリオは盤面 delta が大きく全難易度で card 採用。
+
+### 8.3 PoC-0 ルール等価 property 仕様確定 (completeness-2 / S1 前提) — **確定 (2026-06-06)**
+
+S1 (L0 カーネル統合) の「振る舞い完全等価」を担保する **property list** を確定。reducer の全遷移面を網羅精読 (PoC-0 workflow: 7 面並列読み + 統合 + 敵対的 3 観点レビュー、11 agents) し、3 レビュアーが収束した high 論点を以下 **DP-1〜DP-7** の設計判断で解決済 (= S1 着手前の正本)。
+
+**source-of-truth = reducer 経路** (recon 確定): AI 側 `current-rules.ts` の `applyAction` は move/double_move のみ実装 (draw/playCard は `throw`)。S1 カーネル `applyTurnAction` が一致させる正本は **reducer 経路** (`makeMoveWithEffects` reducer.ts:373 / `applyTurnEndEffects` :447 / double_move 遅延 finalize :670 / trap 遅延発火 :277-358)。
+
+#### 8.3.1 等価フィールド分類 (must-match / must-not-match)
+- **must-match (12)**: `CardGameState` の {mana, manaCap, hand, deck, graveyard, trap, noPromoteMarks, drawProgress} + 盤面 (board 駒種/owner/promoted + capturedPieces + currentPlayer + status + zobrist) + turnEnded (= currentPlayer 反転の射影) + events 列 (kind + ドメインフィールド射影、`at` timestamp 除外)。
+  - **hand / deck / graveyard**: instanceId 列として**順序込み一致** (draw=末尾 append reducer.ts:1088、consumeNormalCard/applyTrapSet=filter 除去 effects.ts:455/419、いずれも stable)。
+  - **trap**: `{instanceId,defId,owner}` 値一致 (両プレイヤー独立スロット)。
+  - **noPromoteMarks**: → **DP-5 で {row,col} 集合一致に確定**。
+- **must-not-match (= 射影から除外)**: `pendingCard` (UI 確認/ターゲット選択の中間状態、適用完了後は null)、`lastTurnStartedAt` (Date.now() 起点・DB 往復で null・早指し判定用)、`isDrawing`/`pendingDrawSource`/`isPlayingCard`/`pendingPlayCardOpponent`/`isCheckBreakAnimating` (演出オーケストレーション flag)、`selectedSquare`/`legalMoves` 等 UI 状態、`undoSnapshots`/double_move スナップショット (UNDO 層責務)、全 event の `at` (Date.now())。
+
+#### 8.3.2 アクション別 property (事前→事後) 要点
+- **move (通常)**: board=applyMove / mana[player] += 1 (+1 早指し、DP-4 で fastMove=false 固定) clamp / noPromoteMarks=取得駒マーク削除+自駒 from→to 追従 (drop 型は不変) / drawProgress は applyTurnEndEffects 経由 (DP-1) / 相手 trap 発火時のみ trap[opp]=null + trapTriggerEvent / turnEnded=true。
+- **draw (手動)**: 事前=deck 非空 ∧ mana≥DRAW_COST(2) ∧ 自手番 ∧ 非王手。deck 先頭 pop→hand 末尾 append (instanceId 保持) / mana -=2 / drawProgress は DP-1 / events=[drawEvent{source:manual}] / turnEnded=true。
+- **playCard:modifyBoard (pawn_return/piece_return/double_pawn)**: board=effect 適用 / hand=使用カード除去 (+返却駒を持ち駒加算) / mana -=cost / **graveyard=使用カード末尾 append** / noPromoteMarks=対象マスのマーク削除 (pawn/piece_return) / events=[cardPlayEvent{returnedPiece}] / turnEnded=true。
+- **playCard:setTrap (no_promote/check_break)**: trap[player]=設定 / hand=除去 / mana -=cost / **graveyard=不変 (DP-3)** / events=[trapSetEvent] (cardPlayEvent ではない) / turnEnded=true。王手中は checkUsage='forbidden' で BEGIN 拒否。
+- **double_move (DP-2、マルチ ply)**: CONFIRM=doubleMove フラグ set のみ (mana/hand/graveyard **不変**=消費遅延) / 1手目=board 変化・mana チャージなし・drawProgress 加算なし・currentPlayer 反転戻し (turnEnded=false)・check_break は defer / 2手目=board 変化・defer check_break 発火・finalize で consumeNormalCard (mana-=cost, hand→graveyard, cardPlayEvent) (turnEnded=true)。
+- **turnEnd (applyTurnEndEffects 共通基盤)**: drawProgress[player]=current+1、`next≥AUTO_DRAW_INTERVAL(5) ∧ deck 非空` で 0 reset + 自動ドロー (deck pop→hand append, drawEvent{source:auto}) **1 回のみ (非再帰、DP-1)** / mana/manaCap/trap/noPromoteMarks/graveyard 不変 / 終局後 (status≠active) は全スキップ。
+
+#### 8.3.3 解決済み設計判断 (openQuestions → 確定。S1 実装の入力)
+- **DP-1 (drawProgress、最重要)**: カーネルは **reducer セマンティクス (遅延+条件付き)** を正本とする。`applyTurnAction` は手番終了時に `applyTurnEndEffects` 相当で drawProgress を +1 し、5 到達 ∧ deck 非空でのみ 0 reset + 自動ドロー 1 回。AI 既存経路 `applyActionForLookahead` の「全 action 即時 +1・reset なし」(PR3-3 C-12 近似) は**カーネルが S1 で解消する既知の差異** (継ぎはぎの近似を正す = 再設計の効用)。等価テストは reducer semantics で assertion 固定。
+- **DP-2 (double_move スコープ)**: カーネルは double_move を **マルチ ply アクション** (`isTurnTerminating` で 1手目 turnEnded=false) として **applyTurnAction 内に統合**。消費は 2手目 finalize に遅延 (reducer 準拠)。現 AI の別系統 `searchDoubleMoveSuperAction` は S4 で単一探索木に吸収 (= double_move 特別扱い廃止、§6)。PoC-0 等価テストでは CONFIRM→move→move→finalize の複合列として検証。
+- **DP-3 (保存則)**: カード総数保存則は **hand+deck+graveyard+trap スロット = 一定**。通常カード=hand→graveyard、トラップ=hand→trap[player] (graveyard に入らない)。素朴な hand+deck+graveyard 保存則は trap を取りこぼすため、経路別に assertion を分ける。
+- **DP-4 (決定論化)**: 等価テストは **spectatorMode=true 固定 + Date.now() を固定 clock に stub**。これで早指しボーナス無効 (fastMove=false 確定) かつ event `at` 再現。**manaChargeEvent は events 射影から除外し、mana 値一致で代替検証** (演出寄りイベント + fastMove 依存を避ける)。
+- **DP-5 (noPromoteMarks)**: 等価は **{row,col} 集合一致** (reducer の配列順は push/filter/map の実装由来の人工物で意味的不変量でない)。
+- **DP-6 (manaCap)**: 現状 **不変** (reducer 内代入なし、`mana_up` は deprecated)。must-match に定数として含める。**将来カードで manaCap 動的化する場合は本 property list を更新する** (§11 D-F と連動、要 guard)。
+- **DP-7 (check_break 発火範囲)**: `applyCheckBreak` は `getCheckingPieces` で**発動時点で直接王手している駒のみ**除去し、開き王手 (遮蔽が破れて露出) は次手番に委ねる。カーネルもこの「直接王手駒のみ」を再現 (board.ts `getCheckingPieces` 実装を S1 で再確認)。
+
+#### 8.3.4 property-based テスト設計 (S1 で実装、本 doc が雛形仕様)
+- **generator**: seed 済み WorldState から、各ステップで現手番の合法 TurnAction (`getFullLegalMoves` + `canDraw`?draw + `getCardActions`) を列挙 → seeded PRNG で 1 つ選択 → reducer 経路 (BEGIN→[SELECT]→CONFIRM→COMMIT / DRAW→COMMIT / MAKE_MOVE) と カーネル `applyTurnAction` の両方に同一 action を適用。double_move は複合列に展開。10〜40 手 × 数百〜数千 seed。**決定論化=DP-4**。
+- **射影 (equivalenceProjection)**: §8.3.1 の must-match 12 を抽出 (hand/deck/graveyard=順序込み、noPromoteMarks=集合、events=kind+ドメイン射影 `at` 除外、manaChargeEvent 除外)、must-not-match を捨象。比較は「アクション適用完了後の安定状態」のみ (中間 phase は比較しない)。
+- **assertion**: 各適用後に両経路の射影が deep-equal / mana∈[0,manaCap] / 保存則 (DP-3) / trap 発火後 trap[opp]=null ∧ trapTriggerEvent / drawProgress 5 到達で 0 reset + deck-1/hand+1 / turnEnded=false 手 (double_move 1手目) で currentPlayer 不変 / events 射影列順序一致 (特に double_move の [move,move,(trapTrigger),cardPlay])。
+- **seed すべきエッジケース**: 自動ドロー発火境界 (drawProgress=4→5)、山札空ドロー禁止、manaCap 飽和、両者異種トラップ同時保有、double_move 中の check_break defer→2手目発火、double_move 1手目で詰み成立、捕獲駒の no_promote マーク削除、pawn_return/piece_return での removeNoPromoteMark、終局手直後の turnEnd スキップ、double_pawn で持ち駒歩 1 枚→配置後 0。
+- **不変ゲート併用**: reducer.test/undo-policy.test/effects.test green を S1 全コミットで維持。
+- **provenance**: 機械可読 property map 全文 (フィールド別 reducer 引用 + 3 レビュアーの gap 指摘) は PoC-0 workflow 出力に保存。本 §8.3 はその確定要約 = S1 実装の直接仕様。実テストは applyTurnAction カーネル新設と同時に S1 で author (現時点ではカーネル不在のため runnable test は作らない = dead code 回避)。
 
 ### 8.4 PoC (実現性ゲート) — 合否基準を operationalize
 - **PoC-1 探索枝刈り (R-1 最大リスク)**: 独立 PoC で `selectBranchCandidates(actions, depth, M, K)` (move 上位M + card 上位K + draw) を試作し、難易度別 `M/K/budget` を振って depthCompleted を計測。
-  - **合否バンド** (before-baseline 比、複数 run の統計): **±10% 以内=合格・S4 着手** / ±10〜20%=要再試行 (M/K 再調整) / **±20% 超=不合格** → フォールバック: (i) S4 目標を「depthCompleted −X% 許容 + カード使用率 +Y%」へ再定義、(ii) S4 を S4a(基礎探索) / S4b(最適化・校正) に分割、(iii) カード深掘りを playCard のみ・浅 budget に限定。
+  - **合否バンド**: **同一プロトタイプ内 move-only control 比** (bare-αβ の engine 効率交絡を相殺) で **±10% 以内=合格** / ±10〜20%=要再試行 / ±20% 超=不合格 → フォールバック: (i) S4 目標を「depthCompleted −X% 許容 + カード使用率 +Y%」へ再定義、(ii) **S4 を S4a(基礎探索)/S4b(最適化・校正) に分割**、(iii) カード深掘りを playCard のみ・浅 budget に限定。**before-baseline (production) 絶対比は bare-αβ プロトタイプでは到達不可 (ALL=production の 64-67%) のため fidelity 参照に留め、production ±10% は S4a で実エンジンに selector を載せて再検証する** (PoC-1 adversarial verify 反映)。
   - 起点参考: parked C-2 実測「フル盤面 budget=3 ≈ 130万 evaluate (枝刈りなし)」。枝刈りで K=1〜2 がどこまで圧縮できるかを表で提示。
 - **PoC-2 ValueModel (R-5)**: `pawn_return`(modifyBoard 型) と `check_break`(setTrap 型) の `valueModel(world, player)` を試作。検証=「簡潔な関数で内容・局面依存値付けが可能か / 条件分岐が増殖しないか」。trap は「相手が trigger を踏む確率 × 被害 cp」の期待値関数の実現性を確認。**modifyBoard 型と setTrap 型の両系統**をカバー (単一カード種では不足、PoC-2 拡張)。
 - **PoC-3 TT cardState ハッシュ (R-2)**: cardState 6要素を fold した 32-bit hash を試作し、(a) 衝突率 (b) 既存 move-only TT のヒット率悪化 を小規模盤面で測定。card-aware ノードの保守的 store 方針の妥当性も確認。
 
-### 8.5 S1 リスク準備 (completeness-12)
-S0 完了条件に「S1 実装計画 + rollback 手順 + feature-flag 設計レビュー完了」を含める (L0 統合は最大の technical risk のため、段階統合・test isolation・差し戻し手順を先に用意)。
+### 8.4.5 PoC 実測結果 + adversarial verify (2026-06-06、結論)
+3 PoC を独立ブランチ (`feature/#235-poc-{1,2,3}`) で実装・実測し、結果と私 (実装者) の解釈を **4 観点 adversarial workflow** で検証。下記は**指摘 (mustFix 4) を是正・honest caveat を反映した確定結論**。生データは `docs/bench-results/issue-235-poc{1,2,3}.json`、コードは各 poc ブランチ。
+
+| PoC | 結論 | 実測の核心 |
+|---|---|---|
+| **PoC-1 探索枝刈り (R-1)** | **CONDITIONAL PASS** | 同一プロトタイプで move-only(ALL)/ top-M(TOPM)/ +card(CARD) を切替計測。**同一 M=10 での card on/off (CARD-M10-K2 vs TOPM-10) = 91-97%** → カード追加 (K=2+draw) の純コストは **3-9% (±10%内)**。move-cap M が深さの主レバーで、TOPM が ALL 比 120-125% と深く読める余裕も確認。**→ 分岐爆発 (R-1) は制御可能**。ただし下記 caveat により production 絶対 ±10% は S4a で再検証。 |
+| **PoC-2 ValueModel (R-5)** | **PASS (構造的実現性)** | modifyBoard 型 (eval差分) と setTrap 型 (P_trigger×E_damage) の **2 関数で 5 カード全実測被覆**。check_break が安全玉 **-25cp** / 露出玉 **+230cp** と局面依存に変動 (固定 `TRAP_VALUE_CHECK_BREAK=80` を脱却)。pawn_return/piece_return/double_pawn も局面で変動。**→ 固定スカラーの内容・局面依存化は簡潔関数で実現可能**。 |
+| **PoC-3 TT hash (R-2)** | **PASS (board+fold次元)** | cardState (mana/手札種別カウント/trap/drawProgress) を XOR fold した hash で、Part A: 同一盤面×64 cardState を board-only=1個 (誤ヒット) → card-aware=64個 (分離)。Part B: 15,159 distinct states で **衝突 0 / 断片化 1.001 (再現確認済)**。TT_SIZE 不変 = メモリ影響なし。**→ board+fold 次元の誤ヒットは解消可能**。 |
+
+**adversarial verify 反映 (mustFix 是正済)**:
+- PoC-1 合否基準を「same-engine control 比 ±10%」に明文訂正 (§8.4 / §7 S4 行 / §12)。doc 旧記述「before-baseline 比 ±10%」は bare-αβ では測れないため fidelity 参照に降格、production ±10% は S4a へ。
+- PoC-3 を seeded deck (シャッフル排除) + DP-1 auto-draw reset 化し再現性確保。「誤ヒット完全解消」→「board+fold次元の解消」に限定 (deck 順未 fold)。
+- PoC-2 に piece_return 実測を追加 (claim を実測に整合)。
+
+**honest caveats (S4 以降の前提)**:
+1. **PoC-1 fidelity**: プロトタイプは bare-αβ (TT/LMR/quiescence/LMR 非搭載) で ALL 絶対深さ (advanced/expert ≈ 3.9) は production before-baseline (5.78/6.0) の **64-67%**。same-engine 比は交絡相殺として妥当だが、**production の LMR/TT が既に soft 枝刈りするため M/K 最適値が同値転移する保証はない** → **S4a で実エンジンに selector を載せ M/K を再校正してから S4 粒度・目標を確定** (PoC-1 結論は「枝刈り余地が存在する」まで)。
+2. depthCompleted は time-budget 探索で計測機 CPU 依存 → ±10% 比較は同一機・同一条件で取得 (§8.2)。
+3. **PoC-2 係数は仮値**: setTrap 係数 (E_damage/P_min/max/SAFETY_*) は PoC 仮値で、-25↔+230 の差は係数選択に依存。本採用値は **S3 bench 校正**まで未確定。no_promote の trigger は自玉露出度を流用しており (check_break は妥当)、相手成り脅威指標への分離を S3 検討。「局面依存になった」ことは棋力向上の証明ではない (S3 bench で別途評価)。valueModel の per-target eval コストは selection で bounded 化要 (PoC-1 と同じ selector コスト論点)。
+4. **PoC-3 deck 順未 fold**: 同一 fold・異 deck の 2 状態は同一 TT エントリ → draw 後に分岐が異なる残存誤ヒット。S4 で card-aware ノードの保守的 store (depth 制限/verify 強化) で対応。fragmentation 1.001 は random playout が transposition を過小サンプリングした下界で、実探索では上がりうる → S4 で TT instrument 搭載探索で実測。
+5. **baseline calibration e/f/g** は AI が move に倒れる「再設計の動機の実証 (regression indicator)」であり control 値ではない。S1 改善後の before/after 比較では canonical main が e/f/g で本来取るべき手を別途固定し、改善と baseline 不具合解消の交絡を避ける。
+
+### 8.5 S1 リスク準備 — rollback + feature-flag 設計 (completeness-12)
+L0 統合 (reducer/AI が単一カーネル `applyTurnAction` に委譲) は最大の technical risk のため、段階統合・test isolation・差し戻し手順を S0 で確定する。
+
+#### 8.5.1 feature-flag 設計 (additive + 影 + 段階切替)
+- **カーネルは既存経路を消さず additive に新設**。最終 cutover まで production の振る舞いは旧経路が支配。
+- **AI 探索側**: config フラグ `useKernelSearch` (既定 OFF) で「既存 engine」⇔「カーネル委譲 engine」を切替。OFF = PR3-3 完了時点の振る舞い完全保持。card-shogi のみ対象、standard は分岐に入れない。
+- **reducer (UI) 側**: カーネルを reducer の**実装裏側**に置き、reducer は薄いラッパに後退。移行中は **shadow-assert モード** (dev/test 限定): reducer が旧経路結果とカーネル結果の両方を計算し §8.3 の must-match 射影で `===` を assert、**採用するのは旧経路結果**。等価が安定したら採用をカーネルへ flip。本番ビルドでは shadow を無効化 (二重計算コストを避ける)。
+- **standard variant**: カーネル分岐に一切入れず byte-level 不変 (§12 不変ゲート)。
+
+#### 8.5.2 段階統合 (S1a〜S1d、各段で不変ゲート green)
+1. **S1a**: `WorldState` 型 + `applyTurnAction` を**新規モジュールとして追加** (production 未配線)。§8.3.4 の property-based 等価テストを同時に author し green 化。reducer.test/undo-policy.test/effects.test は不変。
+2. **S1b**: AI 探索を `useKernelSearch` フラグ裏で配線 (既定 OFF)。bench で旧経路と depthCompleted/カード使用率比較。
+3. **S1c**: reducer を薄いラッパ化し shadow-assert モードで旧経路と並走。reducer.test/undo-policy.test/effects.test green を**全コミットで維持**。
+4. **S1d**: 等価テスト + bench green 確認後に既定をカーネルへ flip (AI: `useKernelSearch` ON、reducer: 採用切替)。shadow を本番無効化。
+
+#### 8.5.3 rollback 手順 (多層)
+- **第1層 (無コード)**: 不具合時は **フラグを OFF に戻すだけ**で旧経路へ即時復帰 (S1d 後も flag は残置)。
+- **第2層 (git)**: カーネルは S1a〜S1c で additive (新規ファイル)、production 振る舞いを変える cutover は **S1d の単一コミットに隔離** → `git revert <S1d-cutover>` で旧経路復帰。各コミットは atomic・reversible。
+- **第3層 (test gate)**: reducer.test/undo-policy.test/effects.test + property-based 等価テストを cutover の blocking gate に。1 つでも赤なら cutover しない。
+- **test isolation**: 等価テストは旧 reducer 経路 vs カーネル経路を同一ランダム TurnAction 列で並走し must-match 射影 (§8.3.1) を deep-equal 比較。DP-1〜7 を seed 済みエッジケースで固定。
+
+> **AI 評価系との整合 (DP-2 由来の留意)**: double_move をカーネルのマルチ ply に統合する際、現 AI の `searchDoubleMoveSuperAction` / cardDigest 近似 (cost を digest 側で扱う) との整合は S1b/S4 で個別調整する。S1 の等価ゲートは **reducer 経路との一致**を担保し、AI 評価系の数値変化は bench (棋力ゲート) で別途監視する。
 
 ### 8.6 S0 完了の定義 (DoD)
-- [ ] 本設計 doc 確定 (adversarial verify 反映 + ユーザー合意)
-- [ ] before-baseline 計測完了・`docs/bench-results/issue-235-before-baseline.json` に保存
-- [ ] PoC-0 property list 確定
-- [ ] PoC-1/2/3 完了・各合否判定 (特に PoC-1 の ±10% 実現可否で S4 粒度・目標値を確定)
-- [ ] S1 実装計画 + rollback 手順を doc 化
-- [ ] PoC 結果に基づき S1-S6 の DoD/粒度/目標値を本 doc に確定反映
+- [x] before-baseline 計測完了・`docs/bench-results/issue-235-before-baseline.json` に保存 (§8.2、2026-06-06)
+- [x] PoC-0 property list 確定 (§8.3、DP-1〜7 + property-based テスト設計、workflow 11 agents)
+- [x] PoC-1/2/3 完了・各合否判定 (§8.4.5、adversarial verify 反映: PoC-1 CONDITIONAL PASS / PoC-2・3 PASS)
+- [x] S1 実装計画 + rollback 手順を doc 化 (§8.5、feature-flag + 段階統合 S1a〜d + 多層 rollback)
+- [x] PoC 結果に基づき S4 を S4a/S4b 分割確定 (§8.4.5 / §7 S4 行)。S2-S6 の数値目標は各段 plan doc で operationalize (本 epic doc はアーキ + S0 確定層)
+- [ ] **本設計 doc 確定 = ユーザーレビュー + 合意待ち** (AGENTS.md ルール8 マイルストーン2: 実装後レビュー相当を adversarial workflow で実施済、ユーザー最終確認が残)
 
 ---
 
@@ -262,7 +350,7 @@ S0 完了条件に「S1 実装計画 + rollback 手順 + feature-flag 設計レ�
 
 - **S0 PoC ゲート**: PoC-1/2/3 の結果で「実現可能か」を判定。±10% が無理なら目標棋力 or 段粒度を見直し (理論でなく実測で決める)。
 - **不変ゲート**: 全段で standard variant byte-level 不変 + reducer/undo/effects テスト不変。
-- **棋力ゲート**: before-baseline 比 depthCompleted ±10%。多面指標 (棋力 variance / phase別カード使用率 / undo 堅牢性) も併用 (critique 指摘、単一指標を避ける)。
+- **棋力ゲート**: depthCompleted ±10% (PoC は same-engine control 比で確認、S4a で実エンジン→before-baseline 絶対比を再校正)。多面指標 (棋力 variance / phase別カード使用率 / undo 堅牢性) も併用 (critique 指摘、単一指標を避ける)。
 - **フェアネス test**: AI が相手手札の中身を探索入力に使っていないことを test で固定 (S5、D-H 早期なら S1-S2)。
 - **必須チェック** (AGENTS.md ルール6): 各段 lint→typecheck→test:ci→build。bench は `RUN_PERF_BENCH=true`。
 
@@ -277,6 +365,9 @@ S0 完了条件に「S1 実装計画 + rollback 手順 + feature-flag 設計レ�
 - **PoC 具体化 (PoC-1/完全性群)**: §8 を S0 として全面具体化 — PoC は独立ブランチ・production 不変、PoC-1 合否バンド (±10/20%) + フォールバック、PoC-0 property list、before-baseline 仕様 (保存先)、PoC-2 を modifyBoard+setTrap 両系統に拡張、S1 rollback 準備、S0 DoD 明文化。
 - **決定補強 (D-B/D-H high)**: standard 統合の期限化 (S2-S3 で評価 Issue 起票)、フェアネス移行の具体手順 (anonymizeOpponentHand + test fixture)。
 - **依存明記 (completeness-8)**: S5 が #193 PR1e (eventLog 永続化) に blocking 依存。
+- **S0 recon 反映 (2026-06-06)**: 設計 doc のコード参照を canonical main (`1185067`) で網羅再検証 (6 エージェント)。P1〜P7・#193 引き継ぎ資産は全て verified、parked 用語 (`evaluateActionDeep`/`scanOpponentResponse`/`cardSearchBudget`) は main に不在を確認。軽微訂正: ① `CardDigest` は 6→**7 フィールド** (`manaAbsolute`、§1 P2)、② カード横断は 9→**実 11〜13 箇所** (§1 P5)、③ `perf-bench-card-usage` に **intermediate を追加** (欠落是正、§8.2)、④ rootMoveScore は **S0 scope 外** = 三軸に確定 (§8.2)、⑤ PoC-0 等価の source-of-truth は **reducer 経路** (AI 側 `current-rules` は draw/playCard 未実装=throw、§8.3)。
+
+- **S0 PoC 実装 + adversarial verify 反映 (2026-06-06)**: before-baseline 計測 (§8.2) + PoC-0 property list workflow (§8.3、11 agents、DP-1〜7) + PoC-1/2/3 独立ブランチ実装・実測 (§8.4.5) を完了し、PoC 結果と実装者解釈を 4 観点 adversarial workflow で検証。high 指摘 4 件を是正: ① **PoC-1 合否基準を「same-engine control 比 ±10%」に訂正** (旧「before-baseline 比」は bare-αβ で測定不可、production 絶対比は S4a へ。§8.4/§7/§12)、② PoC-3 を seeded deck + DP-1 auto-draw reset 化し再現性確保 + 「board+fold次元の解消」に限定 (deck 順未 fold)、③ PoC-2 に piece_return 実測追加、④ honest caveat (bare-αβ fidelity 64-67% / PoC-2 係数仮値 / PoC-3 deck順・transposition 過小サンプリング / baseline calibration は regression indicator) を §8.4.5 に明記。検証 synthesis 判定: **S1 着手は条件付きで正当化可** (3 大リスク R-1/R-5/R-2 が方向として実現可能、S1 は探索コア S4 と独立に着手可)。S4 は PoC-1 の production 転移を S4a で再検証してから粒度確定。
 
 > 残 medium/low (各段 DoD の数値バンド詳細等) は S0 PoC 確定後に各段の plan doc で operationalize する方針 (本 epic doc はアーキ + 決定 + S0 を確定する層)。棄却なし (43/43 確定だが検証は寛容傾向のため、本反映は実装影響のある指摘に重点)。
 

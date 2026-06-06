@@ -1,0 +1,28 @@
+{
+  "schema": "issue-235-poc3/v1",
+  "description": "Issue #235 PoC-3 TT cardState ハッシュ: computeHash(board) に cardState (mana/手札種別カウント/trap/drawProgress) を XOR fold した hash で (A) board+fold次元の誤ヒット解消 (B) 衝突率・TT 断片化を測定。",
+  "measuredAt": "2026-06-06T14:22:42.038Z",
+  "commitSHA": "1185067aab049d5e753778169dfbcba69348b517",
+  "foldedFields": "両プレイヤーの mana / 手札カード種別カウント / trap defId / drawProgress",
+  "notFolded": "deck 順 (auto-draw で引く先頭札)。同一 fold・異 deck の 2 状態は同一 hash → draw 後の分岐が異なる残存誤ヒットが理論上ある。→ 『board+fold次元の誤ヒット解消』であり完全解消ではない。S4 で card-aware ノードの保守的 store (depth 制限/verify 強化) で対応する検討事項。",
+  "ttSizeNote": "TT_SIZE=1<<22 (4M entries) は不変。hash 関数のみ拡張 → メモリ予算に影響なし。",
+  "determinismNote": "deck は決定的に構築 (シャッフルなし) + seeded playout で、distinctGroundTruths/boardOnly/cardAware/fragmentation/衝突数は run 間再現 (確認済)。indexCollisionSlots のみ run 間変動 (24〜37) — これは computeHash (zobrist.ts) の PIECE_KEYS が production の Math.random 生成で、TT index 分布が乱数 key に依存するため (production TT と同性質)。hi 検証で解決される birthday-paradox 診断値で、PoC の決定性欠陥ではない。",
+  "fragmentationCaveat": "fragmentationRatio≈1.0 は random playout が transposition (同一盤面に別手順で到達) を過小サンプリングした下界。実探索では同一盤面が別 cardState で到達する transposition が増え断片化が上がりうる → S4 で TT instrument 搭載探索で実測する。",
+  "partA": {
+    "variants": 64,
+    "distinctGroundTruths": 64,
+    "distinctBoardOnlyHashes": 1,
+    "distinctCardAwareHashes": 64
+  },
+  "partB": {
+    "playouts": 400,
+    "maxPly": 40,
+    "distinctGroundTruths": 15159,
+    "distinctBoardOnlyHashes": 15151,
+    "distinctCardAwareHashes": 15159,
+    "fragmentationRatio": 1.001,
+    "cardAwareCollisionHashes": 0,
+    "cardAwareCollisionPairs": 0,
+    "indexCollisionSlots": 30
+  }
+}
