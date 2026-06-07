@@ -16,8 +16,8 @@ import type { CardGameState } from "../../cards/types";
 //     現状 DRAW_COST = 2 + 1 = 3 が安全側だが、F-4 解釈 (drawProgress < AUTO_DRAW_INTERVAL - 1
 //     ガードと組み合わせて自然な絞り込みとなる) を踏まえて 2 で開始、bench で調整。
 //   ・(旧 DRAW_VALUE_BONUS=30 固定は PR3-1 で getDrawValue() に置換、退化原因 ① 解消)
-//   ・DRAW_COST は src/lib/shogi/cards/definitions.ts:233 で 2 と定義済 (本ファイルでは参照のみ)
-//   ・AUTO_DRAW_INTERVAL は src/lib/shogi/cards/definitions.ts:238 で 5 と定義済 (本ファイルでは参照のみ)
+//   ・DRAW_COST は src/lib/shogi/cards/card-system-config.ts で 2 と定義済 (本ファイルでは参照のみ)
+//   ・AUTO_DRAW_INTERVAL は src/lib/shogi/cards/card-system-config.ts で 5 と定義済 (本ファイルでは参照のみ)
 export const MIN_MANA_RESERVE = 2;
 
 // handValue 単調減衰関数 (PR1d-1 仮基準 → PR3-1 で 3.0→5.0 に変更、PR3-3 で再検証):
