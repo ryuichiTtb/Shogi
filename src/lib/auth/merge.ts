@@ -12,15 +12,16 @@ import {
   shouldUseGuestPreference,
 } from "@/lib/auth/merge-rules";
 import { INITIAL_DECK_CARD_COUNT } from "@/lib/auth/user-bootstrap";
-import { ALL_CARD_DEFS } from "@/lib/shogi/cards/definitions";
+import { getPlayableCards } from "@/lib/shogi/cards/card-spec";
 
 // Issue #150: 「サインアウト→サインイン」を繰り返すと account の deck が増殖するバグ対策。
 // 新規ゲスト User 作成時に ensureInitialUserData で default deck (デフォルトデッキ名 +
 // 全 playable カード × INITIAL_DECK_CARD_COUNT 枚) が自動生成される。これを merge で
 // account に毎回 isDefault=false として移管していたため、ログインのたびに deck が増えた。
 // 「ユーザーが触っていない初期構成のまま」かを判定し、その場合は移管せず削除する。
+// Issue #235 S2d: ALL_CARD_DEFS 直読 → registry SSOT helper 経由へ (playable id のみ参照のため移行可)。
 const PLAYABLE_CARD_IDS_FOR_MERGE: Set<string> = new Set(
-  ALL_CARD_DEFS.filter((d) => d.status !== "deprecated").map((d) => d.id),
+  getPlayableCards().map((m) => m.id),
 );
 const PRISTINE_DEFAULT_DECK_NAME = "デフォルトデッキ";
 
