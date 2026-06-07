@@ -103,8 +103,11 @@ registry は新規ファイルのため S2a は revert 安全。
   - **汎用化の等価性 (§9 B3)**: modifyBoard は適用前の `pieceBefore = board[target]` 有無で returnedPiece + removeNoPromoteMark を条件発火。applyPawnReturn/applyPieceReturn は target に駒必須 (null時は早期 return) のため pieceBefore 常在 = 旧版の無条件呼び出しと一致。double_pawn は target 常に空 = 不発で旧版と一致 (M2 adversarial 検証で6カード全件確認)。
 - [x] **S2c** (完了・commit 予定): isCardOpEvent を `CARD_OP_EVENT_KINDS` (registry 全カード eventKind の集合、client-safe) 導出へ / action-generator 候補生成を `CARD_SPECS` クエリ (cost/kind/useCondition/checkUsage/targeting) へ / checkUsage を spec 参照。族別ハードコード排除。reducer の checkUsage UI gate (client) は client/server 境界の論点があり **S2d 領域**として本段では CARD_DEFS のまま据置。
   - **申し送り対応済**: `isCardOpEvent` 導出時に **トラップ発動 `trapTriggerEvent` を別途合算** (CARD_OP_EVENT_KINDS は card 自身の eventKind のみ=別ライフサイクル)。`deriveEventKind` を card-spec.ts (client-safe) へ移し card-spec-server が import (重複定義解消)。検証: lint0err/typecheck/test:ci **573**(+2)/build/bench。M2 独立 adversarial で旧版と等価 (isCardOpEvent 全6 kind 真偽一致・action-generator 候補集合/順序同一)、§12 記録。
-- [ ] **S2d**: 旧 CARD_DEFS/CARD_USE_CONDITIONS 重複の一本化・デッドコード除去。serialize 境界是正 (ESLint で Client→server import 禁止)。
-  - **M2 申し送り (§10 D1-2)**: 境界強制方式の候補。repo には既に `server-only` パッケージが導入済 (`package.json` deps + `src/lib/auth/{current-user,config,merge,user-bootstrap}.ts` で実使用 + `vitest.config.ts` で no-op shim alias 済) のため、`card-spec-server.ts` 冒頭へ `import "server-only"` を付すのが最小コスト。eslint `no-restricted-paths` との二者択一を S2d で確定する。
+- [x] **S2d (slim、完了・commit 予定)**: serialize 境界是正 (ESLint で Client コンポーネント→card-spec-server import 禁止) + ID 一覧 consumer (deck.ts / merge.ts) を registry helper へ移行。**着手時調査で元計画 3 項目のうち 2 項目が不可/別 Issue と判明し scope 縮小 (§13、ユーザー承認済 "slim S2d")**:
+  - ① `ALL_CARD_DEFS = registry 由来 re-export` → **対象外 (不可)**: `CardMeta` は説明文・effectId を意図的に除外するが seed (Card マスタ) とカタログ UI は full CardDefinition が必須。registry を full master 化する設計変更 (meta/spec 分離方針の見直し) が要るため見送り。`CARD_DEFS` は「カタログ/seed の master data 層」、registry は「behavior/spec 層 (meta は CARD_DEFS から射影)」として layered に共存 (データ重複なし)。
+  - ② デッドコード除去 (`applyManaUp` 等) → **#80 の担当**: `definitions.ts:49` に「効果コード (applyManaUp) の最終撤去は #80」と明記。S2b で production 未参照化したが除去は #80 スコープ (effects.test のカバレッジ維持のため本段では残置)。
+  - ③ serialize 境界 → **実施**: ESLint `no-restricted-imports` で `src/components/**` からの card-spec-server import を error 化 (probe で発火確認)。hooks (reducer 等) は world-kernel 経由で registry を必要とするため対象外 (Client 実行だが props serialize なし)。境界強制方式は `server-only` パッケージでなく eslint を採用 (reducer→world-kernel→card-spec-server の推移 import が成立しており `server-only` は Client build を壊すため不可)。
+  - consumer 移行: deck.ts (VALID_CARD_IDS/playable/deprecated) と merge.ts (playable id) を `getValidCardIds`/`getPlayableCards` 経由へ (id/status のみ参照ゆえ移行可)。user-bootstrap/seed/cards-page は full CardDefinition 必要のため ALL_CARD_DEFS 維持。
 - [ ] **S2e**: CardSystemConfig 集約 (値は不変)。
 - [ ] valueModel は現行係数ブリッジ (中身は S3、構造のみ)。trap onTrigger は @deferred stub (実配線 S3)。
 - [ ] 各段 lint/typecheck/test:ci/build green。段階順序 S2a→S2b→(S2c)→S2d→S2e (S2c/S2d は S2b 前提=revert 単独不可を §7 明記)。
@@ -190,3 +193,20 @@ S2c = 横断制約 (待った可否 / AI 候補生成) を CardSpec registry か
 - isCardOpEvent: 全 6 GameEvent kind で旧新真偽一致 (cardPlayEvent/trapSetEvent/trapTriggerEvent=true、manual drawEvent=true、**auto drawEvent=false**、moveEvent/manaChargeEvent=false)。CARD_OP_EVENT_KINDS = {cardPlayEvent, trapSetEvent} を全7カード deriveEventKind で確認。
 - action-generator: 候補集合・yield 順序同一。spec.meta.cost/kind/checkUsage/targeting は CARD_DEFS 直写、spec.useCondition は CARD_USE_CONDITIONS を world.gameState/world.cardState へ委譲 (AiTurnState→CardWorldView 構造代入成立)。target 列挙は spec.meta.id=def.id で同一マス。
 - 層/循環: undo-policy→card-spec (client-safe meta、関数非保持)、action-generator→card-spec-server (server) はいずれも正方向。新規循環なし。dead code (action-generator の CARD_DEFS/CARD_USE_CONDITIONS/CardDefinition) 除去済。
+
+## 13. S2d (slim) レビュー (serialize 境界 + consumer 移行、実装後、2026-06-08、AGENTS.md ルール8)
+
+着手前調査で元計画 S2d の 3 項目中 2 項目が不可/別 Issue と判明 → **ユーザー承認のもと slim S2d (③ 境界 ESLint + ID 一覧 consumer 移行) に縮小** (詳細は §8 S2d、判定理由は①不可②#80③実施)。
+
+### 変更
+- `eslint.config.mjs`: `src/components/**` からの `@/lib/shogi/cards/card-spec-server` import を `no-restricted-imports` で error 化 (serialize 境界の予防的強制)。hooks は対象外 (reducer→world-kernel 経由で必要、Client 実行だが props serialize なし)。
+- `deck.ts` / `merge.ts`: ALL_CARD_DEFS 直読 → `getValidCardIds`/`getPlayableCards` (registry helper) 経由へ。deprecated = 全件 − playable で同値導出。
+
+### 検証
+- lint 0err / typecheck 緑 / test:ci (S2c 573 維持予定) / build。**境界ルールの実効性を負テストで確認**: `src/components/` 配下に card-spec-server を import する probe ファイルを置くと `no-restricted-imports` error が発火 (= no-op でない)、probe 削除済。
+- consumer 移行は behavior-preserving: `getValidCardIds()` ≡ `ALL_CARD_DEFS.map(id)`、`getPlayableCards()` ≡ `ALL_CARD_DEFS.filter(status!=="deprecated")` (registry meta は CARD_DEFS 射影=同データ・同順)。deck の orphan-cleanup / merge の pristine 判定ロジックは不変。
+
+### scope 外 (申し送り)
+- ① ALL_CARD_DEFS 全廃: CardMeta に説明文/effectId を含める設計変更が前提 (meta/spec 分離見直し)。必要になれば別途検討。
+- ② applyManaUp 等 dead code 除去: #80 (mana_up 効果コード最終撤去) のスコープ。
+- 次: S2e (CardSystemConfig 集約、値不変)。

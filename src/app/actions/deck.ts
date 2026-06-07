@@ -12,18 +12,19 @@ import {
   type CardOwnershipInfo,
   type DeckEntryInput,
 } from "@/lib/shogi/cards/deck-rules";
-import { ALL_CARD_DEFS } from "@/lib/shogi/cards/definitions";
+import { getPlayableCards, getValidCardIds } from "@/lib/shogi/cards/card-spec";
 import type { CardId, CardRarity } from "@/lib/shogi/cards/types";
 
-// Issue #117 (#128): 現行 CARD_DEFS に存在する cardId 集合 (orphan 検出用)。
+// Issue #117 (#128): 現行 registry に存在する cardId 集合 (orphan 検出用)。
 // DB に居残っている未知 cardId (過去の試験データ等) を一括クリーンアップする際に使う。
-const VALID_CARD_IDS: Set<string> = new Set(ALL_CARD_DEFS.map((d) => d.id));
+// Issue #235 S2d: ALL_CARD_DEFS 直読 → registry SSOT helper 経由へ (id/status のみ参照のため移行可)。
+const VALID_CARD_IDS: Set<string> = new Set(getValidCardIds());
 
 async function ensureOwnedCardsForUser(userId: string): Promise<void> {
   // Card マスタの存在を保証 (seed 未実行環境向け)。upsert なので副作用は冪等。
   await ensureCardMaster();
 
-  const playable = ALL_CARD_DEFS.filter((d) => d.status !== "deprecated");
+  const playable = getPlayableCards();
   await Promise.all(
     playable.map((def) =>
       prisma.playerCardCollection.upsert({
@@ -45,8 +46,11 @@ async function ensureOwnedCardsForUser(userId: string): Promise<void> {
   const orphanOwnedCardIds = userOwned
     .map((o) => o.cardId)
     .filter((cardId) => !VALID_CARD_IDS.has(cardId));
+  // deprecated = registry 全件 − playable (= 非 deprecated)。getPlayableCards が status!=="deprecated"
+  // を抽出するため、その補集合が deprecated になる (S2d: helper 経由で同値)。
+  const playableIdSet: Set<string> = new Set(playable.map((m) => m.id));
   const deprecatedIdSet: Set<string> = new Set(
-    ALL_CARD_DEFS.filter((d) => d.status === "deprecated").map((d) => d.id),
+    getValidCardIds().filter((id) => !playableIdSet.has(id)),
   );
   const ownedRemovalIds = Array.from(
     new Set<string>([...orphanOwnedCardIds, ...deprecatedIdSet]),
