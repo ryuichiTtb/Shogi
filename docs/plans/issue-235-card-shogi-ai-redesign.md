@@ -273,7 +273,9 @@ L0 統合 (reducer/AI が単一カーネル `applyTurnAction` に委譲) は最�
 - **reducer (UI) 側 (2026-06-07 lean 改訂で shadow-assert 不採用)**: カーネルを reducer の**実装裏側**に置き、reducer は薄いラッパに後退する方針は維持。ただし移行中の **shadow-assert モードは廃止**。理由: S1a の property-based 等価テスト (reducer dispatch ≡ applyTurnAction を数千局面で検証済) が等価担保の主目的を達成済で、throwaway な二重計算コードを production reducer に入れる価値が小さいため。reducer の薄ラッパ化 (各演出フェーズが kernel building-block を呼ぶ委譲) は S1d cutover で一括実施し、等価は property test + reducer.test/undo/effects + 演出オーケストレーション統合テストで担保する。
 - **standard variant**: カーネル分岐に一切入れず byte-level 不変 (§12 不変ゲート)。
 
-#### 8.5.2 段階統合 (S1a〜S1d、各段で不変ゲート green)
+#### 8.5.2 段階統合 (S1a〜S1d、各段で不変ゲート green) — **S1 全段完了 (2026-06-07)**
+> **S1 完了**: S1a/S1b/S1c/S1d すべて完了・push 済。L0 カーネルが reducer/AI の単一権威として採用済 (P4 解消)。
+> 完了の定義・S2 引き継ぎは `docs/plans/issue-235-s1-kernel.md §16` を正本とする。次段 = S2 (L1 CardSpec registry)。
 1. **S1a**: `WorldState` 型 + `applyTurnAction` を**新規モジュールとして追加** (production 未配線)。§8.3.4 の property-based 等価テストを同時に author し green 化。reducer.test/undo-policy.test/effects.test は不変。
 2. **S1b**: AI 探索を `useKernelSearch` フラグ裏で配線 (既定 OFF)。bench で旧経路と depthCompleted/カード使用率比較。
 3. **S1c (lean 改訂)**: `makeMoveWithEffects` (+ `MakeMoveMode`) を reducer.ts → 新規 lib モジュール `src/lib/shogi/kernel/move-effects.ts` へ**物理移設のみ** (reducer は import して従来どおり直接呼ぶ、ロジック無改変)。world-kernel (lib) → reducer (hooks) の暫定逆依存を解消。**挙動完全不変・純粋リファクタ**。shadow-assert は廃止。reducer.test/undo-policy.test/effects.test/property 等価テスト green を維持。

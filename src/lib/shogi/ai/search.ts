@@ -969,7 +969,11 @@ function searchDoubleMoveSuperActionKernel(
   ctx: SearchContext,
   excludeTadasute: boolean,
 ): number {
-  const spectatorMode = ctx.spectatorMode ?? false;
+  // Issue #235 S1d (decision i): AI 探索は仮想局面の評価であり、wall-clock 早指しボーナス
+  // (時刻依存) は探索の意味論上無意味かつ非決定的。kernel lookahead は常に spectatorMode=true で
+  // 呼び決定論化する (OFF 近似 applyActionForLookahead が move に mana ボーナスを付けないことと整合)。
+  // ctx.spectatorMode はゲームレベルの観戦判定であり、探索 lookahead の決定論化とは別概念として分離する。
+  const spectatorMode = true;
 
   // 計画 OBS3-2: double_move カードが手札にあることを実 lookup で確認 (候補生成で除外済の前提)。
   // 未発見なら NEG_INF (?? "" 空文字 fallback は kernel consumeNormalCard を null 化し OFF と
@@ -1280,8 +1284,10 @@ export function evaluateActionWithLookahead(
     return searchDoubleMoveSuperAction(state, player, variant, ctx, excludeTadasute);
   }
   // Issue #235 S1b: useKernelSearch ON で kernel 経路 (applyTurnAction) に分岐。OFF は旧近似のまま。
+  // Issue #235 S1d (decision i): 探索 lookahead は常に決定論化 (spectatorMode=true)。仮想局面評価では
+  // wall-clock 早指しボーナスは無意味かつ非決定のため game-level spectatorMode に依存させない。
   const applied = ctx?.useKernelSearch
-    ? applyTurnActionForLookahead(state, action, variant, ctx.spectatorMode ?? false)
+    ? applyTurnActionForLookahead(state, action, variant, true)
     : applyActionForLookahead(state, action, player);
   if (!applied) return Number.NEGATIVE_INFINITY;
 

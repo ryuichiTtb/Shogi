@@ -150,3 +150,21 @@ S1c (lean) 計画を 4観点 adversarial workflow (deps/behavior/tests/doc-ssot�
 - **[スコープ訂正] doc/コメント精度**: 旧 doc の「S1c=薄ラッパ化+shadow-assert」記述を lean (S1c=物理移設のみ、委譲=S1d、shadow-assert 廃止) に上書き (§5/§6/§9)。world-kernel.ts:8-11/41 ヘッダコメントも S1c 完了版に更新する。
 - **[S1d へ反映] テスト十分性の論理飛躍**: 「world-kernel-equivalence green = S1c 移設の絶対証拠」は S1c (純粋移設) では成立する (reducer ロジック無改変ゆえ全テスト green で十分) が、レビューが懸念した「演出 flag の event-driven 化の検証不足」は **S1d の懸念**。S1d DoD に演出オーケストレーション統合テストを含める旨を §6 S1d 項に明記済。なお shadow-assert 再導入は lean 決定により行わない。
 - 妥当と確認: 物理移設可・循環依存なし・import 整理範囲確定・import パス更新は world-kernel.ts のみ・tsconfig 変更不要・tree-shaking 影響なし・baseline (test:ci 539 passed/build green) 再現で純粋移設担保。
+
+## 16. S1 完了宣言 + S2 引き継ぎ (S1d cutover 完了時、2026-06-07)
+S1d cutover (詳細計画: `docs/plans/issue-235-s1d-cutover.md`) 完了をもって **S1 (L0 カーネル統合) 全段 (S1a/S1b/S1c/S1d) 完了**。
+- **S1 完了の定義 (達成済)**:
+  - L0 カーネル (`world-kernel.ts` applyTurnAction + building-block / `move-effects.ts` makeMoveWithEffects) が
+    reducer (UI) と AI 探索の **単一権威** として採用済 (P4 二重実装解消)。
+  - production 振る舞いは UI=等価 (reducer.test + 演出統合テスト)、AI=DP-1 lazy drawProgress / base mana charge の
+    意図的既知差分のみ (move 間順位不変、move vs card/draw 選好のみ作用、S3 再校正前提・ユーザー承認済)。
+  - 等価担保: world-kernel-equivalence (180 seed×40 ply + targeted 15) / kernel-search-equivalence / reducer.test /
+    undo-policy.test / effects.test 全 green。bench で棋力退化なし実測 (cardRate 4/4、action OFF==ON、d4==d4)。
+  - rollback: 単一 cutover コミット `git revert` + AI は route.ts の `useKernelSearch: true` 削除で OFF 復帰。
+- **S2 (L1 CardSpec registry) への引き継ぎ**:
+  - L0 が export する building-block (`applyTurnAction` / `advanceDrawProgress` / `finalizeDoubleMoveLogic` /
+    `applyCardEffectLogic` / `makeMoveWithEffects`) が S2 の土台。
+  - `applyCardEffectLogic` は現状 effectId switch (trap/mana_up/pawn_return/piece_return/double_pawn) のハードコード。
+    S2 で単一 `CardSpec.effect.apply` registry に supersede 予定 (= 本 switch は S2 で CardSpec 駆動へ置換される暫定 bridge)。
+  - 新カード追加は S2 完了までは AGENTS.md「カード将棋: 新規カード追加時のチェックリスト」+ applyCardEffectLogic の
+    switch 追記が必要 (S2 で registry 化されると 1 スキーマで自動追従)。

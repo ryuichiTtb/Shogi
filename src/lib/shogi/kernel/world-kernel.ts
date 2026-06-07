@@ -143,7 +143,9 @@ export function finalizeDoubleMoveLogic(
 // modifyBoard 系は direct-apply (simulateCardEffect は returnedPiece / removeNoPromoteMark を
 // 落とすため使わない、計画 §4 訂正)。double_move は本関数の対象外 (applyTurnAction で別扱い)。
 // 返り値: 効果適用後の {gameState, cardState, event}。不正 (王手未解除等) は null。
-function applyCardEffectLogic(
+// Issue #235 S1d: reducer の CONFIRM_PLAY_CARD が効果適用を本関数へ委譲するため export
+// (double_move/selectTarget は reducer に残し、trap/mana_up/pawn_return/piece_return/double_pawn を委譲)。
+export function applyCardEffectLogic(
   world: WorldState,
   action: Extract<TurnAction, { kind: "playCard" }>,
   player: Player,

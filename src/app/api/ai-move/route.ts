@@ -211,6 +211,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         // 深い zod-like 検証 (型不一致時 400 返却) は PR1d-2/3/4 のいずれかで
         // `src/lib/shogi/cards/validate.ts` 新規追加時に格上げ予定。
         cardState: body.cardState,
+        // Issue #235 S1d (cutover): production AI 探索を L0 カーネル applyTurnAction 経由に切替
+        // (root カード/ドロー評価を単一権威カーネルへ統一、DP-1〜7 適用)。engine 既定は OFF のままで
+        // production 入口の本 route のみ明示 ON にする (案B = default 依存 test/bench の baseline を不変に保つ)。
+        // rollback は本行削除のみ。探索は仮想局面評価のため kernel 内で spectatorMode=true 固定 (search.ts、決定論化)。
+        useKernelSearch: true,
       },
     );
     // client abort の場合は 499 相当だが、Next.js では client がもう listen して
