@@ -98,8 +98,9 @@ registry は新規ファイルのため S2a は revert 安全。
 - [x] **S2a** (完了・commit 予定): CardSpec/EffectSpec 型 (multiPly は effect 外 / onTrigger optional stub) + 7 カード registry data (`card-spec.ts` = meta-only client-safe / `card-spec-server.ts` = 関数)。registry SSOT helper (`getActiveCards`/`getPlayableCards`/`getValidCardIds`) 定義。CardId 手書きユニオン維持 + 全7枚 exhaustiveness property test。CARD_USE_CONDITIONS の `(world,player)` シグネチャ統一 (現3引数の cardState 未使用) を同梱。
   - **S2a 実装時の確定 (M2 反映、§10)**: 「`ALL_CARD_DEFS = registry 由来` re-export で seed bit-identical」は **S2d へ先送り** (seed.ts が CardMeta 非包含の `description`/`effectId` を必要とし、CardMeta subset から再構成不可)。S2a は **definitions.ts を SSOT 維持** + registry の meta を CARD_DEFS から射影 (`toCardMeta`)。helper は additive 提供のみ (consumer 切替は S2c/S2d)。
 - [x] **S2a 特性化テスト** (§9 A6、完了 29件): meta subset 一致 / effect.apply を各 modifyBoard カードで複数 board×player×target fixture で現 applyXxx と構造一致 / eventKind 派生規則 / useCondition・checkUsage を複数 snapshot で現行一致 / valueModel は静的 stub の snapshot (現行に per-card valueModel は無く、本 stub の出力を pin)。
-- [ ] **S2b**: applyCardEffectLogic の effectId switch → spec.effect.apply dispatch へ置換 (consumeNormalCard・event 構築・sideEffect removeNoPromoteMark は dispatcher 汎用処理)。**trap trigger (move-effects インライン) には触れない (Route B、DP-7 保全)**。bench 棋力退化なし。
-  - **M2 申し送り (§10 D1-1)**: world-kernel が card-spec-server を **value import** する際、world-kernel ↔ card-spec-server の **型レベル相互参照** が成立する (runtime 循環は無害=検証済。card-spec-server の runtime 依存は card-spec/definitions/effects のみで kernel に到達しない)。L1(cards/) が L0(kernel/) から `WorldState` を借りる型従属は目標アーキ (ai→L1 正方向) と逆向きのため、(a) `WorldState` を下位共有型モジュールへ移す、または (b) `UseCondition`/`ValueModel`/`onTrigger` を cards/ ローカル最小型 `{ gameState; cardState }` に縮約 (KernelDoubleMove 不要) して kernel 依存を外す、のいずれかで型循環を解消することを **S2b の PR レビュー観点に含める**。
+- [x] **S2b** (完了・commit 予定): applyCardEffectLogic の effectId switch → spec.effect.apply dispatch へ置換 (consumeNormalCard・event 構築・sideEffect removeNoPromoteMark は dispatcher 汎用処理)。**trap trigger (move-effects インライン) には触れない (Route B、DP-7 保全)**。bench 棋力退化なし (kernel-search OFF==ON 4/4・depth d4 同値、card-usage baseline 同値)。
+  - **M2 (§11) で D1-1 解消済**: 当初案 (b) を採用し、`UseCondition`/`onTrigger` を card-spec-server の `import type { WorldState }` から **cards/ ローカル最小型 `CardWorldView` ({gameState, cardState})** に縮約。world-kernel が CARD_SPECS を value import する一方 card-spec-server は world-kernel を import しない = **型/runtime 循環なし**。WorldState/AiTurnState は構造的に CardWorldView へ代入可 (caller 不変)。
+  - **汎用化の等価性 (§9 B3)**: modifyBoard は適用前の `pieceBefore = board[target]` 有無で returnedPiece + removeNoPromoteMark を条件発火。applyPawnReturn/applyPieceReturn は target に駒必須 (null時は早期 return) のため pieceBefore 常在 = 旧版の無条件呼び出しと一致。double_pawn は target 常に空 = 不発で旧版と一致 (M2 adversarial 検証で6カード全件確認)。
 - [ ] **S2c**: isCardOpEvent を spec.eventKind 導出 / action-generator 候補生成を registry クエリ / checkUsage を spec 参照。族別 switch 排除。
   - **M2 申し送り**: `CardEventKind` (card-spec.ts) は card 自身の使用/設置 event (`cardPlayEvent`/`trapSetEvent`) のみ。`isCardOpEvent` 導出時は **トラップ発動 `trapTriggerEvent` を別途合算** すること (別ライフサイクル=相手手番で発火するため card の eventKind には含めていない)。
 - [ ] **S2d**: 旧 CARD_DEFS/CARD_USE_CONDITIONS 重複の一本化・デッドコード除去。serialize 境界是正 (ESLint で Client→server import 禁止)。
@@ -150,3 +151,25 @@ S2a 実装完了時点のレビュー。adversarial multi-agent workflow (6観�
 
 ### 残課題 (S2a 後)
 - セッション上限が解消した後 (任意)、打ち切った adversarial workflow を fresh 再実行して equivalence/additive 観点の独立検証を補強してもよい (現状はセルフレビュー + 29特性化テスト + grep で代替済)。
+
+## 11. S2b M2 マイルストーンレビュー (cutover 実装後、2026-06-07、AGENTS.md ルール8)
+
+S2b = `applyCardEffectLogic` を旧 effectId-switch から CardSpec registry の EffectSpec 駆動 dispatch へ置換する cutover (P5 解消、production 効果適用経路を registry 化)。reducer (S1d 委譲済) と AI (applyTurnAction) の単一権威を 1 箇所置換。
+
+### 検証実測
+- lint 0err / typecheck 緑 / test:ci **571 passed** (S2a と同数=デグレなし。等価ゲート world-kernel-equivalence / reducer / effects / kernel-search-equivalence / card-spec すべて緑) / build 緑。
+- bench (RUN_PERF_BENCH): kernel-search advanced/expert **cardRate OFF=4/4 ON=4/4・action 選択 OFF==ON 一致 (piece_return/double_move/pawn_return)・depthCompleted d4==d4**。card-usage beginner 100%/intermediate 86%/advanced・expert 57% (baseline 同値)、registry 駆動の選択 (`playCard:board`/`playCard:trap`) 正常。**棋力退化なし**。
+
+### 総合判定
+**S2b は commit/push 可 (指摘ゼロ)**。独立 adversarial agent (general-purpose、27 tool uses) による等価性検証 = **cutover は旧版と byte 等価・発散点ゼロ (high/medium/low すべて 0)**。
+
+### adversarial 検証で確認した等価性 (6カード全件)
+- **dispatch マッピング**: effectId→effect.type / kind→eventKind が旧版と一致 (deriveEventKind = trap→trapSetEvent / 他→cardPlayEvent、trap は check_break/no_promote の 2 枚のみ)。
+- **汎用化 (pieceBefore 方式)**: pawn_return/piece_return は applyXxx が target に駒必須 (null時早期 return) のため `ng` 非 null 時 pieceBefore 常在 → 旧版の無条件 returnedPiece + removeNoPromoteMark と一致。double_pawn は isDoublePawnLegalSquare で target 必ず空 → pieceBefore falsy で不発 (旧版一致)。不正 target は `apply` が null → pieceBefore 使用前に早期 return (旧版一致)。
+- **mana_up modifyResource**: `Math.min(consumed.manaCap, consumed.mana+effect.mana=3)` = 旧 applyManaUp。**trap setTrap**: cost = spec.meta.cost = CARD_DEFS[id].cost、mana 直接減算 + applyTrapSet 経路同一、event instance owner 付与一致。**王手中ガード**: 完全一致。**double_move**: `!spec.effect` 防御 null (applyTurnAction が事前分岐で未到達、旧 `else return null` 等価)。
+
+### D1-1 解消 (S2a M2 申し送りを本段で対応)
+card-spec-server の `WorldState` 型依存を `CardWorldView` ({gameState, cardState}) に縮約 (案 b)。world-kernel→card-spec-server の value import 一方向のみ = 型/runtime 循環なし (grep 確認)。
+
+### dead code 申し送り
+`applyManaUp` (effects.ts) は本 cutover で production から未参照になるが、effects.test/reducer.test/equivalence (OBS5-3) のカバレッジ維持のため **除去は S2d**。

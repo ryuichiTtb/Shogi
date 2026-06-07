@@ -21,12 +21,22 @@
 //   - **valueModel は枠のみ** (R-4): S3 値付けの interface 固定先。中身は静的 per-card 値を返す薄い stub。
 
 import type { GameState, Player, Position } from "@/lib/shogi/types";
-import type { CardCheckUsage, CardId, CardTarget, CardTargeting, TrapTrigger } from "./types";
+import type { CardCheckUsage, CardGameState, CardId, CardTarget, CardTargeting, TrapTrigger } from "./types";
 import type { CardEventKind, CardMeta } from "./card-spec";
-import type { WorldState } from "@/lib/shogi/kernel/world-kernel";
 import { CARD_META } from "./card-spec";
 import { CARD_DEFS, CARD_USE_CONDITIONS } from "./definitions";
 import { applyDoublePawn, applyPawnReturn, applyPieceReturn } from "./effects";
+
+// L1 が参照するカード文脈の最小ビュー (gameState + cardState)。
+// useCondition / onTrigger は二手指し継続状態 (doubleMove) を要さないため、kernel の WorldState 全体
+// ではなく本最小型に縮約する。これにより cards/ → kernel/ の型依存を断つ (M2 D1-1: S2b で world-kernel が
+// CARD_SPECS を value import するため、card-spec-server が WorldState を type import すると型レベル循環が
+// 生じる)。world-kernel.WorldState ({gameState, cardState, doubleMove}) と ai の AiTurnState はいずれも
+// 本型へ構造的に代入可能 (caller 側は従来どおり渡せる)。
+export interface CardWorldView {
+  gameState: GameState;
+  cardState: CardGameState;
+}
 
 // ===== EffectSpec 判別共用体 (M1 §2) =====
 // CONFIRM 時の効果適用を type 別テンプレで宣言する。新カードは type 選択 + パラメータ埋め (ビジョン⑥)。
@@ -39,18 +49,18 @@ export type EffectSpec =
       apply: (gameState: GameState, player: Player, target: CardTarget) => GameState | null;
     }
   // setTrap: set のみ registry 化 (Route B、R-1)。trigger は「いつ発火するか」のメタ。
-  //   onTrigger は **S2a では未配線 stub** (型枠のみ、@deferred)。実 trigger は move-effects.ts インライン。
+  //   onTrigger は **未配線 stub** (型枠のみ、@deferred、実配線 S3)。実 trigger は move-effects.ts インライン。
   | {
       type: "setTrap";
       trigger: TrapTrigger;
-      onTrigger?: (world: WorldState) => WorldState;
+      onTrigger?: (world: CardWorldView) => CardWorldView;
     }
   // modifyResource: mana/draw のリソース変更を宣言的に (mana_up)。
   | { type: "modifyResource"; mana?: number; draw?: number };
 
 // 使用条件 (マナ以外の独自条件)。CARD_USE_CONDITIONS を (world, player) シグネチャに統一して内包する
 // (§8 / §B2。現行 CardUseCondition の 3 引数目 cardState は未使用)。
-export type UseCondition = (world: WorldState, player: Player) => boolean;
+export type UseCondition = (world: CardWorldView, player: Player) => boolean;
 
 // カード価値モデル (cp)。S2 は静的 stub、S3 で局面・コスト依存値付け (R-4)。シグネチャを固定する。
 export type ValueModel = (gameState: GameState, player: Player) => number;

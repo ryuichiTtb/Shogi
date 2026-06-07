@@ -32,14 +32,14 @@ import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
 import { unpromotePieceType } from "@/lib/shogi/variants/standard";
 import { CARD_DEFS, DRAW_COST, AUTO_DRAW_INTERVAL } from "@/lib/shogi/cards/definitions";
 import {
-  applyPawnReturn,
-  applyPieceReturn,
-  applyDoublePawn,
-  applyManaUp,
   applyTrapSet,
   consumeNormalCard,
   removeNoPromoteMark,
 } from "@/lib/shogi/cards/effects";
+// Issue #235 S2b: 効果適用を CardSpec registry の effect 駆動へ統一 (P5 解消)。
+// 各 applyXxx は CARD_SPECS[id].effect.apply (= 薄い wrapper) 経由で呼ばれるため、world-kernel が
+// applyPawnReturn/applyPieceReturn/applyDoublePawn/applyManaUp を直接 import する必要はなくなった。
+import { CARD_SPECS } from "@/lib/shogi/cards/card-spec-server";
 import { makeMoveWithEffects } from "@/lib/shogi/kernel/move-effects";
 import type {
   CardGameState,
@@ -139,71 +139,83 @@ export function finalizeDoubleMoveLogic(
 }
 
 // ===== building-block: applyCardEffectLogic (DP-3/DP-7) =====
-// CONFIRM_PLAY_CARD (reducer.ts:1226-1342) の効果適用部を抽出 (確定済 playCard を 1 ステップ適用)。
-// modifyBoard 系は direct-apply (simulateCardEffect は returnedPiece / removeNoPromoteMark を
-// 落とすため使わない、計画 §4 訂正)。double_move は本関数の対象外 (applyTurnAction で別扱い)。
+// CONFIRM_PLAY_CARD (reducer.ts) の効果適用部を抽出 (確定済 playCard を 1 ステップ適用)。
 // 返り値: 効果適用後の {gameState, cardState, event}。不正 (王手未解除等) は null。
-// Issue #235 S1d: reducer の CONFIRM_PLAY_CARD が効果適用を本関数へ委譲するため export
-// (double_move/selectTarget は reducer に残し、trap/mana_up/pawn_return/piece_return/double_pawn を委譲)。
+// reducer の CONFIRM_PLAY_CARD (S1d) と AI 探索 (applyTurnAction) が本関数へ委譲する単一権威。
+//
+// Issue #235 S2b cutover: 旧 effectId switch (trap / mana_up / pawn_return / piece_return / double_pawn)
+// を **CardSpec registry の EffectSpec 駆動 dispatch** へ統一 (P5 解消)。盤面変更は spec.effect.apply
+// (= 既存 applyXxx の薄い wrapper) に委譲し、汎用処理 (consumeNormalCard / mana 減算 / event 構築 /
+// returnedPiece / removeNoPromoteMark sideEffect) は本 dispatcher が担う (§9 B3)。挙動は旧実装と等価
+// (world-kernel-equivalence / reducer / effects / kernel-search-equivalence / card-spec テストで担保)。
+// double_move は effect を持たない (multiPly のみ) ため本関数の対象外 = applyTurnAction で別扱い。
+// trap trigger (no_promote 成り抑止 / check_break 王手崩し) の発火は move-effects.ts インライン (Route B、不変)。
 export function applyCardEffectLogic(
   world: WorldState,
   action: Extract<TurnAction, { kind: "playCard" }>,
   player: Player,
 ): { gameState: GameState; cardState: CardGameState; event: GameEvent } | null {
-  const def = CARD_DEFS[action.defId];
+  const spec = CARD_SPECS[action.defId];
+  const effect = spec.effect;
+  // effect 無 (double_move 等 multiPly カード) は本関数の対象外。applyTurnAction の playCard 分岐が
+  // 事前に処理するため通常到達しないが、防御的に null (旧実装の `else return null` と等価)。
+  if (!effect) return null;
+
+  const cost = spec.meta.cost;
   let nextGameState = world.gameState;
   let nextCardState = world.cardState;
   let returnedPieceInfo: { row: number; col: number; pieceType: string } | undefined;
 
-  if (def.kind === "trap") {
-    // トラップ: consumeNormalCard を使わず mana 直接減算 + applyTrapSet (graveyard 不変 DP-3)
-    if (world.cardState.mana[player] < def.cost) return null;
+  if (effect.type === "setTrap") {
+    // トラップ: consumeNormalCard を使わず mana 直接減算 + applyTrapSet (graveyard 不変 DP-3)。
+    if (world.cardState.mana[player] < cost) return null;
     const afterMana: CardGameState = {
       ...world.cardState,
-      mana: { ...world.cardState.mana, [player]: world.cardState.mana[player] - def.cost },
+      mana: { ...world.cardState.mana, [player]: world.cardState.mana[player] - cost },
     };
     const afterSet = applyTrapSet(afterMana, player, action.cardInstanceId);
     if (!afterSet) return null;
     nextCardState = afterSet;
-  } else if (def.effectId === "mana_up") {
-    const consumed = consumeNormalCard(world.cardState, player, action.cardInstanceId, def.cost);
-    if (!consumed) return null;
-    nextCardState = applyManaUp(consumed, player);
-  } else if (def.effectId === "pawn_return" || def.effectId === "piece_return") {
+  } else if (effect.type === "modifyBoard") {
     if (!action.target || action.target.kind !== "square") return null;
     const targetPos = { row: action.target.row, col: action.target.col };
-    const returnedPiece = world.gameState.board[targetPos.row]?.[targetPos.col];
-    const ng =
-      def.effectId === "pawn_return"
-        ? applyPawnReturn(world.gameState, player, targetPos)
-        : applyPieceReturn(world.gameState, player, targetPos);
+    // 盤面適用前に target マスの駒を控える。駒があれば「持ち駒へ戻す」効果 (pawn_return / piece_return):
+    //   returnedPiece (cardPlayEvent の駒フライト演出用) + removeNoPromoteMark (案A: 戻した駒はマーク喪失)。
+    // double_pawn は空マスへの打ちで pieceBefore 無 → どちらも発生しない (旧実装と等価、§9 B3)。
+    const pieceBefore = world.gameState.board[targetPos.row]?.[targetPos.col];
+    const ng = effect.apply(world.gameState, player, action.target);
     if (!ng) return null;
     nextGameState = ng;
-    if (returnedPiece) {
+    if (pieceBefore) {
       returnedPieceInfo = {
         row: targetPos.row,
         col: targetPos.col,
-        pieceType: unpromotePieceType(returnedPiece.type),
+        pieceType: unpromotePieceType(pieceBefore.type),
       };
     }
-    const consumed = consumeNormalCard(world.cardState, player, action.cardInstanceId, def.cost);
+    const consumed = consumeNormalCard(world.cardState, player, action.cardInstanceId, cost);
     if (!consumed) return null;
-    // 持ち駒に戻った駒は no_promote マークを失う (案A 仕様、reducer.ts:1266/1284)
-    nextCardState = removeNoPromoteMark(consumed, player, targetPos);
-  } else if (def.effectId === "double_pawn") {
-    if (!action.target || action.target.kind !== "square") return null;
-    const targetPos = { row: action.target.row, col: action.target.col };
-    const ng = applyDoublePawn(world.gameState, player, targetPos);
-    if (!ng) return null;
-    nextGameState = ng;
-    const consumed = consumeNormalCard(world.cardState, player, action.cardInstanceId, def.cost);
+    nextCardState = pieceBefore ? removeNoPromoteMark(consumed, player, targetPos) : consumed;
+  } else if (effect.type === "modifyResource") {
+    const consumed = consumeNormalCard(world.cardState, player, action.cardInstanceId, cost);
     if (!consumed) return null;
-    nextCardState = consumed;
+    // mana リソース変更 (mana_up: +effect.mana、manaCap でクランプ = 旧 applyManaUp と等価)。
+    nextCardState =
+      effect.mana !== undefined
+        ? {
+            ...consumed,
+            mana: {
+              ...consumed.mana,
+              [player]: Math.min(consumed.manaCap, consumed.mana[player] + effect.mana),
+            },
+          }
+        : consumed;
+    // effect.draw は S2a registry では未使用 (将来カード用)。
   } else {
     return null;
   }
 
-  // 王手中の最終ガード (reducer.ts:1338-1342): 王手中だった場合、適用後も王手なら不正 (no-op)。
+  // 王手中の最終ガード (reducer 等価): 王手中だった場合、適用後も王手なら不正 (no-op)。
   // 合法 action では発生しないが reducer 等価のため再現。
   if (
     isInCheck(world.gameState, player, CARD_SHOGI_VARIANT) &&
@@ -213,7 +225,7 @@ export function applyCardEffectLogic(
   }
 
   const event: GameEvent =
-    def.kind === "trap"
+    spec.eventKind === "trapSetEvent"
       ? {
           kind: "trapSetEvent",
           player,
