@@ -197,7 +197,10 @@ export const CardView = memo(function CardView({
 }: CardViewProps) {
   const def = CARD_DEFS[card.defId];
 
-  if (faceDown) {
+  // Issue #235 S2 (B5): CARD_DEFS の raw lookup 防御。S2d で CARD_DEFS を registry へ
+  // 一本化・deprecate する過程で未知 defId が渡された場合に def.rarity 等で NPE するのを防ぐ。
+  // 現状 def は常に定義済のため挙動不変 (本ガードは到達しない)。未知時は裏向き表示でフォールバック。
+  if (faceDown || !def) {
     return <CardBack size={size} fullWidth={fullWidth} />;
   }
 
