@@ -101,8 +101,8 @@ registry は新規ファイルのため S2a は revert 安全。
 - [x] **S2b** (完了・commit 予定): applyCardEffectLogic の effectId switch → spec.effect.apply dispatch へ置換 (consumeNormalCard・event 構築・sideEffect removeNoPromoteMark は dispatcher 汎用処理)。**trap trigger (move-effects インライン) には触れない (Route B、DP-7 保全)**。bench 棋力退化なし (kernel-search OFF==ON 4/4・depth d4 同値、card-usage baseline 同値)。
   - **M2 (§11) で D1-1 解消済**: 当初案 (b) を採用し、`UseCondition`/`onTrigger` を card-spec-server の `import type { WorldState }` から **cards/ ローカル最小型 `CardWorldView` ({gameState, cardState})** に縮約。world-kernel が CARD_SPECS を value import する一方 card-spec-server は world-kernel を import しない = **型/runtime 循環なし**。WorldState/AiTurnState は構造的に CardWorldView へ代入可 (caller 不変)。
   - **汎用化の等価性 (§9 B3)**: modifyBoard は適用前の `pieceBefore = board[target]` 有無で returnedPiece + removeNoPromoteMark を条件発火。applyPawnReturn/applyPieceReturn は target に駒必須 (null時は早期 return) のため pieceBefore 常在 = 旧版の無条件呼び出しと一致。double_pawn は target 常に空 = 不発で旧版と一致 (M2 adversarial 検証で6カード全件確認)。
-- [ ] **S2c**: isCardOpEvent を spec.eventKind 導出 / action-generator 候補生成を registry クエリ / checkUsage を spec 参照。族別 switch 排除。
-  - **M2 申し送り**: `CardEventKind` (card-spec.ts) は card 自身の使用/設置 event (`cardPlayEvent`/`trapSetEvent`) のみ。`isCardOpEvent` 導出時は **トラップ発動 `trapTriggerEvent` を別途合算** すること (別ライフサイクル=相手手番で発火するため card の eventKind には含めていない)。
+- [x] **S2c** (完了・commit 予定): isCardOpEvent を `CARD_OP_EVENT_KINDS` (registry 全カード eventKind の集合、client-safe) 導出へ / action-generator 候補生成を `CARD_SPECS` クエリ (cost/kind/useCondition/checkUsage/targeting) へ / checkUsage を spec 参照。族別ハードコード排除。reducer の checkUsage UI gate (client) は client/server 境界の論点があり **S2d 領域**として本段では CARD_DEFS のまま据置。
+  - **申し送り対応済**: `isCardOpEvent` 導出時に **トラップ発動 `trapTriggerEvent` を別途合算** (CARD_OP_EVENT_KINDS は card 自身の eventKind のみ=別ライフサイクル)。`deriveEventKind` を card-spec.ts (client-safe) へ移し card-spec-server が import (重複定義解消)。検証: lint0err/typecheck/test:ci **573**(+2)/build/bench。M2 独立 adversarial で旧版と等価 (isCardOpEvent 全6 kind 真偽一致・action-generator 候補集合/順序同一)、§12 記録。
 - [ ] **S2d**: 旧 CARD_DEFS/CARD_USE_CONDITIONS 重複の一本化・デッドコード除去。serialize 境界是正 (ESLint で Client→server import 禁止)。
   - **M2 申し送り (§10 D1-2)**: 境界強制方式の候補。repo には既に `server-only` パッケージが導入済 (`package.json` deps + `src/lib/auth/{current-user,config,merge,user-bootstrap}.ts` で実使用 + `vitest.config.ts` で no-op shim alias 済) のため、`card-spec-server.ts` 冒頭へ `import "server-only"` を付すのが最小コスト。eslint `no-restricted-paths` との二者択一を S2d で確定する。
 - [ ] **S2e**: CardSystemConfig 集約 (値は不変)。
@@ -173,3 +173,20 @@ card-spec-server の `WorldState` 型依存を `CardWorldView` ({gameState, card
 
 ### dead code 申し送り
 `applyManaUp` (effects.ts) は本 cutover で production から未参照になるが、effects.test/reducer.test/equivalence (OBS5-3) のカバレッジ維持のため **除去は S2d**。
+
+## 12. S2c M2 マイルストーンレビュー (横断制約 registry 化、実装後、2026-06-07、AGENTS.md ルール8)
+
+S2c = 横断制約 (待った可否 / AI 候補生成) を CardSpec registry から導出する behavior-preserving refactor。
+- **isCardOpEvent** (undo-policy.ts、client): 旧 4 条件ハードコードを `CARD_OP_EVENT_KINDS` (card-spec.ts で全カード eventKind を集約=client-safe Set) 導出 + manual drawEvent + trapTriggerEvent 別合算へ。
+- **action-generator** (ai): CARD_DEFS/CARD_USE_CONDITIONS 個別参照を `CARD_SPECS[id]` クエリ (meta.cost/meta.kind/useCondition/checkUsage/targeting) へ統一。族別 switch 排除。
+- **deriveEventKind**: server → card-spec.ts (client-safe) へ移設、card-spec-server は import (重複解消)。
+
+### 検証実測
+- lint 0err / typecheck 緑 / test:ci **573 passed** (S2b 571 + 新規 CARD_OP_EVENT_KINDS テスト 2) / build 緑。
+- bench: kernel-search advanced/expert **cardRate OFF==ON 4/4・depth d4 同値** (決定的 bench=ロジック不変の確証)。card-usage は `cardCount>=1` sanity passed。**rate ログ変動 (beginner 86%/intermediate 100% 等) は退化ではない**: 当該 bench は C-13 で意図的に非決定化 (beginner addNoise=0.50 + wall-clock 時間予算) され strict per-scenario assert は flaky のため削除済、決定的 calibration 検証は `evaluate-action.test.ts` (test:ci に含まれ緑) へ移管済。
+
+### 総合判定
+**S2c は commit/push/マージ可 (指摘ゼロ)**。独立 adversarial agent 検証 = **旧版と挙動等価・発散点ゼロ (high/medium/low すべて 0)**。
+- isCardOpEvent: 全 6 GameEvent kind で旧新真偽一致 (cardPlayEvent/trapSetEvent/trapTriggerEvent=true、manual drawEvent=true、**auto drawEvent=false**、moveEvent/manaChargeEvent=false)。CARD_OP_EVENT_KINDS = {cardPlayEvent, trapSetEvent} を全7カード deriveEventKind で確認。
+- action-generator: 候補集合・yield 順序同一。spec.meta.cost/kind/checkUsage/targeting は CARD_DEFS 直写、spec.useCondition は CARD_USE_CONDITIONS を world.gameState/world.cardState へ委譲 (AiTurnState→CardWorldView 構造代入成立)。target 列挙は spec.meta.id=def.id で同一マス。
+- 層/循環: undo-policy→card-spec (client-safe meta、関数非保持)、action-generator→card-spec-server (server) はいずれも正方向。新規循環なし。dead code (action-generator の CARD_DEFS/CARD_USE_CONDITIONS/CardDefinition) 除去済。
