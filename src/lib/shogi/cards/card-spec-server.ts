@@ -23,7 +23,7 @@
 import type { GameState, Player, Position } from "@/lib/shogi/types";
 import type { CardCheckUsage, CardGameState, CardId, CardTarget, CardTargeting, TrapTrigger } from "./types";
 import type { CardEventKind, CardMeta } from "./card-spec";
-import { CARD_META } from "./card-spec";
+import { CARD_META, deriveEventKind } from "./card-spec";
 import { CARD_DEFS, CARD_USE_CONDITIONS } from "./definitions";
 import { applyDoublePawn, applyPawnReturn, applyPieceReturn } from "./effects";
 
@@ -126,12 +126,6 @@ function boardEffect(
 function resolveUseCondition(id: CardId): UseCondition | undefined {
   const fn = CARD_USE_CONDITIONS[id];
   return fn ? (world, player) => fn(world.gameState, player, world.cardState) : undefined;
-}
-
-// eventKind 派生規則 (§9 A6): trap → "trapSetEvent"、それ以外 (normal/multiPly) → "cardPlayEvent"。
-// 単一規則として encode し、各カードで個別ハードコードしない。
-function deriveEventKind(meta: CardMeta): CardEventKind {
-  return meta.kind === "trap" ? "trapSetEvent" : "cardPlayEvent";
 }
 
 // CardSpec 組み立て共通処理。targeting / checkUsage / eventKind / useCondition は CARD_DEFS・CARD_META

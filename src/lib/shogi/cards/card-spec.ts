@@ -65,6 +65,22 @@ export const CARD_META: Record<CardId, CardMeta> = Object.fromEntries(
   (Object.keys(CARD_DEFS) as CardId[]).map((id) => [id, toCardMeta(CARD_DEFS[id])]),
 ) as Record<CardId, CardMeta>;
 
+// eventKind 派生規則 (§9 A6): trap → "trapSetEvent"、それ以外 (normal/multiPly) → "cardPlayEvent"。
+// 単一規則として encode し各カードで個別ハードコードしない。CardSpec 構築 (card-spec-server) と
+// 本ファイルの CARD_OP_EVENT_KINDS が共有する。meta のみ参照 = client-safe。
+export function deriveEventKind(meta: CardMeta): CardEventKind {
+  return meta.kind === "trap" ? "trapSetEvent" : "cardPlayEvent";
+}
+
+// カードの使用/設置で発行されうる event 種別の集合 (= registry 全カードの eventKind を導出して集約)。
+// undo-policy.isCardOpEvent が「待った可否でブロックすべきカード操作 event」判定に使う (S2c で族別
+// ハードコードを本集合導出へ置換、§8)。現状は {cardPlayEvent, trapSetEvent} (全カードが normal/trap)。
+// 注: トラップ発動 "trapTriggerEvent" は card 自身の eventKind ではない (別ライフサイクル=相手手番で発火)
+// ため本集合に含まれない。isCardOpEvent 側で別途合算する (§9 A6 / S2c 申し送り)。
+export const CARD_OP_EVENT_KINDS: ReadonlySet<CardEventKind> = new Set(
+  Object.values(CARD_META).map(deriveEventKind),
+);
+
 // ===== registry SSOT helper (§8 / §9 B4) =====
 // seed orphan-guard / deck.ts VALID_CARD_IDS / user-bootstrap・merge の playable 抽出などが
 // 現状 ALL_CARD_DEFS を直読している。S2c/S2d でこれら helper 経由へ移行する (本段では additive に提供のみ)。

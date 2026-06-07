@@ -15,12 +15,18 @@
 // - 1 ターンに複数 ply 消費するカード (double_move 系) は本ヘルパが自動対応する
 //   (プレイヤー切替検出により同色連続を 1 ターン扱い)。
 
+import { CARD_OP_EVENT_KINDS } from "@/lib/shogi/cards/card-spec";
 import type { GameEvent } from "@/lib/shogi/cards/types";
 import type { Player } from "@/lib/shogi/types";
 
 /**
  * イベントが「カード操作系」(待った可否判定でブロック対象) か。
- * 新たな card 系 event を追加するときはここを更新する。
+ *
+ * Issue #235 S2c: カード使用/設置 event (cardPlayEvent / trapSetEvent) の集合は CardSpec registry の
+ * eventKind から導出した `CARD_OP_EVENT_KINDS` (client-safe、card-spec.ts) を参照する。新カードの
+ * eventKind は registry が単一源として持つため、本関数の族別ハードコードは不要になった。
+ * トラップ発動 (trapTriggerEvent) は card 自身の eventKind ではない (別ライフサイクル=相手手番で発火)
+ * ため CARD_OP_EVENT_KINDS に含まれず、ここで別途合算する。
  *
  * Issue #130: auto drawEvent は手番終了時の副作用であり、ユーザーが任意に実行した
  * カード操作ではない。待った時に reducer 側で手札/山札へ巻き戻すため、ブロック対象外。
@@ -28,9 +34,8 @@ import type { Player } from "@/lib/shogi/types";
  */
 export function isCardOpEvent(ev: GameEvent): boolean {
   return (
-    ev.kind === "cardPlayEvent" ||
+    (CARD_OP_EVENT_KINDS as ReadonlySet<string>).has(ev.kind) ||
     (ev.kind === "drawEvent" && (ev.source ?? "manual") === "manual") ||
-    ev.kind === "trapSetEvent" ||
     ev.kind === "trapTriggerEvent"
   );
 }

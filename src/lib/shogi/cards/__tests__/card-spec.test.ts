@@ -23,6 +23,8 @@ import { ALL_CARD_DEFS, CARD_DEFS, CARD_USE_CONDITIONS } from "../definitions";
 import { applyDoublePawn, applyPawnReturn, applyPieceReturn } from "../effects";
 import {
   CARD_META,
+  CARD_OP_EVENT_KINDS,
+  deriveEventKind,
   getActiveCards,
   getPlayableCards,
   getValidCardIds,
@@ -227,6 +229,23 @@ describe("eventKind 派生規則 (§9 A6)", () => {
     for (const id of ["no_promote", "check_break"] as CardId[]) {
       expect(CARD_SPECS[id].eventKind).toBe("trapSetEvent");
     }
+  });
+
+  it("deriveEventKind は CARD_SPECS[id].eventKind と一致 (単一規則)", () => {
+    for (const id of ALL_CARD_IDS) {
+      expect(deriveEventKind(CARD_META[id])).toBe(CARD_SPECS[id].eventKind);
+    }
+  });
+
+  // S2c: undo-policy.isCardOpEvent が参照する registry 導出集合。
+  it("CARD_OP_EVENT_KINDS = 全カード eventKind の集合 = {cardPlayEvent, trapSetEvent}", () => {
+    expect(CARD_OP_EVENT_KINDS).toEqual(new Set(["cardPlayEvent", "trapSetEvent"]));
+    // 全カードの eventKind が漏れなく含まれる
+    for (const id of ALL_CARD_IDS) {
+      expect(CARD_OP_EVENT_KINDS.has(CARD_SPECS[id].eventKind)).toBe(true);
+    }
+    // トラップ発動 (trapTriggerEvent) は card 自身の eventKind ではないため含まれない (別合算)
+    expect((CARD_OP_EVENT_KINDS as ReadonlySet<string>).has("trapTriggerEvent")).toBe(false);
   });
 });
 
