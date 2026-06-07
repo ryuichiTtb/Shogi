@@ -1,0 +1,82 @@
+{
+  "schema": "issue-235-poc2/v1",
+  "description": "Issue #235 PoC-2 ValueModel: modifyBoard 型 (eval 差分) と setTrap 型 (P_trigger×E_damage) の 2 関数で 5 カードを per-card switch なしにカバーし、トラップ価値を固定定数から局面依存に置換できることの実証。",
+  "measuredAt": "2026-06-06T14:24:01.606Z",
+  "commitSHA": "1185067aab049d5e753778169dfbcba69348b517",
+  "fixedConstantsReplaced": {
+    "TRAP_VALUE_CHECK_BREAK": 80,
+    "TRAP_VALUE_NO_PROMOTE": 50,
+    "note": "現状これらは局面非依存の固定値。valueModelSetTrap は玉露出度で変動する期待値に置換。"
+  },
+  "pocCoefficients": {
+    "SAFETY_REF": 150,
+    "SAFETY_SPAN": 400,
+    "P_MIN": 0.05,
+    "P_MAX": 0.9,
+    "CHECK_BREAK_E_DAMAGE": 300,
+    "NO_PROMOTE_E_DAMAGE": 160,
+    "note": "PoC 仮値。本採用時は S3 で bench 校正する。"
+  },
+  "effectSpecCoverage": {
+    "modifyBoard": [
+      "pawn_return",
+      "piece_return",
+      "double_pawn"
+    ],
+    "setTrap": [
+      "check_break",
+      "no_promote"
+    ],
+    "functionsCount": 2,
+    "measuredStatus": "5 カード全て実測 (modifyBoard 3 + setTrap 2)。exposed-king は王手中のため modifyBoard 系が全 -∞ (有効 target なし) = 正常。",
+    "note": "5 カードを 2 関数でカバー = ファイル横断の per-card switch 増殖なし。各カードの差は valueModelSetTrap 内の E_damage 等の per-card パラメータ (= データ) で、これは CardSpec.valueModel の data-driven 設計の意図通り (S2 registry 化で吸収)。"
+  },
+  "caveats": {
+    "coefficientsArePlaceholder": "setTrap 係数 (E_damage/P_MIN/P_MAX/SAFETY_*) は PoC 仮値で、-25↔+230 の差は係数選択に依存。本採用値は S3 bench 校正まで未確定。",
+    "noPromoteTriggerPerspective": "triggerProbability は自玉露出度を使用。check_break は自玉が王手される確率に連動するため妥当だが、no_promote は相手の成り活動を阻止するカードで、本来は相手の成り脅威指標で trigger 確率を測るべき → S3 で no_promote 専用 trigger に分離検討。",
+    "positionDependentNotEqualStrength": "本 PoC は『局面依存値付けが簡潔関数で可能』の実証であり、棋力向上の証明ではない (棋力は S3 bench で評価)。",
+    "perTargetEvalCost": "valueModelModifyBoard は 81 マス全 simulateCardEffect+eval。selection (top-K) では PoC-1 同様 target 数の上限/安価 proxy で bounded 化する必要 (本 PoC は値付け実現性の実証に限定)。"
+  },
+  "rows": [
+    {
+      "position": "initial(safe)",
+      "kingSafety": 154,
+      "pTrigger": 0.05,
+      "pawn_return_vm": 100,
+      "piece_return_vm": 80,
+      "double_pawn_vm": null,
+      "check_break_vm": -25,
+      "no_promote_vm": -22
+    },
+    {
+      "position": "midgame-12ply",
+      "kingSafety": 154,
+      "pTrigger": 0.05,
+      "pawn_return_vm": 85,
+      "piece_return_vm": 70,
+      "double_pawn_vm": 145,
+      "check_break_vm": -25,
+      "no_promote_vm": -22
+    },
+    {
+      "position": "midgame-24ply",
+      "kingSafety": 144,
+      "pTrigger": 0.06,
+      "pawn_return_vm": 15,
+      "piece_return_vm": 70,
+      "double_pawn_vm": 130,
+      "check_break_vm": -21.2,
+      "no_promote_vm": -20
+    },
+    {
+      "position": "exposed-king",
+      "kingSafety": -751,
+      "pTrigger": 0.9,
+      "pawn_return_vm": null,
+      "piece_return_vm": null,
+      "double_pawn_vm": null,
+      "check_break_vm": 230,
+      "no_promote_vm": 114
+    }
+  ]
+}

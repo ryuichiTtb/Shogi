@@ -18,6 +18,8 @@ import { CurrentRules } from "./turn/current-rules";
 import type { AiTurnState, TurnAction } from "./turn/types";
 import type { CardGameState } from "../cards/types";
 import { CARD_DEFS, DRAW_COST } from "../cards/definitions";
+// Issue #235 S1b: AI root カード/ドロー評価を useKernelSearch フラグ裏で L0 カーネル経由に切替える。
+import { applyTurnAction, type WorldState } from "../kernel/world-kernel";
 import {
   type CardDigest,
   computeCardDigest,
@@ -838,6 +840,12 @@ function searchDoubleMoveSuperAction(
   ctx?: SearchContext,
   excludeTadasute = false,
 ): number {
+  // Issue #235 S1b: useKernelSearch ON で kernel 連鎖 (applyTurnAction) 経路へ分岐。
+  // OFF は以下の旧実装 (CurrentRules.applyAction + 手動 wiring) を完全保持 = バイト等価。
+  if (ctx?.useKernelSearch) {
+    return searchDoubleMoveSuperActionKernel(state, player, variant, ctx, excludeTadasute);
+  }
+
   const rules = new CurrentRules(variant);
 
   // Step 1: double_move カード適用 (doubleMove フラグ ON、turnEnded=false)
@@ -949,6 +957,105 @@ function searchDoubleMoveSuperAction(
   return bestScore;
 }
 
+// Issue #235 S1b: searchDoubleMoveSuperAction の useKernelSearch ON 版。
+// double_move を L0 カーネル applyTurnAction の連鎖 (playCard → move → move) で評価し、
+// cost 正確消費 (hand→graveyard) / lazy drawProgress / flip 抑止を kernel が一元処理する
+// (OFF の手動 wiring 近似を解消、DP-2/DP-1 適用)。OFF 版と同じ構造 (TOP_K 絞り・excludeTadasute・
+// bestScoreIgnoringTadasute フォールバック) を維持し、状態遷移のみ kernel に置換する。
+function searchDoubleMoveSuperActionKernel(
+  state: AiTurnState,
+  player: Player,
+  variant: RuleVariant,
+  ctx: SearchContext,
+  excludeTadasute: boolean,
+): number {
+  // Issue #235 S1d (decision i): AI 探索は仮想局面の評価であり、wall-clock 早指しボーナス
+  // (時刻依存) は探索の意味論上無意味かつ非決定的。kernel lookahead は常に spectatorMode=true で
+  // 呼び決定論化する (OFF 近似 applyActionForLookahead が move に mana ボーナスを付けないことと整合)。
+  // ctx.spectatorMode はゲームレベルの観戦判定であり、探索 lookahead の決定論化とは別概念として分離する。
+  const spectatorMode = true;
+
+  // 計画 OBS3-2: double_move カードが手札にあることを実 lookup で確認 (候補生成で除外済の前提)。
+  // 未発見なら NEG_INF (?? "" 空文字 fallback は kernel consumeNormalCard を null 化し OFF と
+  // 非対称になるため使わない)。
+  const dmCard = state.cardState.hand[player].find((c) => c.defId === "double_move");
+  if (!dmCard) return NEG_INF;
+
+  const world0 = aiTurnStateToWorldState(state); // root: doubleMove = null
+  // Step 1: double_move 発動 (kernel が KernelDoubleMove を cardInstanceId + cost から構築、遅延消費)
+  const worldDM = applyTurnAction(
+    world0,
+    { kind: "playCard", cardInstanceId: dmCard.instanceId, defId: "double_move" },
+    { spectatorMode },
+  ).world;
+
+  // digest prev (root)。ctx 未渡フォールバックは OFF 版 (computeCardDigest) と同方針。
+  const prevDigest =
+    ctx.cardDigest ??
+    (variant.id === "card-shogi" ? computeCardDigest(state.cardState) : undefined);
+
+  // Step 2: 1 手目候補生成 (move-only)。OFF 同様 heuristic 上位 K 手に絞る。
+  const firstMovesAll = getSearchLegalMoves(worldDM.gameState, player, variant);
+  if (firstMovesAll.length === 0) return NEG_INF;
+  const firstMoves =
+    firstMovesAll.length > DOUBLE_MOVE_TOP_K
+      ? [...firstMovesAll]
+          .sort((a, b) => scoreMoveForOrdering(b) - scoreMoveForOrdering(a))
+          .slice(0, DOUBLE_MOVE_TOP_K)
+      : firstMovesAll;
+
+  let bestScore = NEG_INF;
+  let bestScoreIgnoringTadasute = NEG_INF;
+
+  for (const firstMove of firstMoves) {
+    const afterFirst = applyTurnAction(worldDM, { kind: "move", move: firstMove }, { spectatorMode });
+    const worldF = afterFirst.world;
+
+    // 計画 R3/OBS3-1: 1 手目で終局 (mate 等) なら kernel が gameOver 分岐で turnEnded=true +
+    // finalize 済 (world-kernel.ts:258-274)。その局面を直接評価し 2 手目ループを skip
+    // (OFF の CurrentRules.applyAction は game-end 評価せず turnEnded=false で続行する非対称、ON 是正)。
+    if (afterFirst.turnEnded) {
+      const innerDigest =
+        prevDigest !== undefined
+          ? updateCardDigest(prevDigest, state.cardState, worldF.cardState)
+          : undefined;
+      const raw = evaluate(worldF.gameState, variant, innerDigest);
+      const score = player === "sente" ? raw : -raw;
+      if (score > bestScoreIgnoringTadasute) bestScoreIgnoringTadasute = score;
+      // 1 手目詰みは「タダ捨て」ではないので excludeTadasute に関わらず採用候補。
+      if (score > bestScore) bestScore = score;
+      continue;
+    }
+
+    const secondMoves = getSearchLegalMoves(worldF.gameState, player, variant);
+    if (secondMoves.length === 0) continue;
+    for (const secondMove of secondMoves) {
+      const afterSecond = applyTurnAction(worldF, { kind: "move", move: secondMove }, { spectatorMode });
+      const worldS = afterSecond.world;
+      // 不変条件: 2 手目で turnEnded=true (ターン終了)。
+      if (!afterSecond.turnEnded) {
+        throw new Error(
+          "Invariant violation: double_move 2 手目で turnEnded が false (kernel 経路)",
+        );
+      }
+      // per-combo digest (kernel の worldS.cardState = cost 正確消費 + lazy drawProgress 反映済)。
+      const innerDigest =
+        prevDigest !== undefined
+          ? updateCardDigest(prevDigest, state.cardState, worldS.cardState)
+          : undefined;
+      const raw = evaluate(worldS.gameState, variant, innerDigest);
+      const score = player === "sente" ? raw : -raw;
+      if (score > bestScoreIgnoringTadasute) bestScoreIgnoringTadasute = score;
+      if (excludeTadasute && hasHangingPiece(worldS.gameState, player, variant)) {
+        continue;
+      }
+      if (score > bestScore) bestScore = score;
+    }
+  }
+  if (bestScore === NEG_INF) return bestScoreIgnoringTadasute;
+  return bestScore;
+}
+
 // =========================================================================
 // PR3-3a: TurnAction lookahead 評価 (= 相手 1 ply 最善応答後のスコア)
 // =========================================================================
@@ -997,7 +1104,9 @@ function searchDoubleMoveSuperAction(
  * applyTurnEndEffects は呼ばれるため +=1 が必要。3 種すべてで +1 統一することで
  * action 間の比較対称性を確保 (production-equivalent な post-action state)。
  */
-function applyActionForLookahead(
+// Issue #235 S1b: OFF-vs-ON 特性化テスト (kernel-search-equivalence.test.ts) から直接比較するため export。
+// production の呼出経路・振る舞いは不変 (export 付与のみ)。
+export function applyActionForLookahead(
   state: AiTurnState,
   action: TurnAction,
   player: Player,
@@ -1088,6 +1197,51 @@ function applyActionForLookahead(
   return { gameState: nextGameState, cardState: baseCardState };
 }
 
+// =========================================================================
+// Issue #235 S1b: useKernelSearch ON 経路の変換ヘルパ
+// =========================================================================
+// applyActionForLookahead (上、OFF 近似) の kernel 版。useKernelSearch フラグが ON のとき
+// evaluateActionWithLookahead が本関数を呼び、L0 カーネル applyTurnAction で正確な遷移を得る。
+// OFF との差分は docs/plans/issue-235-s1b-ai-wiring.md §3 (すべて「ON が production 等価」方向)。
+// 戻り値型は applyActionForLookahead と同一 ({gameState, cardState}) = 後段 updateCardDigest /
+// getOpponentResponseScore に無改変で流れる (events は AI 評価で不要のため捨象)。
+
+// AiTurnState → WorldState 変換 (純粋)。doubleMove は optional な cardInstance/cardCost を
+// kernel 必須型へ narrowing (S1b 経路では root doubleMove=null のため fallback は保険)。
+// Issue #235 S1b: 特性化テストから比較するため export (純粋関数)。
+export function aiTurnStateToWorldState(state: AiTurnState): WorldState {
+  const dm = state.doubleMove;
+  return {
+    gameState: state.gameState,
+    cardState: state.cardState,
+    doubleMove:
+      dm === null
+        ? null
+        : {
+            active: dm.active,
+            movesLeft: dm.movesLeft,
+            cardInstance: dm.cardInstance ?? { instanceId: "", defId: "double_move" },
+            cardCost: dm.cardCost ?? CARD_DEFS["double_move"].cost,
+          },
+  };
+}
+
+// Issue #235 S1b: 特性化テストから OFF (applyActionForLookahead) と比較するため export。
+export function applyTurnActionForLookahead(
+  state: AiTurnState,
+  action: TurnAction,
+  variant: RuleVariant,
+  spectatorMode: boolean,
+): { gameState: GameState; cardState: CardGameState } | null {
+  // standard variant は kernel 非経由 (防御的二重ガード、計画 R6)。
+  if (variant.id !== "card-shogi") return null;
+  // double_move は searchDoubleMoveSuperAction に delegate (呼出側で分岐済、ここは保険)。
+  if (action.kind === "playCard" && action.defId === "double_move") return null;
+  const world = aiTurnStateToWorldState(state);
+  const result = applyTurnAction(world, action, { spectatorMode });
+  return { gameState: result.world.gameState, cardState: result.world.cardState };
+}
+
 function getOpponentResponseScore(
   stateAfterOurAction: GameState,
   ourPlayer: Player,
@@ -1129,7 +1283,12 @@ export function evaluateActionWithLookahead(
   if (action.kind === "playCard" && action.defId === "double_move") {
     return searchDoubleMoveSuperAction(state, player, variant, ctx, excludeTadasute);
   }
-  const applied = applyActionForLookahead(state, action, player);
+  // Issue #235 S1b: useKernelSearch ON で kernel 経路 (applyTurnAction) に分岐。OFF は旧近似のまま。
+  // Issue #235 S1d (decision i): 探索 lookahead は常に決定論化 (spectatorMode=true)。仮想局面評価では
+  // wall-clock 早指しボーナスは無意味かつ非決定のため game-level spectatorMode に依存させない。
+  const applied = ctx?.useKernelSearch
+    ? applyTurnActionForLookahead(state, action, variant, true)
+    : applyActionForLookahead(state, action, player);
   if (!applied) return Number.NEGATIVE_INFINITY;
 
   // 通常カードのタダ捨て除外 (action 適用後の盤面で判定、既存 evaluateAction 同型)

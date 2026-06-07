@@ -4,7 +4,7 @@ import { createInitialGameState } from "@/lib/shogi/board";
 import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
 import type { GameState } from "@/lib/shogi/types";
 import type { CardGameState, CardInstance, GameEvent } from "@/lib/shogi/cards/types";
-import { MANA_CAP, DRAW_COST, AUTO_DRAW_INTERVAL } from "@/lib/shogi/cards/definitions";
+import { MANA_CAP, DRAW_COST, AUTO_DRAW_INTERVAL, CARD_DEFS } from "@/lib/shogi/cards/definitions";
 
 import { reducer, type CardShogiGameStateInternal } from "../reducer";
 
@@ -2162,5 +2162,97 @@ describe("CARD_DEFS / checkUsage 必須化 (Issue #82)", () => {
         expect(def.checkUsage).toBe("forbidden");
       }
     }
+  });
+});
+
+// Issue #235 S1d (cutover): reducer の cardState 遷移を kernel building-block へ委譲した後も、
+// 演出オーケストレーション (閾値到達→自動ドロー発火→駒選択クリア、CONFIRM カード効果→演出 flag)
+// が不変であることを直接 pin する。これらの UI 演出 flag (isDrawing/pendingDrawSource/selectedSquare)
+// は world-kernel-equivalence の射影 (cardState/events のみ比較) では捕捉されない reducer 固有挙動。
+describe("reducer / 演出オーケストレーション統合 (S1d cutover)", () => {
+  it("applyTurnEndEffects 委譲: drawProgress 閾値到達で auto-draw 発火 + isDrawing/source=auto + 駒選択クリア", () => {
+    const manualCard = card("draw-manual", "mana_up");
+    const autoCard = card("draw-auto", "mana_up");
+    // 手動ドロー演出完了直前の state (DRAW_CARD 適用後相当)。drawProgress[sente]=閾値-1。
+    // COMMIT_DRAW → flip + applyTurnEndEffects で +1 = 閾値到達 → advanceDrawProgress が auto drawEvent を返す。
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(
+        createInitialGameState(CARD_SHOGI_VARIANT),
+        makeInitialCardState({
+          drawProgress: { sente: AUTO_DRAW_INTERVAL - 1, gote: 0 },
+          deck: { sente: [autoCard], gote: [] },
+          hand: { sente: [manualCard], gote: [] },
+        }),
+      ),
+      isDrawing: true,
+      pendingDrawPlayer: "sente",
+      pendingDrawSource: "manual",
+      selectedSquare: { row: 6, col: 0 },
+    };
+    const next = reducer(state, { type: "COMMIT_DRAW" });
+    // event-driven に auto-draw 演出 flag がセットされる
+    expect(next.isDrawing).toBe(true);
+    expect(next.pendingDrawSource).toBe("auto");
+    expect(next.pendingDrawPlayer).toBe("sente");
+    // drawProgress リセット + deck top が hand へ
+    expect(next.cardState.drawProgress.sente).toBe(0);
+    expect(next.cardState.hand.sente).toContainEqual(autoCard);
+    expect(next.cardState.deck.sente).toHaveLength(0);
+    // 駒選択クリア (auto-draw 時の selection clear は reducer 責務、M1 B-5)
+    expect(next.selectedSquare).toBeNull();
+    expect(next.legalMoves).toEqual([]);
+    // auto drawEvent が eventLog 末尾に積まれる
+    const last = next.eventLog[next.eventLog.length - 1];
+    expect(last.kind).toBe("drawEvent");
+    expect((last as Extract<GameEvent, { kind: "drawEvent" }>).source).toBe("auto");
+  });
+
+  it("applyTurnEndEffects 委譲: drawProgress 閾値未到達なら auto-draw 非発火 + 進捗のみ加算 + 駒選択保持", () => {
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(
+        createInitialGameState(CARD_SHOGI_VARIANT),
+        makeInitialCardState({
+          drawProgress: { sente: 0, gote: 0 },
+          deck: { sente: [card("x", "mana_up")], gote: [] },
+        }),
+      ),
+      isDrawing: true,
+      pendingDrawPlayer: "sente",
+      pendingDrawSource: "manual",
+      selectedSquare: { row: 6, col: 0 },
+    };
+    const next = reducer(state, { type: "COMMIT_DRAW" });
+    // auto-draw 非発火: isDrawing は COMMIT_DRAW でクリアされたまま
+    expect(next.isDrawing).toBe(false);
+    expect(next.pendingDrawSource).toBeNull();
+    // drawProgress のみ +1、deck 不変
+    expect(next.cardState.drawProgress.sente).toBe(1);
+    expect(next.cardState.deck.sente).toHaveLength(1);
+    // 駒選択は保持 (auto-draw 非発火時はクリアしない)
+    expect(next.selectedSquare).toEqual({ row: 6, col: 0 });
+  });
+
+  it("CONFIRM_PLAY_CARD (trap) 委譲: applyCardEffectLogic で trapSetEvent + trap セット + mana 消費 + isPlayingCard", () => {
+    const trapCard = card("trap-1", "no_promote");
+    const def = CARD_DEFS["no_promote"];
+    const state = makeInitialState(
+      undefined,
+      makeInitialCardState({
+        mana: { sente: 5, gote: 0 },
+        hand: { sente: [trapCard], gote: [] },
+        pendingCard: { instance: trapCard, player: "sente", phase: "confirm" },
+      }),
+    );
+    const next = reducer(state, { type: "CONFIRM_PLAY_CARD" });
+    // trap セット (hand→trap、graveyard 不変 DP-3) + mana 消費
+    expect(next.cardState.trap.sente?.defId).toBe("no_promote");
+    expect(next.cardState.mana.sente).toBe(5 - def.cost);
+    expect(next.cardState.graveyard.sente).toEqual([]);
+    expect(next.cardState.pendingCard).toBeNull();
+    // 演出 flag (event-driven)
+    expect(next.isPlayingCard).toBe(true);
+    expect(next.pendingPlayCardOpponent).toBe("gote");
+    const last = next.eventLog[next.eventLog.length - 1];
+    expect(last.kind).toBe("trapSetEvent");
   });
 });

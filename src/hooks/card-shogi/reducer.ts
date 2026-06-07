@@ -5,10 +5,13 @@
 // このファイルが持つ責務:
 // - Action 型 (ShogiAction / Action)
 // - CardShogiGameStateInternal 型 (useReducer 内部 state)
-// - makeMoveWithEffects / isKingInCheckAfterMove (reducer 内部 helper)
+// - isKingInCheckAfterMove (reducer 内部 helper)
 // - reducer 関数本体
 //
 // 移管時にロジックは 1 行も変えず、ファイル境界のみ引いた (move-only)。
+// Issue #235 S1c: move 効果適用 (makeMoveWithEffects / MakeMoveMode) は
+// src/lib/shogi/kernel/move-effects.ts へ物理移設済。reducer は import して呼ぶ
+// (下部 import 参照、振る舞い不変)。
 
 import type { GameState, Move, Player, Position } from "@/lib/shogi/types";
 import { applyMove, cloneGameState } from "@/lib/shogi/board";
@@ -21,36 +24,32 @@ import {
   isCheckmate,
   isInCheck,
 } from "@/lib/shogi/moves";
-import { evaluateGameEnd } from "@/lib/shogi/rules";
 import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
-import { unpromotePieceType } from "@/lib/shogi/variants/standard";
 
 import type { CardAction, CardGameState, CardInstance, GameEvent } from "@/lib/shogi/cards/types";
 import {
   CARD_DEFS,
   CARD_USE_CONDITIONS,
   DRAW_COST,
-  MANA_PER_TURN,
-  MANA_FAST_BONUS,
-  FAST_THRESHOLD_MS,
-  AUTO_DRAW_INTERVAL,
 } from "@/lib/shogi/cards/definitions";
 import {
-  applyManaUp,
-  applyPawnReturn,
-  applyPieceReturn,
-  applyDoublePawn,
-  applyCheckBreak,
   getCheckEscapingSquares,
-  applyTrapSet,
-  applyTrapClear,
-  consumeNormalCard,
   hasNoPromoteMark,
-  addNoPromoteMark,
-  removeNoPromoteMark,
-  moveNoPromoteMark,
   hasSameKindTrapPlaced,
 } from "@/lib/shogi/cards/effects";
+// Issue #235 S1c: move 効果適用ロジックは lib/kernel へ物理移設済 (旧 reducer 内定義)。
+// reducer は本関数を import して従来どおり直接呼ぶ (呼出経路・ロジック不変)。
+import { makeMoveWithEffects } from "@/lib/shogi/kernel/move-effects";
+// Issue #235 S1d (cutover): reducer の cardState 遷移を L0 カーネル building-block へ委譲
+// (二重実装解消 P4)。flip/turn-end タイミングは reducer が演出フェーズで制御し続けるため
+// atomic applyTurnAction ではなく building-block を採用する (UX 不変)。
+import {
+  advanceDrawProgress,
+  finalizeDoubleMoveLogic,
+  applyCardEffectLogic,
+  type WorldState,
+  type KernelDoubleMove,
+} from "@/lib/shogi/kernel/world-kernel";
 import { canUndoFromState } from "./undo-policy";
 
 export type ShogiAction =
@@ -186,14 +185,6 @@ export interface UndoSnapshot {
   eventLog: GameEvent[];
 }
 
-// 移動処理のモード切替 (Issue #82 二手指し)。
-// - "normal": 通常の指し手 (マナチャージ + 早指しタイマークリア)
-// - "double_move_first": 二手指しの 1手目 (マナチャージなし + タイマークリアなし、ターン継続中)
-// - "double_move_second": 二手指しの 2手目 (マナチャージなし、タイマークリアあり、ターン交代)
-// 二手指しはカード使用扱いのため、1手目・2手目とも通常のマナチャージ (+1〜+2) は発生しない
-// (カードコスト -6 のみ消費、これは CONFIRM_PLAY_CARD 側で処理済み)。
-export type MakeMoveMode = "normal" | "double_move_first" | "double_move_second";
-
 // Issue #132: 待ったスナップショットのリング最大サイズ (= 直近何 ply 分を保持するか)。
 // 待った仕様は「直近 2 ply 巻き戻し」なので 2 で十分。これ以上は保持しない (メモリ節約)。
 const UNDO_SNAPSHOT_RING_MAX = 2;
@@ -234,197 +225,6 @@ function pushUndoSnapshot(state: CardShogiGameStateInternal): UndoSnapshot[] {
   return [...state.undoSnapshots.slice(-(UNDO_SNAPSHOT_RING_MAX - 1)), snap];
 }
 
-// 移動 + マナチャージ + トラップフィルタ を一括適用。
-// CONFIRM_PROMOTION と MAKE_MOVE の両方から呼ばれる。
-function makeMoveWithEffects(
-  gameState: GameState,
-  cardState: CardGameState,
-  move: Move,
-  // Issue #193 / PR1a: spectatorMode は CPU vs CPU 観戦モード時に true。
-  // 早指し判定 (FAST_THRESHOLD_MS) を完全 disable し、両 CPU の連続指しによる
-  // マナ蓄積異常を防ぐ。spectatorMode=false の人間プレイ時は完全に従来挙動を保持。
-  options?: { mode?: MakeMoveMode; spectatorMode?: boolean },
-): {
-  gameState: GameState;
-  cardState: CardGameState;
-  events: GameEvent[];
-  finalMove: Move;
-  // 王手崩しトラップが発動した場合のみ true。MAKE_MOVE 側で isCheckBreakAnimating をセットする。
-  triggeredCheckBreak: boolean;
-} {
-  const mode: MakeMoveMode = options?.mode ?? "normal";
-  const spectatorMode = options?.spectatorMode ?? false;
-  const opponent: Player = move.player === "sente" ? "gote" : "sente";
-  const events: GameEvent[] = [];
-
-  // 1. 成り宣言フィルタ
-  //   (a) 自分の駒に既に「成り不可」マークがあれば silent ブロック (新規トラップは発火させない)
-  //   (b) (a) でなく、相手が no_promote トラップをセット中なら新規発動
-  //       → 成りブロック + 移動先位置にマーク追加 + トラップ消費
-  let finalMove = move;
-  let cardStateNext = cardState;
-  let pendingMarkAdd: Position | null = null;
-
-  const opponentTrap = cardState.trap[opponent];
-  const ownMarkAtFrom =
-    move.from !== undefined &&
-    move.from !== null &&
-    hasNoPromoteMark(cardState, move.player, move.from);
-
-  if (move.promote && ownMarkAtFrom) {
-    // 既マーク済み駒の成り宣言 → silent ブロック (トラップは無関係、消費しない)
-    finalMove = { ...move, promote: false };
-  } else if (move.promote && opponentTrap && opponentTrap.defId === "no_promote") {
-    // 新規発動: 成り宣言を無効化し、移動後位置に永続マーク付与、トラップ消費
-    finalMove = { ...move, promote: false };
-    cardStateNext = applyTrapClear(cardStateNext, opponent);
-    pendingMarkAdd = move.to;
-    events.push({
-      kind: "trapTriggerEvent",
-      player: opponent,
-      instance: opponentTrap,
-      reason: "promotion_declared",
-      at: Date.now(),
-    });
-  }
-
-  // 2. 駒移動
-  const nextGameState = applyMove(gameState, finalMove);
-
-  // 3. 成り不可マークの追従処理 (move 系のみ。drop は対象外)
-  if (finalMove.type === "move" && finalMove.from) {
-    // (a) 取られた相手駒のマークがあれば削除 (case A: 取られたら消失)
-    if (hasNoPromoteMark(cardStateNext, opponent, finalMove.to)) {
-      cardStateNext = removeNoPromoteMark(cardStateNext, opponent, finalMove.to);
-    }
-    // (b) 自分の駒のマークを from → to に移動
-    if (hasNoPromoteMark(cardStateNext, finalMove.player, finalMove.from)) {
-      cardStateNext = moveNoPromoteMark(
-        cardStateNext,
-        finalMove.player,
-        finalMove.from,
-        finalMove.to,
-      );
-    }
-  }
-
-  // 4. トラップ発動分のマーク追加 (成り宣言を無効化した直後の駒位置に付与)
-  if (pendingMarkAdd) {
-    cardStateNext = addNoPromoteMark(cardStateNext, finalMove.player, pendingMarkAdd);
-  }
-
-  // 4.5 王手崩しトラップ (#82)
-  // 移動の結果、相手 (= トラップ所有者候補) が王手中になり、かつ check_break
-  // トラップがセットされていれば自動発動。王手駒すべてを盤上から除去し、
-  // トラップ所有者の持ち駒に unpromote 加算する。
-  let postTrapGameState = nextGameState;
-  let triggeredCheckBreak = false;
-  const opponentTrapPostMove = cardStateNext.trap[opponent];
-  // この手の結果、相手の check_break トラップが発動条件 (相手玉が王手中) を満たすか。
-  const wouldTriggerCheckBreak =
-    !!opponentTrapPostMove &&
-    opponentTrapPostMove.defId === "check_break" &&
-    isInCheck(nextGameState, opponent, CARD_SHOGI_VARIANT);
-  // Issue #220 / #222 検証修正: 二手指しの一手目 (double_move_first) は中間局面。
-  // トラップはターン完了 (二手目) の最終局面でのみ発動すべきで、一手目では常に保留する。
-  // 旧実装は「一手目が (トラップ未考慮の盤面で) 詰みなら例外的に発動」していたが、
-  // check_break トラップがセットされている限り真の詰みは成立しない (トラップが王手駒を
-  // 奪い王手を解除するため)。よって一手目発動は誤りで、二手目を指す前にトラップが暴発し、
-  // 最終局面で王手している駒ではなく一手目の駒が奪われる不具合になっていた (検証で判明)。
-  const deferCheckBreak = mode === "double_move_first";
-  if (!deferCheckBreak && wouldTriggerCheckBreak) {
-    const result = applyCheckBreak(nextGameState, opponent);
-    if (result) {
-      postTrapGameState = result.gameState;
-      // 取られた相手 (= move.player) の駒に no_promote マークがあれば消失
-      for (const cap of result.capturedPieces) {
-        if (hasNoPromoteMark(cardStateNext, finalMove.player, { row: cap.row, col: cap.col })) {
-          cardStateNext = removeNoPromoteMark(cardStateNext, finalMove.player, {
-            row: cap.row,
-            col: cap.col,
-          });
-        }
-      }
-      cardStateNext = applyTrapClear(cardStateNext, opponent);
-      events.push({
-        kind: "trapTriggerEvent",
-        player: opponent,
-        instance: opponentTrapPostMove,
-        reason: "check_declared",
-        capturedPieces: result.capturedPieces,
-        at: Date.now(),
-      });
-      triggeredCheckBreak = true;
-    }
-  }
-
-  // 5. ゲーム終了判定 + 移動イベントログ
-  const evaluated = evaluateGameEnd(postTrapGameState, CARD_SHOGI_VARIANT);
-  // Issue #220 / #222 検証修正: 二手指し一手目で check_break を保留した場合、形式上の
-  // 詰み (トラップ未適用の盤面) は真の終局ではない (ターン完了後にトラップが王手を解除
-  // する)。中間局面として active を維持し二手目を継続させる。これがないと MAKE_MOVE 側
-  // gameOver 判定が偽の詰みで二手指しを打ち切り、二手目を指せなくなる。
-  // (nextGameState は applyMove 直後で status="active"。evaluateGameEnd を通す前の値。)
-  const resultGameState =
-    deferCheckBreak && wouldTriggerCheckBreak ? nextGameState : evaluated;
-  events.push({ kind: "moveEvent", move: finalMove, at: Date.now() });
-
-  // 6. マナチャージ + lastTurnStartedAt クリア (mode で挙動を切替)
-  if (mode === "normal") {
-    // 通常の指し手: マナチャージ + 早指し判定 + タイマークリア
-    const lastStarted = cardStateNext.lastTurnStartedAt[move.player];
-    // Issue #193 / PR1a: 観戦モード時は早指し判定を完全スキップ (両 CPU が常に <4 秒で
-    // 指してマナ蓄積が異常になることを防ぐ)。spectatorMode=false の人間プレイ時は
-    // 完全に従来挙動を保持する。
-    const isFastMove =
-      !spectatorMode &&
-      lastStarted !== null &&
-      Date.now() - lastStarted < FAST_THRESHOLD_MS;
-    const manaAmount =
-      MANA_PER_TURN + (isFastMove ? MANA_FAST_BONUS : 0);
-    cardStateNext = {
-      ...cardStateNext,
-      mana: {
-        ...cardStateNext.mana,
-        [move.player]: Math.min(
-          cardStateNext.manaCap,
-          cardStateNext.mana[move.player] + manaAmount,
-        ),
-      },
-      lastTurnStartedAt: {
-        ...cardStateNext.lastTurnStartedAt,
-        [move.player]: null,
-      },
-    };
-    events.push({
-      kind: "manaChargeEvent",
-      player: move.player,
-      amount: manaAmount,
-      reason: "turn",
-      fastMove: isFastMove,
-      at: Date.now(),
-    });
-  } else if (mode === "double_move_second") {
-    // 二手指しの 2手目: マナチャージなし。lastTurnStartedAt のみクリア (ターン交代)
-    cardStateNext = {
-      ...cardStateNext,
-      lastTurnStartedAt: {
-        ...cardStateNext.lastTurnStartedAt,
-        [move.player]: null,
-      },
-    };
-  }
-  // mode === "double_move_first": どちらもしない (ターン継続中のため)
-
-  return {
-    gameState: resultGameState,
-    cardState: cardStateNext,
-    events,
-    finalMove,
-    triggeredCheckBreak,
-  };
-}
-
 function isKingInCheckAfterMove(gameState: GameState, move: Move): boolean {
   const nextState = applyMove(gameState, move);
   return isInCheck(nextState, move.player, CARD_SHOGI_VARIANT);
@@ -448,28 +248,23 @@ function applyTurnEndEffects(
   state: CardShogiGameStateInternal,
   player: Player,
 ): CardShogiGameStateInternal {
-  // Issue #170: 詰み・投了など対局終了後はドロー進捗加算と自動ドロー発火を行わない。
-  // 詰ます手で同時にしきい値到達した場合に詰み演出と自動ドロー演出が同時実行される
-  // のを防ぐ。終局後は進捗が動いても UI 上で意味がないため、ここで止めてよい。
-  if (state.gameState.status !== "active") return state;
+  // Issue #235 S1d: drawProgress 加算・自動ドロー発火の cardState 遷移を kernel building-block
+  // (advanceDrawProgress) へ委譲。kernel は cardState/events のみ返し、UI 演出 flag は
+  // reducer が返り値 events (auto drawEvent) を読んで event-driven にセットする。
+  //   - status≠active → events=[]・cardState 同一参照 (Issue #170 の no-op、kernel が判定)。
+  //   - 閾値未到達/deck 枯渇 → drawProgress のみ加算 (events=[]、flag 不変)。
+  //   - 閾値到達∧deck非空 → auto drawEvent 発火 → isDrawing/pendingDrawPlayer/pendingDrawSource
+  //     をセット + 駒選択状態クリア (DRAW_CARD と同じ挙動、selection clear は reducer 責務 §3-1)。
+  const { cardState, events } = advanceDrawProgress(state.cardState, state.gameState, player);
+  const autoDrew = events.some(
+    (e) => e.kind === "drawEvent" && e.source === "auto",
+  );
 
-  const current = state.cardState.drawProgress[player];
-  const next = current + 1;
-  const deck = state.cardState.deck[player];
-
-  if (next < AUTO_DRAW_INTERVAL || deck.length === 0) {
-    // しきい値未到達、または deck 枯渇で発火不可: 進捗のみ加算
-    return {
-      ...state,
-      cardState: {
-        ...state.cardState,
-        drawProgress: { ...state.cardState.drawProgress, [player]: next },
-      },
-    };
+  if (!autoDrew) {
+    // status≠active (同一参照) なら state 不変。進捗のみ加算なら cardState だけ差し替え。
+    return cardState === state.cardState ? state : { ...state, cardState };
   }
 
-  // しきい値到達 + deck あり: 自動ドロー発火
-  const [top, ...rest] = deck;
   return {
     ...state,
     // 自動ドロー発火時は駒選択状態をクリア (DRAW_CARD と同じ挙動)
@@ -477,16 +272,8 @@ function applyTurnEndEffects(
     selectedHandPiece: null,
     legalMoves: [],
     forbiddenMateMoves: [],
-    cardState: {
-      ...state.cardState,
-      drawProgress: { ...state.cardState.drawProgress, [player]: 0 },
-      deck: { ...state.cardState.deck, [player]: rest },
-      hand: { ...state.cardState.hand, [player]: [...state.cardState.hand[player], top] },
-    },
-    eventLog: [
-      ...state.eventLog,
-      { kind: "drawEvent", player, instance: top, source: "auto", at: Date.now() },
-    ],
+    cardState,
+    eventLog: [...state.eventLog, ...events],
     isDrawing: true,
     pendingDrawPlayer: player,
     pendingDrawSource: "auto",
@@ -667,29 +454,30 @@ function finalizeDoubleMoveCardConsumption(
   state: CardShogiGameStateInternal,
   dm: NonNullable<CardShogiGameStateInternal["doubleMove"]>,
 ): CardShogiGameStateInternal {
-  const consumed = consumeNormalCard(
-    state.cardState,
-    dm.active,
-    dm.cardInstance.instanceId,
-    dm.cardCost,
-  );
-  if (!consumed) {
-    // 異常系: 二手指し中に手札からカードが消えるケース (バグ or 競合)。
+  // 前提 (M1 B-4): 呼び出し元 (MAKE_MOVE / CONFIRM_PROMOTION の 2手目) で
+  // makeMoveWithEffects(mode="double_move_second") が applyMove 済 = currentPlayer は既に
+  // dm.active の反対へ flip 済。よって pendingPlayCardOpponent=null とし、COMMIT_PLAY_CARD では再 flip しない。
+  //
+  // Issue #235 S1d: 二手指しカード本体の遅延消費 (consume + cardPlayEvent) を kernel building-block
+  // (finalizeDoubleMoveLogic) へ委譲。isPlayingCard / pendingPlayCardOpponent は reducer 責務として維持。
+  const kernelDm: KernelDoubleMove = {
+    active: dm.active,
+    movesLeft: dm.movesLeft,
+    cardInstance: dm.cardInstance,
+    cardCost: dm.cardCost,
+  };
+  const { cardState, events } = finalizeDoubleMoveLogic(state.cardState, kernelDm);
+  if (events.length === 0) {
+    // 異常系: 二手指し中に手札からカードが消えるケース (consume 失敗)。
     // 防御的に演出だけスキップして state はそのまま返す (二手指し終了は維持)。
     return state;
   }
-  const event: GameEvent = {
-    kind: "cardPlayEvent",
-    player: dm.active,
-    instance: dm.cardInstance,
-    at: Date.now(),
-  };
   return {
     ...state,
-    cardState: consumed,
-    eventLog: [...state.eventLog, event],
+    cardState,
+    eventLog: [...state.eventLog, ...events],
     isPlayingCard: true,
-    pendingPlayCardOpponent: null, // currentPlayer は既に flip 済なので COMMIT_PLAY_CARD で再 flip しない
+    pendingPlayCardOpponent: null,
   };
 }
 
@@ -1223,87 +1011,15 @@ export function reducer(
         };
       }
 
-      // 効果適用
-      let nextCardState = state.cardState;
-      let nextGameState = state.gameState;
-      // pawn_return / piece_return が盤上 → 持ち駒に戻した駒の情報。
-      // 適用前の盤面から捕捉し cardPlayEvent に載せる (相手 AI 使用時の
-      // 駒フライト演出再現用、Issue #193 / card-apply)。
-      let returnedPieceInfo: { row: number; col: number; pieceType: string } | undefined;
-
-      if (def.kind === "trap") {
-        // トラップは consumeNormalCard を使わず、マナ消費 + applyTrapSet
-        const card = pending.instance;
-        if (state.cardState.mana[player] < def.cost) return state;
-        const afterMana = {
-          ...state.cardState,
-          mana: { ...state.cardState.mana, [player]: state.cardState.mana[player] - def.cost },
-        };
-        const afterSet = applyTrapSet(afterMana, player, card.instanceId);
-        if (!afterSet) return state;
-        nextCardState = afterSet;
-      } else if (def.effectId === "mana_up") {
-        const afterConsume = consumeNormalCard(state.cardState, player, pending.instance.instanceId, def.cost);
-        if (!afterConsume) return state;
-        nextCardState = applyManaUp(afterConsume, player);
-      } else if (def.effectId === "pawn_return") {
-        if (!pending.target || pending.target.kind !== "square") return state;
-        const targetPos = { row: pending.target.row, col: pending.target.col };
-        const returnedPiece = state.gameState.board[targetPos.row]?.[targetPos.col];
-        const newGameState = applyPawnReturn(state.gameState, player, targetPos);
-        if (!newGameState) return state;
-        nextGameState = newGameState;
-        if (returnedPiece) {
-          returnedPieceInfo = {
-            row: targetPos.row,
-            col: targetPos.col,
-            pieceType: unpromotePieceType(returnedPiece.type),
-          };
-        }
-        const afterConsume = consumeNormalCard(state.cardState, player, pending.instance.instanceId, def.cost);
-        if (!afterConsume) return state;
-        // 持ち駒に戻った駒は no_promote マークを失う (案A 仕様)
-        nextCardState = removeNoPromoteMark(afterConsume, player, targetPos);
-      } else if (def.effectId === "piece_return") {
-        if (!pending.target || pending.target.kind !== "square") return state;
-        const targetPos = { row: pending.target.row, col: pending.target.col };
-        const returnedPiece = state.gameState.board[targetPos.row]?.[targetPos.col];
-        const newGameState = applyPieceReturn(state.gameState, player, targetPos);
-        if (!newGameState) return state;
-        nextGameState = newGameState;
-        if (returnedPiece) {
-          returnedPieceInfo = {
-            row: targetPos.row,
-            col: targetPos.col,
-            pieceType: unpromotePieceType(returnedPiece.type),
-          };
-        }
-        const afterConsume = consumeNormalCard(state.cardState, player, pending.instance.instanceId, def.cost);
-        if (!afterConsume) return state;
-        // 持ち駒に戻った駒は no_promote マークを失う (案A 仕様、pawn_return と同じ)
-        nextCardState = removeNoPromoteMark(afterConsume, player, targetPos);
-      } else if (def.effectId === "double_pawn") {
-        if (!pending.target || pending.target.kind !== "square") return state;
-        const targetPos = { row: pending.target.row, col: pending.target.col };
-        const newGameState = applyDoublePawn(state.gameState, player, targetPos);
-        if (!newGameState) return state;
-        nextGameState = newGameState;
-        const afterConsume = consumeNormalCard(state.cardState, player, pending.instance.instanceId, def.cost);
-        if (!afterConsume) return state;
-        nextCardState = afterConsume;
-      } else if (def.effectId === "double_move") {
-        // Issue #82 (二手指し / 新仕様): CONFIRM 時点ではカード消費・マナ減算・
-        // cardPlayEvent push を一切行わず、二手指しモードに突入するだけ。
-        // 1手目までの操作はキャンセル可能 (CANCEL_DOUBLE_MOVE で preCardState から復元)。
-        // 実際のカード消費・mana 減算・cardPlayEvent push・カード使用演出 (isPlayingCard=true)
-        // は 2手目完了時に MAKE_MOVE 内で finalize する。
-        // 王手中の使用可否は既に BEGIN_PLAY_CARD の use condition で判定済。
-        // pendingCard クリア + doubleMove セット のみで return する (下の共通処理は通らない)。
-        //
+      // Issue #235 S1d: double_move (二手指し) は building-block 対象外。UI snapshot
+      // (preFirstMoveState/preCardState/mateInOneAvailable) を持つため reducer に残す。
+      // CONFIRM 時点ではカード消費・マナ減算・cardPlayEvent を行わず二手指しモードに突入するのみ
+      // (1手目までキャンセル可)。実消費・演出は 2手目完了時 finalizeDoubleMoveCardConsumption で確定。
+      // 王手中の使用可否は BEGIN_PLAY_CARD の use condition で判定済。
+      if (def.effectId === "double_move") {
         // 重要: snapshot 用 cardState は **必ず pendingCard を null にした状態** で記録する。
-        // そうしないと CANCEL_DOUBLE_MOVE / UNDO_DOUBLE_MOVE_FIRST で復元した際に
-        // pendingCard が再セットされ、CardPlayDialog が再表示されてしまう。
-        // 「BEGIN_PLAY_CARD 前の状態と等価」になるよう pendingCard を落として保存する。
+        // そうしないと CANCEL_DOUBLE_MOVE / UNDO_DOUBLE_MOVE_FIRST で復元時に pendingCard が再セット
+        // され CardPlayDialog が再表示される。「BEGIN_PLAY_CARD 前の状態と等価」に落として保存する。
         const cardStateWithoutPending = { ...state.cardState, pendingCard: null };
         const preCardSnapshot = {
           gameState: state.gameState,
@@ -1329,55 +1045,43 @@ export function reducer(
             preCardState: preCardSnapshot,
           },
         };
-      } else {
-        return state;
       }
 
-      // 王手中の最終ガード (Issue #82): 王手中だった場合、適用後の盤面で
-      // 王手が解除されている必要がある。解除されない手は不正なので状態変更しない。
-      if (isInCheck(state.gameState, player, CARD_SHOGI_VARIANT)) {
-        if (isInCheck(nextGameState, player, CARD_SHOGI_VARIANT)) {
-          return state;
-        }
-      }
-
-      // カード使用 = 1手相当。currentPlayer 反転と lastTurnStartedAt クリアは
-      // 演出完了 (COMMIT_PLAY_CARD) まで保留する (AI が演出中に動かないようにする)。
-      nextCardState = {
-        ...nextCardState,
-        pendingCard: null,
+      // Issue #235 S1d: trap / mana_up / pawn_return / piece_return / double_pawn の効果適用 +
+      // 王手解除ガード + event (cardPlayEvent/trapSetEvent, returnedPiece 込み) 構築を kernel
+      // building-block (applyCardEffectLogic) へ委譲 (二重実装解消 P4)。
+      // currentPlayer 反転と lastTurnStartedAt クリアは演出完了 (COMMIT_PLAY_CARD) まで保留するため、
+      // flip しない building-block を採用する (AI が演出中に動かないようにする)。
+      const world: WorldState = {
+        gameState: state.gameState,
+        cardState: state.cardState,
+        doubleMove: null,
       };
-
-      // pendingCard クリア + イベントログ
-      const event: GameEvent =
-        def.kind === "trap"
-          ? {
-              kind: "trapSetEvent",
-              player,
-              instance: { instanceId: pending.instance.instanceId, defId: pending.instance.defId, owner: player },
-              at: Date.now(),
-            }
-          : {
-              kind: "cardPlayEvent",
-              player,
-              instance: pending.instance,
-              target: pending.target,
-              returnedPiece: returnedPieceInfo,
-              at: Date.now(),
-            };
-
-      const nextEventLog = [...state.eventLog, event];
+      const applied = applyCardEffectLogic(
+        world,
+        {
+          kind: "playCard",
+          defId: pending.instance.defId,
+          cardInstanceId: pending.instance.instanceId,
+          target: pending.target,
+        },
+        player,
+      );
+      // 不正 (未対応 effectId / マナ不足 / 王手未解除 / 効果適用失敗) は状態変更しない
+      // (王手解除ガードは applyCardEffectLogic 内蔵)。
+      if (!applied) return state;
 
       return {
         ...state,
-        gameState: nextGameState,
-        cardState: nextCardState,
+        gameState: applied.gameState,
+        // kernel は pendingCard を変更しないため明示クリア (カード使用 = pendingCard 解消)。
+        cardState: { ...applied.cardState, pendingCard: null },
         // 駒選択状態もクリア
         selectedSquare: null,
         selectedHandPiece: null,
         legalMoves: [],
         forbiddenMateMoves: [],
-        eventLog: nextEventLog,
+        eventLog: [...state.eventLog, applied.event],
         isPlayingCard: true,
         pendingPlayCardOpponent: opponent,
       };
@@ -1465,7 +1169,14 @@ export function reducer(
         legalMoves: [],
         forbiddenMateMoves: [],
         promotionPendingMove: null,
-        // 演出系フラグも明示リセット (preFirstMoveState 時点では当然 false)
+        // 演出系フラグを UNDO と対称に明示リセット (Issue #235 S1d M1 B-1)。preFirstMoveState
+        // 時点では当然 false (movesLeft=1 窓では isDrawing/isPlayingCard は構造上 false) だが、
+        // snapshot に演出フラグが含まれないため UNDO ケースと同一の防御に揃えて stuck-flag を防ぐ。
+        isDrawing: false,
+        pendingDrawPlayer: null,
+        pendingDrawSource: null,
+        isPlayingCard: false,
+        pendingPlayCardOpponent: null,
         isCheckBreakAnimating: false,
         doubleMove: { ...dm, movesLeft: 2 },
       };
@@ -1492,6 +1203,12 @@ export function reducer(
         legalMoves: [],
         forbiddenMateMoves: [],
         promotionPendingMove: null,
+        // 演出系フラグを UNDO と対称に明示リセット (Issue #235 S1d M1 B-1、防御強化)。
+        isDrawing: false,
+        pendingDrawPlayer: null,
+        pendingDrawSource: null,
+        isPlayingCard: false,
+        pendingPlayCardOpponent: null,
         isCheckBreakAnimating: false,
         doubleMove: null,
       };

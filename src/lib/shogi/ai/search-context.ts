@@ -53,12 +53,24 @@ export interface SearchContext {
   // byte-level equality を維持)。指定時は quiescence / negamax 内の evaluate 呼出にそのまま渡す
   // (= ホットパスでの再計算を構造的に禁止)。
   cardDigest?: CardDigest;
+  // Issue #235 S1b: AI root カード/ドロー評価を L0 カーネル applyTurnAction 経由に切替えるフラグ。
+  // 既定 false (= 旧経路 applyActionForLookahead / 手動 wiring を使う = production 完全不変)。
+  // true のとき evaluateActionWithLookahead / searchDoubleMoveSuperAction が kernel 経路に分岐する
+  // (card-shogi のみ、DP-1〜7 を自動適用)。S1d cutover まで production は false 固定。
+  useKernelSearch?: boolean;
+  // Issue #235 S1b: kernel applyTurnAction へ渡す spectatorMode (DP-4 決定論化、早指し無効)。
+  // 既定 false。AI 探索の lookahead は手番時間を持たないため manaCharge の早指し判定は
+  // 本来不要だが、kernel の makeMoveWithEffects に正しく伝播するため保持する。
+  spectatorMode?: boolean;
 }
 
 export interface CreateSearchContextOptions {
   timeLimitMs: number;
   signal?: AbortSignal;
   cardDigest?: CardDigest;
+  // Issue #235 S1b: 下記 2 フラグ。既定 false (= 既存挙動完全保持)。
+  useKernelSearch?: boolean;
+  spectatorMode?: boolean;
 }
 
 export function createSearchContext(opts: CreateSearchContextOptions): SearchContext {
@@ -75,6 +87,8 @@ export function createSearchContext(opts: CreateSearchContextOptions): SearchCon
     killerMoves: Array.from({ length: MAX_DEPTH }, () => [null, null] as [Move | null, Move | null]),
     historyTable: Array.from({ length: 81 }, () => new Array<number>(81).fill(0)),
     cardDigest: opts.cardDigest,
+    useKernelSearch: opts.useKernelSearch ?? false,
+    spectatorMode: opts.spectatorMode ?? false,
   };
 }
 

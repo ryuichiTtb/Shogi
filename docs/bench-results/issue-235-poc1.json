@@ -1,0 +1,306 @@
+{
+  "schema": "issue-235-poc1/v1",
+  "description": "Issue #235 PoC-1 探索枝刈り: 同一プロトタイプ negamax で候補生成 (ALL/TOPM/CARD) を切替え、card 込み (CARD) の depthCompleted が move-only (ALL) 比 ±10% に収まる M/K が存在するか実測。",
+  "measuredAt": "2026-06-06T14:29:40.822Z",
+  "commitSHA": "1185067aab049d5e753778169dfbcba69348b517",
+  "difficulties": [
+    "beginner",
+    "intermediate",
+    "advanced",
+    "expert"
+  ],
+  "configs": [
+    {
+      "label": "ALL",
+      "mode": "ALL",
+      "M": "all",
+      "K": 0
+    },
+    {
+      "label": "TOPM-10",
+      "mode": "TOPM",
+      "M": 10,
+      "K": 0
+    },
+    {
+      "label": "CARD-M10-K2",
+      "mode": "CARD",
+      "M": 10,
+      "K": 2
+    },
+    {
+      "label": "CARD-M14-K3",
+      "mode": "CARD",
+      "M": 14,
+      "K": 3
+    }
+  ],
+  "protoMaxDepth": 12,
+  "note": "プロトタイプは TT/killer/quiescence/LMR/noise なしの bare αβ。production と絶対深さは異なるが、同一エンジン内の ALL→CARD 比でエンジン効率交絡を相殺。before-baseline (advanced 5.78 / expert 6.0) は ALL の fidelity 参照。",
+  "results": {
+    "beginner": [
+      {
+        "config": "ALL",
+        "avgDepth": 3,
+        "avgNodes": 15154,
+        "perPositionDepth": [
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          4,
+          3,
+          2
+        ]
+      },
+      {
+        "config": "TOPM-10",
+        "avgDepth": 3.89,
+        "avgNodes": 10266,
+        "perPositionDepth": [
+          3,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4
+        ]
+      },
+      {
+        "config": "CARD-M10-K2",
+        "avgDepth": 3.78,
+        "avgNodes": 10494,
+        "perPositionDepth": [
+          3,
+          4,
+          4,
+          3,
+          4,
+          4,
+          4,
+          4,
+          4
+        ]
+      },
+      {
+        "config": "CARD-M14-K3",
+        "avgDepth": 3.67,
+        "avgNodes": 11892,
+        "perPositionDepth": [
+          3,
+          3,
+          4,
+          3,
+          4,
+          4,
+          4,
+          4,
+          4
+        ]
+      }
+    ],
+    "intermediate": [
+      {
+        "config": "ALL",
+        "avgDepth": 3.56,
+        "avgNodes": 30360,
+        "perPositionDepth": [
+          3,
+          4,
+          4,
+          3,
+          4,
+          4,
+          4,
+          3,
+          3
+        ]
+      },
+      {
+        "config": "TOPM-10",
+        "avgDepth": 4.33,
+        "avgNodes": 19653,
+        "perPositionDepth": [
+          5,
+          4,
+          5,
+          4,
+          4,
+          5,
+          4,
+          4,
+          4
+        ]
+      },
+      {
+        "config": "CARD-M10-K2",
+        "avgDepth": 4,
+        "avgNodes": 21348,
+        "perPositionDepth": [
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4
+        ]
+      },
+      {
+        "config": "CARD-M14-K3",
+        "avgDepth": 4,
+        "avgNodes": 22041,
+        "perPositionDepth": [
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4
+        ]
+      }
+    ],
+    "advanced": [
+      {
+        "config": "ALL",
+        "avgDepth": 3.89,
+        "avgNodes": 45879,
+        "perPositionDepth": [
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          3
+        ]
+      },
+      {
+        "config": "TOPM-10",
+        "avgDepth": 4.67,
+        "avgNodes": 35194,
+        "perPositionDepth": [
+          5,
+          4,
+          5,
+          4,
+          5,
+          5,
+          5,
+          5,
+          4
+        ]
+      },
+      {
+        "config": "CARD-M10-K2",
+        "avgDepth": 4.44,
+        "avgNodes": 32619,
+        "perPositionDepth": [
+          4,
+          4,
+          5,
+          4,
+          4,
+          5,
+          5,
+          5,
+          4
+        ]
+      },
+      {
+        "config": "CARD-M14-K3",
+        "avgDepth": 4.11,
+        "avgNodes": 37020,
+        "perPositionDepth": [
+          4,
+          4,
+          4,
+          4,
+          4,
+          5,
+          4,
+          4,
+          4
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "config": "ALL",
+        "avgDepth": 3.89,
+        "avgNodes": 53274,
+        "perPositionDepth": [
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          3
+        ]
+      },
+      {
+        "config": "TOPM-10",
+        "avgDepth": 4.78,
+        "avgNodes": 40201,
+        "perPositionDepth": [
+          5,
+          4,
+          5,
+          4,
+          5,
+          5,
+          5,
+          5,
+          5
+        ]
+      },
+      {
+        "config": "CARD-M10-K2",
+        "avgDepth": 4.44,
+        "avgNodes": 36260,
+        "perPositionDepth": [
+          4,
+          4,
+          5,
+          4,
+          4,
+          5,
+          5,
+          5,
+          4
+        ]
+      },
+      {
+        "config": "CARD-M14-K3",
+        "avgDepth": 4.22,
+        "avgNodes": 42684,
+        "perPositionDepth": [
+          4,
+          4,
+          5,
+          4,
+          4,
+          5,
+          4,
+          4,
+          4
+        ]
+      }
+    ]
+  }
+}
