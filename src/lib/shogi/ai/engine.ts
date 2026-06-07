@@ -140,6 +140,10 @@ export interface FindBestMoveOptions {
   // 指定時かつ variant.id === "card-shogi" のとき、findBestMoveWithStats 内で root で 1 回
   // computeCardDigest を呼び、cardDigest を引数として evaluate に伝播する (W-1 root スカラー方式)。
   cardState?: CardGameState;
+  // Issue #235 S1b: AI root カード/ドロー評価を L0 カーネル applyTurnAction 経由に切替えるフラグ。
+  // 未指定時 false (= 旧経路、production 完全不変)。test/bench から ON にして OFF と比較する。
+  // production (route.ts) は S1d cutover まで本フラグを渡さない (= 常に OFF)。
+  useKernelSearch?: boolean;
 }
 
 export interface FindBestMoveResult {
@@ -194,6 +198,10 @@ export function findBestMoveWithStats(
     timeLimitMs: effectiveTimeLimitMs,
     signal: options.signal,
     cardDigest,
+    // Issue #235 S1b: kernel 経路フラグ (既定 OFF) と spectatorMode を ctx に伝播。
+    // root カード/ドロー評価 (evaluateActionWithLookahead / searchDoubleMoveSuperAction) が ctx 経由で読む。
+    useKernelSearch: options.useKernelSearch ?? false,
+    spectatorMode: options.spectator ?? false,
   });
 
   // 定石ブック (序盤のみ)。

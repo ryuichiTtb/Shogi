@@ -9,7 +9,7 @@
 // 最後に必ず駒1手」のように move を含むまでターン継続する形に切替えられる。
 // TurnRules.isTurnTerminating の実装差替だけでルール変更耐性を担保する。
 
-import type { CardGameState, CardId, CardTarget, GameEvent } from "@/lib/shogi/cards/types";
+import type { CardGameState, CardId, CardInstance, CardTarget, GameEvent } from "@/lib/shogi/cards/types";
 import type { GameState, Move, Player } from "@/lib/shogi/types";
 
 // AI 探索内で扱う統一行動型。
@@ -31,12 +31,19 @@ export type TurnAction =
 //   DrawAction / PlayCardAction 候補を root のみで含める制御に使う。
 //   未指定時は false 扱い (= 子ノード)。本フィールドの実際の有効化は PR1d-2 で
 //   search.ts/findBestMove root 経路から getLegalActions を呼ぶ統合時に行う。
+// - doubleMove.cardInstance/cardCost: Issue #235 S1b で追加 (optional)。L0 カーネル
+//   KernelDoubleMove (world-kernel.ts) と橋渡しするための遅延消費パラメータ。OFF 経路
+//   (current-rules.ts の doubleMove 生成) は本フィールドを省略 (= 既存挙動・既存テスト・
+//   toEqual 完全保持)。ON 経路 (useKernelSearch) は aiTurnStateToWorldState の変換で
+//   未指定時に CARD_DEFS から fallback 補完する。詳細は docs/plans/issue-235-s1b-ai-wiring.md §4。
 export interface AiTurnState {
   gameState: GameState;
   cardState: CardGameState;
   doubleMove: {
     active: Player;
     movesLeft: 1 | 2;
+    cardInstance?: CardInstance;
+    cardCost?: number;
   } | null;
   isRoot?: boolean;
 }
