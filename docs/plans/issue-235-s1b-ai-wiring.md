@@ -5,7 +5,9 @@
 
 ## 0. ゴールと非ゴール
 **ゴール**: カード将棋 AI 探索の **root カード/ドロー評価経路**を `useKernelSearch` フラグ (既定 OFF) 裏で L0 カーネル `applyTurnAction` 経由に切替可能化する。OFF は既存挙動を**バイト等価で完全保持**、ON は単一権威カーネルを通すことで DP-1〜7 を自動適用する。`AiTurnState.doubleMove` を kernel の `KernelDoubleMove` 型へ統合し、double_move cardState 近似を解消する。
-**非ゴール (S1b では触らない)**: 深い negamax/quiescence の move-only ホットパス (cardState 非搬送のため kernel 化の意味なし)、TT の cardState ハッシュ拡張 (S4)、評価係数の再校正 (S3 ValueModel)、reducer 側 (S1c)、cutover で既定 ON 化 (S1d)、route.ts (S1d まで OFF 固定)。
+**非ゴール (S1b では触らない)**: 深い negamax/quiescence の move-only ホットパス (cardState 非搬送のため kernel 化の意味なし)、TT の cardState ハッシュ拡張 (S4)、評価係数の再校正 (S3 ValueModel)、reducer 側 (S1c 物理移設 / S1d 委譲)、cutover で既定 ON 化 (S1d)、route.ts (S1d まで OFF 固定)。
+
+> **S1d cutover の相互参照 (lean 改訂)**: 本 S1b の `useKernelSearch` 既定 ON 化は、reducer 側の kernel building-block 委譲 (薄ラッパ化、S1c の物理移設後に S1d で実施) と**同じ S1d 単一コミット**で同期 flip する。shadow-assert は不採用 (S1 計画 doc §9 / epic §8.5.1)。
 
 ## 1. スコープの精緻化 (recon 6観点 + 中核ファイル精読で確定)
 kernel 経由化が効くのは **root のカード/ドロー評価 2 関数のみ**:

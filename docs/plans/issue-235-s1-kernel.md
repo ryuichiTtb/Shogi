@@ -54,7 +54,7 @@ function applyTurnAction(
 | reducer 現在地 | kernel 抽出先 | 備考 |
 |---|---|---|
 | `makeMoveWithEffects` (:239) | `applyMoveLogic(world, move, mode, opts)` | ほぼそのまま lift。CardShogiGameStateInternal 依存なし (gameState+cardState のみ) → WorldState 化容易 |
-| `applyTurnEndEffects` (:447) の cardState 部 (drawProgress/deck/hand) | `advanceDrawProgress(cardState, gameState, player) → { cardState, events }` | **新規実装** (reducer 版は UI 結合のため再利用不可)。drawProgress +1、5到達∧deck非空で 0 reset + auto-draw (deck先頭→hand, drawEvent{source:auto} を events に)。**非再帰・1回のみ** (DP-1)。UI flag (isDrawing/pendingDrawPlayer/selectedSquare clear) は **reducer が S1c で返り値 events を読んで event-driven にセット** (kernel は cardState+events のみ返す) |
+| `applyTurnEndEffects` (:447) の cardState 部 (drawProgress/deck/hand) | `advanceDrawProgress(cardState, gameState, player) → { cardState, events }` | **新規実装** (reducer 版は UI 結合のため再利用不可)。drawProgress +1、5到達∧deck非空で 0 reset + auto-draw (deck先頭→hand, drawEvent{source:auto} を events に)。**非再帰・1回のみ** (DP-1)。UI flag (isDrawing/pendingDrawPlayer。selectedSquare clear は reducer 演出側責務で advanceDrawProgress の対象外) は **reducer が S1d で返り値 events (auto drawEvent) を読んで event-driven にセット** (kernel は cardState+events のみ返す) |
 | `finalizeDoubleMoveCardConsumption` (:666) の consumeNormalCard+event 部 | `finalizeDoubleMoveLogic(world, dm)` | isPlayingCard/pendingPlayCardOpponent flag は reducer に残す |
 | CONFIRM_PLAY_CARD (:1207) の効果適用部 | `applyCardEffectLogic(world, action)` | pendingCard/演出 flag は reducer に残す |
 | currentPlayer flip (MAKE_MOVE/COMMIT_* に散在) | applyTurnAction 内に集約 | 「ターン終了で flip」を kernel が一元管理 |
@@ -64,10 +64,14 @@ reducer 側は抽出後、各フェーズで kernel 関数を呼び **UI state (
 ## 6. 移行段階 (S1a〜d、各段で不変ゲート green を維持) — **epic SSOT §8.5.2 準拠 (マイルストーン1レビュー反映)**
 > **重要訂正**: 初版は S1a に「reducer を委譲へ refactor」を含めていたが、これは epic SSOT §8.5.2 の定める staging (S1a=additive 新規モジュールのみ / reducer 薄ラッパ化=S1c / cutover=S1d 単一コミット隔離) と矛盾し、最大リスクの production rewire を property 等価 green より前に前倒しして rollback 第2層 (cutover 隔離) の前提を壊す。SSOT 通り **S1a は production (reducer/AI) 完全不変**に訂正。
 - **S1a (本計画の主対象)**: `world-kernel.ts` を**新規モジュールとして追加** = WorldState + building-block (applyMoveLogic/advanceDrawProgress/applyCardEffectLogic/finalizeDoubleMoveLogic) + atomic applyTurnAction。**production (reducer/AI) は完全不変** (例外: 純粋関数 `makeMoveWithEffects` 等を kernel から再利用するため reducer.ts に `export` を**付与するのみ**の振る舞い不変変更は許容。reducer の呼出経路・ロジックは一切変えない)。**property-based 等価テスト新設** (現 reducer 経路 vs 新 applyTurnAction の独立2実装比較、§8.3.4)。既存 reducer.test/undo-policy.test/effects.test 全 green 維持。
-  - **reuse 方針**: `makeMoveWithEffects` は純粋 (gameState+cardState のみ依存、レビューで確認) のため reducer.ts から `export` して kernel が import 再利用 (rewrite 回避)。`applyTurnEndEffects` は UI state 結合のため**そのコア (drawProgress/deck/hand 変換) を kernel に新規実装** (`advanceDrawProgress`)、reducer 側は S1a では不変 (S1c で advanceDrawProgress へ委譲)。両者の等価は property test で担保。
+  - **reuse 方針**: `makeMoveWithEffects` は gameState+cardState+move+options のみ依存し reducer の他 state フィールドに隠れた依存を持たない (レビューで確認) ため reducer.ts から `export` して kernel が import 再利用 (rewrite 回避)。※ 厳密には純粋関数ではなく `Date.now()` に依存する (早指しボーナス isFastMove 判定 + イベント at) が、この非決定性は spectatorMode=true (fastMove 無効化) と at 射影除外で制御済 (§7 DP-4)。`applyTurnEndEffects` は UI state 結合のため**そのコア (drawProgress/deck/hand 変換) を kernel に新規実装** (`advanceDrawProgress`)、reducer 側は S1a/S1c では不変 (S1d で advanceDrawProgress へ委譲)。両者の等価は property test で担保。
 - **S1b**: AI 探索が `useKernelSearch` フラグ (既定 OFF) 裏で applyTurnAction 経由に切替可能化 + `AiTurnState.doubleMove` の kernel 型統合 + double_move cardState 近似 (current-rules.ts:114) 解消。OFF で既存挙動完全保持。bench で旧経路と depthCompleted/カード使用率比較。
-- **S1c**: reducer を完全な薄ラッパ化 (各演出フェーズが kernel building-block を呼ぶ) + shadow-assert モード (旧経路 vs kernel を dev/test で `===` assert、採用は旧経路)。`advanceDrawProgress` の {cardState, events} 返り値を reducer が読んで isDrawing/isCheckBreakAnimating 等の演出 flag を event-driven にセット。
-- **S1d**: 等価 + bench green 確認後に**単一コミット**で既定をカーネルへ flip (rollback 第2層: `git revert` 対象)。shadow 本番無効化。
+- **S1c (lean 方式、2026-06-07 ユーザー確定で shadow-assert 不採用)**: `makeMoveWithEffects` (+ `MakeMoveMode` 型) を reducer.ts から新規 lib モジュール `src/lib/shogi/kernel/move-effects.ts` へ**物理移設のみ**。reducer は移設先から import して**従来どおり直接呼ぶ** (呼出経路・ロジック・関数本体は 1 行も変えない)。これにより world-kernel (lib) → reducer (hooks) の暫定逆依存 (層違反) を解消する。**挙動完全不変・純粋リファクタ**。
+  - **shadow-assert は廃止**: S1a の property-based 等価テスト (reducer dispatch ≡ applyTurnAction を 180 seed×40 ply + targeted で検証済) が等価担保の主目的を達成済のため、throwaway な二重計算コードを production reducer に入れない。
+  - **reducer の薄ラッパ化 (各演出フェーズが kernel building-block を呼ぶ委譲) は S1c から S1d へ移動**。S1c では reducer ロジックは無改変。
+  - **等価ゲート**: 物理移設のみのため lint/typecheck/test:ci 全 green (特に reducer.test/undo-policy.test/effects.test/world-kernel-equivalence.test/kernel-search-equivalence.test) + build green の再現が純粋移設の証跡。
+- **S1d (cutover、単一 git-revert 可コミット)**: ① reducer の `applyTurnEndEffects` (cardState 部) / `finalizeDoubleMoveCardConsumption` / `CONFIRM_PLAY_CARD` 効果適用部を kernel building-block (`advanceDrawProgress` / `finalizeDoubleMoveLogic` / `applyCardEffectLogic`) へ**委譲 (薄ラッパ化)**、inline 重複除去 + UI flag (isDrawing/pendingDrawPlayer 等) を返り値 events から event-driven セット。`applyCardEffectLogic` は現状 private のため export 要。② AI: `useKernelSearch` 既定 ON。
+  - **S1d 等価ゲート (M1 レビュー反映)**: S1c と異なり S1d は reducer のオーケストレーションを変える (inline → 委譲 + flag の event-driven 化)。S1a property test + reducer.test/undo/effects/S1b 特性化に加え、**演出オーケストレーション (drawProgress→isDrawing/pendingDrawPlayer 変換、check_break defer 順序、二手指し finalize タイミング) を直接突く統合テストを S1d DoD に含める** (ゲーム状態スナップショット比較だけでは演出 flag の順序・defer/trigger タイミングを捕捉できないため)。挙動は意図的に等価 (UI=reducer.test、AI 評価は DP-1 lazy drawProgress 等で微変=bench 監視)。rollback 第2層: `git revert` 対象。
 
 ## 7. property-based 等価テスト (S1a、§8.3.4 + DP-1〜7)
 - **framework (依存追加なし)**: fast-check は package.json 未導入 + AGENTS.md §7 (パッケージ追加は要確認) のため**使わない**。PoC-3 と同じ **hand-rolled seeded PRNG (mulberry32) + 手書き generator** で実装 (vitest のみで完結、決定的・再現可能)。
@@ -87,8 +91,8 @@ reducer 側は抽出後、各フェーズで kernel 関数を呼び **UI state (
 - DP-6 manaCap: 不変 (kernel 内代入なし)。
 - DP-7 check_break: applyCheckBreak が getCheckingPieces (直接王手駒のみ)。double_move_first は defer。
 
-## 9. feature-flag + rollback (epic §8.5 準拠)
-- flag `useKernelSearch` (AI、既定 OFF) / reducer shadow-assert。
+## 9. feature-flag + rollback (epic §8.5 準拠、lean 反映)
+- flag `useKernelSearch` (AI、既定 OFF)。**reducer 側 shadow-assert は不採用** (lean、S1a property test が等価担保の主目的を達成済のため)。reducer の等価は移設の純粋性 (S1c) + 全テスト green + S1d 委譲時の reducer.test/undo/effects/演出統合テストで担保。
 - rollback 3層: フラグ OFF / S1d cutover commit を `git revert` / reducer.test+undo+effects+property を blocking gate。
 - standard byte-level 不変ゲート。
 
@@ -130,3 +134,19 @@ S1a part2 (property-based 等価テスト) 実装完了時点で、5観点 adver
 - **[low] OBS5-3**: deprecated `mana_up` 分岐 (kernel/reducer 両在) の等価を targeted で pin しデッドカバレッジ解消。
 - **[low] F-3 (doc)**: 本計画 §4/§8 の「Date.now() stub」記述を実態 (stripAt による at 射影除外 = stub 不要) に訂正。
 - 結果テスト: ランダム harness 180 seed×40 ply + targeted 15 = 計 16 件 green。test:ci 528 passed / build green。
+
+## 14. S1c (lean = makeMoveWithEffects 物理移設) DoD
+挙動完全不変・純粋リファクタ。reducer ロジックは無改変 (委譲は S1d)。
+- [ ] `src/lib/shogi/kernel/move-effects.ts` 新設: `MakeMoveMode` 型 + `makeMoveWithEffects` 関数を reducer.ts から**本体 1 行も変えず**移設・export。import は全て lib 層 (types/board/moves/rules/variants/cards/effects/定数)。hooks 依存ゼロ。
+- [ ] reducer.ts: `MakeMoveMode`/`makeMoveWithEffects` 定義を削除し `@/lib/shogi/kernel/move-effects` から import。makeMoveWithEffects 専用だった import (`evaluateGameEnd` / `MANA_PER_TURN` / `MANA_FAST_BONUS` / `FAST_THRESHOLD_MS` / `applyCheckBreak` / `applyTrapClear` / `addNoPromoteMark` / `moveNoPromoteMark`) を削除。**`removeNoPromoteMark` (reducer.ts:1268/1286 で使用) / `AUTO_DRAW_INTERVAL` (applyTurnEndEffects で使用) は削除しない**。6 呼び出し箇所 (reducer.ts MAKE_MOVE/CONFIRM_PROMOTION) はシグネチャ同一でコード本体無変更。
+- [ ] world-kernel.ts: makeMoveWithEffects の import 元を `@/hooks/card-shogi/reducer` → `@/lib/shogi/kernel/move-effects` に変更 + ヘッダコメントを「S1c で物理移設・逆依存解消済」に更新。
+- [ ] lint 0err / typecheck exit0 / test:ci 全 green (S1b 完了時点と同値) / build green = 純粋移設の証跡。
+- [ ] 直接ユニットテストの追加は不要 (property-based 等価 + reducer.test で十分。将来 move-effects.ts に意味的変更が入った時点で追加検討)。
+- [ ] shadow-assert は不採用 (S1a property test が等価担保の主目的を達成済のため、§6 S1c / §9 参照)。reducer ロジックは無改変ゆえ二重計算コードを入れる価値が小さい。
+
+## 15. S1c マイルストーン1レビュー反映 (計画直後、2026-06-07、AGENTS.md ルール8)
+S1c (lean) 計画を 4観点 adversarial workflow (deps/behavior/tests/doc-ssot、#109 観点 + 実コード照合、44 agents、22 件 confirmed) でレビュー。**総合判定: 着手可 (計画を覆す欠陥ゼロ)**。過半は「計画の正しさを実証する肯定的指摘」。下記を反映:
+- **[事実訂正] makeMoveWithEffects は純粋関数ではない**: behavior 観点の high「純粋ゆえ安全」は事実誤認 (reducer.ts:384/407 で `Date.now()` 依存)。ただし非決定性は spectatorMode + at 射影で制御済のため移設は安全。本計画 §6 reuse 方針の「純粋」表現を訂正済。実装時は spectatorMode/at 射影の契約を 1bit も変えない (メモ化禁止)。
+- **[スコープ訂正] doc/コメント精度**: 旧 doc の「S1c=薄ラッパ化+shadow-assert」記述を lean (S1c=物理移設のみ、委譲=S1d、shadow-assert 廃止) に上書き (§5/§6/§9)。world-kernel.ts:8-11/41 ヘッダコメントも S1c 完了版に更新する。
+- **[S1d へ反映] テスト十分性の論理飛躍**: 「world-kernel-equivalence green = S1c 移設の絶対証拠」は S1c (純粋移設) では成立する (reducer ロジック無改変ゆえ全テスト green で十分) が、レビューが懸念した「演出 flag の event-driven 化の検証不足」は **S1d の懸念**。S1d DoD に演出オーケストレーション統合テストを含める旨を §6 S1d 項に明記済。なお shadow-assert 再導入は lean 決定により行わない。
+- 妥当と確認: 物理移設可・循環依存なし・import 整理範囲確定・import パス更新は world-kernel.ts のみ・tsconfig 変更不要・tree-shaking 影響なし・baseline (test:ci 539 passed/build green) 再現で純粋移設担保。

@@ -270,18 +270,18 @@ L0 統合 (reducer/AI が単一カーネル `applyTurnAction` に委譲) は最�
 #### 8.5.1 feature-flag 設計 (additive + 影 + 段階切替)
 - **カーネルは既存経路を消さず additive に新設**。最終 cutover まで production の振る舞いは旧経路が支配。
 - **AI 探索側**: config フラグ `useKernelSearch` (既定 OFF) で「既存 engine」⇔「カーネル委譲 engine」を切替。OFF = PR3-3 完了時点の振る舞い完全保持。card-shogi のみ対象、standard は分岐に入れない。
-- **reducer (UI) 側**: カーネルを reducer の**実装裏側**に置き、reducer は薄いラッパに後退。移行中は **shadow-assert モード** (dev/test 限定): reducer が旧経路結果とカーネル結果の両方を計算し §8.3 の must-match 射影で `===` を assert、**採用するのは旧経路結果**。等価が安定したら採用をカーネルへ flip。本番ビルドでは shadow を無効化 (二重計算コストを避ける)。
+- **reducer (UI) 側 (2026-06-07 lean 改訂で shadow-assert 不採用)**: カーネルを reducer の**実装裏側**に置き、reducer は薄いラッパに後退する方針は維持。ただし移行中の **shadow-assert モードは廃止**。理由: S1a の property-based 等価テスト (reducer dispatch ≡ applyTurnAction を数千局面で検証済) が等価担保の主目的を達成済で、throwaway な二重計算コードを production reducer に入れる価値が小さいため。reducer の薄ラッパ化 (各演出フェーズが kernel building-block を呼ぶ委譲) は S1d cutover で一括実施し、等価は property test + reducer.test/undo/effects + 演出オーケストレーション統合テストで担保する。
 - **standard variant**: カーネル分岐に一切入れず byte-level 不変 (§12 不変ゲート)。
 
 #### 8.5.2 段階統合 (S1a〜S1d、各段で不変ゲート green)
 1. **S1a**: `WorldState` 型 + `applyTurnAction` を**新規モジュールとして追加** (production 未配線)。§8.3.4 の property-based 等価テストを同時に author し green 化。reducer.test/undo-policy.test/effects.test は不変。
 2. **S1b**: AI 探索を `useKernelSearch` フラグ裏で配線 (既定 OFF)。bench で旧経路と depthCompleted/カード使用率比較。
-3. **S1c**: reducer を薄いラッパ化し shadow-assert モードで旧経路と並走。reducer.test/undo-policy.test/effects.test green を**全コミットで維持**。
-4. **S1d**: 等価テスト + bench green 確認後に既定をカーネルへ flip (AI: `useKernelSearch` ON、reducer: 採用切替)。shadow を本番無効化。
+3. **S1c (lean 改訂)**: `makeMoveWithEffects` (+ `MakeMoveMode`) を reducer.ts → 新規 lib モジュール `src/lib/shogi/kernel/move-effects.ts` へ**物理移設のみ** (reducer は import して従来どおり直接呼ぶ、ロジック無改変)。world-kernel (lib) → reducer (hooks) の暫定逆依存を解消。**挙動完全不変・純粋リファクタ**。shadow-assert は廃止。reducer.test/undo-policy.test/effects.test/property 等価テスト green を維持。
+4. **S1d (cutover)**: 等価テスト + bench green 確認後に単一コミットで ① reducer を kernel building-block へ委譲 (薄ラッパ化、shadow-assert なし) ② 既定をカーネルへ flip (AI: `useKernelSearch` ON)。S1c で reducer ロジックは未変更のため、reducer 振る舞いを変える cutover は本段に隔離される。等価は property test + reducer.test/undo/effects + 演出オーケストレーション統合テストで担保。
 
 #### 8.5.3 rollback 手順 (多層)
 - **第1層 (無コード)**: 不具合時は **フラグを OFF に戻すだけ**で旧経路へ即時復帰 (S1d 後も flag は残置)。
-- **第2層 (git)**: カーネルは S1a〜S1c で additive (新規ファイル)、production 振る舞いを変える cutover は **S1d の単一コミットに隔離** → `git revert <S1d-cutover>` で旧経路復帰。各コミットは atomic・reversible。
+- **第2層 (git)**: S1a/S1b は additive (新規ファイル + フラグ既定 OFF)、S1c は production 振る舞い不変の純粋リファクタ (関数の物理移設のみ、reducer ロジック無改変)。production 振る舞いを変える cutover は **S1d の単一コミットに隔離** → `git revert <S1d-cutover>` で旧経路復帰。各コミットは atomic・reversible。
 - **第3層 (test gate)**: reducer.test/undo-policy.test/effects.test + property-based 等価テストを cutover の blocking gate に。1 つでも赤なら cutover しない。
 - **test isolation**: 等価テストは旧 reducer 経路 vs カーネル経路を同一ランダム TurnAction 列で並走し must-match 射影 (§8.3.1) を deep-equal 比較。DP-1〜7 を seed 済みエッジケースで固定。
 

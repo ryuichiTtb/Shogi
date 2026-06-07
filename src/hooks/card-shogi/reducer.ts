@@ -5,10 +5,13 @@
 // このファイルが持つ責務:
 // - Action 型 (ShogiAction / Action)
 // - CardShogiGameStateInternal 型 (useReducer 内部 state)
-// - makeMoveWithEffects / isKingInCheckAfterMove (reducer 内部 helper)
+// - isKingInCheckAfterMove (reducer 内部 helper)
 // - reducer 関数本体
 //
 // 移管時にロジックは 1 行も変えず、ファイル境界のみ引いた (move-only)。
+// Issue #235 S1c: move 効果適用 (makeMoveWithEffects / MakeMoveMode) は
+// src/lib/shogi/kernel/move-effects.ts へ物理移設済。reducer は import して呼ぶ
+// (下部 import 参照、振る舞い不変)。
 
 import type { GameState, Move, Player, Position } from "@/lib/shogi/types";
 import { applyMove, cloneGameState } from "@/lib/shogi/board";
@@ -21,7 +24,6 @@ import {
   isCheckmate,
   isInCheck,
 } from "@/lib/shogi/moves";
-import { evaluateGameEnd } from "@/lib/shogi/rules";
 import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
 import { unpromotePieceType } from "@/lib/shogi/variants/standard";
 
@@ -30,9 +32,6 @@ import {
   CARD_DEFS,
   CARD_USE_CONDITIONS,
   DRAW_COST,
-  MANA_PER_TURN,
-  MANA_FAST_BONUS,
-  FAST_THRESHOLD_MS,
   AUTO_DRAW_INTERVAL,
 } from "@/lib/shogi/cards/definitions";
 import {
@@ -40,17 +39,16 @@ import {
   applyPawnReturn,
   applyPieceReturn,
   applyDoublePawn,
-  applyCheckBreak,
   getCheckEscapingSquares,
   applyTrapSet,
-  applyTrapClear,
   consumeNormalCard,
   hasNoPromoteMark,
-  addNoPromoteMark,
   removeNoPromoteMark,
-  moveNoPromoteMark,
   hasSameKindTrapPlaced,
 } from "@/lib/shogi/cards/effects";
+// Issue #235 S1c: move 効果適用ロジックは lib/kernel へ物理移設済 (旧 reducer 内定義)。
+// reducer は本関数を import して従来どおり直接呼ぶ (呼出経路・ロジック不変)。
+import { makeMoveWithEffects } from "@/lib/shogi/kernel/move-effects";
 import { canUndoFromState } from "./undo-policy";
 
 export type ShogiAction =
@@ -186,14 +184,6 @@ export interface UndoSnapshot {
   eventLog: GameEvent[];
 }
 
-// 移動処理のモード切替 (Issue #82 二手指し)。
-// - "normal": 通常の指し手 (マナチャージ + 早指しタイマークリア)
-// - "double_move_first": 二手指しの 1手目 (マナチャージなし + タイマークリアなし、ターン継続中)
-// - "double_move_second": 二手指しの 2手目 (マナチャージなし、タイマークリアあり、ターン交代)
-// 二手指しはカード使用扱いのため、1手目・2手目とも通常のマナチャージ (+1〜+2) は発生しない
-// (カードコスト -6 のみ消費、これは CONFIRM_PLAY_CARD 側で処理済み)。
-export type MakeMoveMode = "normal" | "double_move_first" | "double_move_second";
-
 // Issue #132: 待ったスナップショットのリング最大サイズ (= 直近何 ply 分を保持するか)。
 // 待った仕様は「直近 2 ply 巻き戻し」なので 2 で十分。これ以上は保持しない (メモリ節約)。
 const UNDO_SNAPSHOT_RING_MAX = 2;
@@ -232,199 +222,6 @@ function pushUndoSnapshot(state: CardShogiGameStateInternal): UndoSnapshot[] {
   };
   // ring size を UNDO_SNAPSHOT_RING_MAX で頭打ち。古い snapshot は evict。
   return [...state.undoSnapshots.slice(-(UNDO_SNAPSHOT_RING_MAX - 1)), snap];
-}
-
-// 移動 + マナチャージ + トラップフィルタ を一括適用。
-// CONFIRM_PROMOTION と MAKE_MOVE の両方から呼ばれる。
-// Issue #235 S1a: world-kernel.ts が move ロジックを reuse するため export。
-// 振る舞い不変 (関数本体・呼出経路は一切変更なし)。物理移設と reducer 薄ラッパ化は S1c。
-export function makeMoveWithEffects(
-  gameState: GameState,
-  cardState: CardGameState,
-  move: Move,
-  // Issue #193 / PR1a: spectatorMode は CPU vs CPU 観戦モード時に true。
-  // 早指し判定 (FAST_THRESHOLD_MS) を完全 disable し、両 CPU の連続指しによる
-  // マナ蓄積異常を防ぐ。spectatorMode=false の人間プレイ時は完全に従来挙動を保持。
-  options?: { mode?: MakeMoveMode; spectatorMode?: boolean },
-): {
-  gameState: GameState;
-  cardState: CardGameState;
-  events: GameEvent[];
-  finalMove: Move;
-  // 王手崩しトラップが発動した場合のみ true。MAKE_MOVE 側で isCheckBreakAnimating をセットする。
-  triggeredCheckBreak: boolean;
-} {
-  const mode: MakeMoveMode = options?.mode ?? "normal";
-  const spectatorMode = options?.spectatorMode ?? false;
-  const opponent: Player = move.player === "sente" ? "gote" : "sente";
-  const events: GameEvent[] = [];
-
-  // 1. 成り宣言フィルタ
-  //   (a) 自分の駒に既に「成り不可」マークがあれば silent ブロック (新規トラップは発火させない)
-  //   (b) (a) でなく、相手が no_promote トラップをセット中なら新規発動
-  //       → 成りブロック + 移動先位置にマーク追加 + トラップ消費
-  let finalMove = move;
-  let cardStateNext = cardState;
-  let pendingMarkAdd: Position | null = null;
-
-  const opponentTrap = cardState.trap[opponent];
-  const ownMarkAtFrom =
-    move.from !== undefined &&
-    move.from !== null &&
-    hasNoPromoteMark(cardState, move.player, move.from);
-
-  if (move.promote && ownMarkAtFrom) {
-    // 既マーク済み駒の成り宣言 → silent ブロック (トラップは無関係、消費しない)
-    finalMove = { ...move, promote: false };
-  } else if (move.promote && opponentTrap && opponentTrap.defId === "no_promote") {
-    // 新規発動: 成り宣言を無効化し、移動後位置に永続マーク付与、トラップ消費
-    finalMove = { ...move, promote: false };
-    cardStateNext = applyTrapClear(cardStateNext, opponent);
-    pendingMarkAdd = move.to;
-    events.push({
-      kind: "trapTriggerEvent",
-      player: opponent,
-      instance: opponentTrap,
-      reason: "promotion_declared",
-      at: Date.now(),
-    });
-  }
-
-  // 2. 駒移動
-  const nextGameState = applyMove(gameState, finalMove);
-
-  // 3. 成り不可マークの追従処理 (move 系のみ。drop は対象外)
-  if (finalMove.type === "move" && finalMove.from) {
-    // (a) 取られた相手駒のマークがあれば削除 (case A: 取られたら消失)
-    if (hasNoPromoteMark(cardStateNext, opponent, finalMove.to)) {
-      cardStateNext = removeNoPromoteMark(cardStateNext, opponent, finalMove.to);
-    }
-    // (b) 自分の駒のマークを from → to に移動
-    if (hasNoPromoteMark(cardStateNext, finalMove.player, finalMove.from)) {
-      cardStateNext = moveNoPromoteMark(
-        cardStateNext,
-        finalMove.player,
-        finalMove.from,
-        finalMove.to,
-      );
-    }
-  }
-
-  // 4. トラップ発動分のマーク追加 (成り宣言を無効化した直後の駒位置に付与)
-  if (pendingMarkAdd) {
-    cardStateNext = addNoPromoteMark(cardStateNext, finalMove.player, pendingMarkAdd);
-  }
-
-  // 4.5 王手崩しトラップ (#82)
-  // 移動の結果、相手 (= トラップ所有者候補) が王手中になり、かつ check_break
-  // トラップがセットされていれば自動発動。王手駒すべてを盤上から除去し、
-  // トラップ所有者の持ち駒に unpromote 加算する。
-  let postTrapGameState = nextGameState;
-  let triggeredCheckBreak = false;
-  const opponentTrapPostMove = cardStateNext.trap[opponent];
-  // この手の結果、相手の check_break トラップが発動条件 (相手玉が王手中) を満たすか。
-  const wouldTriggerCheckBreak =
-    !!opponentTrapPostMove &&
-    opponentTrapPostMove.defId === "check_break" &&
-    isInCheck(nextGameState, opponent, CARD_SHOGI_VARIANT);
-  // Issue #220 / #222 検証修正: 二手指しの一手目 (double_move_first) は中間局面。
-  // トラップはターン完了 (二手目) の最終局面でのみ発動すべきで、一手目では常に保留する。
-  // 旧実装は「一手目が (トラップ未考慮の盤面で) 詰みなら例外的に発動」していたが、
-  // check_break トラップがセットされている限り真の詰みは成立しない (トラップが王手駒を
-  // 奪い王手を解除するため)。よって一手目発動は誤りで、二手目を指す前にトラップが暴発し、
-  // 最終局面で王手している駒ではなく一手目の駒が奪われる不具合になっていた (検証で判明)。
-  const deferCheckBreak = mode === "double_move_first";
-  if (!deferCheckBreak && wouldTriggerCheckBreak) {
-    const result = applyCheckBreak(nextGameState, opponent);
-    if (result) {
-      postTrapGameState = result.gameState;
-      // 取られた相手 (= move.player) の駒に no_promote マークがあれば消失
-      for (const cap of result.capturedPieces) {
-        if (hasNoPromoteMark(cardStateNext, finalMove.player, { row: cap.row, col: cap.col })) {
-          cardStateNext = removeNoPromoteMark(cardStateNext, finalMove.player, {
-            row: cap.row,
-            col: cap.col,
-          });
-        }
-      }
-      cardStateNext = applyTrapClear(cardStateNext, opponent);
-      events.push({
-        kind: "trapTriggerEvent",
-        player: opponent,
-        instance: opponentTrapPostMove,
-        reason: "check_declared",
-        capturedPieces: result.capturedPieces,
-        at: Date.now(),
-      });
-      triggeredCheckBreak = true;
-    }
-  }
-
-  // 5. ゲーム終了判定 + 移動イベントログ
-  const evaluated = evaluateGameEnd(postTrapGameState, CARD_SHOGI_VARIANT);
-  // Issue #220 / #222 検証修正: 二手指し一手目で check_break を保留した場合、形式上の
-  // 詰み (トラップ未適用の盤面) は真の終局ではない (ターン完了後にトラップが王手を解除
-  // する)。中間局面として active を維持し二手目を継続させる。これがないと MAKE_MOVE 側
-  // gameOver 判定が偽の詰みで二手指しを打ち切り、二手目を指せなくなる。
-  // (nextGameState は applyMove 直後で status="active"。evaluateGameEnd を通す前の値。)
-  const resultGameState =
-    deferCheckBreak && wouldTriggerCheckBreak ? nextGameState : evaluated;
-  events.push({ kind: "moveEvent", move: finalMove, at: Date.now() });
-
-  // 6. マナチャージ + lastTurnStartedAt クリア (mode で挙動を切替)
-  if (mode === "normal") {
-    // 通常の指し手: マナチャージ + 早指し判定 + タイマークリア
-    const lastStarted = cardStateNext.lastTurnStartedAt[move.player];
-    // Issue #193 / PR1a: 観戦モード時は早指し判定を完全スキップ (両 CPU が常に <4 秒で
-    // 指してマナ蓄積が異常になることを防ぐ)。spectatorMode=false の人間プレイ時は
-    // 完全に従来挙動を保持する。
-    const isFastMove =
-      !spectatorMode &&
-      lastStarted !== null &&
-      Date.now() - lastStarted < FAST_THRESHOLD_MS;
-    const manaAmount =
-      MANA_PER_TURN + (isFastMove ? MANA_FAST_BONUS : 0);
-    cardStateNext = {
-      ...cardStateNext,
-      mana: {
-        ...cardStateNext.mana,
-        [move.player]: Math.min(
-          cardStateNext.manaCap,
-          cardStateNext.mana[move.player] + manaAmount,
-        ),
-      },
-      lastTurnStartedAt: {
-        ...cardStateNext.lastTurnStartedAt,
-        [move.player]: null,
-      },
-    };
-    events.push({
-      kind: "manaChargeEvent",
-      player: move.player,
-      amount: manaAmount,
-      reason: "turn",
-      fastMove: isFastMove,
-      at: Date.now(),
-    });
-  } else if (mode === "double_move_second") {
-    // 二手指しの 2手目: マナチャージなし。lastTurnStartedAt のみクリア (ターン交代)
-    cardStateNext = {
-      ...cardStateNext,
-      lastTurnStartedAt: {
-        ...cardStateNext.lastTurnStartedAt,
-        [move.player]: null,
-      },
-    };
-  }
-  // mode === "double_move_first": どちらもしない (ターン継続中のため)
-
-  return {
-    gameState: resultGameState,
-    cardState: cardStateNext,
-    events,
-    finalMove,
-    triggeredCheckBreak,
-  };
 }
 
 function isKingInCheckAfterMove(gameState: GameState, move: Move): boolean {

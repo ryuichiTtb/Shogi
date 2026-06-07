@@ -5,10 +5,12 @@
 //   同一ロジックを呼ぶ構造の土台を作る (P4 二重実装の解消)。
 //
 // 戦略 (再実装せず抽出して委譲、計画 §1):
-//   - move の純粋ロジックは reducer の makeMoveWithEffects を **reuse** (export して import)。
-//     ※ S1a では reducer 側は makeMoveWithEffects に export を付与するのみで振る舞い不変。
-//       makeMoveWithEffects の kernel への物理移設と reducer 薄ラッパ化は S1c (clean な層構造化)。
-//       それまで lib/kernel → hooks/reducer の暫定依存が残る (循環なし、reducer は React 非依存)。
+//   - move のロジックは `makeMoveWithEffects` を **reuse** (lib/kernel/move-effects.ts から import)。
+//     ※ S1a では reducer.ts に置いたまま export して import 再利用していたが、これは
+//       lib(kernel) → hooks(reducer) の暫定逆依存 (層違反) を生んでいた。
+//       S1c でこの関数 (+ MakeMoveMode 型) を lib 層の move-effects.ts へ物理移設し、逆依存を解消済。
+//       reducer も move-effects.ts から import して呼ぶ (挙動不変)。reducer 本体の各演出フェーズを
+//       kernel building-block へ委譲 (薄ラッパ化) するのは S1d cutover。
 //   - draw/playCard/turnEnd は UI state 結合の reducer ロジックから cardState 変換部のみを抽出して
 //     kernel に新規実装 (advanceDrawProgress / applyCardEffectLogic / finalizeDoubleMoveLogic)。
 //     これらと reducer 経路の等価性は property-based 等価テスト (S1a part2) で担保する。
@@ -38,7 +40,7 @@ import {
   consumeNormalCard,
   removeNoPromoteMark,
 } from "@/lib/shogi/cards/effects";
-import { makeMoveWithEffects } from "@/hooks/card-shogi/reducer";
+import { makeMoveWithEffects } from "@/lib/shogi/kernel/move-effects";
 import type {
   CardGameState,
   CardInstance,
