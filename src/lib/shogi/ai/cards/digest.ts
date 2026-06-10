@@ -34,7 +34,7 @@ import {
 export interface CardDigest {
   // mana.sente - mana.gote (W-2 反映: sente 絶対視点で、sente 有利なら正)
   manaDelta: number;
-  // 将来動的化想定 (現状静的だが枠は確保、definitions.ts:228 MANA_CAP = 20)
+  // 将来動的化想定 (現状静的だが枠は確保、card-system-config.ts MANA_CAP = 20)
   manaCap: number;
   // handValue(sente hand) - handValue(gote hand) (W-2: sente 絶対視点、単調減衰関数で算出)
   handValueDelta: number;

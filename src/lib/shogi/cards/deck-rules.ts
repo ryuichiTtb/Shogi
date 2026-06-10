@@ -5,18 +5,16 @@
 // 編成も不可とする。
 
 import type { CardId, CardRarity } from "./types";
+// デッキ編成上限 (枚数・レア度別) は CardSystemConfig (card-system-config.ts) に集約済 (Issue #235 S2e)。
+// 本ファイル内のバリデーションで使うため import し、既存 import を壊さないため re-export も行う
+// (値の SSOT は CARD_SYSTEM_CONFIG)。
+import {
+  DECK_TOTAL_MAX,
+  DECK_TOTAL_MIN,
+  RARITY_MAX_PER_DECK,
+} from "./card-system-config";
 
-export const DECK_TOTAL_MAX = 30;
-export const DECK_TOTAL_MIN = 1;
-
-// レア度別の「デッキ内のそのレア度合計」上限。null は無制限 (合計 30 枚の範囲内)。
-// 例: epic = 4 → 究極カード(同名/異名問わず合計)が 4 枚を超えてはいけない。
-export const RARITY_MAX_PER_DECK: Record<CardRarity, number | null> = {
-  common: null,
-  rare: null,
-  super_rare: 10,
-  epic: 4,
-};
+export { DECK_TOTAL_MAX, DECK_TOTAL_MIN, RARITY_MAX_PER_DECK };
 
 export interface DeckEntryInput {
   cardId: CardId;

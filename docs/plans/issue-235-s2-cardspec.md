@@ -108,7 +108,7 @@ registry は新規ファイルのため S2a は revert 安全。
   - ② デッドコード除去 (`applyManaUp` 等) → **#80 の担当**: `definitions.ts:49` に「効果コード (applyManaUp) の最終撤去は #80」と明記。S2b で production 未参照化したが除去は #80 スコープ (effects.test のカバレッジ維持のため本段では残置)。
   - ③ serialize 境界 → **実施**: ESLint `no-restricted-imports` で `src/components/**` からの card-spec-server import を error 化 (probe で発火確認)。hooks (reducer 等) は world-kernel 経由で registry を必要とするため対象外 (Client 実行だが props serialize なし)。境界強制方式は `server-only` パッケージでなく eslint を採用 (reducer→world-kernel→card-spec-server の推移 import が成立しており `server-only` は Client build を壊すため不可)。
   - consumer 移行: deck.ts (VALID_CARD_IDS/playable/deprecated) と merge.ts (playable id) を `getValidCardIds`/`getPlayableCards` 経由へ (id/status のみ参照ゆえ移行可)。user-bootstrap/seed/cards-page は full CardDefinition 必要のため ALL_CARD_DEFS 維持。
-- [ ] **S2e**: CardSystemConfig 集約 (値は不変)。
+- [x] **S2e (完了・commit 予定)**: CardSystemConfig 集約 (値は不変)。新規 `card-system-config.ts` (client-safe = 値のみ) に `CardSystemConfig` 型 + `CARD_SYSTEM_CONFIG` + フラット名前付き定数 10 件 (マナ/ドロー 7 + デッキ構築 3) を集約。`definitions.ts` は純 re-export、`deck-rules.ts` は内部利用のため import + re-export。**DECK_TOTAL_MAX/MIN も凝集性のため同梱 (ユーザー承認、§14)**。挙動完全不変・値 byte 等価。検証: lint0err/typecheck/test:ci 573/build。M2=セルフ + 独立 adversarial agent (§14)。
 - [ ] valueModel は現行係数ブリッジ (中身は S3、構造のみ)。trap onTrigger は @deferred stub (実配線 S3)。
 - [ ] 各段 lint/typecheck/test:ci/build green。段階順序 S2a→S2b→(S2c)→S2d→S2e (S2c/S2d は S2b 前提=revert 単独不可を §7 明記)。
 
@@ -209,4 +209,30 @@ S2c = 横断制約 (待った可否 / AI 候補生成) を CardSpec registry か
 ### scope 外 (申し送り)
 - ① ALL_CARD_DEFS 全廃: CardMeta に説明文/effectId を含める設計変更が前提 (meta/spec 分離見直し)。必要になれば別途検討。
 - ② applyManaUp 等 dead code 除去: #80 (mana_up 効果コード最終撤去) のスコープ。
-- 次: S2e (CardSystemConfig 集約、値不変)。
+- 次: S2e (CardSystemConfig 集約、値不変)。 → **§14 で完了**。
+
+## 14. S2e レビュー (CardSystemConfig 集約、実装後、2026-06-08、AGENTS.md ルール8)
+
+S2e = カードシステムの散在定数を registry 近傍の `CardSystemConfig` に集約する **値不変の cosmetic refactor** (S2 最終段)。これで S2 (L1 フレームワーク化) の全段完了。
+
+### 変更
+- 新規 `src/lib/shogi/cards/card-system-config.ts` (client-safe = 関数を持たない値のみ): `CardSystemConfig` 型 (mana/draw/deck の 3 セクション) + SSOT オブジェクト `CARD_SYSTEM_CONFIG` + 後方互換のフラット名前付き定数 10 件を導出 export。確定経緯コメント (Issue #81/#130/#89、3→2 引き下げ理由、自動ドローのカウント規則等) を本ファイルへ集約保全。
+  - 集約定数: `INITIAL_MANA` / `MANA_CAP` / `DRAW_COST` / `AUTO_DRAW_INTERVAL` / `MANA_PER_TURN` / `MANA_FAST_BONUS` / `FAST_THRESHOLD_MS` (旧 definitions.ts) + `DECK_TOTAL_MAX` / `DECK_TOTAL_MIN` / `RARITY_MAX_PER_DECK` (旧 deck-rules.ts)。
+- `definitions.ts`: マナ/ドロー 7 定数を **純 re-export** (`export { ... } from "./card-system-config"`、ファイル内部で未使用ゆえ local binding 不要)。
+- `deck-rules.ts`: デッキ 3 定数を **import + re-export** (validateDeckEntries が内部で RARITY_MAX_PER_DECK/DECK_TOTAL_MIN/MAX を使うため local binding が必要)。
+- 派生修正 (同居、rule 2): 定数移設で stale 化した行番号参照コメント 3 件 (heuristics.ts:19-20 / digest.ts:37) を `card-system-config.ts` 参照へ更新 + 行番号ハードコードを除去 (今後のドリフト防止)。
+
+### 設計判断
+- **配置 = 別ファイル** (`card-spec.ts` への同居でなく): card-spec.ts は per-card meta、CardSystemConfig は system-wide config で別概念。関数を持たないため S2d の ESLint 境界 (components→card-spec-server 禁止) には抵触せず、Client から (definitions/deck-rules 経由で) 安全に参照可。
+- **move + re-export 方式** (全 consumer 一括書換でなく): 既存 import (definitions 経由 29 / deck-rules 経由 3 ファイル) を一切壊さず churn 最小。値の SSOT は CARD_SYSTEM_CONFIG。
+- **DECK_TOTAL_MAX/MIN 同梱** (ユーザー承認): 引き継ぎの明示スコープは RARITY_MAX_PER_DECK のみだが、同じデッキ構築上限で密接に関連するため deck セクションを完結させ凝集性を確保。値不変・追加リスクゼロ・phase 別バージョニングの目的に合致。
+- **型保全**: INITIAL_MANA は旧 `Record<"sente"|"gote", number>` → `Record<Player, number>` (Player="sente"|"gote" で同一)、RARITY は `Record<CardRarity, number|null>` 維持。プリミティブはリテラル型→number 幅広化 (config 値として適切、依存 consumer なし=typecheck pass で裏付け)。
+
+### 検証実測
+- lint 0err (22 warning は既存・変更ファイル指摘ゼロ) / typecheck 緑 / test:ci **573 passed** (S2d 同数=デグレなし。DRAW_COST===2 / INITIAL_MANA 差 -1 / MANA_CAP / AUTO_DRAW_INTERVAL 挙動を直接 assert するテスト群が全緑=値等価の実証) / build 緑。
+
+### 総合判定
+**S2e は commit/push 可 (high/medium 指摘ゼロ)**。独立 adversarial agent (general-purpose) 検証 = **値 byte 等価・re-export 正当・全 consumer 解決・循環なし・型互換・ESLint 境界抵触なし・mutation 無害の 6 観点すべて発散点ゼロ**。唯一の指摘 (low: 他ファイルの行番号参照コメント 3 件のドリフト) は本段で修正済。
+
+### S2 完了 → 次 = S3
+S2e マージで **S2 (L1 カードフレームワーク化) 全段完了**。次の主段は **S3 (ValueModel の内容依存値付け = AI のカード価値評価を局面・コスト依存へ。現 valueModel は静的 stub)**。棋力直結のため bench 実測必須。epic doc §3 L1 / §11 + #193 PR3 系校正資産を参照。
