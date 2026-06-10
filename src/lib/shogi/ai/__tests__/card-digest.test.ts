@@ -23,19 +23,42 @@ import {
   HAND_VALUE_BASE,
   HAND_VALUE_DECAY,
   DRAW_PROGRESS_COEFFICIENT,
-  TRAP_VALUE_NO_PROMOTE,
-  TRAP_VALUE_CHECK_BREAK,
   NO_PROMOTE_MARK_COEFFICIENT,
   DEAD_MANA_THRESHOLD,
   DEAD_MANA_PENALTY_COEF,
 } from "../cards/heuristics";
+import { CARD_SPECS } from "@/lib/shogi/cards/card-spec-server";
 import { createInitialCardState } from "@/lib/shogi/cards/state";
 import { INITIAL_MANA, MANA_CAP } from "@/lib/shogi/cards/definitions";
 import { STANDARD_VARIANT } from "@/lib/shogi/variants/standard";
 import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
+import type { Board, GameState, Piece } from "@/lib/shogi/types";
 
 // テスト用の最小デッキ (Fisher-Yates シャッフルあるが、結果に影響しない構造のみ)。
 const SAMPLE_DECK = [{ defId: "pawn_return" as const, count: 10 }];
+
+// Issue #235 S3b: トラップの局面依存価値 (valueModel) を決定論化する最小盤面。
+// 両玉を安全位置に配置 (check_break=自玉露出度0 / no_promote=相手成り脅威0 → 各カード下限値)。
+// トラップ価値の符号・wiring 検証用。期待値は CARD_SPECS[id].valueModel(GS, player) で算出する
+// (固定定数をハードコードせず、valueModel との一致を pin)。
+function makeGameState(): GameState {
+  const board: Board = Array.from({ length: 9 }, () => Array<Piece | null>(9).fill(null));
+  board[8][4] = { type: "king", owner: "sente" };
+  board[0][4] = { type: "king", owner: "gote" };
+  return {
+    board,
+    hand: { sente: {}, gote: {} },
+    currentPlayer: "sente",
+    moveHistory: [],
+    positionHistory: [],
+    status: "active",
+    moveCount: 0,
+  };
+}
+const GS = makeGameState();
+// 期待トラップ価値 (sente 絶対視点: sente トラップ +、gote トラップ -)。
+const CHECK_BREAK_VM_SENTE = CARD_SPECS.check_break.valueModel(GS, "sente");
+const NO_PROMOTE_VM_GOTE = CARD_SPECS.no_promote.valueModel(GS, "gote");
 
 describe("computeCardDigest (W-2: sente 絶対視点)", () => {
   it("初期 cardState の manaDelta は INITIAL_MANA.sente - INITIAL_MANA.gote (= -1)", () => {
@@ -111,7 +134,7 @@ describe("evaluateCardDigest (W-3: variant ガード + W-2: sente 絶対視点)"
     manaCap: MANA_CAP,
     handValueDelta: 5,
     drawProgressDelta: 2,
-    trapPresence: { sente: null, gote: null },
+    trapValueDelta: 0,
     noPromoteMarkCountDelta: 0,
     // PR3-1: 両者 DEAD_MANA_THRESHOLD 以下に設定し、死にマナペナルティ=0 で
     // 既存アサーションの数式 (manaDelta×COEF + handValueDelta + drawProgressDelta×COEF) を維持。
@@ -138,7 +161,7 @@ describe("evaluateCardDigest (W-3: variant ガード + W-2: sente 絶対視点)"
       manaCap: MANA_CAP,
       handValueDelta: 0,
       drawProgressDelta: 0,
-      trapPresence: { sente: null, gote: null },
+      trapValueDelta: 0,
       noPromoteMarkCountDelta: 0,
       manaAbsolute: { sente: 0, gote: 0 },
     };
@@ -212,35 +235,41 @@ describe("handValue 単調減衰関数 (F-5 仮基準)", () => {
   });
 });
 
-describe("computeCardDigest PR1d-4 拡張 (trapPresence / noPromoteMarkCountDelta)", () => {
-  it("初期 cardState は trapPresence={sente:null,gote:null} / noPromoteMarkCountDelta=0", () => {
+describe("computeCardDigest S3b 拡張 (trapValueDelta / noPromoteMarkCountDelta)", () => {
+  it("トラップなし → trapValueDelta=0 / noPromoteMarkCountDelta=0", () => {
     const cardState = createInitialCardState(SAMPLE_DECK);
-    const digest = computeCardDigest(cardState);
-    expect(digest.trapPresence).toEqual({ sente: null, gote: null });
+    const digest = computeCardDigest(cardState, GS);
+    expect(digest.trapValueDelta).toBe(0);
     expect(digest.noPromoteMarkCountDelta).toBe(0);
   });
 
-  it("sente 盤上トラップは trapPresence.sente に defId 反映、gote は null", () => {
+  it("gameState 省略時はトラップ保有でも trapValueDelta=0 (局面情報なしで算出不可)", () => {
+    const cardState = createInitialCardState(SAMPLE_DECK);
+    cardState.trap.sente = { instanceId: "t-s1", defId: "check_break", owner: "sente" };
+    expect(computeCardDigest(cardState).trapValueDelta).toBe(0);
+  });
+
+  it("sente 盤上トラップは +valueModel(sente)、gote 不在", () => {
     const cardState = createInitialCardState(SAMPLE_DECK);
     cardState.trap.sente = {
       instanceId: "t-s1",
       defId: "check_break",
       owner: "sente",
     };
-    const digest = computeCardDigest(cardState);
-    expect(digest.trapPresence.sente).toBe("check_break");
-    expect(digest.trapPresence.gote).toBeNull();
+    const digest = computeCardDigest(cardState, GS);
+    expect(digest.trapValueDelta).toBe(CHECK_BREAK_VM_SENTE);
+    expect(CHECK_BREAK_VM_SENTE).toBeGreaterThan(0); // gross 値は常に正
   });
 
-  it("両者盤上トラップは sente/gote それぞれの defId を保持", () => {
+  it("両者盤上トラップは +valueModel(sente) - valueModel(gote) (sente 絶対視点)", () => {
     const cardState = createInitialCardState(SAMPLE_DECK);
     cardState.trap.sente = { instanceId: "t-s", defId: "no_promote", owner: "sente" };
     cardState.trap.gote = { instanceId: "t-g", defId: "check_break", owner: "gote" };
-    const digest = computeCardDigest(cardState);
-    expect(digest.trapPresence).toEqual({
-      sente: "no_promote",
-      gote: "check_break",
-    });
+    const digest = computeCardDigest(cardState, GS);
+    const expected =
+      CARD_SPECS.no_promote.valueModel(GS, "sente") -
+      CARD_SPECS.check_break.valueModel(GS, "gote");
+    expect(digest.trapValueDelta).toBe(expected);
   });
 
   it("noPromoteMarkCountDelta は sente 数 - gote 数 (ギャップ1=案A: 玉位置非依存)", () => {
@@ -266,34 +295,22 @@ describe("computeCardDigest PR1d-4 拡張 (trapPresence / noPromoteMarkCountDelt
     expect(digest.noPromoteMarkCountDelta).toBe(0 - 3);
   });
 
-  it("PR1d-4 コミット 2: sente 盤上 check_break trap は +TRAP_VALUE_CHECK_BREAK", () => {
+  it("S3b: sente 盤上 check_break trap は evaluate に +valueModel(sente)", () => {
     const base = createInitialCardState(SAMPLE_DECK);
     const withTrap = createInitialCardState(SAMPLE_DECK);
     withTrap.trap.sente = { instanceId: "t", defId: "check_break", owner: "sente" };
-    const baseScore = evaluateCardDigest(
-      computeCardDigest(base),
-      CARD_SHOGI_VARIANT,
-    );
-    const trapScore = evaluateCardDigest(
-      computeCardDigest(withTrap),
-      CARD_SHOGI_VARIANT,
-    );
-    expect(trapScore - baseScore).toBe(TRAP_VALUE_CHECK_BREAK);
+    const baseScore = evaluateCardDigest(computeCardDigest(base, GS), CARD_SHOGI_VARIANT);
+    const trapScore = evaluateCardDigest(computeCardDigest(withTrap, GS), CARD_SHOGI_VARIANT);
+    expect(trapScore - baseScore).toBe(CHECK_BREAK_VM_SENTE);
   });
 
-  it("PR1d-4 コミット 2: gote 盤上 no_promote trap は -TRAP_VALUE_NO_PROMOTE (sente 絶対視点)", () => {
+  it("S3b: gote 盤上 no_promote trap は evaluate に -valueModel(gote) (sente 絶対視点)", () => {
     const base = createInitialCardState(SAMPLE_DECK);
     const withTrap = createInitialCardState(SAMPLE_DECK);
     withTrap.trap.gote = { instanceId: "t", defId: "no_promote", owner: "gote" };
-    const baseScore = evaluateCardDigest(
-      computeCardDigest(base),
-      CARD_SHOGI_VARIANT,
-    );
-    const trapScore = evaluateCardDigest(
-      computeCardDigest(withTrap),
-      CARD_SHOGI_VARIANT,
-    );
-    expect(trapScore - baseScore).toBe(-TRAP_VALUE_NO_PROMOTE);
+    const baseScore = evaluateCardDigest(computeCardDigest(base, GS), CARD_SHOGI_VARIANT);
+    const trapScore = evaluateCardDigest(computeCardDigest(withTrap, GS), CARD_SHOGI_VARIANT);
+    expect(trapScore - baseScore).toBe(-NO_PROMOTE_VM_GOTE);
   });
 
   it("PR1d-4 コミット 2: noPromoteMarkCountDelta × NO_PROMOTE_MARK_COEFFICIENT が評価に反映", () => {
@@ -315,12 +332,12 @@ describe("computeCardDigest PR1d-4 拡張 (trapPresence / noPromoteMarkCountDelt
     expect(markScore - baseScore).toBe((2 - 1) * NO_PROMOTE_MARK_COEFFICIENT);
   });
 
-  it("PR1d-4 コミット 2: standard variant はトラップ価値も 0 (W-3 ガード維持)", () => {
+  it("S3b: standard variant はトラップ価値も 0 (W-3 ガード維持)", () => {
     const withTrap = createInitialCardState(SAMPLE_DECK);
     withTrap.trap.sente = { instanceId: "t", defId: "check_break", owner: "sente" };
     withTrap.noPromoteMarks.sente = [{ row: 6, col: 0 }];
     expect(
-      evaluateCardDigest(computeCardDigest(withTrap), STANDARD_VARIANT),
+      evaluateCardDigest(computeCardDigest(withTrap, GS), STANDARD_VARIANT),
     ).toBe(0);
   });
 });
@@ -447,7 +464,7 @@ describe("PR3-2 updateCardDigest (増分更新)", () => {
     expect(updated).toEqual(prev);
     // 変化なしフィールドはオブジェクトを参照流用 (再生成なし) で性能寄与
     expect(updated.manaAbsolute).toBe(prev.manaAbsolute);
-    expect(updated.trapPresence).toBe(prev.trapPresence);
+    expect(updated.trapValueDelta).toBe(prev.trapValueDelta);
   });
 
   it("マナのみ変化 → manaDelta / manaAbsolute 更新、他は prev 流用", () => {
@@ -459,7 +476,7 @@ describe("PR3-2 updateCardDigest (増分更新)", () => {
     expect(updated.manaDelta).toBe(csNew.mana.sente - csNew.mana.gote);
     expect(updated.manaAbsolute).toEqual({ sente: csNew.mana.sente, gote: cs.mana.gote });
     // 他フィールドは prev と reference equality
-    expect(updated.trapPresence).toBe(prev.trapPresence);
+    expect(updated.trapValueDelta).toBe(prev.trapValueDelta);
     expect(updated.handValueDelta).toBe(prev.handValueDelta);
     expect(updated.drawProgressDelta).toBe(prev.drawProgressDelta);
     expect(updated.noPromoteMarkCountDelta).toBe(prev.noPromoteMarkCountDelta);
@@ -475,39 +492,41 @@ describe("PR3-2 updateCardDigest (増分更新)", () => {
     expect(updated.handValueDelta).toBeGreaterThan(prev.handValueDelta);
     // mana / trap / drawProgress / marks は変化なし
     expect(updated.manaAbsolute).toBe(prev.manaAbsolute);
-    expect(updated.trapPresence).toBe(prev.trapPresence);
+    expect(updated.trapValueDelta).toBe(prev.trapValueDelta);
     expect(updated.drawProgressDelta).toBe(prev.drawProgressDelta);
     expect(updated.noPromoteMarkCountDelta).toBe(prev.noPromoteMarkCountDelta);
   });
 
-  it("トラップ設置 (gote: check_break) → trapPresence 更新", () => {
+  it("トラップ設置 (gote: check_break) → trapValueDelta 更新 (-valueModel(gote))", () => {
     const cs = createInitialCardState(SAMPLE_DECK);
-    const prev = computeCardDigest(cs);
+    const prev = computeCardDigest(cs, GS);
     const csNew = clone(cs);
     csNew.trap.gote = {
       instanceId: "tg-1",
       defId: "check_break",
       owner: "gote",
     };
-    const updated = updateCardDigest(prev, cs, csNew);
-    expect(updated.trapPresence).toEqual({ sente: null, gote: "check_break" });
+    const updated = updateCardDigest(prev, cs, csNew, GS);
+    // gote トラップは sente 絶対視点で負 (= -valueModel(check_break, gote))。
+    expect(updated.trapValueDelta).toBe(-CARD_SPECS.check_break.valueModel(GS, "gote"));
+    expect(updated.trapValueDelta).toBeLessThan(0);
     // 他は流用
     expect(updated.manaAbsolute).toBe(prev.manaAbsolute);
     expect(updated.handValueDelta).toBe(prev.handValueDelta);
   });
 
-  it("トラップ解除 (gote: check_break → null) → trapPresence 更新", () => {
+  it("トラップ解除 (gote: check_break → null) → trapValueDelta 更新 (0 へ)", () => {
     const cs = createInitialCardState(SAMPLE_DECK);
     cs.trap.gote = {
       instanceId: "tg-1",
       defId: "check_break",
       owner: "gote",
     };
-    const prev = computeCardDigest(cs);
+    const prev = computeCardDigest(cs, GS);
     const csNew = clone(cs);
     csNew.trap.gote = null;
-    const updated = updateCardDigest(prev, cs, csNew);
-    expect(updated.trapPresence).toEqual({ sente: null, gote: null });
+    const updated = updateCardDigest(prev, cs, csNew, GS);
+    expect(updated.trapValueDelta).toBe(0);
   });
 
   it("noPromote マーク追加 → noPromoteMarkCountDelta 更新", () => {
@@ -542,7 +561,7 @@ describe("PR3-2 updateCardDigest (増分更新)", () => {
     expect(updated.manaAbsolute).toEqual({ sente: csNew.mana.sente, gote: cs.mana.gote });
     expect(updated.handValueDelta).toBeLessThan(prev.handValueDelta);
     // 変化なしフィールドは流用
-    expect(updated.trapPresence).toBe(prev.trapPresence);
+    expect(updated.trapValueDelta).toBe(prev.trapValueDelta);
     expect(updated.drawProgressDelta).toBe(prev.drawProgressDelta);
   });
 
@@ -689,9 +708,11 @@ describe("PR3-2 updateCardDigest 等価性 fixture (= computeCardDigest と byte
       const next = clone(prev);
       sc.mutate(next);
 
-      const prevDigest = computeCardDigest(prev);
-      const updated = updateCardDigest(prevDigest, prev, next);
-      const recomputed = computeCardDigest(next);
+      // S3b: 同一 gameState (GS) を全呼び出しに供給し、トラップ価値も含めた等価性を検証する
+      // (prev は check_break トラップを保有するため trapValueDelta が非0)。
+      const prevDigest = computeCardDigest(prev, GS);
+      const updated = updateCardDigest(prevDigest, prev, next, GS);
+      const recomputed = computeCardDigest(next, GS);
 
       // byte-level 一致 (各フィールドが厳密に同値)
       expect(updated).toEqual(recomputed);
@@ -713,21 +734,22 @@ describe("PR3-3 C-8 evaluateCardDigest 数値固定 (F-5 解消)", () => {
       manaCap: MANA_CAP,
       handValueDelta: 0,
       drawProgressDelta: 0,
-      trapPresence: { sente: null, gote: null },
+      trapValueDelta: 0,
       noPromoteMarkCountDelta: 0,
       manaAbsolute: { sente: 10, gote: 7 }, // 両者しきい値以下で dead mana penalty=0
     };
     expect(evaluateCardDigest(d, CARD_SHOGI_VARIANT)).toBe(30);
   });
 
-  it("数値固定: 純粋 trapPresence sente=check_break (他全 0) → +80 cp", () => {
-    // TRAP_VALUE_CHECK_BREAK=80 が変われば fail
+  it("数値固定: 純粋 trapValueDelta=80 (他全 0) → +80 cp (evaluate がそのまま加算)", () => {
+    // S3b: トラップ価値は digest.trapValueDelta に precompute 済 (局面依存)。evaluateCardDigest は
+    // それをそのまま加算するだけ = digest に 80 を入れれば評価値 80 (加算ロジックの pin)。
     const d: CardDigest = {
       manaDelta: 0,
       manaCap: MANA_CAP,
       handValueDelta: 0,
       drawProgressDelta: 0,
-      trapPresence: { sente: "check_break", gote: null },
+      trapValueDelta: 80,
       noPromoteMarkCountDelta: 0,
       manaAbsolute: { sente: 10, gote: 10 },
     };
@@ -741,7 +763,7 @@ describe("PR3-3 C-8 evaluateCardDigest 数値固定 (F-5 解消)", () => {
       manaCap: MANA_CAP,
       handValueDelta: 0,
       drawProgressDelta: 0,
-      trapPresence: { sente: null, gote: null },
+      trapValueDelta: 0,
       noPromoteMarkCountDelta: 0,
       manaAbsolute: { sente: 20, gote: 16 }, // sente overflow=4, gote overflow=0
     };
@@ -755,7 +777,7 @@ describe("PR3-3 C-8 evaluateCardDigest 数値固定 (F-5 解消)", () => {
       manaCap: MANA_CAP,
       handValueDelta: 0,
       drawProgressDelta: 0,
-      trapPresence: { sente: null, gote: null },
+      trapValueDelta: 0,
       noPromoteMarkCountDelta: 0,
       manaAbsolute: { sente: 10, gote: 10 },
     };

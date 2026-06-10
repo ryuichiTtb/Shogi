@@ -11,13 +11,9 @@
 import { describe, it, expect } from "vitest";
 import { evaluateAction, evaluateActionWithLookahead } from "../search";
 import { computeCardDigest } from "../cards/digest";
-import {
-  getDrawValue,
-  TRAP_VALUE_NO_PROMOTE,
-  TRAP_VALUE_CHECK_BREAK,
-  MANA_DELTA_COEFFICIENT,
-} from "../cards/heuristics";
+import { getDrawValue, MANA_DELTA_COEFFICIENT } from "../cards/heuristics";
 import { CARD_DEFS } from "@/lib/shogi/cards/definitions";
+import { CARD_SPECS } from "@/lib/shogi/cards/card-spec-server";
 import { evaluate } from "../evaluate";
 import { applyMoveForSearch } from "@/lib/shogi/board";
 import { createInitialCardState } from "@/lib/shogi/cards/state";
@@ -153,7 +149,7 @@ describe("evaluateAction (move / draw / playCard 統一評価)", () => {
     expect(resultWithDigest).toBe(evaluate(nextState, CARD_SHOGI_VARIANT, cardDigest));
   });
 
-  it("PR1d-4 playCard no_promote: 現局面評価 + TRAP_VALUE_NO_PROMOTE (sente)", () => {
+  it("S3b playCard no_promote: 現局面評価 + valueModel(no_promote, sente)", () => {
     const state = makeAiTurnState();
     const action: TurnAction = {
       kind: "playCard",
@@ -163,10 +159,10 @@ describe("evaluateAction (move / draw / playCard 統一評価)", () => {
     };
     const result = evaluateAction(state, action, "sente", CARD_SHOGI_VARIANT);
     const baseEval = evaluate(state.gameState, CARD_SHOGI_VARIANT);
-    expect(result).toBe(baseEval + TRAP_VALUE_NO_PROMOTE);
+    expect(result).toBe(baseEval + CARD_SPECS.no_promote.valueModel(state.gameState, "sente"));
   });
 
-  it("PR1d-4 playCard check_break: 現局面評価 + TRAP_VALUE_CHECK_BREAK (sente)", () => {
+  it("S3b playCard check_break: 現局面評価 + valueModel(check_break, sente)", () => {
     const state = makeAiTurnState();
     const action: TurnAction = {
       kind: "playCard",
@@ -176,10 +172,10 @@ describe("evaluateAction (move / draw / playCard 統一評価)", () => {
     };
     const result = evaluateAction(state, action, "sente", CARD_SHOGI_VARIANT);
     const baseEval = evaluate(state.gameState, CARD_SHOGI_VARIANT);
-    expect(result).toBe(baseEval + TRAP_VALUE_CHECK_BREAK);
+    expect(result).toBe(baseEval + CARD_SPECS.check_break.valueModel(state.gameState, "sente"));
   });
 
-  it("PR1d-4 playCard no_promote: gote 視点は -baseEval + TRAP_VALUE_NO_PROMOTE (符号整合)", () => {
+  it("S3b playCard no_promote: gote 視点は -baseEval + valueModel(no_promote, gote) (符号整合)", () => {
     const state = makeAiTurnState();
     const action: TurnAction = {
       kind: "playCard",
@@ -189,7 +185,7 @@ describe("evaluateAction (move / draw / playCard 統一評価)", () => {
     };
     const result = evaluateAction(state, action, "gote", CARD_SHOGI_VARIANT);
     const baseEval = evaluate(state.gameState, CARD_SHOGI_VARIANT);
-    expect(result).toBe(-baseEval + TRAP_VALUE_NO_PROMOTE);
+    expect(result).toBe(-baseEval + CARD_SPECS.no_promote.valueModel(state.gameState, "gote"));
   });
 });
 
@@ -247,7 +243,7 @@ describe("evaluateActionWithLookahead (PR3-3 C-1)", () => {
     expect(score).toBeGreaterThanOrEqual(draw - 10000); // 範囲 sanity
   });
 
-  it("lookaheadPly=1 playCard no_promote/check_break は opp response + TRAP_VALUE", () => {
+  it("lookaheadPly=1 playCard no_promote/check_break は opp response + valueModel 差 (S3b)", () => {
     const state = makeAiTurnState();
     const npAction: TurnAction = {
       kind: "playCard",
@@ -279,16 +275,17 @@ describe("evaluateActionWithLookahead (PR3-3 C-1)", () => {
       false,
       1,
     );
-    // PR3-3 C-6 wiring 後: 差分は digest 経由で TRAP_VALUE 差 (cb=+80 / np=+50 = +30) と
+    // S3b: 差分は digest 経由の valueModel 差 (check_break - no_promote、局面依存 gross 値) と
     // mana cost 差 (cb=4 / np=3 = +1 → manaDelta -1 → eval -MANA_DELTA_COEFFICIENT) の合算。
-    // 期待値 = (TRAP_VALUE_CHECK_BREAK - TRAP_VALUE_NO_PROMOTE)
+    // 期待値 = (valueModel(check_break) - valueModel(no_promote))
     //        - (CARD_DEFS.check_break.cost - CARD_DEFS.no_promote.cost) * MANA_DELTA_COEFFICIENT
-    //        = 30 - 10 = 20
-    const trapDiff = TRAP_VALUE_CHECK_BREAK - TRAP_VALUE_NO_PROMOTE;
+    const trapDiff =
+      CARD_SPECS.check_break.valueModel(state.gameState, "sente") -
+      CARD_SPECS.no_promote.valueModel(state.gameState, "sente");
     const costDiff =
       (CARD_DEFS["check_break"].cost - CARD_DEFS["no_promote"].cost) *
       MANA_DELTA_COEFFICIENT;
-    expect(cbScore - npScore).toBe(trapDiff - costDiff);
+    expect(cbScore - npScore).toBeCloseTo(trapDiff - costDiff, 6);
   });
 
   it("lookaheadPly=1 playCard double_move は searchDoubleMoveSuperAction に delegate (有限値)", () => {
@@ -404,7 +401,7 @@ describe("evaluateActionWithLookahead calibration regression (deterministic、PR
     expect(drawScore).toBeGreaterThan(moveScore);
   });
 
-  it("trap-only 手札 + 山札空 + マナ上限近接 (mana=19) で trap が move を上回る (digest.trapPresence が機能)", () => {
+  it("trap-only + 山札空 + マナ上限近接 + 相手成り脅威ありで trap が move を上回る (S3b valueModel)", () => {
     const state = buildState({
       moveCount: 50,
       handSize: 2,
@@ -413,6 +410,11 @@ describe("evaluateActionWithLookahead calibration regression (deterministic、PR
       handCardId: "no_promote",
       emptyDeck: true, // draw を候補から外す → 純粋に move vs trap の比較
     });
+    // S3b: no_promote の価値は局面依存 (相手成り脅威度)。相手 (gote) の成り可能・未成り駒を
+    // gote の成り地点近傍 (下段、row5 は初期盤面で空) に配置し、no_promote を高価値局面にする。
+    state.gameState.board[5][2] = { type: "pawn", owner: "gote" };
+    state.gameState.board[5][4] = { type: "pawn", owner: "gote" };
+    state.gameState.board[5][6] = { type: "pawn", owner: "gote" };
     const moveScore = evaluateActionWithLookahead(
       state, someMove(state), "sente", CARD_SHOGI_VARIANT, undefined, false, 1,
     );
@@ -425,10 +427,9 @@ describe("evaluateActionWithLookahead calibration regression (deterministic、PR
     const trapScore = evaluateActionWithLookahead(
       state, trapAction, "sente", CARD_SHOGI_VARIANT, undefined, false, 1,
     );
-    // digest.trapPresence で +TRAP_VALUE_NO_PROMOTE (=50) が opp scan の eval に乗る。
-    // mana 19 → 16 (cost 3 消費) で死にマナ overflow 3 → 0、+12cp 改善。
-    // 合計 +50+12=+62cp が manaDelta -3*10=-30cp と hand -1 の小減を上回り、move を超える。
-    // calibration regression (例: TRAP_VALUE_NO_PROMOTE=0) なら逆転して fail。
+    // digest.trapValueDelta で +valueModel(no_promote, sente) (相手成り脅威で高値) が opp scan の
+    // eval に乗る + 死にマナ回収 (mana 19→16 で overflow 3→0、+12cp)。合計が manaDelta -30cp と
+    // hand -1 の小減を上回り move を超える。calibration regression (脅威0でも trap 選好等) なら fail。
     expect(trapScore).toBeGreaterThan(moveScore);
   });
 

@@ -300,3 +300,10 @@ export function getCardSpec(id: CardId): CardSpec {
 export function getAllCardSpecs(): CardSpec[] {
   return Object.values(CARD_SPECS);
 }
+
+// カードの局面依存価値 (cp、player 視点の gross 値) を取得する SSOT アクセサ (S3b 依存反転)。
+// AI 側 (digest / search) はトラップ評価を本関数経由に統一し、固定係数 TRAP_VALUE_* を脱却する
+// (ai → L1 の正方向依存。cost は AI の mana 会計が別途処理するため本値はコストを引かない gross)。
+export function getCardValue(id: CardId, gameState: GameState, player: Player): number {
+  return CARD_SPECS[id].valueModel(gameState, player);
+}

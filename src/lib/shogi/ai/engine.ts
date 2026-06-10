@@ -191,7 +191,7 @@ export function findBestMoveWithStats(
   // ガードと二重化することで standard variant への影響を完全排除。
   const cardDigest: CardDigest | undefined =
     options.cardState !== undefined && variant.id === "card-shogi"
-      ? computeCardDigest(options.cardState)
+      ? computeCardDigest(options.cardState, state)
       : undefined;
 
   const ctx = createSearchContext({

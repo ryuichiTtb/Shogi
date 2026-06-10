@@ -141,3 +141,35 @@ S3a = トラップ2枚の valueModel を局面依存実装する **additive** �
 ### S3b への申し送り
 - valueModel は gross のため、digest 経路への gameState 供給時に mana cost を別途確実に引く (計画 §3 S3b 方針)。
 - root スカラー1回評価 (R-2) を維持し深い negamax で再計算しない。
+
+## 11. S3b M2 マイルストーンレビュー (cutover 実装後、2026-06-10、AGENTS.md ルール8)
+
+S3b = トラップ評価を固定係数 (TRAP_VALUE_*) から局面依存 valueModel へ cutover + 依存反転。**CPU の棋力が実際に変わる behavior-changing 段**。
+
+### 変更
+- `digest.ts`: `CardDigest.trapPresence` (defId ペア) → `trapValueDelta: number` (sente 絶対視点 cp)。`computeCardDigest`/`updateCardDigest` に gameState 引数追加 + `computeTrapValueDelta` ヘルパ (sente トラップ +valueModel(sente) / gote -valueModel(gote)、gameState 省略時 0)。`evaluateCardDigest` は `digest.trapValueDelta` を加算。`evaluateTrapPresence` 削除、TRAP_VALUE_* import 削除、`getCardValue` import。
+- `search.ts`: `evaluateAction` (ply=0) のトラップ分岐を `getCardValue(defId, gameState, player)` へ。digest 呼び出し 8 点に post-action gameState 供給。TRAP_VALUE_* import 削除。
+- `engine.ts`: root `computeCardDigest(options.cardState, state)`。
+- `card-spec-server.ts`: `getCardValue(id, gameState, player)` アクセサ追加 (ai → L1 依存反転)。
+- `heuristics.ts`: TRAP_VALUE_NO_PROMOTE/CHECK_BREAK 撤去 (dead code 除去、§5 L-2)。
+- テスト: card-digest.test / evaluate-action.test を trapValueDelta + valueModel 期待値へ更新 (固定値ハードコード排除)。trap-only calibration を相手成り脅威盤面へ更新。perf-bench コメント更新。
+
+### 設計判断 (M1 H-1/H-2 反映)
+- **approach (i)**: digest にトラップの局面依存価値を precompute (gameState 供給時、valueModel)。digest は GameState を持たないため evaluate 時の再計算は不可 = root スカラー方式 (W-1) を維持しつつ局面依存化。「set 時1回加算+digest 除去」(approach ii) は既設トラップの持続価値を失うため不採用。
+- **gameState は任意パラメータ** (省略時 trapValueDelta=0): card-digest.test の 62 呼び出しのうちトラップ非関与 (大半) は churn せず維持。production 全 9 呼び出しは gameState を必ず渡す (トラップ価値が機能)。
+- **gross 値**: valueModel はコストを引かない (AI の mana 会計が別途処理、二重計上回避)。
+- **依存反転**: digest/search が card-spec-server.getCardValue を import (ai → L1 正方向)、循環なし。
+
+### 検証実測
+- lint 0err / typecheck 緑 / test:ci **580 passed** (S3a 579 + card-digest 新規1。既存等価ゲート world-kernel-equivalence/reducer/effects/kernel-search-equivalence すべて緑=デグレなし) / build 緑。
+- bench (RUN_PERF_BENCH): kernel-search **OFF==ON depthCompleted 維持** (digest 局面依存化は OFF/ON 両経路に等しく作用=ロジック健全)。card-usage sanity (cardCount>=1) pass。
+
+### 挙動変化 (意図的)
+- **AI のトラップ価値が局面依存に**: check_break は自玉が危ない局面ほど高く (安全玉 ~15cp ↔ 露出玉 ~270cp gross)、no_promote は相手の成り脅威が高い局面ほど高く評価 (固定 80/50 を脱却)。狙い = advanced/expert の使い渋り (57%) の一因 P2 (価値圧縮) の緩和。**仮係数は PoC-2 由来で S3c bench 校正**。
+- UI/ゲームルール/standard variant = 不変。
+
+### 総合判定
+**S3b は commit/push 可 (high/medium 指摘ゼロ)**。独立 adversarial agent (general-purpose、47 tool uses、手計算併用) で **cutover 正当・二重計上なし・符号正 (sente 絶対視点)・gameState 配線正 (8点)・root スカラー持続価値保全・等価性成立・依存反転循環なし・standard 不変・テスト非 vacuous** を確認。指摘は low cosmetic 2件 (digest ヘッダコメント / テスト名の stale) のみ → 本段で修正済。
+
+### S3c への申し送り
+- PoC-2 仮係数 (TRAP_P_MIN/MAX / E_DAMAGE / KING_EXPOSURE_REF / PROMO_THREAT_REF 等) を bench 校正し本採用値を確定。安全玉↔露出玉ペアの決定的 unit test (§6 M-2) を追加。phase別カード使用率で 57% 非対称の改善傾向を測定。未使用係数の最終確認。

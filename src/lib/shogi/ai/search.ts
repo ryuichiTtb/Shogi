@@ -8,11 +8,10 @@ import { applyMoveForSearch } from "../board";
 import { evaluate, scoreMoveForOrdering } from "./evaluate";
 import { cardResultIntroducesTadasute, hasHangingPiece } from "./blunder-guard";
 import { simulateCardEffect } from "../cards/effects";
+import { getCardValue } from "../cards/card-spec-server";
 import {
   getDrawValue,
   DOUBLE_MOVE_TOP_K,
-  TRAP_VALUE_NO_PROMOTE,
-  TRAP_VALUE_CHECK_BREAK,
 } from "./cards/heuristics";
 import { CurrentRules } from "./turn/current-rules";
 import type { AiTurnState, TurnAction } from "./turn/types";
@@ -740,8 +739,9 @@ export function findBestMove(
 //   Number.NEGATIVE_INFINITY を返して候補から除外
 // - playCard "double_move": PR1d-3 で searchDoubleMoveSuperAction (2 手指し組合せの
 //   depth=0 局所探索、判断 1 = 案 B) に委譲
-// - playCard "no_promote" / "check_break": PR1d-4 で現局面評価 + TRAP_VALUE_* 加算
-//   (targeting:none で盤面不変、トラップセット増分価値の固定近似、bench で係数調整)
+// - playCard "no_promote" / "check_break": 現局面評価 + valueModel 局面依存値 (S3b)
+//   (targeting:none で盤面不変、トラップセット増分価値。check_break=自玉露出度 / no_promote=
+//    相手成り脅威度で gross 値を算出、固定 TRAP_VALUE_* を脱却)
 //
 // 注: depth=0 評価のため、move の深く読んだスコア (findBestMove 反復深化結果) との
 // 直接比較は不公平だが、engine.ts root 経路 (PR1d-2) で move も evaluateAction で
@@ -776,18 +776,15 @@ export function evaluateAction(
       if (action.defId === "double_move") {
         return searchDoubleMoveSuperAction(state, player, variant, ctx, excludeTadasute);
       }
-      // PR1d-4: トラップ系 (no_promote / check_break) は targeting:none で盤面不変
-      // (simulateCardEffect は null)。カード使用で自盤面にトラップがセットされる
-      // 増分価値を現局面評価 (player 視点) に加算 (= draw の getDrawValue 加算と同型)。
-      // 「いつ使うべきか」(序盤 / king safety) の精度は固定価値の近似で代替し、
-      // heuristics.ts の TRAP_VALUE_* を bench で調整 (計画 md L1267 警告に対応)。
+      // PR1d-4 / S3b: トラップ系 (no_promote / check_break) は targeting:none で盤面不変
+      // (simulateCardEffect は null)。カード使用で自盤面にトラップがセットされる増分価値を
+      // 現局面評価 (player 視点) に加算 (= draw の getDrawValue 加算と同型)。
+      // S3b: 固定 TRAP_VALUE_* を脱却し valueModel (局面依存 gross 値、player 視点) へ統一
+      // (check_break=自玉露出度 / no_promote=相手成り脅威度。card-spec-server、ai → L1 依存反転)。
       if (action.defId === "no_promote" || action.defId === "check_break") {
         const trapRaw = evaluate(state.gameState, variant, cardDigest);
         const trapSigned = player === "sente" ? trapRaw : -trapRaw;
-        const trapBonus =
-          action.defId === "no_promote"
-            ? TRAP_VALUE_NO_PROMOTE
-            : TRAP_VALUE_CHECK_BREAK;
+        const trapBonus = getCardValue(action.defId, state.gameState, player);
         return trapSigned + trapBonus;
       }
       const nextGameState = simulateCardEffect(
@@ -894,11 +891,11 @@ function searchDoubleMoveSuperAction(
   const prevDigest =
     ctx?.cardDigest ??
     (variant.id === "card-shogi"
-      ? computeCardDigest(state.cardState)
+      ? computeCardDigest(state.cardState, state.gameState)
       : undefined);
   const innerDigest =
     prevDigest !== undefined
-      ? updateCardDigest(prevDigest, state.cardState, newCardState)
+      ? updateCardDigest(prevDigest, state.cardState, newCardState, afterCardWiredCS.gameState)
       : undefined;
 
   // Step 2: 1 手目候補生成 (move-only)。性能配慮で heuristic 上位 K 手に絞る。
@@ -992,7 +989,7 @@ function searchDoubleMoveSuperActionKernel(
   // digest prev (root)。ctx 未渡フォールバックは OFF 版 (computeCardDigest) と同方針。
   const prevDigest =
     ctx.cardDigest ??
-    (variant.id === "card-shogi" ? computeCardDigest(state.cardState) : undefined);
+    (variant.id === "card-shogi" ? computeCardDigest(state.cardState, state.gameState) : undefined);
 
   // Step 2: 1 手目候補生成 (move-only)。OFF 同様 heuristic 上位 K 手に絞る。
   const firstMovesAll = getSearchLegalMoves(worldDM.gameState, player, variant);
@@ -1017,7 +1014,7 @@ function searchDoubleMoveSuperActionKernel(
     if (afterFirst.turnEnded) {
       const innerDigest =
         prevDigest !== undefined
-          ? updateCardDigest(prevDigest, state.cardState, worldF.cardState)
+          ? updateCardDigest(prevDigest, state.cardState, worldF.cardState, worldF.gameState)
           : undefined;
       const raw = evaluate(worldF.gameState, variant, innerDigest);
       const score = player === "sente" ? raw : -raw;
@@ -1041,7 +1038,7 @@ function searchDoubleMoveSuperActionKernel(
       // per-combo digest (kernel の worldS.cardState = cost 正確消費 + lazy drawProgress 反映済)。
       const innerDigest =
         prevDigest !== undefined
-          ? updateCardDigest(prevDigest, state.cardState, worldS.cardState)
+          ? updateCardDigest(prevDigest, state.cardState, worldS.cardState, worldS.gameState)
           : undefined;
       const raw = evaluate(worldS.gameState, variant, innerDigest);
       const score = player === "sente" ? raw : -raw;
@@ -1322,11 +1319,11 @@ export function evaluateActionWithLookahead(
   // - standard variant (variant.id !== "card-shogi") では digest は意味を持たないため undefined のまま
   let prevDigest = ctx?.cardDigest;
   if (prevDigest === undefined && variant.id === "card-shogi") {
-    prevDigest = computeCardDigest(state.cardState);
+    prevDigest = computeCardDigest(state.cardState, state.gameState);
   }
   const newDigest =
     prevDigest !== undefined
-      ? updateCardDigest(prevDigest, state.cardState, applied.cardState)
+      ? updateCardDigest(prevDigest, state.cardState, applied.cardState, applied.gameState)
       : prevDigest;
 
   const oppScore = getOpponentResponseScore(
@@ -1344,9 +1341,8 @@ export function evaluateActionWithLookahead(
     return oppScore + getDrawValue(state.gameState, player, state.cardState);
   }
 
-  // PR3-3 C-6: トラップ系 (no_promote / check_break) は digest.trapPresence で
-  // TRAP_VALUE_* が既に反映されている (newDigest.trapPresence に当該 trap が set)。
-  // 旧実装は ここで TRAP_VALUE_* を明示加算していたが、digest 経由で自然に反映される
-  // ようになったので削除 (重複加算回避)。
+  // PR3-3 C-6 / S3b: トラップ系 (no_promote / check_break) の価値は newDigest.trapValueDelta に
+  // 反映済 (updateCardDigest が applied.gameState から valueModel で局面依存値を precompute、
+  // opp scan の各 evaluate に乗る)。ここでの明示加算は不要 (重複加算回避)。
   return oppScore;
 }
