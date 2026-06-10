@@ -591,3 +591,63 @@ describe("evaluateAction calibration (S3c: トラップ valueModel 係数校正�
     );
   });
 });
+
+// Issue #235 派生 (Vercel 504 対策、2026-06-10): root アクション評価フェーズの専用 deadline。
+//
+// 背景: deep search (findBestMove) が ctx.deadlineAt を使い切った後に走る root カード評価
+// (engine.ts) と double_move super-action (search.ts) には時間チェックがなく、終盤の高分岐局面
+// (持ち駒ドロップで 2 手目候補 ~130 手) で super-action 1 回 ≈ 4s 超 → Vercel maxDuration 10s
+// 超過の FUNCTION_INVOCATION_TIMEOUT (504) が発生していた。engine が ctx.actionPhaseDeadlineAt
+// を設定し、super-action の first/second move ループが isActionPhaseTimeUp で打ち切る。
+describe("アクション評価フェーズ deadline (Vercel 504 対策、Issue #235 派生)", () => {
+  function buildDmState(): AiTurnState {
+    const gs = createInitialGameState(CARD_SHOGI_VARIANT);
+    const cs = createInitialCardState(TEST_DECK);
+    cs.hand.sente = [{ instanceId: "dm-test-1", defId: "double_move" as const }];
+    cs.mana.sente = 10;
+    return { gameState: gs, cardState: cs, doubleMove: null, isRoot: true };
+  }
+  const dmAction: TurnAction = {
+    kind: "playCard",
+    cardInstanceId: "dm-test-1",
+    defId: "double_move",
+  };
+
+  it("actionPhaseDeadlineAt 超過時、double_move super-action は即座に NEG_INF (kernel ON/OFF 両経路)", () => {
+    for (const useKernelSearch of [true, false]) {
+      const state = buildDmState();
+      const ctx = createSearchContext({ timeLimitMs: 60_000, useKernelSearch });
+      ctx.actionPhaseDeadlineAt = 0; // 過去時刻 = 即時超過 (1 combo も評価せず打ち切り)
+      const score = evaluateActionWithLookahead(
+        state,
+        dmAction,
+        "sente",
+        CARD_SHOGI_VARIANT,
+        ctx,
+        false,
+        1,
+      );
+      // 全 combo 打ち切り → bestScore/bestScoreIgnoringTadasute とも NEG_INF
+      // → engine 側は move フォールバック (move は予算設定前に評価済) で安全。
+      expect(score).toBe(Number.NEGATIVE_INFINITY);
+    }
+  });
+
+  it("actionPhaseDeadlineAt 未設定 (undefined) は無制限互換 = 従来通り有限スコア", () => {
+    for (const useKernelSearch of [true, false]) {
+      const state = buildDmState();
+      const ctx = createSearchContext({ timeLimitMs: 60_000, useKernelSearch });
+      // actionPhaseDeadlineAt 未設定 (テスト / fixture 生成の決定論互換)
+      const score = evaluateActionWithLookahead(
+        state,
+        dmAction,
+        "sente",
+        CARD_SHOGI_VARIANT,
+        ctx,
+        false,
+        1,
+      );
+      expect(Number.isFinite(score)).toBe(true);
+    }
+  });
+});

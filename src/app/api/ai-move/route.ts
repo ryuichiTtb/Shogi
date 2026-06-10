@@ -7,8 +7,13 @@
 // - maxDuration: 10 秒 (Vercel Hobby 上限 60s に対する余裕大)。
 //   Issue #176 timeout-fix で 5→10 に拡大し、cold start spike + Neon DB resume
 //   + Prisma init + TT alloc の累積を 5s 以内に詰め込めない問題を解消。
-//   内部探索 deadline (engine.ts の timeLimitMs) は最大 3500ms (expert) で、
-//   blunder guard 200ms budget と合わせても hard stop 4.0 秒以内に収まる。
+//   内部探索 deadline (engine.ts の timeLimitMs) は最大 3500ms (expert)。
+//   Issue #235 派生 (2026-06-10 Vercel 504 対策): deep search 後の root アクション評価
+//   フェーズ (カード/ドロー lookahead + double_move super-action) は従来 unbounded で、
+//   終盤の高分岐局面で 10s を超過し FUNCTION_INVOCATION_TIMEOUT が発生していた。
+//   ACTION_PHASE_BUDGET_RATIO (engine.ts、timeLimitMs × 0.4 = expert 1400ms) で hard bound し、
+//   最悪総時間 ≈ deep 3.5s + アクション評価 1.4s + blunder guard 0.2s ≈ 5.1s に収まる
+//   (maxDuration 10s に対し約 2 倍の安全余裕)。
 //   Vercel Pro upgrade 後 (Issue #190) は 15〜30s に再調整可。
 // - request.signal を SearchContext.signal に伝播し、client abort (待った /
 //   終局 / unmount) を即時に探索へ伝える

@@ -35,6 +35,7 @@ import { getCaptureMovesForSearch, getPromotionMovesForSearch } from "./captureG
 import {
   MAX_DEPTH,
   createSearchContext,
+  isActionPhaseTimeUp,
   shouldStop,
   type SearchContext,
 } from "./search-context";
@@ -912,6 +913,10 @@ function searchDoubleMoveSuperAction(
   let bestScoreIgnoringTadasute = NEG_INF; // PR3-3 C-3: フォールバック (R-3)
   // Step 3: 各 1 手目 × 全 2 手目を局所探索、2 手指し後を depth=0 評価
   for (const firstMove of firstMoves) {
+    // Issue #235 派生 (Vercel 504 対策): フェーズ予算超過で打ち切り (評価済み combo の
+    // best を返す = 時間制限探索の標準挙動。全滅時は NEG_INF → engine が move へフォールバック)。
+    // 実測で 1 super-action ≈ 4s 超 (終盤、2 手目に持ち駒ドロップ ~130 手) のため必須。
+    if (isActionPhaseTimeUp(ctx)) break;
     const afterFirst = rules.applyAction(afterCardWiredCS, { kind: "move", move: firstMove });
     // 不変条件: 二手指し 1 手目は turnEnded=false (= player 反転禁止の構造的保証)
     if (afterFirst.turnEnded) {
@@ -922,6 +927,8 @@ function searchDoubleMoveSuperAction(
     const secondMoves = getSearchLegalMoves(afterFirst.next.gameState, player, variant);
     if (secondMoves.length === 0) continue; // 2 手目なしはこの 1 手目をスキップ
     for (const secondMove of secondMoves) {
+      // 504 対策: combo 単位 (~ms 級処理) での時間チェック。now() コストは無視できる。
+      if (isActionPhaseTimeUp(ctx)) break;
       const afterSecond = rules.applyAction(afterFirst.next, {
         kind: "move",
         move: secondMove,
@@ -1005,6 +1012,10 @@ function searchDoubleMoveSuperActionKernel(
   let bestScoreIgnoringTadasute = NEG_INF;
 
   for (const firstMove of firstMoves) {
+    // Issue #235 派生 (Vercel 504 対策): OFF 版と同様、フェーズ予算超過で打ち切り。
+    // kernel 経路は combo ごとに applyTurnAction (makeMoveWithEffects = evaluateGameEnd 込み
+    // ≈ ms 級) を呼ぶため、ここが 504 の主因だった (実測 1 super-action ≈ 4.3s)。
+    if (isActionPhaseTimeUp(ctx)) break;
     const afterFirst = applyTurnAction(worldDM, { kind: "move", move: firstMove }, { spectatorMode });
     const worldF = afterFirst.world;
 
@@ -1027,6 +1038,8 @@ function searchDoubleMoveSuperActionKernel(
     const secondMoves = getSearchLegalMoves(worldF.gameState, player, variant);
     if (secondMoves.length === 0) continue;
     for (const secondMove of secondMoves) {
+      // 504 対策: combo 単位での時間チェック (OFF 版と同方針)。
+      if (isActionPhaseTimeUp(ctx)) break;
       const afterSecond = applyTurnAction(worldF, { kind: "move", move: secondMove }, { spectatorMode });
       const worldS = afterSecond.world;
       // 不変条件: 2 手目で turnEnded=true (ターン終了)。

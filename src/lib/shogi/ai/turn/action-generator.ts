@@ -46,7 +46,18 @@ export function* getCardActions(
   // (2) 自分の手番でなければ使用禁止
   if (state.gameState.currentPlayer !== player) return;
 
+  // Issue #235 派生 (Vercel 504 対策、2026-06-10): 同一 defId の重複インスタンスは dedupe し
+  // 先頭インスタンスのみ候補化する。使用可否判定 ((4)〜(7)) と効果・評価は defId と盤面/カード
+  // 状態のみに依存しインスタンス間で完全に等価なため、「どのコピーを切るか」は探索上無意味。
+  // dedupe なしだと手札に同種カードが N 枚あるとき同一評価が N 回走り、特に二手指し
+  // (super-action 内部探索 ≈ 数秒/回) の重複が Vercel maxDuration 10s 超過 (504) の主因だった
+  // (実測: 二手指し 3 枚で計 11.4s)。採用される instanceId は従来も argmax の strict > により
+  // 先頭コピーだったため、選択結果は不変。
+  const seenDefIds = new Set<CardId>();
+
   for (const card of state.cardState.hand[player]) {
+    if (seenDefIds.has(card.defId)) continue;
+    seenDefIds.add(card.defId);
     const spec = CARD_SPECS[card.defId];
 
     // (3) 手札にないカードは for...of で自然にスキップ済 (state.cardState.hand[player] が手札全件)

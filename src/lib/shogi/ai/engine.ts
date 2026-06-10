@@ -9,6 +9,7 @@ import {
 import {
   createSearchContext,
   finalizeStats,
+  isActionPhaseTimeUp,
   type SearchStats,
 } from "./search-context";
 import { evaluate, evaluateWithBreakdown } from "./evaluate";
@@ -95,6 +96,17 @@ const BLUNDER_GUARD_TIE_MARGIN = 150;
 const BEGINNER_TADASUTE_ALLOW_RATE = 0.3;
 
 // hasHangingPiece は PR3-3 C-3 で blunder-guard.ts へ移動 (search.ts double_move でも利用するため共通化)
+
+// Issue #235 派生 (Vercel 504 対策、2026-06-10): root アクション評価フェーズ (カード/ドロー
+// lookahead + double_move super-action) の時間予算 (timeLimitMs 比)。
+// deep search (findBestMove) は timeLimitMs を使い切ってから返るため、その後に走る本フェーズを
+// bound しないと総実行時間が無制限になる。実測 (終盤近似局面、持ち駒 飛+歩3 = 合法手 130):
+// 二手指し super-action 1 回 ≈ 4.3s、3 枚重複で計 11.4s → Vercel maxDuration 10s 超過で
+// FUNCTION_INVOCATION_TIMEOUT (504) が発生していた。
+// 0.4 = expert 3500ms × 0.4 = 1400ms。最悪総時間 ≈ deep 3.5s + 本フェーズ 1.4s +
+// blunder guard 0.2s ≈ 5.1s で maxDuration 10s に対し約 2 倍の安全余裕を確保する。
+// 予算超過時は評価済み候補までで打ち切る (move は常に最初に評価済 = 安全フォールバック)。
+const ACTION_PHASE_BUDGET_RATIO = 0.4;
 
 // 難易度の表示名
 export const DIFFICULTY_LABELS: Record<Difficulty, string> = {
@@ -315,6 +327,14 @@ export function findBestMoveWithStats(
     };
     const allActions = rules.getLegalActions(aiTurnState, player);
 
+    // Issue #235 派生 (Vercel 504 対策): 本フェーズ専用の hard deadline を設定。
+    // deep search が ctx.deadlineAt を使い切った後なので、ここから ACTION_PHASE_BUDGET_RATIO
+    // 分の新規予算を切る。super-action / 候補ループが isActionPhaseTimeUp で参照する。
+    // fixture 生成 (options.maxDepth 指定) では effectiveTimeLimitMs = MAX_SAFE_INTEGER のため
+    // 実質無制限 = 決定論を維持 (時間でテスト結果が変わらない)。
+    ctx.actionPhaseDeadlineAt =
+      performance.now() + effectiveTimeLimitMs * ACTION_PHASE_BUDGET_RATIO;
+
     // PR3-3 C-2: 旧 evaluateAction (depth=0 評価) を evaluateActionWithLookahead に
     // 置換。各 TurnAction 候補に「相手 1 ply 最善応答」を加えた lookahead score で
     // 比較することで、move 側の見かけ +100cp tactical が opp 応答後に ±0 へ収束し、
@@ -333,6 +353,15 @@ export function findBestMoveWithStats(
 
     for (const action of allActions) {
       if (action.kind === "move") continue; // move は上で評価済
+      // Issue #235 派生 (Vercel 504 対策): フェーズ予算超過で残候補を打ち切り。
+      // move は先に評価済 (bestActionScore 初期値) のため、打ち切っても安全に move へ
+      // フォールバックする。発生は稀 (終盤の高分岐局面) なので warn で観測可能にする。
+      if (isActionPhaseTimeUp(ctx)) {
+        console.warn(
+          "[ai-engine] action-phase budget exceeded; remaining card/draw candidates skipped",
+        );
+        break;
+      }
       // applyTadasuteGuard 時、カード適用がタダ捨てになる手は -Inf を返し採用されない。
       const score = evaluateActionWithLookahead(
         aiTurnState,
