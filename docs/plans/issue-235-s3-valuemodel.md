@@ -89,15 +89,15 @@ S1/S2 同様、低リスクな additive → cutover の順:
 - S3c は係数調整 (値のみ) のため revert は値の差し戻し。
 
 ## 8. S3 DoD
-- [ ] D-NP 確定 (§9、check_break 1枚 or 両トラップ + 相手成り脅威指標)。
-- [ ] D-KS=C で card-spec-server が自前 king-exposure を持ち、`cards/ → ai/` 上向き依存を作らない。
-- [ ] 対象トラップの valueModel を局面依存実装 + 特性化テスト (局面で変動を pin、PoC-2 カーブ再現)。
-- [ ] `computeCardDigest`/`updateCardDigest` に gameState 供給 + トラップ項 `trapValueDelta` 化。`evaluateAction` 直接加算も valueModel 経由へ統一 (2系統解消)。`CARD_VALUE_BRIDGE` トラップ二重定義解消。
-- [ ] PoC-2 仮係数を bench 校正・確定。決定的 unit test で相対順序 + 安全玉↔露出玉ペアを pin。
-- [ ] 棋力退化なし (depthCompleted ±10% + phase別カード使用率) を bench 実証。
-- [ ] 未使用係数 (CHECK_BREAK_TRIGGER_THRESHOLD 等) が S3 完了時も未使用なら削除。盤面系 valueModel=0 のセンチネル意味をコメント明示。
-- [ ] 各段 lint / typecheck / test:ci / build green。段階順序 S3a → S3b → S3c (S3b が単一 revert 主点)。
-- [ ] 盤面系カード / digest 集約キャッシュ / trap onTrigger は S4 / 別サブタスクへ申し送り (非ゴール明記)。
+- [x] D-NP 確定 (§9、check_break 1枚 or 両トラップ + 相手成り脅威指標)。→ 両トラップ + 相手成り脅威指標 (選択肢 B、§9 D-NP)。
+- [x] D-KS=C で card-spec-server が自前 king-exposure を持ち、`cards/ → ai/` 上向き依存を作らない。→ S3a で `moves`/`variants` プリミティブ自前計算 (§10)。
+- [x] 対象トラップの valueModel を局面依存実装 + 特性化テスト (局面で変動を pin、PoC-2 カーブ再現)。→ S3a (§10)。
+- [x] `computeCardDigest`/`updateCardDigest` に gameState 供給 + トラップ項 `trapValueDelta` 化。`evaluateAction` 直接加算も valueModel 経由へ統一 (2系統解消)。`CARD_VALUE_BRIDGE` トラップ二重定義解消。→ S3b (§11)。
+- [x] PoC-2 仮係数を bench 校正・確定。決定的 unit test で相対順序 + 安全玉↔露出玉ペアを pin。→ S3c (§12、TRAP_P_MIN 0.05→0.10 確定、決定的テスト3件)。
+- [x] 棋力退化なし (depthCompleted ±10% + phase別カード使用率) を bench 実証。→ S3c (§12、全難易度 depthCompleted 0.0% 変化、card% beginner/intermediate 86%→100%)。
+- [x] 未使用係数 (CHECK_BREAK_TRIGGER_THRESHOLD 等) が S3 完了時も未使用なら削除。盤面系 valueModel=0 のセンチネル意味をコメント明示。→ S3c で `CHECK_BREAK_TRIGGER_THRESHOLD`/`MIN_MANA_RESERVE_FOR_TRAP` 削除 (§12)。盤面系=0 センチネルは S3a/S3b でコメント明示済。
+- [x] 各段 lint / typecheck / test:ci / build green。段階順序 S3a → S3b → S3c (S3b が単一 revert 主点)。→ 全段 green、順序遵守 (§10/§11/§12)。
+- [x] 盤面系カード / digest 集約キャッシュ / trap onTrigger は S4 / 別サブタスクへ申し送り (非ゴール明記)。→ §12 S4 申し送り。
 
 ## 9. M1 マイルストーン1レビュー反映 (策定直後、2026-06-10、AGENTS.md ルール8)
 独立 adversarial agent (general-purpose、実コード精読) でレビュー。**総合判定: 当初版は high 2件で要修正 → 本版で反映済**。骨子 (段階分割・rollback・非ゴール線引き・検証ゲート) は妥当と確認。
@@ -173,3 +173,56 @@ S3b = トラップ評価を固定係数 (TRAP_VALUE_*) から局面依存 valueM
 
 ### S3c への申し送り
 - PoC-2 仮係数 (TRAP_P_MIN/MAX / E_DAMAGE / KING_EXPOSURE_REF / PROMO_THREAT_REF 等) を bench 校正し本採用値を確定。安全玉↔露出玉ペアの決定的 unit test (§6 M-2) を追加。phase別カード使用率で 57% 非対称の改善傾向を測定。未使用係数の最終確認。
+
+## 12. S3c M2 マイルストーンレビュー (校正実装後、2026-06-10、AGENTS.md ルール8) — **S3 全段完了**
+
+S3c = PoC-2 仮係数を bench + 決定的 unit test で校正し**本採用値を確定**する段。S3b で局面依存化したトラップ valueModel の係数を実測ベースで仕上げ、未使用係数を整理する。**S3c 完了をもって S3 (L1 ValueModel 内容依存値付け) 全段完了**。
+
+### 変更 (4 ファイル、working-tree)
+- `card-spec-server.ts`: `TRAP_P_MIN` **0.05 → 0.10**。コメントブロックを「PoC-2 仮値 → S3c 本採用値」へ更新し校正根拠を明記。他係数 (TRAP_P_MAX=0.9 / CHECK_BREAK_E_DAMAGE=300 / NO_PROMOTE_E_DAMAGE=160 / KING_EXPOSURE_REF=6 / KING_IN_CHECK_WEIGHT=3 / PROMO_THREAT_REF=6 / PROMO_PROXIMITY_MAX=3) は PoC-2 + S3b ユーザー承認値のまま据置。
+- `card-spec.test.ts`: floor リテラル更新。check_break `P_MIN_VAL = 0.1×300 = 30`、no_promote `P_MIN_VAL = 0.1×160 = 16`。P_MAX 側 (0.9×) は不変。
+- `evaluate-action.test.ts`: 決定的テスト 3 件追加 (新 describe「evaluateAction calibration (S3c…)」)。noise なし `evaluateActionWithLookahead`/`evaluateAction` を直接呼び相対順序を pin (C-13 / §6 方式)。
+- `heuristics.ts`: デッドコード `MIN_MANA_RESERVE_FOR_TRAP` / `CHECK_BREAK_TRIGGER_THRESHOLD` を削除 (§5 L-2、しきい値方式トラップ候補生成は連続値 valueModel 採用で不採用に。実参照ゼロ)。`EARLY_GAME_THRESHOLD` は `computePhaseStage` で現用のため保持。
+
+### 校正の判断と根拠
+- **TRAP_P_MIN 0.05 → 0.10**: PoC-2 仮値 0.05 は「set 済の dormant トラップが**生涯で** trigger する確率」を過小評価していた。王手・成りは 1 局を通じて高頻度で発生するため、置いたトラップの将来発火確率は 5% より明らかに高い。0.10 への引き上げで:
+  - **floor**: check_break 15→30cp / no_promote 8→16cp。
+  - 「静かな盤面 + dead マナ (上限近接、overflow あり) → dormant トラップ set」が**正 EV** になる (浪費されるはずのマナを option value に変換する好手)。
+  - 「静かな盤面 + 通常マナ → move」は維持 (P_MIN<0.127 で過剰セットを抑止)。
+  - 危険局面 (露出玉 / 相手成り脅威) は ratio が P_MAX 側へ押し上げるため**挙動不変**。
+- **他係数据置の根拠**: PoC-2 実測カーブ (check_break 安全玉 -25 ↔ 露出玉 +230) + S3b 時点でユーザー承認済の正規化基準。bench で depthCompleted 退化なしを確認できたため再校正不要と判断。
+
+### 決定的テスト 3 件 (回帰ガード)
+1. **no_promote flip**: 相手成り脅威ありで trap > move、脅威なしで move > trap (局面依存が機能)。
+2. **check_break 露出 isolation** (ply=0): `(trap−draw)_露出玉 > (trap−draw)_安全玉`。getDrawValue が両局面同値で相殺され、valueModel 差 (270−30=240cp) が決定に伝播することを pin (盤面 eval は共通成分で打ち消し)。
+3. **check_break dead マナ dormant flip** (S3c 校正の核): dead マナ (19、overflow 3) → trap > move / 通常マナ (8) → move > trap。**P_MIN=0.05 では flip しない**ことをミューテーション検証で実証 (M2 で `TRAP_P_MIN=0.05` に戻すと `expected 10.03 to be greater than 21` で FAIL) = 本テストが校正の真の回帰ガード。
+- check_break は `checkUsage="forbidden"` (王手中使用不可) のため、本来の使い所は**予防的 dormant セット**。露出玉局面では「玉を安全マスへ逃がす能動防御 move」が trap に勝つのが正 (テストコメントに明記)。
+
+### bench 実測 (before P_MIN=0.05 → after 0.10、3-run median、全 4 難易度)
+| 難易度 | depthCompleted (B→A) | Δ% | card% (B→A) |
+|---|---|---|---|
+| beginner | 3 → 3 | **0.0%** | 86% → **100%** |
+| intermediate | 5.33 → 5.33 | **0.0%** | 86% → **100%** |
+| advanced | 5.78 → 5.78 | **0.0%** | 57% → 57% |
+| expert | 6 → 6 | **0.0%** | 57% → 57% |
+- **depthCompleted 全難易度 0.0% 変化 = 棋力退化なし** (DoD ±10% に余裕)。
+- **校正に測定可能な効果**: `calib-trap-only-no-draw` (no_promote, mana19) が beginner で before 全3run=move → after 全3run=**trap(no_promote)** に一貫 flip (floor 8→16cp + dead マナ回収で dormant トラップが競争力獲得=狙い通り)。intermediate も安定化。
+- **advanced/expert 57% 不変**: 深く読み best move > dormant trap となるため P1 深さ非対称が支配的 (S4 マター)。S3 単独では構造的に直らない (epic §8.4.5 caveat / §12 想定通り)。
+
+### 検証実測
+- lint **0 errors / 22 warnings** (S3b baseline 維持、純増ゼロ) / typecheck 緑 / test:ci **583 passed | 12 skipped** (S3b 580 + 新規3、既存不変=デグレなし) / build 緑。
+- bench (standalone tsx `measure-baseline-235.ts 3`、RUN_PERF_BENCH 経路): 上表のとおり。
+
+### 挙動変化 (意図的)
+- **dormant トラップの set 判断が局面適応的に**: dead マナ局面で予防的トラップセットを選好し、通常マナでは move を維持。advanced/expert の使い渋り (57%) は P1 深さ非対称が主因のため S3 単独では不変 (S4 で是正)。
+- UI / ゲームルール / standard variant = 不変。
+
+### 総合判定
+**S3c は commit/push 可 (high/medium 指摘ゼロ)**。独立 adversarial agent (general-purpose、約 39 tool uses、ミューテーションテスト + 手計算 × 実測突合 + grep 全消費者洗い出し併用) で以下を確認:
+- 符号正 (digest sente+/gote−、search ply=0 整合) / 二重計上なし (manaDelta でコスト 1 回・trapValueDelta で gross 1 回、P_MIN は会計に非干渉) / floor 算術正 (30 / 16、P_MAX 270 / 144 不変、clamp 健全) / 全 consumer 整合 (getCardValue 一本に集約、stale 旧 floor リテラル皆無) / デッドコード除去妥当 (削除2定数は参照ゼロ、EARLY_GAME_THRESHOLD は現用) / テスト非 vacuous (ミューテーションで test3 FAIL を実証) / 棋力退化なし (P_MIN は探索深度に非干渉な評価スカラー) / UI・UX 該当なし (変更は `src/lib/shogi/` のみ、components/hooks 非波及) / NaN・負値・異常値の発生経路なし (玉不在・手札ゼロ・マナ上限ちょうど等エッジ網羅)。
+- 指摘は low 1件 (test1/test2 は P_MIN を pin しない=S3a/S3b の局面依存性ガードであり、コメントで「2点で pin」と既に正確に説明済 → 修正不要)。
+
+### S4 (L2 TurnAction 単一探索 + TT 拡張) への申し送り
+- **57% 非対称の主因 P1 (深さ非対称)** は S3 では構造的に解消できない。S4 で TurnAction を単一探索木に統合し TT を拡張することが本丸 (epic §7、最大の山場)。
+- トラップ valueModel の係数は S3c で本採用確定。S4 で探索構造が変わっても valueModel は SSOT として再利用 (gross 値・root スカラー方式 W-1 を維持)。
+- 盤面系カード valueModel (現 0 センチネル) の精緻化 / digest 集約キャッシュ / trap onTrigger イベントモデルは引き続き非ゴール (S4 以降 / 別サブタスク)。

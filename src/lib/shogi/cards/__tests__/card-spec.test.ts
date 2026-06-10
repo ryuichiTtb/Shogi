@@ -535,7 +535,7 @@ describe("valueModel: 静的カード (mana_up / 盤面系 / double_move)", () =
 
 describe("valueModel 局面依存 (S3a): check_break = 自玉露出度", () => {
   const vm = CARD_SPECS.check_break.valueModel;
-  const P_MIN_VAL = 0.05 * 300; // 露出ゼロ時の gross 下限 (= 15)
+  const P_MIN_VAL = 0.1 * 300; // 露出ゼロ時の gross 下限 (= 30、S3c 校正 TRAP_P_MIN=0.10)
   const P_MAX_VAL = 0.9 * 300; // 露出最大時の gross 上限 (= 270)
 
   it("安全玉 (露出ゼロ) / 玉不在は下限値", () => {
@@ -574,7 +574,7 @@ describe("valueModel 局面依存 (S3a): check_break = 自玉露出度", () => {
 
 describe("valueModel 局面依存 (S3a): no_promote = 相手成り脅威度", () => {
   const vm = CARD_SPECS.no_promote.valueModel;
-  const P_MIN_VAL = 0.05 * 160; // 脅威ゼロ時の gross 下限 (= 8)
+  const P_MIN_VAL = 0.1 * 160; // 脅威ゼロ時の gross 下限 (= 16、S3c 校正 TRAP_P_MIN=0.10)
   const P_MAX_VAL = 0.9 * 160; // 脅威最大時の gross 上限 (= 144)
 
   it("相手の成り脅威ゼロ (相手駒なし / 成り地点から遠い) は下限値", () => {

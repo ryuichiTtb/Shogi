@@ -109,16 +109,25 @@ function staticValueModel(value: number): ValueModel {
   };
 }
 
-// ===== トラップ局面依存値モデル (S3a、PoC-2 docs/bench-results/issue-235-poc2.json) =====
+// ===== トラップ局面依存値モデル (S3a 実装 / S3c 校正、PoC-2 docs/bench-results/issue-235-poc2.json) =====
 // 価値 = P_trigger × E_damage の **gross 値** (cp)。カードのマナコストは AI 側の mana 会計
 // (applyActionForLookahead → digest manaDelta) が別途反映するため、ここでは差し引かない (二重計上回避、§5 R-1)。
-// 係数はいずれも **PoC-2 由来の仮値で S3c bench 校正対象** (本採用値未確定)。
-const TRAP_P_MIN = 0.05; // trigger 確率の下限
-const TRAP_P_MAX = 0.9; // trigger 確率の上限
-const CHECK_BREAK_E_DAMAGE = 300; // check_break 発動時の期待効果 (cp)
-const NO_PROMOTE_E_DAMAGE = 160; // no_promote 発動時の期待効果 (cp)
+// 係数は **S3c で bench + 決定的 unit test で校正済の本採用値** (PoC-2 仮値からの確定経緯は計画 §12)。
+//
+// **S3c 校正 (TRAP_P_MIN 0.05 → 0.10)**: PoC-2 仮値 0.05 は「set 済の dormant トラップが生涯で
+//   trigger する確率」を過小評価していた (王手/成りは 1 局を通じて高頻度で発生するため、置いた
+//   トラップが将来発火する確率は 5% より明らかに高い)。0.10 へ引き上げることで:
+//     - 静かな盤面 + マナ上限近接 (= dead マナ) では dormant トラップのセットが正 EV になる
+//       (浪費されるはずのマナを option value に変換する好手。check_break floor 15→30cp / no_promote 8→16cp)。
+//     - 静かな盤面 + 通常マナでは依然 move を選好 (P_MIN<0.127 でトラップの過剰セットを抑止)。
+//     - 危険局面 (露出玉 / 相手成り脅威) では P_trigger が ratio で押し上がり高価値 = 挙動不変。
+//   決定的検証は evaluate-action.test.ts「S3c calibration」(noise なし evaluateActionWithLookahead)。
+const TRAP_P_MIN = 0.1; // trigger 確率の下限 (dormant トラップの生涯 trigger 確率、S3c 校正)
+const TRAP_P_MAX = 0.9; // trigger 確率の上限 (最大露出/脅威時)
+const CHECK_BREAK_E_DAMAGE = 300; // check_break 発動時の期待効果 (cp、王手駒の捕獲 = 大駒級)
+const NO_PROMOTE_E_DAMAGE = 160; // no_promote 発動時の期待効果 (cp、成り阻止)
 // D-KS=C: 自玉露出度 / 相手成り脅威度は moves / variants プリミティブで自前算出するため、
-// 露出・脅威 → 確率の正規化基準も本実装独自 (PoC-2 の evaluateKingSafety スケールは非継承、S3c 校正)。
+// 露出・脅威 → 確率の正規化基準も本実装独自 (PoC-2 の evaluateKingSafety スケールは非継承)。
 const KING_EXPOSURE_REF = 6; // 自玉露出度がこの値で P_MAX に到達
 const KING_IN_CHECK_WEIGHT = 3; // 王手中は露出度に加点 (現に王手される確率が高い)
 const PROMO_THREAT_REF = 6; // 相手成り脅威度がこの値で P_MAX に到達
