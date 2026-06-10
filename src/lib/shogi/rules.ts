@@ -1,4 +1,5 @@
 import type { GameState, Player, RuleVariant } from "./types";
+import type { CardGameState } from "./cards/types";
 import { STANDARD_VARIANT } from "./variants/standard";
 import { isInCheck, isCheckmate, getFullLegalMoves, findKing } from "./moves";
 
@@ -104,22 +105,26 @@ function calculateImpasseScore(
 }
 
 // ゲーム終了状態を確認・更新
+// Issue #235 S4a (D-I): card-shogi の no_promote マーク考慮用に cardState を任意で受ける。
+// マーク駒の合法手集合が変わると詰み/ステールメート判定も変わるため、kernel (move-effects)
+// は move 適用後の cardState を渡す。未供給 (standard) は従来挙動と完全等価。
 export function evaluateGameEnd(
   state: GameState,
-  variant: RuleVariant = STANDARD_VARIANT
+  variant: RuleVariant = STANDARD_VARIANT,
+  cardState?: CardGameState
 ): GameState {
   if (state.status !== "active") return state;
 
   const currentPlayer = state.currentPlayer;
 
   // 王手詰み
-  if (isCheckmate(state, currentPlayer, variant)) {
+  if (isCheckmate(state, currentPlayer, variant, cardState)) {
     const winner: Player = currentPlayer === "sente" ? "gote" : "sente";
     return { ...state, status: "checkmate", winner };
   }
 
   // 合法手なし（ステールメート - 将棋では極めて稀）
-  if (getFullLegalMoves(state, currentPlayer, variant).length === 0) {
+  if (getFullLegalMoves(state, currentPlayer, variant, cardState).length === 0) {
     const winner: Player = currentPlayer === "sente" ? "gote" : "sente";
     return { ...state, status: "stalemate", winner };
   }

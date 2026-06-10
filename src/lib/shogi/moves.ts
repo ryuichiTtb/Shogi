@@ -9,8 +9,26 @@ import type {
   Position,
   RuleVariant,
 } from "./types";
+// Issue #235 S4a: no_promote マーク (成り不可) を着手生成に反映するため CardGameState を
+// 型のみ import。`cards/effects.ts` は `moves.ts` を import 済 (cards→moves) なので、
+// `hasNoPromoteMark` を値 import すると循環する。型 import はコンパイル時に消えるため
+// 循環を生まず、マーク判定は本ファイル内に isNoPromoteLocked としてインライン化する。
+import type { CardGameState } from "./cards/types";
 import { STANDARD_VARIANT, PIECE_DEF_MAP } from "./variants/standard";
 import { applyMove, cloneGameState, isInPromotionZone } from "./board";
+
+// Issue #235 S4a (D-I): 指定マスの駒が player の no_promote マーク (成り不可) を持つか。
+// cardState 未供給 (standard / マーク非考慮の既存呼出) は常に false = 従来挙動と完全等価。
+function isNoPromoteLocked(
+  cardState: CardGameState | undefined,
+  player: Player,
+  pos: Position,
+): boolean {
+  if (!cardState) return false;
+  return cardState.noPromoteMarks[player].some(
+    (m) => m.row === pos.row && m.col === pos.col,
+  );
+}
 
 // 高速マス攻撃判定（指定マスが指定プレイヤーに攻撃されているか）
 // 全疑似合法手を生成せず、ターゲットマスから逆方向に走査する
@@ -182,9 +200,10 @@ const MVV_LVA_VALUES: Record<string, number> = {
 export function getCaptureMoves(
   state: GameState,
   player: Player,
-  variant: RuleVariant = STANDARD_VARIANT
+  variant: RuleVariant = STANDARD_VARIANT,
+  cardState?: CardGameState
 ): Move[] {
-  const allMoves = getFullLegalMoves(state, player, variant);
+  const allMoves = getFullLegalMoves(state, player, variant, cardState);
   const captures = allMoves.filter((m) => m.captured !== undefined);
   return captures.sort((a, b) => {
     const aVal = (MVV_LVA_VALUES[a.captured!] ?? 0) - (MVV_LVA_VALUES[a.piece] ?? 0) * 0.1;
@@ -194,14 +213,14 @@ export function getCaptureMoves(
 }
 
 // 指定プレイヤーの全合法手を生成
-export function getLegalMoves(state: GameState, player: Player, variant: RuleVariant = STANDARD_VARIANT): Move[] {
-  const pseudoMoves = getPseudoMoves(state, player, variant);
+export function getLegalMoves(state: GameState, player: Player, variant: RuleVariant = STANDARD_VARIANT, cardState?: CardGameState): Move[] {
+  const pseudoMoves = getPseudoMoves(state, player, variant, cardState);
   // 王を取られる手を除外
   return pseudoMoves.filter((move) => !leavesKingInCheck(state, move, player, variant));
 }
 
 // 疑似合法手（王手放置を含む）を生成
-function getPseudoMoves(state: GameState, player: Player, variant: RuleVariant): Move[] {
+function getPseudoMoves(state: GameState, player: Player, variant: RuleVariant, cardState?: CardGameState): Move[] {
   const moves: Move[] = [];
 
   // 盤上の駒の移動
@@ -209,7 +228,7 @@ function getPseudoMoves(state: GameState, player: Player, variant: RuleVariant):
     for (let col = 0; col < variant.boardSize.cols; col++) {
       const piece = state.board[row][col];
       if (piece && piece.owner === player) {
-        const pieceMoves = getPieceMoves(state, { row, col }, player, variant);
+        const pieceMoves = getPieceMoves(state, { row, col }, player, variant, cardState);
         moves.push(...pieceMoves);
       }
     }
@@ -229,7 +248,9 @@ export function getPieceMoves(
   state: GameState,
   from: Position,
   player: Player,
-  variant: RuleVariant = STANDARD_VARIANT
+  variant: RuleVariant = STANDARD_VARIANT,
+  // Issue #235 S4a (D-I): card-shogi の no_promote マーク考慮用 (任意)。未供給は従来挙動。
+  cardState?: CardGameState
 ): Move[] {
   const piece = state.board[from.row][from.col];
   if (!piece || piece.owner !== player) return [];
@@ -239,6 +260,12 @@ export function getPieceMoves(
 
   const moves: Move[] = [];
   const { rows, cols } = variant.boardSize;
+
+  // Issue #235 S4a (D-I): この駒が成り不可マークを持つなら、成り手 (promote=true) を一切
+  // 生成せず不成手のみを返す。盤上に着地する限り mustPromote マス (歩/香の最奥段・桂の
+  // 残2段) へも不成で進める (行き所のない駒をマーク駒に限り許容 = ユーザー決定)。
+  // 盤外着地は下の isValidPos / slide while ループが弾くため自然に除外される。
+  const isMarked = isNoPromoteLocked(cardState, player, from);
 
   for (const pattern of def.movePatterns) {
     for (const [dr, dc] of pattern.directions) {
@@ -255,15 +282,20 @@ export function getPieceMoves(
         const target = state.board[toRow][toCol];
         if (target && target.owner === player) continue; // 自駒には行けない
 
-        const canPromote = canPromoteMove(from, { row: toRow, col: toCol }, piece, player, variant);
-        const mustPromote = mustPromoteAfterMove({ row: toRow, col: toCol }, piece, player, variant);
-
-        if (mustPromote) {
-          moves.push(createMove(player, from, { row: toRow, col: toCol }, piece.type, target?.type, true));
-        } else {
+        if (isMarked) {
+          // マーク駒: 不成のみ (mustPromote マスでも不成 = D-I)。
           moves.push(createMove(player, from, { row: toRow, col: toCol }, piece.type, target?.type, false));
-          if (canPromote) {
+        } else {
+          const canPromote = canPromoteMove(from, { row: toRow, col: toCol }, piece, player, variant);
+          const mustPromote = mustPromoteAfterMove({ row: toRow, col: toCol }, piece, player, variant);
+
+          if (mustPromote) {
             moves.push(createMove(player, from, { row: toRow, col: toCol }, piece.type, target?.type, true));
+          } else {
+            moves.push(createMove(player, from, { row: toRow, col: toCol }, piece.type, target?.type, false));
+            if (canPromote) {
+              moves.push(createMove(player, from, { row: toRow, col: toCol }, piece.type, target?.type, true));
+            }
           }
         }
       } else if (pattern.type === "slide") {
@@ -276,30 +308,38 @@ export function getPieceMoves(
           if (target) {
             if (target.owner !== player) {
               // 敵駒を取る
-              const canPromote = canPromoteMove(from, { row: r, col: c }, piece, player, variant);
-              const mustPromote = mustPromoteAfterMove({ row: r, col: c }, piece, player, variant);
-
-              if (mustPromote) {
-                moves.push(createMove(player, from, { row: r, col: c }, piece.type, target.type, true));
-              } else {
+              if (isMarked) {
                 moves.push(createMove(player, from, { row: r, col: c }, piece.type, target.type, false));
-                if (canPromote) {
+              } else {
+                const canPromote = canPromoteMove(from, { row: r, col: c }, piece, player, variant);
+                const mustPromote = mustPromoteAfterMove({ row: r, col: c }, piece, player, variant);
+
+                if (mustPromote) {
                   moves.push(createMove(player, from, { row: r, col: c }, piece.type, target.type, true));
+                } else {
+                  moves.push(createMove(player, from, { row: r, col: c }, piece.type, target.type, false));
+                  if (canPromote) {
+                    moves.push(createMove(player, from, { row: r, col: c }, piece.type, target.type, true));
+                  }
                 }
               }
             }
             break; // 駒があったらそれ以上進めない
           }
 
-          const canPromote = canPromoteMove(from, { row: r, col: c }, piece, player, variant);
-          const mustPromote = mustPromoteAfterMove({ row: r, col: c }, piece, player, variant);
-
-          if (mustPromote) {
-            moves.push(createMove(player, from, { row: r, col: c }, piece.type, undefined, true));
-          } else {
+          if (isMarked) {
             moves.push(createMove(player, from, { row: r, col: c }, piece.type, undefined, false));
-            if (canPromote) {
+          } else {
+            const canPromote = canPromoteMove(from, { row: r, col: c }, piece, player, variant);
+            const mustPromote = mustPromoteAfterMove({ row: r, col: c }, piece, player, variant);
+
+            if (mustPromote) {
               moves.push(createMove(player, from, { row: r, col: c }, piece.type, undefined, true));
+            } else {
+              moves.push(createMove(player, from, { row: r, col: c }, piece.type, undefined, false));
+              if (canPromote) {
+                moves.push(createMove(player, from, { row: r, col: c }, piece.type, undefined, true));
+              }
             }
           }
 
@@ -401,9 +441,9 @@ export function getCheckingPieces(
 }
 
 // 詰み判定
-export function isCheckmate(state: GameState, player: Player, variant: RuleVariant = STANDARD_VARIANT): boolean {
+export function isCheckmate(state: GameState, player: Player, variant: RuleVariant = STANDARD_VARIANT, cardState?: CardGameState): boolean {
   if (!isInCheck(state, player, variant)) return false;
-  return getLegalMoves(state, player, variant).length === 0;
+  return getLegalMoves(state, player, variant, cardState).length === 0;
 }
 
 // 打ち歩詰め判定
@@ -439,9 +479,10 @@ export function getLegalDropMoves(
 export function getFullLegalMoves(
   state: GameState,
   player: Player,
-  variant: RuleVariant = STANDARD_VARIANT
+  variant: RuleVariant = STANDARD_VARIANT,
+  cardState?: CardGameState
 ): Move[] {
-  const boardMoves = getPieceMoves_all(state, player, variant).filter(
+  const boardMoves = getPieceMoves_all(state, player, variant, cardState).filter(
     (m) => !leavesKingInCheck(state, m, player, variant)
   );
   const dropMoves = getLegalDropMoves(state, player, variant);
@@ -451,14 +492,15 @@ export function getFullLegalMoves(
 function getPieceMoves_all(
   state: GameState,
   player: Player,
-  variant: RuleVariant
+  variant: RuleVariant,
+  cardState?: CardGameState
 ): Move[] {
   const moves: Move[] = [];
   for (let row = 0; row < variant.boardSize.rows; row++) {
     for (let col = 0; col < variant.boardSize.cols; col++) {
       const piece = state.board[row][col];
       if (piece && piece.owner === player) {
-        moves.push(...getPieceMoves(state, { row, col }, player, variant));
+        moves.push(...getPieceMoves(state, { row, col }, player, variant, cardState));
       }
     }
   }
@@ -639,11 +681,12 @@ export function hasOneMoveMate(
   state: GameState,
   player: Player,
   variant: RuleVariant = STANDARD_VARIANT,
+  cardState?: CardGameState,
 ): boolean {
   const opponent: Player = player === "sente" ? "gote" : "sente";
-  const moves = getLegalMoves(state, player, variant);
+  const moves = getLegalMoves(state, player, variant, cardState);
   for (const m of moves) {
-    if (isCheckmate(applyMove(state, m), opponent, variant)) return true;
+    if (isCheckmate(applyMove(state, m), opponent, variant, cardState)) return true;
   }
   return false;
 }

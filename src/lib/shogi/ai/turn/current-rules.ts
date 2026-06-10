@@ -53,7 +53,11 @@ export class CurrentRules implements TurnRules {
   //   追加するが、production 経路は依然 findBestMove → getSearchLegalMoves 直接呼出のため、
   //   本メソッド経由の playCard / draw 候補は production からは未到達)。
   getLegalActions(state: AiTurnState, player: Player): TurnAction[] {
-    const moves = getFullLegalMoves(state.gameState, player, this.variant);
+    // Issue #235 S4a (D-I): card-shogi では cardState を渡してマーク駒の不成手 (最奥段含む) を
+    // 正しく候補化し、幻の成り手を生成しない。standard は cardState 未供給で従来等価。
+    const cardState =
+      this.variant.id === "card-shogi" ? state.cardState : undefined;
+    const moves = getFullLegalMoves(state.gameState, player, this.variant, cardState);
     const actions: TurnAction[] = moves.map((move) => ({ kind: "move" as const, move }));
 
     if (state.isRoot === true && this.variant.id === "card-shogi") {
