@@ -12,6 +12,7 @@ import { MoveHistory } from "./move-history";
 import { GameControls } from "./game-controls";
 import { PromotionDialog } from "./promotion-dialog";
 import { BoardOverlay } from "./board-overlay";
+import { AiThinkingIndicator } from "./ai-thinking-indicator";
 import type { OverlayEvent } from "./board-overlay";
 import { AiErrorModal } from "./ai-error-modal";
 import { RematchErrorBanner } from "./rematch-error-banner";
@@ -118,6 +119,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
     isAiThinking,
     promotionPendingMove,
     aiError,
+    aiAutoRetrying,
     selectSquare,
     selectHandPiece,
     confirmPromotion,
@@ -308,6 +310,9 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
               squareSize={squareSize}
               isMobile={isMobile}
             />
+            {/* Issue #235 派生 (504 UX 改善): CPU 思考中の盤中央インジケータ。
+                自動リトライ中は「長考中 ...」へ切替 (失敗を露出せず長考として見せる)。 */}
+            <AiThinkingIndicator visible={isAiThinking} longThinking={aiAutoRetrying} />
             <BoardOverlay key={overlayEvent?.key} event={overlayEvent?.event ?? null} />
             {/* Issue #225: 詰み時に負けた側の玉へ赤い斬撃演出 (永続) を重ねる */}
             <KingSlashOverlay

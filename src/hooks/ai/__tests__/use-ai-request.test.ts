@@ -285,6 +285,69 @@ describe("useAiRequest - HTTP / network retry 経路", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
+  // Issue #235 派生 (504 UX 改善): 自動リトライ開始の UI 通知 (「長考中 ...」切替) コールバック。
+  it("onAutoRetry はリトライ試行へ入った時のみ 1 回発火 (503 → 200)、初回成功では不発", async () => {
+    const onAutoRetry = vi.fn();
+    const onError = vi.fn();
+    const { result } = renderHook(() =>
+      useAiRequest({ onError, onAutoRetry, maxRetries: 1 }),
+    );
+
+    // ケース 1: 初回成功 → onAutoRetry 不発
+    fetchSpy.mockResolvedValueOnce(jsonResponse(sampleAiResponse));
+    let p1!: ReturnType<ReturnType<typeof useAiRequest>["requestMove"]>;
+    await act(async () => {
+      p1 = result.current.requestMove(makeParams());
+    });
+    const r1 = await p1;
+    expect(r1.stale).toBe(false);
+    expect(onAutoRetry).not.toHaveBeenCalled();
+
+    // ケース 2: 503 → 200 のリトライ成功 → onAutoRetry が 1 回発火、onError 不発
+    fetchSpy
+      .mockResolvedValueOnce(jsonResponse({ error: "unavail" }, { status: 503 }))
+      .mockResolvedValueOnce(jsonResponse(sampleAiResponse));
+    let p2!: ReturnType<ReturnType<typeof useAiRequest>["requestMove"]>;
+    await act(async () => {
+      p2 = result.current.requestMove(makeParams());
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    const r2 = await p2;
+    expect(r2.stale).toBe(false);
+    expect(onAutoRetry).toHaveBeenCalledTimes(1);
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("onAutoRetry はリトライも失敗 (504×2) の場合も 1 回のみ発火し、その後 onError が発火", async () => {
+    const onAutoRetry = vi.fn();
+    const onError = vi.fn<(e: AiRequestError) => void>();
+    const { result } = renderHook(() =>
+      useAiRequest({ onError, onAutoRetry, maxRetries: 1 }),
+    );
+
+    fetchSpy
+      .mockResolvedValueOnce(jsonResponse({ error: "timeout" }, { status: 504 }))
+      .mockResolvedValueOnce(jsonResponse({ error: "timeout" }, { status: 504 }));
+
+    let promise!: ReturnType<ReturnType<typeof useAiRequest>["requestMove"]>;
+    await act(async () => {
+      promise = result.current.requestMove(makeParams());
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    const r = await promise;
+    expect(r.stale).toBe(true);
+    expect(onAutoRetry).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "http", status: 504 }),
+    );
+  });
+
   it("HTTP 4xx (例: 400) は retry せず onError を発火し fetch は 1 回のみ", async () => {
     const onError = vi.fn<(e: AiRequestError) => void>();
     const { result } = renderHook(() =>

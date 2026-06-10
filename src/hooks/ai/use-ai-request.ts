@@ -63,16 +63,25 @@ export interface AiMoveResponse {
 export interface UseAiRequestOptions {
   // 連続失敗時に呼ばれる。ユーザー向けエラーモーダルを表示する想定。
   onError?: (err: AiRequestError) => void;
+  // Issue #235 派生 (504 UX 改善、2026-06-10): 自動リトライ試行へ入った瞬間に呼ばれる。
+  // UI 側はこれを受けて思考表示を「考え中 ...」→「長考中 ...」へ切替え、ユーザーには
+  // 「CPU が長考している」ように見せる (失敗を露出せず待ちの姿勢を作る)。
+  // リトライも失敗した場合は従来どおり onError → エラーモーダルでユーザーに委ねる。
+  onAutoRetry?: () => void;
   // 全体タイムアウト (ms)。リトライを含む overall 上限。
-  // Issue #176 timeout-fix F4: maxDuration=10s × 2 試行 + backoff 300ms = 20.3s が
-  // 最悪論理累積だが、overallTimeoutMs はその外側に来る hard deadline で 12s に
-  // 設定 (1 試行 10s + backoff 300ms + 2 試行目 1.7s で打切 → modal 提示)。
-  // デフォルト 12000ms。
+  // Issue #176 timeout-fix F4 で 12s に設定していたが、その値では 1 試行目が 504
+  // (サーバ応答 ≈ 10.3〜11s) のときリトライ 2 試行目が ~1.7s しか走れず、
+  // 「自動リトライがあるのに 504 連鎖では構造的に無力」だった。
+  // Issue #235 派生 (2026-06-10): 2 試行目にも完全な実行窓を与える 24s へ拡張
+  // (最悪連鎖 = 1 試行目 11s + backoff 0.3s + 2 試行目 11s ≈ 22.3s < 24s)。
+  // エンジン側は同日の 504 修正 (action-phase budget) で最悪 ≈ 5.1s に bound 済のため、
+  // 通常はこの上限に遠く届かない (本値は真の 504 連鎖時の外側 hard deadline)。
+  // デフォルト 24000ms。
   overallTimeoutMs?: number;
   // 自動リトライ回数 (これ以外に最初の試行 1 回がある)。デフォルト 1。
   // Issue #176 timeout-fix F4: 旧 default=2 では (1 試行 5s × 3 + backoff 累積)
   // が 15s を踏み超え overall timer が retry 中に発火 → 永久停止の誘発要因と
-  // なっていた。retry=1 + backoff 短縮で累積 10.3s ≪ 12s に整合。
+  // なっていた。retry=1 を維持 (1 回目の失敗 = 自動リトライ、2 回目の失敗 = modal)。
   maxRetries?: number;
 }
 
@@ -153,7 +162,7 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 export function useAiRequest(options: UseAiRequestOptions = {}) {
-  const { onError, overallTimeoutMs = 12000, maxRetries = 1 } = options;
+  const { onError, onAutoRetry, overallTimeoutMs = 24000, maxRetries = 1 } = options;
 
   // 現在 in-flight な AbortController。新規 request で前回を abort し、stale 応答
   // を確実に捨てる。
@@ -233,6 +242,9 @@ export function useAiRequest(options: UseAiRequestOptions = {}) {
             return handleAbort();
           }
           if (attempt > 0) {
+            // Issue #235 派生 (504 UX 改善): 自動リトライ開始を UI へ通知
+            // (「考え中 ...」→「長考中 ...」切替。失敗を露出せず長考として見せる)。
+            onAutoRetry?.();
             try {
               await delay(backoffMs(attempt), controller.signal);
             } catch {
@@ -286,7 +298,7 @@ export function useAiRequest(options: UseAiRequestOptions = {}) {
         }
       }
     },
-    [maxRetries, onError, overallTimeoutMs],
+    [maxRetries, onError, onAutoRetry, overallTimeoutMs],
   );
 
   return { requestMove, cancel };
