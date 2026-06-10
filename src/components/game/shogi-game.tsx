@@ -118,6 +118,7 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
     isAiThinking,
     promotionPendingMove,
     aiError,
+    aiAutoRetrying,
     selectSquare,
     selectHandPiece,
     confirmPromotion,
@@ -307,6 +308,10 @@ export function ShogiGame({ initialGameState, gameId, gameConfig: serializableCo
               onSquareClick={selectSquare}
               squareSize={squareSize}
               isMobile={isMobile}
+              // Issue #235 派生 (504 UX 改善): CPU 思考中の盤中央インジケータ。
+              // ShogiBoard 内でグリッド中央に正確に重ねる。自動リトライ中は「長考中 ...」。
+              aiThinkingIndicatorVisible={isAiThinking}
+              aiThinkingLongThinking={aiAutoRetrying}
             />
             <BoardOverlay key={overlayEvent?.key} event={overlayEvent?.event ?? null} />
             {/* Issue #225: 詰み時に負けた側の玉へ赤い斬撃演出 (永続) を重ねる */}

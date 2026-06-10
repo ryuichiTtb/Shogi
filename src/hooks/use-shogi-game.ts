@@ -273,12 +273,17 @@ export function useShogiGame({
   // - retry trigger は aiRetryCounter で effect 再走させる
   const [aiError, setAiError] = useState<AiRequestError | null>(null);
   const [aiRetryCounter, setAiRetryCounter] = useState(0);
+  // Issue #235 派生 (504 UX 改善): 自動リトライ中フラグ。思考インジケータの文言を
+  // 「考え中 ...」→「長考中 ...」へ切替える (card-shogi 側と同一パターン)。
+  const [aiAutoRetrying, setAiAutoRetrying] = useState(false);
   const handleAiError = useCallback((err: AiRequestError) => {
     setAiError(err);
     dispatch({ type: "SET_AI_THINKING", thinking: false });
   }, []);
+  const handleAiAutoRetry = useCallback(() => setAiAutoRetrying(true), []);
   const { requestMove: aiRequestMove, cancel: cancelAiRequest } = useAiRequest({
     onError: handleAiError,
+    onAutoRetry: handleAiAutoRetry,
   });
 
   // AI自動応手
@@ -303,6 +308,9 @@ export function useShogiGame({
         variantId: gameConfig.variant.id,
         clientMoveCount: gameState.moveCount,
       });
+      // Issue #235 派生 (504 UX 改善): リクエスト解決 = 自動リトライ局面の終了。
+      // 成功 / stale のどちらでも「長考中」表示を解除する。
+      setAiAutoRetrying(false);
       if (result.stale) {
         // 待った / 終局 / unmount / 上書きで stale 化、あるいは onError で
         // 既に setAiError 済み。ここでは isAiThinking のクリーンアップのみ。
@@ -499,6 +507,8 @@ export function useShogiGame({
     isAiThinking: state.isAiThinking,
     promotionPendingMove: state.promotionPendingMove,
     aiError,
+    // Issue #235 派生 (504 UX 改善): 自動リトライ中 = 思考表示を「長考中 ...」へ切替
+    aiAutoRetrying,
     selectSquare,
     selectHandPiece,
     confirmPromotion,

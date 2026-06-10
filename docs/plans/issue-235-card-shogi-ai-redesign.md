@@ -66,7 +66,7 @@
 
 ### L2 — 不完全情報探索エンジン (TurnAction が一級市民)
 - move/draw/playCard を区別しない**単一の探索木**。negamax を `WorldState × TurnAction` に拡張し、αβ/TT/killer/history/LMR/quiescence をカード込みで効かせる (詳細 §6)。
-- leaf 評価 = 盤面評価 (既存 evaluators 7成分) + **ValueModel 集約** (内容・局面依存)。子ノードで digest 更新 (P1/P6/P7 解消)。
+- leaf 評価 = 盤面評価 (既存 evaluators 7成分) + **ValueModel 集約** (内容・局面依存) + **汎用評価拡張基盤 (EvalFeature registry) の拡張寄与** (状態異常 no_promote の per-piece 評価を最初の具体例に、将来要素を宣言的に差し込める。§6 item 7)。子ノードで digest 更新 (P1/P6/P7 解消)。
 - **ビジョン④** を満たす。
 
 ### L3 — 相手モデル/メタ認知 (不完全情報)
@@ -147,6 +147,41 @@ type EffectSpec =
 4. **TT**: zobrist を cardState 込みに拡張 (`hashLo ^ digestHash`、mana/手札カウント/trap/drawProgress を 32-bit ハッシュ化)。同一盤面・異 cardState の誤 hit 解消 (P6)。card-aware ノードは保守的 store。
 5. **爆発抑制** (最重要、critique F4/R5): ノード分岐を **move 上位 M (`scoreMoveForOrdering`) + カード候補 top-K + draw** に selector で絞る。難易度別 maxDepth/budget/M/K で棋力差。深さ予算超過は findBestMove 既定 move へフォールバック (既存 deadline 流用)。**S0 PoC で「±10% を実現する M/K/budget が存在するか」を先に確定** (C-2 実測 budget=3≈130万 evaluate を起点)。
 6. **相手カード**: 既定は相手 move-only (性能安全)。超上級のみ OpponentModel の確率分布で相手 playCard/draw を期待値展開 (S5)。
+7. **汎用評価拡張基盤 (EvalFeature registry、2026-06-10 ユーザー要件追加。3観点 adversarial 検証 (code-fit 事実検証 / 性能・レイヤリング / 将来拡張性ストレステスト) 反映済)**: カード将棋は今後のエンハンスで新要素 (状態異常・新資源・盤面持続効果等) が追加され続ける。**新たな評価基準が出るたびに探索/評価コードを場当たり改修するのではなく、ゲーム要素が触れる接面を標準化し宣言的に差し込める基盤を S4 で構築する**。最初の具体例 = 状態異常 `no_promote` (成り無効化マーク: 取られる/駒戻し系で手駒復帰しない限り**永久に成れない**) の移行。
+
+   **7.1 現状の確認済みギャップ (2026-06-10、全件実コード file:line で confirmed)**:
+   - 探索木 (negamax `search.ts:323` / quiescence `search.ts:236`) は `GameState` のみ伝播 (`applyMoveForSearch` は盤+持ち駒のみ)。cardDigest は root スカラー定数 (W-1) → **リーフに「この駒は成れない」情報が物理的に届かない**。
+   - リーフ評価が満額評価: マーク駒も `PIECE_VALUES` 満額 (`material.ts:39-49`)、自分が封じた相手大駒も満額の成り脅威 (`promotion-threat.ts:23-65` のファントム脅威、rook=150 等)。
+   - **符号逆バグ**: `move-effects.ts:127` はマークを**封じられた被害者本人**の配列に積む (`noPromoteMarks[p]` = p 自身の成れない駒) のに、`digest.ts:135-137` は「自マーク多=有利」と +30cp/個 加算 = **自駒が封じられるほど AI が有利と誤評価** (#193 PR1d-4 由来)。
+   - **幻の成り手 (事実確定)**: 着手生成3面 (`moves.ts` 幾何生成 / `legal-moves.ts:25-31` 透過 wrap / `captureGen.ts` 独自生成) + `applyMoveForSearch` の無条件成り適用 + 手順序付けの成り優遇 (`scoreMove` +50000 / `scoreMoveForOrdering` +200) が**全て mark-blind** → AI はマーク駒の幻の成り (と金 +500cp 級) を探索内で満額で読み、root 採用後に `move-effects.ts:88-90` の silent block (promote:false 矯正) で**読み筋と実盤面が乖離**する。
+   - 派生: **armed (未発動) no_promote トラップ越しの成り**も探索は無視 (成り矯正+マーク付与+トラップ消費が読みに入らない)。
+   - **UI/kernel のルール意味論分裂 (新発見)**: マーク駒の mustPromote マス (歩香の最奥段等) 進入は、UI (`reducer.ts:400` フィルタ) では選択不可・kernel (silent block) では不成進入 = 行き所のない駒、と挙動が割れている → **§11 D-I (ユーザー判断)**。
+
+   **7.2 基盤設計 = 5接面の標準化** (新ゲーム要素はこの5接面に触れる。各接面に宣言点を1つずつ用意し、漏れを型+テストで強制検出):
+   - **(i) 状態表現 (L0)**: 状態 slice を WorldState (`CardGameState`) に追加 (既存パターン、例 noPromoteMarks)。
+   - **(ii) 状態伝播 + TT fold (L0/L2)**: S4 の WorldState 搬送探索に乗せ、**TT fold ポリシーを slice ごとに型強制で宣言**: `Record<keyof CardGameState, "fold" | "evalIrrelevant">` — 新 slice を追加すると fold 方針を書くまでコンパイルが落ちる (宣言忘れ = silent TT 誤ヒット、を型レベルで排除。「全 slice が fold or 宣言済除外」unit test も DoD)。fold 実装 = **slice 参照変化検知 + slice fold 全量再計算** (updateCardDigest パターン流用、各 slice O(small)。純 XOR 差分宣言より堅牢)。mana/drawProgress は毎 ply 変化する path-length 関数のため明示 excluded 可 (fold すると異深度 transposition が全滅し正確性向上は僅少)。マーク/トラップ/doubleMove は合法手・評価を実際に変えるため fold 必須。hand fold は **defId 多重集合**で正規化 (instanceId 混入は等価局面の transpose を永久に殺す)。**check_break 発火等「move 以外の盤面変更」ノードは incremental updateHash でなく盤面 hash 全量再計算でゲート** (kernel 戻り値 `triggeredCheckBreak` 等で検知。カード/発火ノードは稀でコスト許容 — これを欠くと incremental hash が silent に狂い TT が汚染される)。
+   - **(iii) 行動生成 (二分 — 解決層を明確に分離)**:
+     - ① **合法性制約 (L0)**: 「指せない」を変える状態異常 (将来の凍結系等) は WorldState-aware な着手生成 (L0 単一 predicate) に実装し、**kernel 終局判定・reducer/UI・AI 探索の三者が同一関数を共有** (三重実装分裂の構造的防止。探索内詰み判定と実ルールの乖離も防ぐ)。no_promote の成り可否 predicate もここに置き、UI フィルタ (`reducer.ts:400`) と統一。
+     - ② **探索内 transform (L2)**: no_promote の幻成り対策。生成3面 (root `getLegalActions` / `getSearchLegalMoves` / `captureGen` 2関数) で「マーク駒の promote:true → **promote:false 置換** + 既存不成変種と重複時 drop」。**除去ではない** (mustPromote マスで「探索: 移動不可 / 実盤面: 不成で可能」の逆乖離が生じるため)。生成段置換なら手順序付けの幻成り優遇も自動是正される (後段フィルタ方式は順序付けに幻成りが残るため不採用)。
+     - **armed トラップ越しの成りは①②の対象外**: 違法ではなく「結果が異なる」手 (トラップを意図的に消費させる価値すらある) → (ii) の WorldState×`makeMoveWithEffects` 遷移が捕捉する。
+   - **(iv) 評価寄与 (L2 リーフ、3寄与型を単一 registry で合成)**:
+     1. **per-piece modifier (状態異常型)**: 駒単位の価値/脅威修正。no_promote = マーク駒の成り上昇分 (`value(promotesTo) − value(type)`) 減価 + 相手マーク駒の成り脅威割引 (ファントム脅威除去)。実装は `computeMaterial` / `evaluatePromotionThreats` への引数追加 (debug 用 `evaluateWithBreakdown` と構造共有し転記2箇所を作らない)。**リーフ毎 Set 構築は禁止**: マーク空なら fast path コストゼロ (現状ほぼ常時)、非空時のみ slice 参照変化で lookup 再構築しノード帯同、マーク≦2 は O(m) インライン比較で割当ゼロ。quiescence 内のマーク追従は from/to 一致時のみ O(m) 追従、または stale 許容を明文化+テスト pin (曖昧にしない)。
+     2. **global scalar (資源・経済型)**: mana/手札/drawProgress 等。**既存 CardDigest = この型のランタイムキャッシュとして一本化** (item 3「子ノードで digest 更新」は registry 駆動 `updateCardDigest` として実装、**二重機構を作らない**)。per-node 割当は per-ply 事前確保バッファで回避 (毎ノード新オブジェクトは ~100万割当/手で GC 負荷)。**`noPromoteMarkCountDelta` フィールド + `NO_PROMOTE_MARK_COEFFICIENT` は per-piece modifier 移行と同時に完全削除** (符号バグはフィールドごと消滅 = ユーザー決定の吸収方針。残すと二重計上)。
+     3. **option value (盤上持続オブジェクト型)**: トラップ option value (S3 valueModel = この型として接続済)。
+     - **リーフはデータ駆動** (新規関数呼び出しゼロ: digest スカラー加算 + nullable lookup 参照のみ)。registry の間接呼び出しは root セットアップ/slice 遷移時に限定 = JIT/inline 阻害を構造的に排除。
+   - **(v) lifecycle (L0)**: 状態の付与・追従・消滅・時限を宣言化: `{ attachedTo: "piece"|"square"|"player", onPieceMoved: "follow"|"stay", onPieceCaptured: "remove"|"stay", onTurnEnd?: "tick"|null }`。kernel は `makeMoveWithEffects`/`applyTurnAction` の固定点で全 slice の宣言を一括実行。**現行 no_promote のインライン (move-effects.ts:109-127 の follow/capture-cleanup) を最初の移行例**とする。時限効果 (Nターンで消滅)・マス付着効果 (駒に追従しない) はこの接面で吸収 (ECS から借りるのはこの宣言型 lifecycle のみ。フル ECS 化は immutable spread + JSON serialize + イベント駆動 undo の現アーキと相性が悪く不採用)。
+
+   **7.3 L1 接続 (CardSpec 宣言スロット)**: CardSpec に `statusEffect` (**意味論のみ**宣言、例 `{ kind: "no_promote", blocksPromotion: true }`) + `validTargets?: (world: CardWorldView, player) => CardTarget[]` (状態異常解除カード (#82 実在候補) 等「cardState を見るターゲット列挙」対応 — 現 `isValidCardTargetSquare` は GameState 止まりで宣言だけでは差し込めない) を追加。**cp 係数は ai 側 registry に置く** (L1 に cp を書くと cards→ai 逆流 or 駒価値テーブル4重化 [material/moves/ORDER_PIECE_VALUES に既に3つ]。S3 D-KS=C「cards は moves/variants プリミティブのみ」を維持)。シグネチャは `CardWorldView` ベース (型循環回避 D1-1 踏襲)、S2d ESLint client 境界の対象に新スロットも含める。
+
+   **7.4 基盤が買うもの (正直な2階層定義 — オーバープロミス防止)**:
+   - **(A) 既存 status 概念を再利用する新カード** = spec 宣言のみで (i)〜(v) 自動追従 (例: 別の駒/条件で no_promote を付与する新カード)。
+   - **(B) 新しい status 概念の導入** = slice/lifecycle/fold/eval/targeting/selector の **6点は実装が必要**。基盤の価値は「コードゼロ」ではなく「**接面の宣言漏れを型 (fold 強制 Record・exhaustive check) とテストで構造的にゼロにする**」こと。(B) の6点チェックリストは S4 完了時に AGENTS.md「新規カード追加時のチェックリスト」へ反映。
+   - **スコープ外 (v1 明示)**: 駒の利き/動きを変える movement 系 status は registry v1 対象外 (movement 前提が moves/captureGen/攻撃判定/評価に全域分散。`resolveEffectivePieceDef(piece, statusMarks)` 解決層の新設 = 別 epic 規模。導入時は §11 に新規判断事項として起票)。
+   - 将来要素ストレステスト済: 状態異常解除カード=(iv)1+7.3 validTargets / 凍結系=(iii)① / 駒強化バフ=価値は(iv)1・movement はスコープ外宣言 / マス付着オーラ=(v) attachedTo:"square" / 動的マナ上限=(iv)2+下記負債③④ / 時限効果=(v) onTurnEnd:"tick"。
+
+   **7.5 同時精算する既知負債 (S4 スコープ)**: ① `noPromoteMarkCountDelta` 符号逆バグ (フィールド削除で消滅) ② 幻の成り手 (7.1、(iii)②で解消) ③ `digest.manaCap` が cardState 非参照で定数 `MANA_CAP` 焼き込み (`digest.ts:82` — 動的マナ上限構想の前提是正。現行値では挙動不変) ④ `DEAD_MANA_THRESHOLD=16` の cap 比率化 (cap×0.8、cap 変動時の誤発火防止) ⑤ `world-kernel.ts:49` の TurnAction 型 ai/ import (L0→L2 型逆依存) を kernel/中立 types へ昇格 ⑥ top-K selector とセンチネル0価値カードの接続規約 (「探索で価値が創発する」解除カード等が候補選別で飢餓しない — per-piece modifier 定義から復元価値を O(marks) で機械算出し選別上界に使う)。
+
+   **7.6 性能ゲート**: depthCompleted ±10% (§12) に加え、S4 bench に **nodes/s・TT hit-rate カウンタ**を追加 (退行時に fold 起因か eval 起因かを切り分け可能にする)。
 
 ### 移行戦略 (critique R9, F6)
 一気に置換せず: (a) card-shogi 専用 TurnAction-negamax を既存 move-only negamax と**並走** (standard は触らない) → (b) bench で depthCompleted/棋力を旧経路と比較 → (c) 優位確認後に engine root 統合切替。standard は当面既存 negamax 温存 (二重保守期限は §11 D-B)。
@@ -163,7 +198,7 @@ type EffectSpec =
 | **S1** | refactor | L0 状態/ルールカーネル統合 | `WorldState`+`applyTurnAction` 新設、reducer/AI がカーネル委譲。reducer.test/undo-policy.test/effects.test 不変 (property-based 等価)。standard byte-level 不変 |
 | **S2** | refactor+feature | L1 カードフレームワーク化 | `CardSpec` registry + EffectSpec。既存7カード移植 (legacy wrapper 経由の段階移行可)。CardId codegen。effects/reducer分岐/undo を registry 駆動 |
 | **S3** | feature | L1 内容依存値付け | ValueModel でカードを局面・コスト依存に。固定係数 (TRAP_VALUE_* 等) 脱却。digest は集約キャッシュへ。bench で旧評価比較・校正 |
-| **S4** | feature | L2 TurnAction 単一探索 + TT 拡張 **(最重要)** | card-shogi 専用 TurnAction-negamax (standard 温存)。zobrist cardState 拡張・誤hit対策。selector(M/K/budget)。double_move 木統合。**S4a で実エンジンに selector を載せ M/K 再校正 → before-baseline 比 depthCompleted ±10%** (PoC-1 は same-engine 比で枝刈り余地を確認済、production 絶対比は S4a 実測) + カード使用率改善 |
+| **S4** | feature | L2 TurnAction 単一探索 + TT 拡張 + **汎用評価拡張基盤** **(最重要)** | card-shogi 専用 TurnAction-negamax (standard 温存)。zobrist cardState 拡張・誤hit対策 (fold 型強制)。selector(M/K/budget)。double_move 木統合。**EvalFeature registry (§6 item 7: 5接面標準化 + 状態異常 no_promote per-piece 評価を最初の具体例に + 符号バグ/幻成り/既知負債6件の同時精算、2026-06-10 ユーザー要件)**。**S4a で実エンジンに selector を載せ M/K 再校正 → before-baseline 比 depthCompleted ±10%** (PoC-1 は same-engine 比で枝刈り余地を確認済、production 絶対比は S4a 実測) + カード使用率改善 |
 | **S5** | feature | L3 相手モデル/期待値読み (超上級) | OpponentModel (ベイズ残り手札)。eventLog 伝播+永続化。相手ノード確率分岐+閾値枝刈り。超上級のみ。フェアネス (手札非透視) を test 固定。**依存 (blocking): eventLog 永続化は #193 PR1e の DB schema と協調が前提 → S5 着手条件に PR1e completion を明記** |
 | **S6** | chore+feature | 仕上げ・新カード運用確立 | テンプレ化された追加フロー (AGENTS.md 更新)。phase 別レアリティ上限 config 化。exhaustive fixture。Phase A カードを新フローで1枚追加し工数・品質実証 |
 
@@ -345,6 +380,7 @@ L0 統合 (reducer/AI が単一カーネル `applyTurnAction` に委譲) は最�
 | **D-F** | レアリティ上限バージョニング | `CardSystemConfig` の config で runtime 切替 (DB schema 不変) を既定。頻繁な試験変更に強い |
 | **D-G** | 移行のリスク許容度 | big-bang 不可。S0-S6 段階 + 各段 DoD (depthCompleted ±10%, カード使用率目標) を PoC 結果で確定 |
 | **D-H** | フェアネス是正の時期 | S1-S2 中間で「相手手札を探索入力から早期遮断」を推奨。移行設計: (1) `anonymizeOpponentHand()` で探索入力から相手手札中身を除去 + 「AI が相手手札中身を入力に使わない」を assert する test fixture を先に作成、(2) 現評価の `handValueDelta` 等が相手手札枚数に依存する箇所を「公開情報 (枚数は可視) のみ」に整理し透視前提を段階的に剥がす |
+| **D-I** | no_promote マーク駒の mustPromote マス進入のルール正解 (2026-06-10 発見、§6 item 7.1) | 現状 **UI と kernel で意味論が分裂**: UI (`reducer.ts:400` フィルタ) = 進入不可 (マーク歩の最奥段行きは唯一の生成手 promote:true がフィルタされ選択不能)、kernel (`move-effects.ts:88-90` silent block) = 不成進入 = **行き所のない駒**が成立。**推奨 = (a) 進入自体を非合法化** (本将棋の「行き所のない駒」原則と整合し UI 現挙動を正とする。kernel/着手生成も WorldState-aware predicate (§6 7.2 (iii)①) で統一)。代替 (b) = 不成進入許容 (kernel 現挙動を正とし UI フィルタを緩める)。S4 (iii) 実装前にユーザー確認 |
 
 ---
 

@@ -62,6 +62,14 @@ export interface SearchContext {
   // 既定 false。AI 探索の lookahead は手番時間を持たないため manaCharge の早指し判定は
   // 本来不要だが、kernel の makeMoveWithEffects に正しく伝播するため保持する。
   spectatorMode?: boolean;
+  // Issue #235 派生 (Vercel 504 対策、2026-06-10): root アクション評価フェーズ (カード/ドロー
+  // lookahead + double_move super-action) 専用の hard deadline (performance.now() 基準)。
+  // deep search は deadlineAt (= startedAt + timeLimitMs) を使い切ってから返るため、その後に
+  // 走るアクション評価は別予算で bound しないと無制限になる (実測: 終盤の二手指し super-action
+  // 1 回 ≈ 4s 超 → Vercel maxDuration 10s 超過で FUNCTION_INVOCATION_TIMEOUT)。
+  // engine.ts が ACTION_PHASE_BUDGET_RATIO から設定する。未設定 (undefined) = 無制限
+  // (既存テスト / fixture 生成 (maxDepth 指定) の決定論を保つ互換動作)。
+  actionPhaseDeadlineAt?: number;
 }
 
 export interface CreateSearchContextOptions {
@@ -111,6 +119,17 @@ export function shouldStop(ctx: SearchContext): boolean {
     }
   }
   return false;
+}
+
+// root アクション評価フェーズの時間切れ判定 (Vercel 504 対策)。
+// 呼び出し頻度は super-action の combo 単位 (~数百〜千回/手、1 combo ≈ ms 級) のため、
+// node カウンタによる間引きは不要 (performance.now() 直呼びのコストは combo 処理の 1/10000 以下)。
+// ctx 未渡し / actionPhaseDeadlineAt 未設定の経路 (テスト・fixture) では常に false = 無制限互換。
+export function isActionPhaseTimeUp(ctx: SearchContext | undefined): boolean {
+  return (
+    ctx?.actionPhaseDeadlineAt !== undefined &&
+    performance.now() >= ctx.actionPhaseDeadlineAt
+  );
 }
 
 // 探索終了時に SearchStats を構築する。

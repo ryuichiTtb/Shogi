@@ -114,17 +114,45 @@ describe("getCardActions (BEGIN_PLAY_CARD 7 項目を AI 側で再現)", () => {
     expect(actions).toEqual([]);
   });
 
-  it("PlayCardAction の cardInstanceId は手札の instance.instanceId と一致 (重複 instance がない)", () => {
+  it("同一 defId の重複インスタンスは dedupe され先頭インスタンスのみ候補化 (Vercel 504 対策)", () => {
+    // Issue #235 派生: 使用可否 ((4)〜(7))・効果・評価は defId と局面にのみ依存しコピー間で
+    // 完全等価のため、2 枚目以降の同種カードは候補化しない。旧仕様は instance ごとに重複候補を
+    // 生成し、二手指し複数枚で super-action (数秒/回) が枚数分重複評価され Vercel maxDuration
+    // 10s 超過 (FUNCTION_INVOCATION_TIMEOUT) の主因だった (実測: 3 枚で計 11.4s)。
+    // 採用 instanceId は旧仕様でも argmax の strict > により先頭コピーだったため選択結果は不変。
     const state = makeAiTurnState();
     state.cardState.hand.sente = [
       makeCardInstance("pawn_return", "sente-unique-id-1"),
       makeCardInstance("pawn_return", "sente-unique-id-2"),
     ];
     const actions = Array.from(getCardActions(state, "sente", CARD_SHOGI_VARIANT));
-    // それぞれの instance で別の PlayCardAction 群が生成される (square ごとに instance 別)
     const ids = new Set(actions.map((a) => (a.kind === "playCard" ? a.cardInstanceId : null)));
     expect(ids.has("sente-unique-id-1")).toBe(true);
-    expect(ids.has("sente-unique-id-2")).toBe(true);
+    expect(ids.has("sente-unique-id-2")).toBe(false);
+    // dedupe してもターゲット列挙 (先頭インスタンス分) は維持される
+    expect(actions.length).toBeGreaterThan(0);
+  });
+
+  it("二手指し複数枚は 1 候補に dedupe される (重複 super-action 評価の防止)", () => {
+    const state = makeAiTurnState();
+    state.cardState.mana.sente = 20;
+    state.cardState.hand.sente = [
+      makeCardInstance("double_move", "dm-1"),
+      makeCardInstance("double_move", "dm-2"),
+      makeCardInstance("double_move", "dm-3"),
+      makeCardInstance("pawn_return", "pr-1"),
+    ];
+    const actions = Array.from(getCardActions(state, "sente", CARD_SHOGI_VARIANT));
+    const dmActions = actions.filter(
+      (a) => a.kind === "playCard" && a.defId === "double_move",
+    );
+    expect(dmActions).toHaveLength(1);
+    expect(dmActions[0].kind === "playCard" && dmActions[0].cardInstanceId).toBe("dm-1");
+    // 異種カード (pawn_return) の候補は dedupe の影響を受けない
+    const prActions = actions.filter(
+      (a) => a.kind === "playCard" && a.defId === "pawn_return",
+    );
+    expect(prActions.length).toBeGreaterThan(0);
   });
 });
 

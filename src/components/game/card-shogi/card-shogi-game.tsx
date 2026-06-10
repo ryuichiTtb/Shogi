@@ -414,6 +414,7 @@ export function CardShogiGame({
     undoDoubleMoveFirst,
     cancelDoubleMove,
     aiError,
+    aiAutoRetrying,
     retryAiMove,
     // Issue #193 / PR1a: 観戦モード専用 (一時停止 / 再開)。spectatorMode は
     // serializableConfig 経由で取得済 (上の const spectatorMode = ...)。
@@ -1742,6 +1743,11 @@ export function CardShogiGame({
               noPromoteSquares={noPromoteSquares}
               hiddenSquares={hiddenBoardSquares}
               forbiddenMateSquares={forbiddenMateMoves.map((m) => m.to)}
+              // Issue #235 派生 (504 UX 改善): CPU 思考中の盤中央インジケータ。
+              // ShogiBoard 内でグリッド中央に正確に重ねる。観戦モード (両者 AI) は非表示。
+              // 自動リトライ中は「長考中 ...」へ切替 (失敗を露出せず長考として見せる)。
+              aiThinkingIndicatorVisible={isAiThinking && !spectatorMode}
+              aiThinkingLongThinking={aiAutoRetrying}
             />
             <BoardOverlay
               key={overlayEvent?.key}
@@ -2150,6 +2156,11 @@ export function CardShogiGame({
               noPromoteSquares={noPromoteSquares}
               hiddenSquares={hiddenBoardSquares}
               forbiddenMateSquares={forbiddenMateMoves.map((m) => m.to)}
+              // Issue #235 派生 (504 UX 改善): CPU 思考中の盤中央インジケータ。
+              // ShogiBoard 内でグリッド中央に正確に重ねる。観戦モード (両者 AI) は非表示。
+              // 自動リトライ中は「長考中 ...」へ切替 (失敗を露出せず長考として見せる)。
+              aiThinkingIndicatorVisible={isAiThinking && !spectatorMode}
+              aiThinkingLongThinking={aiAutoRetrying}
             />
             <BoardOverlay
               key={overlayEvent?.key}

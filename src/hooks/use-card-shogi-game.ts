@@ -93,12 +93,18 @@ export function useCardShogiGame({
   // Issue #176: AI 思考リクエストを Route Handler 経由に統一する。
   const [aiError, setAiError] = useState<AiRequestError | null>(null);
   const [aiRetryCounter, setAiRetryCounter] = useState(0);
+  // Issue #235 派生 (504 UX 改善): 自動リトライ中フラグ。思考インジケータの文言を
+  // 「考え中 ...」→「長考中 ...」へ切替える (失敗を露出せず長考として見せる)。
+  // リクエスト解決 (成功 / stale / onError → モーダル) で必ずクリアする。
+  const [aiAutoRetrying, setAiAutoRetrying] = useState(false);
   const handleAiError = useCallback((err: AiRequestError) => {
     setAiError(err);
     dispatch({ type: "SET_AI_THINKING", thinking: false });
   }, []);
+  const handleAiAutoRetry = useCallback(() => setAiAutoRetrying(true), []);
   const { requestMove: aiRequestMove, cancel: cancelAiRequest } = useAiRequest({
     onError: handleAiError,
+    onAutoRetry: handleAiAutoRetry,
   });
 
   // AI 自動応手
@@ -149,6 +155,9 @@ export function useCardShogiGame({
         // PR1a (E-1): 観戦モード時は route 側で timeLimitMs を SPECTATOR_TIME_LIMIT_MS=1500ms に短縮する。
         spectatorMode: state.spectatorMode,
       });
+      // Issue #235 派生 (504 UX 改善): リクエスト解決 = 自動リトライ局面の終了。
+      // 成功 / stale (キャンセル・モーダル発火済) のどちらでも「長考中」表示を解除する。
+      setAiAutoRetrying(false);
       if (result.stale) {
         // 待った / 終局 / unmount / 上書き / onError 経由の早期 abort。
         // 既に setAiError 済みかキャンセル済みなので thinking 解除のみ。
@@ -620,6 +629,8 @@ export function useCardShogiGame({
     isCheckBreakAnimating: state.isCheckBreakAnimating,
     doubleMove: state.doubleMove,
     aiError,
+    // Issue #235 派生 (504 UX 改善): 自動リトライ中 = 思考表示を「長考中 ...」へ切替
+    aiAutoRetrying,
     dismissAiError,
     retryAiMove,
     // Issue #193 / PR1a: 観戦モード専用の状態と操作

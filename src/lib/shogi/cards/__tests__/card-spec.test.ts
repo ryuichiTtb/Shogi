@@ -509,34 +509,106 @@ describe("useCondition ≡ CARD_USE_CONDITIONS (§8)", () => {
   });
 });
 
-// ===== 8. valueModel snapshot =====
+// ===== 8. valueModel (S3a: 静的5枚 + トラップ2枚の局面依存) =====
 
-describe("valueModel snapshot (S2 stub、入力非依存)", () => {
-  const EXPECTED: Record<CardId, number> = {
-    no_promote: 50,
-    check_break: 80,
+describe("valueModel: 静的カード (mana_up / 盤面系 / double_move)", () => {
+  // トラップ2枚を除く5枚は S3a でも静的 (mana_up=30、盤面系4枚=0 のセンチネル)。
+  const STATIC_EXPECTED: Partial<Record<CardId, number>> = {
     mana_up: 30,
     pawn_return: 0,
-    piece_return: 0,
     double_pawn: 0,
+    piece_return: 0,
     double_move: 0,
   };
 
-  it("各カードの valueModel が期待静的値を返す", () => {
-    const gs = makeState();
-    for (const id of ALL_CARD_IDS) {
-      expect(CARD_SPECS[id].valueModel(gs, "sente")).toBe(EXPECTED[id]);
-    }
-  });
-
-  it("valueModel は gameState / player に依存しない (S2 stub)", () => {
+  it("期待静的値を返す & gameState / player に依存しない", () => {
     const gsA = makeState();
     const gsB = makeState({ currentPlayer: "gote", moveCount: 50 });
     place(gsB, { row: 4, col: 4 }, { type: "rook", owner: "gote" });
-    for (const id of ALL_CARD_IDS) {
+    for (const [id, expected] of Object.entries(STATIC_EXPECTED) as [CardId, number][]) {
       const vm = CARD_SPECS[id].valueModel;
-      expect(vm(gsA, "sente")).toBe(vm(gsB, "gote"));
+      expect(vm(gsA, "sente")).toBe(expected);
+      expect(vm(gsA, "sente")).toBe(vm(gsB, "gote")); // 入力非依存
     }
+  });
+});
+
+describe("valueModel 局面依存 (S3a): check_break = 自玉露出度", () => {
+  const vm = CARD_SPECS.check_break.valueModel;
+  const P_MIN_VAL = 0.1 * 300; // 露出ゼロ時の gross 下限 (= 30、S3c 校正 TRAP_P_MIN=0.10)
+  const P_MAX_VAL = 0.9 * 300; // 露出最大時の gross 上限 (= 270)
+
+  it("安全玉 (露出ゼロ) / 玉不在は下限値", () => {
+    const safe = makeState();
+    place(safe, { row: 8, col: 4 }, { type: "king", owner: "sente" });
+    expect(vm(safe, "sente")).toBeCloseTo(P_MIN_VAL, 5);
+    // 自玉不在 (異常局面) も露出度 0 = 下限
+    expect(vm(makeState(), "sente")).toBeCloseTo(P_MIN_VAL, 5);
+  });
+
+  it("露出玉 (相手の利き + 王手) は安全玉より高価値、上限以内", () => {
+    const safe = makeState();
+    place(safe, { row: 8, col: 4 }, { type: "king", owner: "sente" });
+    const exposed = makeState();
+    place(exposed, { row: 4, col: 4 }, { type: "king", owner: "sente" });
+    // gote 飛車2枚で縦横から玉を王手 + 近傍に利きを通す。
+    place(exposed, { row: 0, col: 4 }, { type: "rook", owner: "gote" }); // 縦 → 近傍{3,4} + 玉{4,4}王手
+    place(exposed, { row: 4, col: 0 }, { type: "rook", owner: "gote" }); // 横 → 近傍{4,3}
+    const exposedVal = vm(exposed, "sente");
+    expect(exposedVal).toBeGreaterThan(vm(safe, "sente"));
+    expect(exposedVal).toBeLessThanOrEqual(P_MAX_VAL + 1e-6);
+    expect(exposedVal).toBeGreaterThanOrEqual(P_MIN_VAL);
+  });
+
+  it("露出度が大きいほど単調に価値が上がる", () => {
+    // low: 王手なし・近傍のみ被利き / high: 王手あり・近傍被利き
+    const low = makeState();
+    place(low, { row: 4, col: 4 }, { type: "king", owner: "sente" });
+    place(low, { row: 0, col: 3 }, { type: "rook", owner: "gote" }); // 列3縦利き (玉は列4=非王手)
+    const high = makeState();
+    place(high, { row: 4, col: 4 }, { type: "king", owner: "sente" });
+    place(high, { row: 0, col: 4 }, { type: "rook", owner: "gote" }); // 列4縦利き → 王手 + 近傍{3,4}
+    expect(vm(high, "sente")).toBeGreaterThan(vm(low, "sente"));
+  });
+});
+
+describe("valueModel 局面依存 (S3a): no_promote = 相手成り脅威度", () => {
+  const vm = CARD_SPECS.no_promote.valueModel;
+  const P_MIN_VAL = 0.1 * 160; // 脅威ゼロ時の gross 下限 (= 16、S3c 校正 TRAP_P_MIN=0.10)
+  const P_MAX_VAL = 0.9 * 160; // 脅威最大時の gross 上限 (= 144)
+
+  it("相手の成り脅威ゼロ (相手駒なし / 成り地点から遠い) は下限値", () => {
+    expect(vm(makeState(), "sente")).toBeCloseTo(P_MIN_VAL, 5);
+    const far = makeState();
+    // sente 視点で相手=gote。gote 成り地点は下3段 (rows 6-8)。row 0 は最遠 (距離6) = 脅威0。
+    place(far, { row: 0, col: 4 }, { type: "pawn", owner: "gote" });
+    expect(vm(far, "sente")).toBeCloseTo(P_MIN_VAL, 5);
+  });
+
+  it("相手の成り可能駒が成り地点に接近するほど高価値、上限以内", () => {
+    const near = makeState();
+    place(near, { row: 7, col: 2 }, { type: "pawn", owner: "gote" }); // 成り地点内 (距離0)
+    place(near, { row: 7, col: 6 }, { type: "rook", owner: "gote" }); // 成り地点内 (距離0)
+    const nearVal = vm(near, "sente");
+    expect(nearVal).toBeGreaterThan(P_MIN_VAL);
+    expect(nearVal).toBeLessThanOrEqual(P_MAX_VAL + 1e-6);
+  });
+
+  it("成り済み駒 (promoted_*) や金は脅威にカウントしない", () => {
+    const noThreat = makeState();
+    place(noThreat, { row: 7, col: 2 }, { type: "promoted_pawn", owner: "gote" }); // canPromote:false
+    place(noThreat, { row: 7, col: 6 }, { type: "gold", owner: "gote" }); // canPromote:false
+    expect(vm(noThreat, "sente")).toBeCloseTo(P_MIN_VAL, 5);
+  });
+
+  it("player 視点で相手側を正しく判定する (gote 視点では相手=sente の上3段)", () => {
+    // gote が no_promote を持つ場合、相手=sente の成り地点は上3段 (rows 0-2)。
+    const goteView = makeState();
+    place(goteView, { row: 1, col: 2 }, { type: "pawn", owner: "sente" }); // sente 成り地点内
+    place(goteView, { row: 1, col: 6 }, { type: "rook", owner: "sente" });
+    expect(vm(goteView, "gote")).toBeGreaterThan(P_MIN_VAL);
+    // 同じ盤面を sente 視点で見ると、相手=gote 駒は無い → 脅威0
+    expect(vm(goteView, "sente")).toBeCloseTo(P_MIN_VAL, 5);
   });
 });
 

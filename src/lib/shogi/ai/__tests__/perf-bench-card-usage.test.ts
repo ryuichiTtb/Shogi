@@ -161,7 +161,7 @@ function makeScenarios(): BenchScenario[] {
     {
       // (f) 手札 trap のみ + 山札空 + マナ上限近接 → trap セットを期待
       // 山札空で canDraw=false (draw を候補から除外)、純粋に move vs trap の比較に。
-      // digest.trapPresence で +TRAP_VALUE_NO_PROMOTE + 死にマナペナルティ改善で move を上回る。
+      // S3b: digest.trapValueDelta (valueModel 局面依存値) + 死にマナペナルティ改善で move を上回る。
       label: "calib-trap-only-no-draw",
       state: midState,
       player: "sente",

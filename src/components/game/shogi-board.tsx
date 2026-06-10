@@ -4,6 +4,7 @@ import { forwardRef, memo, useCallback, useImperativeHandle, useRef, type CSSPro
 
 import { cn } from "@/lib/utils";
 import { ShogiPiece } from "./shogi-piece";
+import { AiThinkingIndicator } from "./ai-thinking-indicator";
 import { useBoardLayout } from "@/components/board-layout/board-layout-provider";
 import { useTouchHandler } from "@/hooks/use-touch-handler";
 import {
@@ -41,6 +42,15 @@ interface ShogiBoardProps {
   // 赤背景 + × アイコンを表示し、クリック時にダイアログで禁止理由を説明する。
   // クリック自体は通常通り onSquareClick が発火するので、禁止マスかどうかの判定は呼出元 (UI) で行う。
   forbiddenMateSquares?: Position[];
+  // Issue #235 派生 (504 UX 改善): CPU 思考中インジケータ (「考え中 ...」/ 自動リトライ中
+  // 「長考中 ...」) を盤グリッドの中央に表示するか。盤の幾何 (ラベル行・列・スペーサーの
+  // オフセット) は ShogiBoard が単一の真実源として持つため、インジケータをグリッド div の
+  // 直下に重ねることで全レイアウト (PC/タブレット/モバイル・先後) で 1px 正確に中央化する。
+  // 既定 false (= 標準将棋の従来表示を変えない呼出経路は影響なし)。観戦モード等の抑止は
+  // 呼出側が本フラグを false にして制御する。
+  aiThinkingIndicatorVisible?: boolean;
+  // 自動リトライ中フラグ。true で「長考中 ...」へ切替 (失敗を露出せず長考に見せる)。
+  aiThinkingLongThinking?: boolean;
 }
 
 // 先手目線のラベル
@@ -290,6 +300,8 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
     noPromoteSquares,
     hiddenSquares,
     forbiddenMateSquares,
+    aiThinkingIndicatorVisible,
+    aiThinkingLongThinking,
   },
   forwardedRef,
 ) {
@@ -463,6 +475,15 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
               );
             })
           )}
+
+          {/* Issue #235 派生 (504 UX 改善): CPU 思考インジケータ。グリッド div (relative) の
+              直下に absolute inset-0 で重ねることで、ラベル行・列・スペーサーのオフセットに
+              依らず常に盤グリッドの中央に表示される (全レイアウト・先後で 1px 正確)。
+              z-[8] は BoardOverlay (王手/トラップ演出、wrapper 側 z-10) より下層。 */}
+          <AiThinkingIndicator
+            visible={aiThinkingIndicatorVisible ?? false}
+            longThinking={aiThinkingLongThinking ?? false}
+          />
         </div>
 
         {/* ランクラベル（右） */}

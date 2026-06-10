@@ -72,26 +72,24 @@ export const DOUBLE_MOVE_TOP_K = 10;
 // 将来 reducer の doubleMove を route.ts 経由で AI に渡す統合時に再検討
 // (計画 md PR1d-3 コミット 3 セクションに ZZ 反映)。
 
-// PR1d-4: トラップ系カード (no_promote / check_break) の cardDigest 評価係数
-// (sente 絶対視点、PIECE_VALUES と整合する cp 単位、bench で調整、計画 md L1390-1395)。
-//   ・TRAP_VALUE_NO_PROMOTE: 盤上 no_promote トラップ 1 枚の価値
-//   ・TRAP_VALUE_CHECK_BREAK: 盤上 check_break トラップ 1 枚の価値 (王手対応で no_promote より高評価)
+// PR1d-4: no_promote マーク数差の cardDigest 評価係数 (sente 絶対視点、cp 単位)。
 //   ・NO_PROMOTE_MARK_COEFFICIENT: no_promote マーク 1 個あたり価値 (ギャップ1=案A の
 //     玉位置非依存カウント差に対する係数。計画 md L1395 NO_PROMOTE_PROXIMITY_BONUS=30 を
 //     proximity でなく単純カウント差の係数として流用、ZZ 反映)
-export const TRAP_VALUE_NO_PROMOTE = 50;
-export const TRAP_VALUE_CHECK_BREAK = 80;
+// 注 (Issue #235 S3b): 盤上トラップ自体の価値 (旧 TRAP_VALUE_NO_PROMOTE=50 / CHECK_BREAK=80 の
+//   固定係数) は局面依存 valueModel (card-spec-server、check_break=自玉露出度 / no_promote=相手成り
+//   脅威度) へ移行し、本ファイルから撤去した。digest/search は getCardValue 経由で評価する (依存反転)。
 export const NO_PROMOTE_MARK_COEFFICIENT = 30;
 
-// PR1d-4 コミット 3 (action-generator トラップ系候補生成) で使用予定の
-// 使用条件ヒューリスティクスしきい値 (計画 md L1392-1394、コミット 3 で参照):
-//   ・EARLY_GAME_THRESHOLD: no_promote を「序盤に 1 回」セットする両者合計 ply 上限
-//   ・MIN_MANA_RESERVE_FOR_TRAP: トラップセット時に確保したいマナ余裕
-//   ・CHECK_BREAK_TRIGGER_THRESHOLD: check_break をプリエンプティブセットする
-//     玉の安全度悪化しきい値 (cp、負方向)
+// EARLY_GAME_THRESHOLD: computePhaseStage の序盤(0)→中盤(1)境界 (両者合計 ply)。
+// no_promote 序盤判定とも共通閾値で意味整合 (PR1d-4)。
 export const EARLY_GAME_THRESHOLD = 40;
-export const MIN_MANA_RESERVE_FOR_TRAP = 6;
-export const CHECK_BREAK_TRIGGER_THRESHOLD = -200;
+
+// Issue #235 S3c: 旧 MIN_MANA_RESERVE_FOR_TRAP / CHECK_BREAK_TRIGGER_THRESHOLD は
+// 「PR1d-4 コミット 3 で使用予定」のしきい値方式トラップ候補生成ヒューリスティクスだったが、
+// S3 で連続値 valueModel (card-spec-server、トラップ価値を P_trigger × E_damage で局面依存算出)
+// へ移行し、しきい値方式は不採用となった (計画 docs/plans/issue-235-s3-valuemodel.md §5 L-2)。
+// 実参照ゼロのデッドコードのため S3c で削除 (AGENTS.md 実装ガイド10「デッドコードを残さない」)。
 
 // ===== PR3-1: 局面段階判定 + 動的ドロー価値 + 死にマナペナルティ =====
 //
