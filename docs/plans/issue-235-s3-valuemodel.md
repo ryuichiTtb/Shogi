@@ -9,7 +9,7 @@
 S3 = L1 ValueModel の内容依存値付け。**S0〜S2 は全て挙動不変の土台整備だったが、S3 は CPU の棋力 (カード選択) を実際に変える最初の段**。現状トラップ2枚の価値が固定係数 (`TRAP_VALUE_CHECK_BREAK=80` / `TRAP_VALUE_NO_PROMOTE=50`) で局面非依存。これを局面依存の ValueModel へ置換する。
 
 **ゴール (絞込型、epic §7 S3 行)**:
-1. **トラップの ValueModel を局面依存化**: PoC-2 実証済の `P_trigger × E_damage` モデルを `card-spec-server.ts` の valueModel に実装し、固定係数 `TRAP_VALUE_*` を脱却する。**対象カードは §9 D-NP の決定に従う** (check_break は確定、no_promote は指標問題があり要決定)。
+1. **トラップ2枚の ValueModel を局面依存化** (D-NP=B 確定、§9): `P_trigger × E_damage` モデルを `card-spec-server.ts` の valueModel に実装し、固定係数 `TRAP_VALUE_*` を脱却。**check_break = 自玉露出度** / **no_promote = 相手成り脅威指標** と P_trigger 指標を明確に分離する (同一カーブ流用禁止)。
 2. **依存反転 (valueModel を SSOT 化)**: AI のトラップ評価を静的 `TRAP_VALUE_*` / `CARD_VALUE_BRIDGE` 参照から `spec.valueModel(...)` 経由へ cutover。`cards/ → ai/` 上向き二重定義 (S2 で温存) を解消。
 3. **bench 校正**: PoC-2 仮係数 (E_damage / P_min / P_max / SAFETY_*) を bench + 決定的 unit test で本採用値に確定。棋力退化なし (§12 多面指標) を実証する。
 
@@ -111,8 +111,11 @@ S1/S2 同様、低リスクな additive → cutover の順:
 - **M-4 反映**: `card-spec.test.ts` の入力非依存テスト (532-540) も更新対象に明記。→ §3 S3a 反映。
 - **L-2 / L-3 反映**: 未使用係数の S3 完了時削除、盤面系 valueModel=0 のセンチネル意味明示を DoD へ。→ §5 / §8 反映。
 
-### 要ユーザー決定 (D-NP、本 doc 提示時に確認)
-- **medium M-3 (no_promote の trigger 指標)**: no_promote は相手の成りを阻止するカードで、P_trigger に**自玉露出度を流用するのは意味的に誤り** (PoC-2 caveat `noPromoteTriggerPerspective` も明記)。正しくは「相手の成り脅威指標」(相手の未成り駒の敵陣接近度等) が必要だが、これは新規設計+校正を要する。
-  - **選択肢 A (推奨候補)**: S3 を **check_break 1枚に絞り**、no_promote は S4 へ送る (no_promote は現状の固定値 50 を維持 = 退化なし)。絞込型の趣旨に最も合致、誤指標リスクゼロ。
-  - **選択肢 B**: S3a で no_promote 用に「相手成り脅威指標」を新規実装し両トラップを局面依存化 (epic §7「TRAP_VALUE_* 脱却」を2枚とも達成だが設計+校正コスト増)。
-  - → 本 doc 提示時にユーザー確認。
+### D-NP 確定 (2026-06-10、ユーザー決定 = 選択肢 B「罠2枚とも賢くする」)
+- **medium M-3 (no_promote の trigger 指標)**: no_promote は相手の成りを阻止するカードで、P_trigger に自玉露出度を流用するのは意味的に誤り (PoC-2 caveat `noPromoteTriggerPerspective`)。
+- **決定 = B**: S3a で no_promote 用に **「相手成り脅威指標」を新規実装**し、check_break (自玉露出度) と no_promote (相手成り脅威) の**両トラップを局面依存化**する。epic §7「TRAP_VALUE_* 脱却」を2枚とも達成。
+- **相手成り脅威指標の設計方針 (S3a)**: no_promote 価値 = `P_promo(相手の成りそう度) × E_damage_no_promote`。
+  - `P_promo`: 相手 (opponent) の**未成り・成り可能駒** (歩/香/桂/銀/角/飛) が**相手の成り地点 (= 自陣側 3 段)** にどれだけ接近しているかを `lib/shogi/moves` プリミティブで盤面走査して算出し、`[P_MIN, P_MAX]` へ正規化 (check_break の king-exposure→確率マッピングと同型)。盤面の向き (先後) を player で正しく反転すること。
+  - `E_damage_no_promote`: 成り阻止の価値 (cp、PoC-2 `NO_PROMOTE_E_DAMAGE=160` 出発点、S3c 校正)。
+  - 既存の成り判定/成り地点ヘルパ (moves/rules) を再利用し、無ければ最小実装 (cards→moves 正方向)。
+- **影響**: §0 ゴール1 の対象は check_break + no_promote の2枚。S3a の実装対象・特性化テスト・S3c 校正が2枚分に増える。check_break は self-king-exposure、no_promote は opponent-promotion-threat と**指標を明確に分離**する (同一カーブ流用を禁止)。
