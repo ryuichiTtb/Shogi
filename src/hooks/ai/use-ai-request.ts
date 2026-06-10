@@ -126,8 +126,10 @@ function generateRequestId(): string {
 }
 
 // Issue #176 timeout-fix F4: 指数バックオフを 300ms 起点 (cap 1500ms) に縮小。
-// maxRetries=1 + overallTimeoutMs=12000ms と組み合わせ、最悪累積 (10s + 0.3s
-// + 10s = 10.3s) ≪ 12s で overall timer が retry 中に発火しないよう整合させる。
+// Issue #235 派生 (2026-06-10): overallTimeoutMs を 24000ms へ拡張したことに伴い、
+// maxRetries=1 + overallTimeoutMs=24000ms で最悪累積 (11s + 0.3s + 11s ≈ 22.3s)
+// < 24s となり、retry 2 回目にも完全な実行窓を与えつつ overall timer が retry 中に
+// 発火しないよう整合させる (backoff 自体の値は不変)。
 //
 // 504 原因別 retry 効果見積もり:
 //   A: maxDuration 超過        → retry 効果薄 (warm 再走でも同遅延)
