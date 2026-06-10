@@ -21,7 +21,6 @@ import { CardShogiHistory } from "./card-shogi-history";
 import { GameControls, GAME_CONTROLS_HEIGHT } from "../game-controls";
 import { PromotionDialog } from "../promotion-dialog";
 import { BoardOverlay, type OverlayEvent } from "../board-overlay";
-import { AiThinkingIndicator } from "../ai-thinking-indicator";
 import { KingSlashOverlay } from "../king-slash-overlay";
 import { AiErrorModal } from "../ai-error-modal";
 import { RematchErrorBanner } from "../rematch-error-banner";
@@ -1744,13 +1743,11 @@ export function CardShogiGame({
               noPromoteSquares={noPromoteSquares}
               hiddenSquares={hiddenBoardSquares}
               forbiddenMateSquares={forbiddenMateMoves.map((m) => m.to)}
-            />
-            {/* Issue #235 派生 (504 UX 改善): CPU 思考中の盤中央インジケータ。
-                観戦モード (両者 AI) では常時表示になり鬱陶しいため非表示。
-                自動リトライ中は「長考中 ...」へ切替 (失敗を露出せず長考として見せる)。 */}
-            <AiThinkingIndicator
-              visible={isAiThinking && !spectatorMode}
-              longThinking={aiAutoRetrying}
+              // Issue #235 派生 (504 UX 改善): CPU 思考中の盤中央インジケータ。
+              // ShogiBoard 内でグリッド中央に正確に重ねる。観戦モード (両者 AI) は非表示。
+              // 自動リトライ中は「長考中 ...」へ切替 (失敗を露出せず長考として見せる)。
+              aiThinkingIndicatorVisible={isAiThinking && !spectatorMode}
+              aiThinkingLongThinking={aiAutoRetrying}
             />
             <BoardOverlay
               key={overlayEvent?.key}
@@ -2159,13 +2156,11 @@ export function CardShogiGame({
               noPromoteSquares={noPromoteSquares}
               hiddenSquares={hiddenBoardSquares}
               forbiddenMateSquares={forbiddenMateMoves.map((m) => m.to)}
-            />
-            {/* Issue #235 派生 (504 UX 改善): CPU 思考中の盤中央インジケータ。
-                観戦モード (両者 AI) では常時表示になり鬱陶しいため非表示。
-                自動リトライ中は「長考中 ...」へ切替 (失敗を露出せず長考として見せる)。 */}
-            <AiThinkingIndicator
-              visible={isAiThinking && !spectatorMode}
-              longThinking={aiAutoRetrying}
+              // Issue #235 派生 (504 UX 改善): CPU 思考中の盤中央インジケータ。
+              // ShogiBoard 内でグリッド中央に正確に重ねる。観戦モード (両者 AI) は非表示。
+              // 自動リトライ中は「長考中 ...」へ切替 (失敗を露出せず長考として見せる)。
+              aiThinkingIndicatorVisible={isAiThinking && !spectatorMode}
+              aiThinkingLongThinking={aiAutoRetrying}
             />
             <BoardOverlay
               key={overlayEvent?.key}

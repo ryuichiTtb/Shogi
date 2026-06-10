@@ -8,8 +8,11 @@
 // - 自動リトライも失敗した場合は AiErrorModal (もう一度試す / 投了する) が出る。
 //
 // 設計:
-// - BoardOverlay (z-10、王手・トラップ発動等のイベント演出) と同じ盤コンテナ相対の
-//   absolute レイヤだが z-[8] で下層に置き、イベント演出を常に優先表示する。
+// - ShogiBoard のグリッド div (relative) の直下に absolute inset-0 で重ねて描画される
+//   (shogi-board.tsx)。これによりラベル行・列・スペーサーのオフセットに依らず常に
+//   盤グリッドの中央に表示される (全レイアウト・先後で 1px 正確)。
+// - z-[8] は BoardOverlay (王手・トラップ発動等のイベント演出、wrapper 側 z-10) より
+//   下層に置き、イベント演出を常に優先表示する。
 // - pointer-events-none で操作を一切妨げない (CPU 手番中のみの表示で実害もない)。
 // - アニメーションは Tailwind animate-pulse (CSS opacity keyframes) のみ = JS タイマー
 //   不使用・再レイアウトなしでモバイル負荷ゼロ近傍 (AGENTS UI/UX 方針)。
@@ -33,7 +36,8 @@ export function AiThinkingIndicator({ visible, longThinking }: AiThinkingIndicat
       aria-live="polite"
       data-testid="ai-thinking-indicator"
     >
-      <div className="animate-pulse rounded-full bg-black/60 px-5 py-2 text-sm font-medium text-white/90 shadow-lg sm:text-base">
+      {/* もう少し大きめの表示 (ユーザー要望): text-lg / sm 以上で text-xl。 */}
+      <div className="animate-pulse rounded-full bg-black/65 px-7 py-3 text-lg font-semibold text-white shadow-lg sm:text-xl">
         {longThinking ? "長考中 ..." : "考え中 ..."}
       </div>
     </div>
