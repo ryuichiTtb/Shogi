@@ -119,3 +119,25 @@ S1/S2 同様、低リスクな additive → cutover の順:
   - `E_damage_no_promote`: 成り阻止の価値 (cp、PoC-2 `NO_PROMOTE_E_DAMAGE=160` 出発点、S3c 校正)。
   - 既存の成り判定/成り地点ヘルパ (moves/rules) を再利用し、無ければ最小実装 (cards→moves 正方向)。
 - **影響**: §0 ゴール1 の対象は check_break + no_promote の2枚。S3a の実装対象・特性化テスト・S3c 校正が2枚分に増える。check_break は self-king-exposure、no_promote は opponent-promotion-threat と**指標を明確に分離**する (同一カーブ流用を禁止)。
+
+## 10. S3a M2 マイルストーンレビュー (実装後、2026-06-10、AGENTS.md ルール8)
+
+S3a = トラップ2枚の valueModel を局面依存実装する **additive** 段 (production 未配線=挙動不変)。
+
+### 変更
+- `card-spec-server.ts`: check_break valueModel = 自玉露出度 `kingExposure` (玉8近傍の被利き数 + 王手中加点) → `P_trigger × CHECK_BREAK_E_DAMAGE` (gross)。no_promote valueModel = 相手成り脅威度 `promotionThreat` (相手の成り可能・未成り駒の成り地点接近度) → `P_trigger × NO_PROMOTE_E_DAMAGE` (gross)。残り5枚は `STATIC_CARD_VALUE` (mana_up=30 / 盤面系4枚=0 センチネル)。D-KS=C: king-exposure/promotion-threat は `findKing`/`isSquareAttackedByFast` (moves) + `PIECE_DEF_MAP`/`STANDARD_VARIANT` (variants/standard) で自前計算 = cards→ai を作らない。係数は PoC-2 仮値 (S3c 校正)。
+- `card-spec.test.ts`: valueModel テストを静的5枚 + トラップ2枚の局面依存テスト (安全玉↔露出玉・脅威ゼロ↔接近・promoted 除外・gote 視点反転) へ更新 (29→37 件)。
+
+### 検証実測
+- lint 0err (22 warning は既存・純増ゼロ) / typecheck / test:ci **579 passed** (e955d47 baseline 573 + 新規6、既存573不変) / build 緑。
+- bench は S3a が production 未配線 (valueModel を読む production コードゼロ) のため不要 (S3b/c で実施)。
+
+### 総合判定
+**S3a は commit/push 可 (指摘ゼロ)**。独立 adversarial agent (general-purpose、41 tool uses、ミューテーションテスト併用) で **additive 維持・metric 正当・発散点ゼロ** を確認:
+- additive: `spec.valueModel` を読む production コードはゼロ (world-kernel/action-generator は effect/meta/useCondition/checkUsage/targeting のみ参照)。既存テスト573不変。
+- metric: 盤面向き (先後反転) は canonical `isInPromotionZone` (board.ts) と完全一致、attacker 指定は canonical 王手判定 (moves.ts:374) と一致、gross 値は PoC-2 の cost 込み値と意図的分離 (二重計上回避) で正しい。テストは promotionDistance 分岐反転で3件落ちる=実効性実証。
+- 層: card-spec-server は ai/ を import せず (D-KS=C)、循環なし。card-shogi variant も STANDARD_VARIANT spread (9×9/pz=3) ゆえ promotionZoneRows 流用は正しい。
+
+### S3b への申し送り
+- valueModel は gross のため、digest 経路への gameState 供給時に mana cost を別途確実に引く (計画 §3 S3b 方針)。
+- root スカラー1回評価 (R-2) を維持し深い negamax で再計算しない。

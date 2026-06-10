@@ -18,9 +18,17 @@
 //     registry は plies 数のメタのみ保持し effect は持たない (A1/A2)。
 //   - **trap = Route B** (R-1): `setTrap` は **set のみ** registry 化。trigger (no_promote 成り抑止 /
 //     check_break 王手崩し) は move-effects.ts インライン温存。`onTrigger` は型枠のみ (@deferred、実配線 S3)。
-//   - **valueModel は枠のみ** (R-4): S3 値付けの interface 固定先。中身は静的 per-card 値を返す薄い stub。
+//   - **valueModel** (Issue #235 S3a): トラップ2枚 (check_break/no_promote) を局面依存値付け
+//     (P_trigger × E_damage、gross 値) に実装。check_break = 自玉露出度 / no_promote = 相手成り脅威度 で
+//     trigger 確率を算出する (D-KS=C: king-exposure / promotion-threat は moves / variants プリミティブで
+//     自前計算し cards → ai の上向き依存を作らない。S3 計画 docs/plans/issue-235-s3-valuemodel.md §3/§5)。
+//     残り5枚は静的 (mana_up は deprecated、盤面系4枚は 0 = 盤面 eval / super-action 探索が間接捕捉する
+//     "別経路で捕捉" のセンチネル、§5 L-3)。**AI 側の評価切替 (TRAP_VALUE_* → valueModel) と依存反転は S3b、
+//     PoC-2 仮係数の bench 校正は S3c**。S3a は production 未配線 (additive) のため挙動不変。
 
 import type { GameState, Player, Position } from "@/lib/shogi/types";
+import { findKing, isSquareAttackedByFast } from "@/lib/shogi/moves";
+import { PIECE_DEF_MAP, STANDARD_VARIANT } from "@/lib/shogi/variants/standard";
 import type { CardCheckUsage, CardGameState, CardId, CardTarget, CardTargeting, TrapTrigger } from "./types";
 import type { CardEventKind, CardMeta } from "./card-spec";
 import { CARD_META, deriveEventKind } from "./card-spec";
@@ -79,25 +87,20 @@ export interface CardSpec {
   eventKind: CardEventKind;
 }
 
-// ===== valueModel ブリッジ (S2 stub、R-4) =====
-// **本ブリッジが card 価値の将来 SSOT (L1)**。現状 ai/cards/heuristics の TRAP_VALUE_NO_PROMOTE=50 /
-// TRAP_VALUE_CHECK_BREAK=80 / (MANA_DELTA_COEFFICIENT=10 × +3 mana = 30) と同値だが、`cards/ → ai/` の
-// 上向き依存を新規導入しないため import せず併記する。S3 で valueModel を card 価値の単一源とし、ai 側を
-// 本 valueModel 参照へ切替えて依存を正方向 (ai → L1) に統一する。それまで両者は同値を保つ
-// (valueModel は S2 では未配線 = inert のため、仮に drift しても探索挙動には影響しない)。
-// 盤面系 (pawn_return/piece_return/double_pawn) と double_move は現行で静的 per-card 値を持たず
-// (局面評価 digest / super-action 探索が間接捕捉)、S3 で局面依存値付けするまで 0。
-const CARD_VALUE_BRIDGE: Record<CardId, number> = {
-  no_promote: 50,
-  check_break: 80,
+// ===== valueModel: 静的値 (5枚) + 局面依存値 (トラップ2枚、S3a) =====
+
+// 静的 per-card 価値 (cp)。トラップ2枚は S3a で局面依存 valueModel に移行したため本表から除外。
+// mana_up は deprecated (AI 候補から除外済) だが registry 整合のため値を保持。盤面系4枚は 0 =
+// 「価値ゼロ」ではなく「盤面 eval / super-action 探索が別経路で間接捕捉する」センチネル (§5 L-3)。
+const STATIC_CARD_VALUE: Partial<Record<CardId, number>> = {
   mana_up: 30,
   pawn_return: 0,
-  piece_return: 0,
   double_pawn: 0,
+  piece_return: 0,
   double_move: 0,
 };
 
-// 静的値を返す valueModel stub (gameState/player は S3 まで未使用)。
+// 静的値を返す valueModel (gameState/player は未使用)。
 function staticValueModel(value: number): ValueModel {
   return (gameState, player) => {
     void gameState;
@@ -105,6 +108,94 @@ function staticValueModel(value: number): ValueModel {
     return value;
   };
 }
+
+// ===== トラップ局面依存値モデル (S3a、PoC-2 docs/bench-results/issue-235-poc2.json) =====
+// 価値 = P_trigger × E_damage の **gross 値** (cp)。カードのマナコストは AI 側の mana 会計
+// (applyActionForLookahead → digest manaDelta) が別途反映するため、ここでは差し引かない (二重計上回避、§5 R-1)。
+// 係数はいずれも **PoC-2 由来の仮値で S3c bench 校正対象** (本採用値未確定)。
+const TRAP_P_MIN = 0.05; // trigger 確率の下限
+const TRAP_P_MAX = 0.9; // trigger 確率の上限
+const CHECK_BREAK_E_DAMAGE = 300; // check_break 発動時の期待効果 (cp)
+const NO_PROMOTE_E_DAMAGE = 160; // no_promote 発動時の期待効果 (cp)
+// D-KS=C: 自玉露出度 / 相手成り脅威度は moves / variants プリミティブで自前算出するため、
+// 露出・脅威 → 確率の正規化基準も本実装独自 (PoC-2 の evaluateKingSafety スケールは非継承、S3c 校正)。
+const KING_EXPOSURE_REF = 6; // 自玉露出度がこの値で P_MAX に到達
+const KING_IN_CHECK_WEIGHT = 3; // 王手中は露出度に加点 (現に王手される確率が高い)
+const PROMO_THREAT_REF = 6; // 相手成り脅威度がこの値で P_MAX に到達
+const PROMO_PROXIMITY_MAX = 3; // 相手の成り地点までの距離がこの値未満の駒を脅威として加点
+
+function clamp01(x: number): number {
+  return x < 0 ? 0 : x > 1 ? 1 : x;
+}
+
+// 自玉露出度: 自玉の 8 近傍のうち相手の利きがあるマス数 + 王手中の加点。
+// 玉不在 (異常局面) は露出度 0 (= 最小 trigger) を返す。
+function kingExposure(gameState: GameState, player: Player): number {
+  const board = gameState.board;
+  const boardSize = { rows: board.length, cols: board[0]?.length ?? 0 };
+  const kingPos = findKing(board, player, boardSize);
+  if (!kingPos) return 0;
+  const opponent: Player = player === "sente" ? "gote" : "sente";
+  let exposure = 0;
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      if (dr === 0 && dc === 0) continue;
+      const r = kingPos.row + dr;
+      const c = kingPos.col + dc;
+      if (r < 0 || r >= boardSize.rows || c < 0 || c >= boardSize.cols) continue;
+      if (isSquareAttackedByFast(board, { row: r, col: c }, opponent, boardSize)) exposure++;
+    }
+  }
+  if (isSquareAttackedByFast(board, kingPos, opponent, boardSize)) exposure += KING_IN_CHECK_WEIGHT;
+  return exposure;
+}
+
+// check_break valueModel: 自玉露出度 → trigger 確率 → P_trigger × E_damage (gross)。
+// 自玉が危ないほど王手 (= 発動) されやすく、王手崩しの価値が高い。
+const checkBreakValueModel: ValueModel = (gameState, player) => {
+  const ratio = clamp01(kingExposure(gameState, player) / KING_EXPOSURE_REF);
+  const pTrigger = TRAP_P_MIN + ratio * (TRAP_P_MAX - TRAP_P_MIN);
+  return pTrigger * CHECK_BREAK_E_DAMAGE;
+};
+
+// 相手駒の行 row から相手の成り地点までの距離 (0 = 既に成り地点内)。
+function promotionDistance(row: number, opponent: Player, boardRows: number, pzDepth: number): number {
+  if (opponent === "sente") {
+    // sente の成り地点 = 上 pzDepth 段 (row < pzDepth)。
+    return Math.max(0, row - (pzDepth - 1));
+  }
+  // gote の成り地点 = 下 pzDepth 段 (row >= boardRows - pzDepth)。
+  return Math.max(0, boardRows - pzDepth - row);
+}
+
+// 相手の成り脅威度: 相手の「成り可能・未成り駒」が相手の成り地点へどれだけ接近しているか。
+// 成り地点に近い駒ほど高重み (PROMO_PROXIMITY_MAX − 距離)。promoted_* は canPromote:false で自然に除外。
+function promotionThreat(gameState: GameState, player: Player): number {
+  const board = gameState.board;
+  const boardRows = board.length;
+  const opponent: Player = player === "sente" ? "gote" : "sente";
+  const pzDepth = STANDARD_VARIANT.rules.promotionZoneRows;
+  let threat = 0;
+  for (let r = 0; r < boardRows; r++) {
+    const rowArr = board[r];
+    for (let c = 0; c < rowArr.length; c++) {
+      const piece = rowArr[c];
+      if (!piece || piece.owner !== opponent) continue;
+      if (!PIECE_DEF_MAP.get(piece.type)?.canPromote) continue;
+      const dist = promotionDistance(r, opponent, boardRows, pzDepth);
+      threat += Math.max(0, PROMO_PROXIMITY_MAX - dist);
+    }
+  }
+  return threat;
+}
+
+// no_promote valueModel: 相手成り脅威度 → trigger 確率 → P_trigger × E_damage (gross)。
+// 相手が成りそうなほど発動しやすく、成り無効化の価値が高い (check_break と指標を明確に分離、D-NP=B)。
+const noPromoteValueModel: ValueModel = (gameState, player) => {
+  const ratio = clamp01(promotionThreat(gameState, player) / PROMO_THREAT_REF);
+  const pPromo = TRAP_P_MIN + ratio * (TRAP_P_MAX - TRAP_P_MIN);
+  return pPromo * NO_PROMOTE_E_DAMAGE;
+};
 
 // modifyBoard effect: applyXxx (Position 受け) を CardTarget (square) 受けに包む薄い wrapper。
 function boardEffect(
@@ -157,44 +248,46 @@ export const CARD_SPECS: Record<CardId, CardSpec> = {
   mana_up: buildSpec(
     "mana_up",
     { type: "modifyResource", mana: 3 },
-    staticValueModel(CARD_VALUE_BRIDGE.mana_up),
+    staticValueModel(STATIC_CARD_VALUE.mana_up ?? 0),
   ),
   // 自盤上の歩 / と金 1 枚を持ち駒へ (unpromote)。
   pawn_return: buildSpec(
     "pawn_return",
     boardEffect(applyPawnReturn),
-    staticValueModel(CARD_VALUE_BRIDGE.pawn_return),
+    staticValueModel(STATIC_CARD_VALUE.pawn_return ?? 0),
   ),
   // 持ち駒の歩 1 枚を自分の歩がいる列の空マスへ (二歩禁則の一時解除)。
   double_pawn: buildSpec(
     "double_pawn",
     boardEffect(applyDoublePawn),
-    staticValueModel(CARD_VALUE_BRIDGE.double_pawn),
+    staticValueModel(STATIC_CARD_VALUE.double_pawn ?? 0),
   ),
   // 自盤上の駒 (玉以外) 1 枚を持ち駒へ (unpromote)。歩戻しの上位互換。
   piece_return: buildSpec(
     "piece_return",
     boardEffect(applyPieceReturn),
-    staticValueModel(CARD_VALUE_BRIDGE.piece_return),
+    staticValueModel(STATIC_CARD_VALUE.piece_return ?? 0),
   ),
   // トラップ: 相手の王手宣言時に王手駒を全て持ち駒化 (発火は move-effects インライン = Route B)。
+  // S3a: valueModel を自玉露出度ベースの局面依存値に (危ない局面ほど高価値)。
   check_break: buildSpec(
     "check_break",
     { type: "setTrap", trigger: "check_declared" },
-    staticValueModel(CARD_VALUE_BRIDGE.check_break),
+    checkBreakValueModel,
   ),
   // 二手指し: 1 ターンに続けて 2 手指す。effect なし・multiPly: 2 のみ (A1/A2)。
   double_move: buildSpec(
     "double_move",
     undefined,
-    staticValueModel(CARD_VALUE_BRIDGE.double_move),
+    staticValueModel(STATIC_CARD_VALUE.double_move ?? 0),
     { multiPly: 2 },
   ),
   // トラップ: 相手の成り宣言を無効化し「成り不可」を永続付与 (発火は move-effects インライン = Route B)。
+  // S3a: valueModel を相手成り脅威度ベースの局面依存値に (相手が成りそうなほど高価値)。
   no_promote: buildSpec(
     "no_promote",
     { type: "setTrap", trigger: "promotion_declared" },
-    staticValueModel(CARD_VALUE_BRIDGE.no_promote),
+    noPromoteValueModel,
   ),
 };
 
