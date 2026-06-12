@@ -229,3 +229,10 @@ S4b = S4c (TurnAction 単一探索木 cutover) のための **additive な足場
 - **[MAJOR] 手番ゲート**: 相手/深ノードの card/draw 抑止 (L-3) を S4b-2a に明記。
 - **[MINOR] applyTurnAction 重量注記 / lastTurnStartedAt の spectatorMode=true 前提注記 / S4b-2 → 2a/2b 分割**: 反映済。
 - **[確認] (iv) 合成点の S4d 繰り下げ = 妥当** (evaluate は root スカラー cardDigest を受けるだけ、(iv) 不在で PoC-1 歪まず、S4b で入れると投機的デッドコード)。
+
+### S4b-2a 実装 + M2 レビュー反映 (実装完了時、2026-06-13)
+S4b-2a (WorldState 並走探索) 実装後、独立 adversarial agent (general-purpose、55 tool uses、既存 negamax との port 差分を実証込みで精査) で M2 レビュー。**判定 = CHANGES_REQUESTED → 修正後 APPROVE**。
+- **[MAJOR 反映 `7bee0c0`] 王手中 draw 違法注入**: `getWorldLegalActions` が `canDraw()` (isInCheck 非考慮) だけで draw を生成し、王手中の自分番ノードで「王手放置パス」を探索木に注入し minimax 汚染。draw ゲートに `!isInCheck` 追加 + 特性化テスト1件。reducer.ts DRAW_CARD (王手中ドロー禁止) と整合。
+- **[PASS 確認 (実証込み)]**: flag OFF production 不変 (三重ゲート + cardState 未供給 caller + 既存 negamax 無改変)、negamax 符号規約一貫 (相手詰めろで玉逃げ選択を実証)、詰み検知 (status ベース + actions.length===0 整合、頭金詰みを world/move-only 両経路で同一選択)、per-node digest 引数順、findBestMoveWorld root PVS + 返り値常に合法 move、終了性。
+- **[NIT 維持]**: `turnEnded===false` 分岐は 2a で到達不能な防御コード (コメント済、S4c 統合まで現状維持)。stalemate→0 は move-only と意図的一致 (将棋で実質到達不能)。
+- ⚠️ **コミット subject ミス**: `7bee0c0` を `fix: #235 ...` 形式にしてしまった (auto-close 罠)。main マージ時に #235 を auto-close するため、マージ前に subject 修正 (amend) か、マージ後 reopen が必要。
