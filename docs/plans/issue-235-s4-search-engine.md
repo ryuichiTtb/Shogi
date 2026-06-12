@@ -131,3 +131,20 @@ S1〜S3 同様、低リスクな additive / correctness を先に、cutover を�
 ### 着手前のユーザー確認事項 (S4a 着手時)
 - **D-I 桂 dead-piece の許容範囲**: 本版では「on-board なら dead でも許容」と解釈 (ユーザーの歩 capture-intent 言明に基づく)。桂が 3段目→最奥段で不成のまま動けなくなるケースまで許容してよいか最終確認 (否なら「不成進入先に後続合法手がある場合のみ許容」へ predicate 変更)。
 - **合否バンドの暫定数値** (depthCompleted −15% / card% 70% / TT hit-rate X%) は S4b の PoC-1 再検証実測で確定する暫定値。
+
+## 10. M2 マイルストーン2レビュー反映 (S4a 実装完了時, 2026-06-13, AGENTS.md ルール8)
+独立 adversarial agent (general-purpose、35 tool uses、worktree コード精読 + grep 実測) + オーケストレータの独立反証で S4a 実装をレビュー。**判定 = APPROVE_WITH_NITS (実装バグ・回帰・クラッシュ・型/null 不安全はゼロ)**。コミット `8d9cff4` で指摘を全件反映。
+
+### bench 非回帰 (同一マシン main=S3c vs S4a 実測)
+- depthCompleted: 全4難易度バイト等価 (beginner 3 / intermediate 5.33 / advanced 5.78 / expert 6.0)。
+- card%: advanced/expert 57% 不変。intermediate の `calib-trap-only-no-draw` 校正シナリオが trap↔move で揺れるのは **addNoise 由来のノイズ** (S4a 自身の 6 run で trap:move=3:3 に割れる)。S4a はマーク無し初期盤面で `isMarked=false` → 全 funnel バイト等価ゆえ決定論的変化は原理的に不可能、と整合。
+
+### MAJOR 反映 (到達範囲の明文化)
+- **観点4 (幻成り排除の production 到達)**: S4a の狙い (b)「AI が幻成り盤面を読まない」は **production AI の手選択には未到達**。実着手は `findBestMove → getSearchLegalMoves` (cardState 非対応) 由来で、`engine.ts:355` が `getLegalActions` の move アクションを `continue` で捨てる。S4a の mark-aware 化が実際に効くのは (1) UI `legalMovesForPieceSelect` (真のバグ修正) と (2) kernel `evaluateGameEnd` (ただし verdict はマーク不変=no-op) のみ。探索木の mark-aware 化は **S4c** (getSearchLegalMoves / captureGen への cardState 配線) で達成。→ current-rules.ts / rules.ts / move-effects.ts のコメントを到達範囲が誤読されないよう正確化 (コード挙動は不変)。
+
+### NIT 反映
+- **NIT-1 (テスト未カバー経路)**: 既存7件は step(歩)/jump(桂) のみ。slide emission site (香)・後手方向反転・任意成りマスでのマークを補完する3件を `no-promote-mark-moves.test.ts` に追加 (計10件)。
+- **NIT-2 (evaluateGameEnd no-op コメント)**: 「マークで詰み/ステールメート判定も変わる」を「verdict はマーク不変、cardState は funnel family 一貫性 + S4c 足場」へ正確化。
+
+### PASS 確認 (反証して問題なしと確定)
+循環回避 (型 import + インライン `isNoPromoteLocked` = `hasNoPromoteMark` とセマンティクス等価) / マーク無しバイト等価 (else 枝が origin/main と字句一致) / D-I セマンティクス (3 emission site 全て promote=false 固定・盤外除外) / reducer UI 修正 (後段フィルタは純粋に冗長・集合等価) / 二手指し stale-mark (予測 gate 限定・kernel commit 経路は常時正確で不正手 commit 不可) / 詰み verdict 不変 (到達マス集合不変・king-safety も同一着地マスで同値、反例なし) / 計算量 (`if(!cardState) return false` 短絡) / 型・null 安全性。
