@@ -58,6 +58,11 @@ export interface SearchContext {
   // true のとき evaluateActionWithLookahead / searchDoubleMoveSuperAction が kernel 経路に分岐する
   // (card-shogi のみ、DP-1〜7 を自動適用)。S1d cutover まで production は false 固定。
   useKernelSearch?: boolean;
+  // Issue #235 S4b-2a: WorldState (TurnAction) 並走探索へ切替えるフラグ。既定 false (= production
+  // は move-only deep search のまま完全不変)。true かつ card-shogi のとき findBestMove が
+  // findBestMoveWorld (negamaxWorld/quiescenceWorld、カードを木に入れる新 card-aware 探索) へ
+  // 分岐する。S4b 段では PoC-1 再検証・特性化テスト専用 (production 未配線)。
+  useTurnActionSearch?: boolean;
   // Issue #235 S1b: kernel applyTurnAction へ渡す spectatorMode (DP-4 決定論化、早指し無効)。
   // 既定 false。AI 探索の lookahead は手番時間を持たないため manaCharge の早指し判定は
   // 本来不要だが、kernel の makeMoveWithEffects に正しく伝播するため保持する。
@@ -79,6 +84,8 @@ export interface CreateSearchContextOptions {
   // Issue #235 S1b: 下記 2 フラグ。既定 false (= 既存挙動完全保持)。
   useKernelSearch?: boolean;
   spectatorMode?: boolean;
+  // Issue #235 S4b-2a: WorldState 並走探索フラグ。既定 false (= production 不変)。
+  useTurnActionSearch?: boolean;
 }
 
 export function createSearchContext(opts: CreateSearchContextOptions): SearchContext {
@@ -97,6 +104,7 @@ export function createSearchContext(opts: CreateSearchContextOptions): SearchCon
     cardDigest: opts.cardDigest,
     useKernelSearch: opts.useKernelSearch ?? false,
     spectatorMode: opts.spectatorMode ?? false,
+    useTurnActionSearch: opts.useTurnActionSearch ?? false,
   };
 }
 
