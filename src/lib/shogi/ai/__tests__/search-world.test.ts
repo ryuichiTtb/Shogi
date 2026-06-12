@@ -97,6 +97,28 @@ describe("S4b-2a: getWorldLegalActions (手番ゲート + double_move 除外)", 
     ).toBe(false);
   });
 
+  it("王手中の自分番ノードは draw を生成しない (王手放置パス防止、M2 指摘)", () => {
+    // 先手玉(4,4) を 後手飛(4,0) が row4 で王手 (間 col1-3 空)。先手は deck/mana 充足。
+    const place = (b: Board) => {
+      b[4][4] = pc("king", "sente");
+      b[4][0] = pc("rook", "gote");
+      b[0][0] = pc("king", "gote");
+    };
+    const gs = buildGameState(place, "sente");
+    const cs = cardState({
+      mana: { sente: 12, gote: 12 },
+      deck: { sente: [{ instanceId: "d1", defId: "mana_up" }], gote: [] },
+      drawProgress: { sente: 0, gote: 0 },
+    });
+    const world: WorldState = { gameState: gs, cardState: cs, doubleMove: null };
+
+    const actions = getWorldLegalActions(world, "sente", CARD_SHOGI_VARIANT);
+    // 王手中: draw は生成されない (canDraw 単独なら true だが王手で抑止)。
+    expect(actions.some((a) => a.kind === "draw")).toBe(false);
+    // 王手回避の move は存在する。
+    expect(actions.some((a) => a.kind === "move")).toBe(true);
+  });
+
   it("相手番ノード (player !== rootPlayer) は move のみ (card/draw 抑止 = L-3)", () => {
     const gs = createInitialGameState(CARD_SHOGI_VARIANT); // currentPlayer = sente
     const pawnReturn: CardInstance = { instanceId: "g-pr", defId: "pawn_return" };

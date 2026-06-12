@@ -761,13 +761,20 @@ export function getWorldLegalActions(
   const actions: TurnAction[] = moves.map((move) => ({ kind: "move" as const, move }));
   // 手番ゲート (L-3): card/draw は自分 (rootPlayer) ノードのみ展開。相手は move-only。
   if (variant.id === "card-shogi" && player === rootPlayer) {
+    // 王手中は draw 禁止 (reducer.ts DRAW_CARD = 王手中ドロー不可 と整合。kernel の
+    // applyDrawAction は非王手を caller 保証の前提とするため、ここで弾かないと「王手放置パス」
+    // を探索木に注入し minimax を汚染する。M2 指摘)。card は getCardActions が王手中 use
+    // condition で自前に枝刈り済。
+    const playerInCheck = isInCheck(world.gameState, player, variant);
     const aiState: AiTurnState = {
       gameState: world.gameState,
       cardState: world.cardState,
       doubleMove: null, // 2a は double_move を木に入れないため常に null
       isRoot: false,
     };
-    if (canDraw(world.cardState, player)) actions.push({ kind: "draw" });
+    if (!playerInCheck && canDraw(world.cardState, player)) {
+      actions.push({ kind: "draw" });
+    }
     for (const cardAction of getCardActions(aiState, player, variant)) {
       // double_move は 2a 除外 (S4c で統合)。
       if (cardAction.kind === "playCard" && cardAction.defId === "double_move") continue;
