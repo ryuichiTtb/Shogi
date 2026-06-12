@@ -148,3 +148,75 @@ S1〜S3 同様、低リスクな additive / correctness を先に、cutover を�
 
 ### PASS 確認 (反証して問題なしと確定)
 循環回避 (型 import + インライン `isNoPromoteLocked` = `hasNoPromoteMark` とセマンティクス等価) / マーク無しバイト等価 (else 枝が origin/main と字句一致) / D-I セマンティクス (3 emission site 全て promote=false 固定・盤外除外) / reducer UI 修正 (後段フィルタは純粋に冗長・集合等価) / 二手指し stale-mark (予測 gate 限定・kernel commit 経路は常時正確で不正手 commit 不可) / 詰み verdict 不変 (到達マス集合不変・king-safety も同一着地マスで同値、反例なし) / 計算量 (`if(!cardState) return false` 短絡) / 型・null 安全性。
+
+## 11. S4b 実装計画 (concrete、2026-06-13、研究調査 + rule-8 計画策定)
+S4b = S4c (TurnAction 単一探索木 cutover) のための **additive な足場 (flag OFF)**。研究調査 (general-purpose agent、search.ts/評価系/PoC-1 マップ) で以下を確定:
+- production の deep search (`findBestMove`→`negamax`→`quiescence`) は `useKernelSearch` を一切読まない (S1b は root 1-ply lookahead 評価のみ kernel 化)。よって WorldState 探索は **既存 negamax/quiescence を無改変のまま別シンボルで複製** するのが standard byte 等価を保つ唯一の道。
+- selector (上位 M 手絞り) は現 negamax に存在しない (`DOUBLE_MOVE_TOP_K=10` のみ) = 完全新規。
+- TT: `computeHash`/`updateHash` (zobrist.ts + search.ts:110)。updateHash は move 1 手分専用 → S4b-1 の `boardChangedBeyondMove` が S4c-2 の全量再計算ゲート前提。
+- 符号逆バグ (digest.ts:137) / 幻成り3面 (moves / legal-moves:25 / captureGen) は **S4d 精算 = S4b では触らない**。
+
+### サブ分割 (revert 粒度・レビュー容易性)
+- **S4b-1 (完了・commit `587148f`)**: kernel 戻り値 `boardChangedBeyondMove` (H-1 前倒し)。additive・production 不変・特性化テスト7件。
+- **S4b-1b (次)**: **TT fold 宣言型のみ** (下記スコープ判断参照)。lean・concrete。
+- **S4b-2a**: WorldState 並走探索 (`negamaxWorld`/`quiescenceWorld` 複製 + WorldState 着手ラッパ + cardDigest per-node + 手番ゲート) flag OFF。byte 等価ゲートのみ・棋力中立。
+- **S4b-2b**: selector + PoC-1 再検証ハーネス + 実測 (same-engine control 比で ±10% 判定)。S4b の山場・PoC-1 ゲート局所化。
+
+### スコープ判断: EvalFeature 合成点 (iv) は S4d へ繰り下げ
+計画 §3 S4b は「EvalFeature の (ii) TT fold 宣言 / (iv) per-piece/global/option 合成点を additive に用意」と記すが、**(iv) を S4b で入れると未配線の optional 引数 = 投機的デッドコード (AGENTS rule 10 抵触)** になる。per-piece modifier の本配線は S4d (符号逆バグ精算と同時に `computeMaterial`/`evaluatePromotionThreats` へ引数追加) であり、S4b-2 の WorldState 探索も既存 `evaluate()` を byte 等価で呼ぶため (iv) を必要としない。
+- **判断**: S4b は EvalFeature のうち **(ii) TT fold 宣言型 + 網羅 unit test のみ** を実装する (S4c-2 が実消費する concrete artifact、デッドコードでない)。(i) 状態 slice は `noPromoteMarks` が既存ゆえ新設不要。(iv) 合成点は S4d で本配線時に追加。(v) lifecycle も S4d。
+- これにより S4b は「TT の前提 (boardChangedBeyondMove + fold 宣言) + 探索並走経路」に集中し、評価関数本体には一切触れない (= 棋力 byte 不変を最も保ちやすい)。
+
+### S4b-1b: TT fold 宣言型 (concrete、M1 反映で確定)
+- **型を3値に拡張** (M1 [MAJOR] 反映): epic §6 item7(ii) は `"fold"|"evalIrrelevant"` の binary だが、`deck` は「length のみ畳む」第3カテゴリが必要なため `type FoldPolicy = "fold" | "foldLength" | "evalIrrelevant"` とする。const `CARD_STATE_FOLD_POLICY: Record<keyof CardGameState, FoldPolicy>` を新設 (client-safe)。
+- **確定分類** (M1 がコード read 実測で確定):
+
+  | slice | policy | 根拠 |
+  |---|---|---|
+  | `mana` | `fold` | digest + canDraw + getCardActions が参照 |
+  | `hand` | `fold` (defId 多重集合で正規化) | getCardActions が hand の defId を読む (合法 card action が内容依存) |
+  | `trap` | `fold` | digest.trapValueDelta + 同種トラップ抑止 |
+  | `noPromoteMarks` | `fold` | digest + mark-aware 合法手生成に影響 |
+  | `drawProgress` | `fold` | digest.drawProgressDelta + canDraw 閾値 |
+  | `deck` | `foldLength` | canDraw は `deck.length` のみ参照。内容 fold は断片化 (R-9 悪化)、完全無視は auto-draw 後手札差を誤 hit。**length 一致で同一視が正** (内容は draw 展開時に hand 差として別 hash で吸収) |
+  | `graveyard` | `evalIrrelevant` | ai/kernel 探索で read ゼロ (grep 実測)。fold は hit 率を無駄に落とすだけ |
+  | `manaCap` | `evalIrrelevant` | 現状 `MANA_CAP` 定数 (S4d で動的化したら `fold` へ昇格要 = コメントで将来注記) |
+  | `pendingCard` | `evalIrrelevant` | UI 専用、探索未参照 |
+  | `lastTurnStartedAt` | `evalIrrelevant` | 探索は `spectatorMode=true` 固定 (search.ts:980/1297) で早指し無効。**この不変条件に依存する旨を注記** (将来 spectatorMode 可変化時の fold 漏れ防止) |
+- **網羅 unit test**: `keyof CardGameState` の全 slice が policy に宣言されていること (宣言漏れ = `Record` 型強制でコンパイルエラー + `Object.keys` 比較で実行時網羅検証)。S4c-2 の `cardFold` 実装がこの policy を参照する。
+- **この段では fold を計算しない** (宣言と網羅検証のみ)。実 fold は S4c-2。→ 投機的でなく「S4c-2 が消費する仕様 + その網羅性ガード」。
+
+### S4b-2: WorldState 並走探索 + selector + PoC-1 再検証 (M1 反映で 2a/2b に分割)
+
+**S4b-2a (WorldState 複製 + flag、棋力中立・byte 等価ゲートのみ)**:
+- **新シンボル複製**: `negamaxWorld(world, depth, α, β, cardDigest, ...)` / `quiescenceWorld(...)` を search.ts に新設。既存 `negamax`/`quiescence` は 1 行も触らない (M1 観点3=複製で byte 等価維持、S1b の super-action 2系統並存が先例)。遷移は `applyTurnAction`。
+- **着手生成入口の API 整合 (M1 [MAJOR] 反映)**: `getLegalTurnActions(world, player)` は**実在しない**。実体 `CurrentRules.getLegalActions(state: AiTurnState, player)` は AiTurnState を取るため、**WorldState を受ける薄ラッパ** (例 `getWorldLegalActions(world, player)` = WorldState→必要フィールドで getLegalActions 相当を呼ぶ) を S4b-2a で新設する。着手生成は `getFullLegalMoves` へ cardState を渡せる入口を用意するが、**幻成りの promote:true→false 置換 (iii)② は S4c スコープ**ゆえ S4b-2a では運ぶ経路までに留める。
+- **cardDigest の per-node 更新 (M1 [MAJOR] 反映、inert 化回避)**: WorldState 探索の各ノードで cardDigest を root 固定にすると「木でカードを読むのに価値が動かない」inert 化に陥る (PR3-3 C-9 の罠、digest.ts:142-145)。既存 kernel super-action (search.ts:996-1054) が `updateCardDigest` で per-action 更新する**同パターンを踏襲**し、`negamaxWorld` は親 cardDigest を action ごとに `updateCardDigest` して子へ渡す。評価は既存 `evaluate(world.gameState, variant, cardDigest)` を byte 等価で呼ぶ ((iv) 不要、§11 スコープ判断どおり)。
+- **手番ゲート (M1 [MAJOR] 反映、L-3 を S4b-2 にも適用)**: selector が card/draw を展開するのは**自分番ノードのみ**。相手番ノード (+ S4 では自分の深ノードも条件次第) は move-only に絞る (相手カード非展開 = 性能安全 + S5 までフェア)。ラッパ `getWorldLegalActions` の手番/深さ条件でゲート。
+- **flag**: `SearchContext`/`FindBestMoveOptions` に `useTurnActionSearch?: boolean` (既定 false) を additive 追加 (S1b `useKernelSearch` と一貫)。`findBestMove` root で分岐。standard は防御ガードで従来経路固定。
+- **2a の合否 = byte 等価ゲート**: flag OFF は production と完全 byte 等価 (既存テスト不変)。flag ON は「WorldState 経路が move-only 探索と同じ最善手・depthCompleted を返す」特性化テスト (selector 無効 = 全展開時に既存 negamax と同等性) で pin。**棋力中立** (selector・校正なし)。
+
+**S4b-2b (selector + PoC-1 再検証ハーネス + 実測)**:
+- **selector**: `selectBranchCandidates(actions, depth, M, K)` = move scoreMove 上位 M + card top-K + draw。難易度別 M/K/budget は `FindBestMoveOptions` 経由で注入 (校正は S4e)。
+- **PoC-1 再検証ハーネス**: `scripts/measure-baseline-235.ts` を派生コピー (production コード非改変の script header 契約を維持)。`SearchStats` に nodes/s・TT hit-rate カウンタ追加 (epic 7.6)。
+- **合否基準 = same-engine control 比 (M1 [BLOCKER] 反映、epic §8.4.5 整合)**:
+  - 一次ゲート = **`useTurnActionSearch` ON 経路内**で「selector あり (M/K 制限)」vs「全 TurnAction 展開 (K=∞ 相当の control)」の depthCompleted を比較し **±10%** を判定 (= epic §8.4.5:291 が明文訂正した「same-engine control 比」の実エンジン版)。これが「カード込み探索の枝刈り余地が実エンジンへ転移するか」という PoC-1 本来の問いに答える。
+  - **flag OFF 直接比較を一次ゲートにしてはならない**: flag OFF (カード=root 1-ply のみ、木の外) と flag ON (カード=木の中) は探索構造が非対称で、かつ `applyTurnAction` は `applyMoveForSearch` (board.ts:126 軽量 copy-on-write) より重い (makeMoveWithEffects + evaluateGameEnd フル詰み判定 move-effects.ts:180 を毎ノード)。両者の差は「枝刈り余地」でなく「実装オーバーヘッド + カードを木に入れたコスト」を混ぜるため、誤って不成立判定する。
+  - production before-baseline 比 (5.78/6.0、§6 −15% 下限) は **M/K 再校正後の S4e 棋力ゲート**として残し、S4b-2b の PoC-1 ゲートとは**分離**する (§6 にどの比較が S4b-2b ゲート/どれが S4e 棋力ゲートか明記)。
+- **不成立なら** epic §7 フォールバック発動 (目標を「depthCompleted −X% + カード使用率 +Y%」へ再定義、playCard のみ浅 budget 限定)。**S4b-2b 完了時に必ず実測値をユーザー提示してから S4c 着手**。
+
+### S4b リスクと対策
+- **R-6 standard 巻き込み**: 必ず新シンボル複製・flag OFF 並走。既存 negamax 改変は禁止 (byte 等価ゲートで pin)。
+- **getSearchLegalMoves/captureGen の cardState 非対応**: S4b-2a で WorldState を運ぶ経路 + cardState を渡せる入口は作るが、幻成り transform (promote:true→false 置換) は S4c。S4b-2a の着手生成は「入口を用意」までで置換ロジックは入れない切り分け。幻成りを読んだまま PoC-1 を測っても、合否が same-engine control 比 (selector あり/なし) ゆえ幻成りは両者に等しく効き交絡相殺される (絶対 depthCompleted の fidelity には影響するが S4b-2b ゲートには無害)。
+- **applyTurnAction の重量 (M1 [MINOR] 反映)**: 毎ノード makeMoveWithEffects + evaluateGameEnd を通るため move-only negamax より重い。PoC-1 の絶対 depthCompleted を構造的に押し下げるが、same-engine control 比 (両者とも applyTurnAction 経由) で交絡相殺される。
+- **PoC-1 不成立リスク**: ±10% が出なければ S4c の cutover 設計が変わる。S4b-2b 完了時点で必ず実測しユーザーに結果提示してから S4c 着手。
+
+### M1 マイルストーン1レビュー反映 (S4b 計画策定直後、2026-06-13)
+独立 adversarial agent (general-purpose、28 tool uses、search.ts/評価系/CardGameState/epic §8.4.5 を read 実測) で S4b 計画をレビュー。**判定 = 条件付き承認** (骨格・additive 戦略・複製アプローチ・(iv) 繰り下げ判断は実コードと整合し妥当)。反映:
+- **[BLOCKER] PoC-1 比較基準**: 「flag OFF vs ON ±10%」→ **same-engine control 比** (epic §8.4.5:291 確定基準) に修正。production 絶対比は S4e 棋力ゲートへ分離。上記 S4b-2b に反映済。
+- **[MAJOR] `getLegalTurnActions` 実在せず**: WorldState 版ラッパ新設を S4b-2a に明記。
+- **[MAJOR] TT fold 分類**: `graveyard`=evalIrrelevant / `deck`=foldLength に確定 (上記表)。型を3値 `FoldPolicy` へ拡張。
+- **[MAJOR] cardDigest per-node 更新**: updateCardDigest 踏襲を S4b-2a に明記 (inert 化 = PR3-3 C-9 再発防止)。
+- **[MAJOR] 手番ゲート**: 相手/深ノードの card/draw 抑止 (L-3) を S4b-2a に明記。
+- **[MINOR] applyTurnAction 重量注記 / lastTurnStartedAt の spectatorMode=true 前提注記 / S4b-2 → 2a/2b 分割**: 反映済。
+- **[確認] (iv) 合成点の S4d 繰り下げ = 妥当** (evaluate は root スカラー cardDigest を受けるだけ、(iv) 不在で PoC-1 歪まず、S4b で入れると投機的デッドコード)。
