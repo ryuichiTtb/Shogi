@@ -106,8 +106,11 @@ function calculateImpasseScore(
 
 // ゲーム終了状態を確認・更新
 // Issue #235 S4a (D-I): card-shogi の no_promote マーク考慮用に cardState を任意で受ける。
-// マーク駒の合法手集合が変わると詰み/ステールメート判定も変わるため、kernel (move-effects)
-// は move 適用後の cardState を渡す。未供給 (standard) は従来挙動と完全等価。
+// 注: 詰み/ステールメートの verdict (= 合法手の有無) はマークでは不変。マーク駒は到達マス
+// 集合を変えず promote フラグのみ落とすため合法手数が 0 を跨ぐことはなく、king-safety も
+// 同一着地マスゆえ promote/不成で同値。よって cardState を通しても判定結果は変わらない。
+// それでも渡すのは mark-aware funnel family との signature 一貫性と、後続 S4 探索が合法手
+// LIST を verdict 以外に使う足場のため。未供給 (standard) は従来挙動と完全等価。
 export function evaluateGameEnd(
   state: GameState,
   variant: RuleVariant = STANDARD_VARIANT,
