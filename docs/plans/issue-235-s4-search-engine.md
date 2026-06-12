@@ -194,7 +194,16 @@ S4b = S4c (TurnAction 単一探索木 cutover) のための **additive な足場
 - **cardDigest の per-node 更新 (M1 [MAJOR] 反映、inert 化回避)**: WorldState 探索の各ノードで cardDigest を root 固定にすると「木でカードを読むのに価値が動かない」inert 化に陥る (PR3-3 C-9 の罠、digest.ts:142-145)。既存 kernel super-action (search.ts:996-1054) が `updateCardDigest` で per-action 更新する**同パターンを踏襲**し、`negamaxWorld` は親 cardDigest を action ごとに `updateCardDigest` して子へ渡す。評価は既存 `evaluate(world.gameState, variant, cardDigest)` を byte 等価で呼ぶ ((iv) 不要、§11 スコープ判断どおり)。
 - **手番ゲート (M1 [MAJOR] 反映、L-3 を S4b-2 にも適用)**: selector が card/draw を展開するのは**自分番ノードのみ**。相手番ノード (+ S4 では自分の深ノードも条件次第) は move-only に絞る (相手カード非展開 = 性能安全 + S5 までフェア)。ラッパ `getWorldLegalActions` の手番/深さ条件でゲート。
 - **flag**: `SearchContext`/`FindBestMoveOptions` に `useTurnActionSearch?: boolean` (既定 false) を additive 追加 (S1b `useKernelSearch` と一貫)。`findBestMove` root で分岐。standard は防御ガードで従来経路固定。
-- **2a の合否 = byte 等価ゲート**: flag OFF は production と完全 byte 等価 (既存テスト不変)。flag ON は「WorldState 経路が move-only 探索と同じ最善手・depthCompleted を返す」特性化テスト (selector 無効 = 全展開時に既存 negamax と同等性) で pin。**棋力中立** (selector・校正なし)。
+- **2a の合否 = ゲート訂正 (実コード精読で判明、2026-06-13)**: 当初案「WorldState 経路が move-only 探索と byte 等価」は**達成不可**と確定。理由: production の deep search (findBestMove→negamax→quiescence) は **完全に move-only** (getSearchLegalMoves / applyMoveForSearch / root 固定 cardDigest スカラー W-1)。WorldState 探索はカードを木に入れ、遷移に applyTurnAction (mana チャージ・evaluateGameEnd 込み = applyMoveForSearch と異なる gameState) を使い、cardDigest を per-node 更新するため、move-only 探索とは**本質的に別物**。よって正しいゲートは:
+  - **flag OFF = production 完全 byte 等価** (新コードは flag 裏で未到達 = 既存テスト不変 = 真の保証)。
+  - **flag ON = 新 card-aware 探索の correctness** (合法な best action を返す / 終局・詰み検知が正しい / 終了する / カード無し局面では move 集合に対し既存 negamax と同じ最善手を選ぶ、を特性化テストで pin)。
+  - **棋力中立** (selector・校正は 2b/S4e)。
+- **2a の実装スコープ確定 (実コード精読)**:
+  - **TT は積まない** (S4c)。move-only boardHash TT は cardState 差を区別せず、カードを木に入れると誤 hit するため。cardFold TT は S4c-2。2a は TT 無しで correct (深さは TT 無しで低めだが 2b の same-engine 比は交絡相殺、TT 無しは保守的=ゲート通過すれば TT 込みでも通る)。
+  - **double_move カードは 2a の木から除外** (S4c で統合)。multi-ply で turnEnded=false の手番継続 (applyTurnAction の double_move 分岐) を負うと negamax の符号/再帰が複雑化するため、2a は move + draw + 単発カード (pawn_return/piece_return/double_pawn/mana_up/setTrap) に限定。`getWorldLegalActions` が double_move を除外。
+  - **per-node cardDigest**: `negamaxWorld`/`quiescenceWorld` は親 cardDigest を action ごとに `updateCardDigest` して子へ渡し、leaf の `evaluate(world.gameState, variant, nodeDigest)` に per-node 値を供給 (inert 化回避、M1 [MAJOR])。
+  - **手番ゲート**: card/draw 展開は `world.gameState.currentPlayer === rootPlayer` のノードのみ (相手ノードは move-only、L-3)。
+  - move 系は既存 negamax のヒューリスティクス (PVS/null-move/LMR/futility/killer/history/scoreMove ordering/quiescence) を faithful port。card/draw は reduction 対象外で move の後に評価。
 
 **S4b-2b (selector + PoC-1 再検証ハーネス + 実測)**:
 - **selector**: `selectBranchCandidates(actions, depth, M, K)` = move scoreMove 上位 M + card top-K + draw。難易度別 M/K/budget は `FindBestMoveOptions` 経由で注入 (校正は S4e)。
