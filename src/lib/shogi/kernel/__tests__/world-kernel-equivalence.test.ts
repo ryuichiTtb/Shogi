@@ -1067,6 +1067,7 @@ describe("world-kernel applyTurnAction — 終局・マーク・DP-7 (targeted)"
       expect(k.world.doubleMove).toBeNull();
       expect(k.world.cardState.trap.gote).toBeNull(); // 発火で消費
       expect(k.world.gameState.board[4][0]).toBeNull(); // 王手していた飛が除去
+      expect(k.boardChangedBeyondMove).toBe(true); // S4b: double_move 2手目の check_break 発火
       expect(k.world.gameState.hand.gote["rook"]).toBe(1); // 後手の持ち駒へ
       expect(isInCheck(k.world.gameState, "gote", CARD_SHOGI_VARIANT)).toBe(
         false,
@@ -1207,5 +1208,131 @@ describe("world-kernel applyTurnAction — 終局・マーク・DP-7 (targeted)"
     ]);
     expect(k.world.cardState.drawProgress.sente).toBe(1); // turn-end +1
     expect(k.world.gameState.currentPlayer).toBe("gote");
+  });
+});
+
+// ===== S4b (H-1): boardChangedBeyondMove フラグ (targeted) =====
+// ApplyTurnActionResult.boardChangedBeyondMove が「move 1 手分以外の盤面変更」を正しく検知するか
+// (S4c-2 の TT 全量再計算ゲートの前提)。true = check_break 発火 move / modifyBoard playCard、
+// false = 通常 move / draw / setTrap / mana_up / double_move set。
+describe("world-kernel applyTurnAction — boardChangedBeyondMove (S4b H-1)", () => {
+  it("通常 move (トラップ無発火) は false", () => {
+    const gs = createInitialGameState(CARD_SHOGI_VARIANT);
+    const world = makeWorld(gs, minimalCardState());
+    const moves = getFullLegalMoves(gs, "sente", CARD_SHOGI_VARIANT);
+    const k = applyTurnAction(
+      world,
+      { kind: "move", move: moves[0] },
+      { spectatorMode: true },
+    );
+    expect(k.boardChangedBeyondMove).toBe(false);
+  });
+
+  it("check_break 発火 move は true (王手駒を盤上から除去)", () => {
+    const goteTrap: TrapInstance = {
+      instanceId: "gote-cb-bcm",
+      defId: "check_break",
+      owner: "gote",
+    };
+    const placeCb = (b: Board) => {
+      b[4][4] = pc("king", "gote");
+      b[8][8] = pc("king", "sente");
+      b[0][0] = pc("rook", "sente"); // (4,0) へ動かし row4 で王手
+    };
+    const world = makeWorld(
+      buildGameState(placeCb, "sente"),
+      minimalCardState({ trap: { sente: null, gote: goteTrap } }),
+    );
+    const move: Move = {
+      type: "move",
+      from: { row: 0, col: 0 },
+      to: { row: 4, col: 0 },
+      piece: "rook",
+      player: "sente",
+    };
+    const k = applyTurnAction(world, { kind: "move", move }, { spectatorMode: true });
+    expect(k.boardChangedBeyondMove).toBe(true);
+    // 発火の傍証: 王手していた飛が盤上から除去され trapTriggerEvent が出る。
+    expect(k.world.gameState.board[4][0]).toBeNull();
+    expect(k.events.some((e) => e.kind === "trapTriggerEvent")).toBe(true);
+  });
+
+  it("draw は false (盤不変)", () => {
+    const gs = createInitialGameState(CARD_SHOGI_VARIANT);
+    const world = makeWorld(
+      gs,
+      minimalCardState({
+        mana: { sente: 5, gote: 5 },
+        deck: { sente: [{ instanceId: "d-bcm", defId: "mana_up" }], gote: [] },
+      }),
+    );
+    const k = applyTurnAction(world, { kind: "draw" }, { spectatorMode: true });
+    expect(k.boardChangedBeyondMove).toBe(false);
+  });
+
+  it("setTrap (check_break) は false (盤不変、cardState のみ変化)", () => {
+    const trapCard: CardInstance = { instanceId: "s-cb-bcm", defId: "check_break" };
+    const gs = createInitialGameState(CARD_SHOGI_VARIANT);
+    const world = makeWorld(
+      gs,
+      minimalCardState({ hand: { sente: [trapCard], gote: [] }, mana: { sente: 6, gote: 6 } }),
+    );
+    const k = applyTurnAction(
+      world,
+      { kind: "playCard", cardInstanceId: trapCard.instanceId, defId: "check_break" },
+      { spectatorMode: true },
+    );
+    expect(k.boardChangedBeyondMove).toBe(false);
+  });
+
+  it("modifyBoard (pawn_return) は true (盤上歩を退去)", () => {
+    const pawnCard: CardInstance = { instanceId: "s-pr-bcm", defId: "pawn_return" };
+    const gs = createInitialGameState(CARD_SHOGI_VARIANT);
+    expect(gs.board[6][4]?.type).toBe("pawn"); // 前提: sente 初期歩
+    const world = makeWorld(
+      gs,
+      minimalCardState({ hand: { sente: [pawnCard], gote: [] }, mana: { sente: 5, gote: 5 } }),
+    );
+    const k = applyTurnAction(
+      world,
+      {
+        kind: "playCard",
+        cardInstanceId: pawnCard.instanceId,
+        defId: "pawn_return",
+        target: { kind: "square", row: 6, col: 4 },
+      },
+      { spectatorMode: true },
+    );
+    expect(k.boardChangedBeyondMove).toBe(true);
+  });
+
+  it("modifyResource (mana_up) は false (盤不変)", () => {
+    const manaCard: CardInstance = { instanceId: "s-mu-bcm", defId: "mana_up" };
+    const gs = createInitialGameState(CARD_SHOGI_VARIANT);
+    const world = makeWorld(
+      gs,
+      minimalCardState({ hand: { sente: [manaCard], gote: [] }, mana: { sente: 5, gote: 5 } }),
+    );
+    const k = applyTurnAction(
+      world,
+      { kind: "playCard", cardInstanceId: manaCard.instanceId, defId: "mana_up" },
+      { spectatorMode: true },
+    );
+    expect(k.boardChangedBeyondMove).toBe(false);
+  });
+
+  it("double_move set (フラグのみ) は false", () => {
+    const dmCard: CardInstance = { instanceId: "s-dm-bcm", defId: "double_move" };
+    const gs = createInitialGameState(CARD_SHOGI_VARIANT);
+    const world = makeWorld(
+      gs,
+      minimalCardState({ hand: { sente: [dmCard], gote: [] }, mana: { sente: 8, gote: 8 } }),
+    );
+    const k = applyTurnAction(
+      world,
+      { kind: "playCard", cardInstanceId: dmCard.instanceId, defId: "double_move" },
+      { spectatorMode: true },
+    );
+    expect(k.boardChangedBeyondMove).toBe(false);
   });
 });

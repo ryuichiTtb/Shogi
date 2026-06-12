@@ -68,6 +68,15 @@ export interface ApplyTurnActionResult {
   world: WorldState;
   events: GameEvent[];
   turnEnded: boolean;
+  // Issue #235 S4b (H-1 前倒し): この遷移が「move 1 手分 (from→to + 捕獲) 以外の盤面変更」を
+  // 伴ったか。S4c-2 の TT で incremental updateHash (move 1 手分専用) が使えず computeHash 全量
+  // 再計算が必要なノードを検知するためのゲート。true になるのは:
+  //   - move で check_break トラップが発火し王手駒を盤上から除去した (triggeredCheckBreak)
+  //   - playCard の modifyBoard 効果 (pawn_return / piece_return / double_pawn) で盤が変わった
+  // false: 通常 move / no_promote 発火 (単一 move のまま) / draw / setTrap / mana_up / double_move set。
+  // (no_promote 発火は finalMove の promote フラグを落とすだけで盤変更は単一 move 内、setTrap/
+  //  mana_up/draw は盤不変ゆえ親の boardHash をそのまま引き継げる。)
+  boardChangedBeyondMove: boolean;
 }
 
 export interface ApplyTurnActionOptions {
@@ -286,6 +295,8 @@ function applyMoveAction(
         world: { gameState: r.gameState, cardState: adv.cardState, doubleMove: null },
         events: [...r.events, ...fin.events, ...adv.events],
         turnEnded: true,
+        // double_move_first は check_break を deferCheckBreak で保留するため常に false。
+        boardChangedBeyondMove: r.triggeredCheckBreak,
       };
     }
     // 継続: currentPlayer を dm.active (自分) に戻し movesLeft 2→1 (reducer.ts:819-832)
@@ -297,6 +308,7 @@ function applyMoveAction(
       },
       events: r.events,
       turnEnded: false,
+      boardChangedBeyondMove: r.triggeredCheckBreak, // first は deferred で常に false
     };
   }
 
@@ -313,6 +325,7 @@ function applyMoveAction(
       world: { gameState: r.gameState, cardState: adv.cardState, doubleMove: null },
       events: [...r.events, ...fin.events, ...adv.events],
       turnEnded: true,
+      boardChangedBeyondMove: r.triggeredCheckBreak,
     };
   }
 
@@ -323,6 +336,7 @@ function applyMoveAction(
     world: { gameState: r.gameState, cardState: adv.cardState, doubleMove: null },
     events: [...r.events, ...adv.events],
     turnEnded: true,
+    boardChangedBeyondMove: r.triggeredCheckBreak,
   };
 }
 
@@ -351,6 +365,7 @@ function applyDrawAction(world: WorldState): ApplyTurnActionResult {
     world: { gameState: flippedGame, cardState: adv.cardState, doubleMove: null },
     events: [drawEvent, ...adv.events],
     turnEnded: true,
+    boardChangedBeyondMove: false, // draw は盤不変
   };
 }
 
@@ -377,21 +392,25 @@ function applyPlayCardAction(
       },
       events: [],
       turnEnded: false,
+      boardChangedBeyondMove: false, // フラグ set のみ、盤不変
     };
   }
 
   const applied = applyCardEffectLogic(world, action, player);
   if (!applied) {
     // 不正 (合法 action では発生しない)。状態不変・turnEnded=false で返す。
-    return { world, events: [], turnEnded: false };
+    return { world, events: [], turnEnded: false, boardChangedBeyondMove: false };
   }
 
   // flip (reducer.ts COMMIT_PLAY_CARD:1405) + turn 終了処理
   const flippedGame: GameState = { ...applied.gameState, currentPlayer: opponentOf(player) };
   const adv = advanceDrawProgress(applied.cardState, flippedGame, player);
+  // modifyBoard 効果 (pawn_return/piece_return/double_pawn) のみ盤変更。setTrap/mana_up は盤不変。
+  const boardChangedBeyondMove = CARD_SPECS[action.defId].effect?.type === "modifyBoard";
   return {
     world: { gameState: flippedGame, cardState: adv.cardState, doubleMove: null },
     events: [applied.event, ...adv.events],
     turnEnded: true,
+    boardChangedBeyondMove,
   };
 }
