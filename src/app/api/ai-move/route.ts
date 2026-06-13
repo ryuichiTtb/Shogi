@@ -221,6 +221,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         // production 入口の本 route のみ明示 ON にする (案B = default 依存 test/bench の baseline を不変に保つ)。
         // rollback は本行削除のみ。探索は仮想局面評価のため kernel 内で spectatorMode=true 固定 (search.ts、決定論化)。
         useKernelSearch: true,
+        // Issue #235 S4c-1b: WorldState 単一木 cutover の配線は完了済 (engine.ts worldPathActive)
+        // だが、production 活性化 (本行 useTurnActionSearch:true 追加) は **S4c-2 (TT 復帰) 後** に行う。
+        // 理由: S4c-1 は TT 無しで depthCompleted が bolt-on (6) を下回り (world 4〜5、棋力ゲート
+        // before−15% 未達) + カードは深さ不足で justify されにくいため、今活性化すると AI が弱化 +
+        // カード使用減の回帰になる。TT で depth 回復後に bench 再測定し net-positive を確認して活性化する。
       },
     );
     // client abort の場合は 499 相当だが、Next.js では client がもう listen して

@@ -9,6 +9,7 @@ import {
   getWorldLegalActions,
   selectBranchCandidates,
 } from "../search";
+import { findBestMoveWithStats } from "../engine";
 import { createSearchContext } from "../search-context";
 import { createInitialGameState } from "../../board";
 import { CARD_SHOGI_VARIANT } from "../../variants/card-shogi";
@@ -366,5 +367,69 @@ describe("S4b-2a: flag OFF は production move-only 経路で不変", () => {
     expect(withCard).not.toBeNull();
     expect(withoutCard).not.toBeNull();
     expect(withCard!.move).toEqual(withoutCard!.move);
+  });
+});
+
+describe("S4c-1b: null-move 退化窓修正 (カード有利局面で card を正しく選択)", () => {
+  // 回帰: 飛車の利きを塞ぐ自歩(5,1)を pawn_return で戻すと、飛が col1 を通って後手金(2,1)を
+  // 取りながら/成りながら進入できる明確にカード有利な局面。
+  // バグ (修正前): findBestMoveWorld が aspiration 無しで PV を full-window 探索 → null-move の
+  // null 窓 (-Infinity,-Infinity) 退化 → quiescence に alpha=±Infinity → 探索全体が ±Infinity 化し、
+  // root 全 action が同値(-Infinity)→ 無意味な move を選びカードを一切使わなかった (bench card% 0%)。
+  // 修正後: card 効果+局面を深く正しく評価し、有利なら card を選ぶ。
+  const placePawnReturnTactic = (b: Board) => {
+    b[8][8] = pc("king", "sente");
+    b[0][0] = pc("king", "gote");
+    b[8][1] = pc("rook", "sente");
+    b[5][1] = pc("pawn", "sente"); // 飛の利きを塞ぐ自歩 (pawn_return 対象)
+    b[2][1] = pc("gold", "gote"); // col1 上方の標的 (row 2 = 先手成り圏)
+  };
+  const cs = () =>
+    cardState({
+      hand: { sente: [{ instanceId: "s-pr", defId: "pawn_return" }], gote: [] },
+      mana: { sente: 12, gote: 12 },
+    });
+  // ±Infinity 汚染回帰の捕捉に十分な深さ。バグは null-move (depth>=3) + beta=+Infinity で発火する
+  // ため maxDepth 4 (root i=0 child が depth 3 で null-move 到達) で旧コードなら全スコア -Infinity 化。
+  // 修正後は有限。TT 無し full-window は遅いので深さは最小限。カード選択の正しさは下の engine テストで検証。
+  const TACTIC_OPTIONS = { maxDepth: 4, timeLimitMs: 60000, addNoise: 0, nearEqualThreshold: 0 };
+
+  it("findBestMove(world) のスコアは有限 (±Infinity 退化窓汚染なし = null-move 修正の回帰)", () => {
+    const gs = buildGameState(placePawnReturnTactic, "sente");
+    const result = findBestMove(gs, "sente", TACTIC_OPTIONS, CARD_SHOGI_VARIANT, worldCtx(), cs());
+    expect(result).not.toBeNull();
+    expect(result!.bestAction).toBeDefined();
+    // 退化窓バグでは root 全 action が -Infinity 同値になり rootMoveScores が空/−∞ 化していた。
+    // 修正後は move スコアがすべて有限。
+    expect(result!.rootMoveScores.length).toBeGreaterThan(0);
+    for (const ms of result!.rootMoveScores) {
+      expect(Number.isFinite(ms.score)).toBe(true);
+    }
+  }, 15000);
+
+  it("findBestMoveWithStats(useTurnActionSearch:true) も pawn_return を採用 (production cutover 経路)", () => {
+    const gs = buildGameState(placePawnReturnTactic, "sente");
+    // expert: addNoise=0/nearEqual=0 で決定的。selector K=1 (production) でも card が top-1 で残る。
+    const r = findBestMoveWithStats(gs, "sente", "expert", CARD_SHOGI_VARIANT, {
+      cardState: cs(),
+      useTurnActionSearch: true,
+    });
+    expect(r.action).not.toBeNull();
+    expect(r.action!.kind).toBe("playCard");
+    if (r.action && r.action.kind === "playCard") {
+      expect(r.action.defId).toBe("pawn_return");
+    }
+    expect(r.stats.usedCardAction).toBe(true);
+  });
+
+  it("カード不利な generic 局面では move を選ぶ (過剰なカード採用をしない = 正しく discriminate)", () => {
+    // 初期局面 + pawn_return。序盤で自歩を戻す具体的利得は無く、深い探索は move を選ぶべき。
+    const gs = createInitialGameState(CARD_SHOGI_VARIANT);
+    const r = findBestMoveWithStats(gs, "sente", "expert", CARD_SHOGI_VARIANT, {
+      cardState: cs(),
+      useTurnActionSearch: true,
+    });
+    expect(r.action).not.toBeNull();
+    expect(r.action!.kind).toBe("move");
   });
 });

@@ -79,6 +79,18 @@ export const DIFFICULTY_PARAMS: Record<Difficulty, DifficultyParams> = {
   },
 };
 
+// Issue #235 S4c-1b: WorldState 探索 selector の難易度別パラメータ。
+// M = root で残す move 上位数 (Infinity = 全 move = move 強度温存。LMR が late move を縮約)。
+// K = root で残す card 上位数 (PoC-1 実測で K=1 PASS / K=2 FAIL = depthCompleted same-engine
+//     control 比 ±10% band、計画 §11)。draw は K>0 で含む。
+// S4c-1 は全難易度 M=∞/K=1。難易度別の実校正 (card-LMR/budget 導入) は S4e。
+const SELECTOR_PARAMS: Record<Difficulty, { M: number; K: number }> = {
+  beginner: { M: Infinity, K: 1 },
+  intermediate: { M: Infinity, K: 1 },
+  advanced: { M: Infinity, K: 1 },
+  expert: { M: Infinity, K: 1 },
+};
+
 // Issue #176: 旧 calculateAiMove は完全置換。findBestMoveWithStats (本ファイル末尾) を使う。
 
 // Issue #193 / PR2: blunder guard 同点圏 tie-breaker の閾値 (cp)。
@@ -156,6 +168,10 @@ export interface FindBestMoveOptions {
   // 未指定時 false (= 旧経路、production 完全不変)。test/bench から ON にして OFF と比較する。
   // production (route.ts) は S1d cutover まで本フラグを渡さない (= 常に OFF)。
   useKernelSearch?: boolean;
+  // Issue #235 S4c-1b (cutover): AI 探索を WorldState 単一木 (findBestMoveWorld) へ切替えるフラグ。
+  // 未指定時 false (= bolt-on 経路 = flag OFF、S4d 削除まで rollback/test/bench 用に残置)。
+  // route.ts が card-shogi で true を渡し、カードを move と同じ深さで読む production 経路にする。
+  useTurnActionSearch?: boolean;
 }
 
 export interface FindBestMoveResult {
@@ -206,6 +222,15 @@ export function findBestMoveWithStats(
       ? computeCardDigest(options.cardState, state)
       : undefined;
 
+  // Issue #235 S4c-1b (cutover): WorldState 単一木の有効条件。card-shogi + cardState 供給 +
+  // flag ON のとき findBestMove が findBestMoveWorld へ分岐し、カードを move と同じ深さで読む。
+  // standard / cardState 未供給 / flag OFF では従来 move-only deep search + bolt-on (完全不変)。
+  const worldPathActive =
+    (options.useTurnActionSearch ?? false) &&
+    variant.id === "card-shogi" &&
+    options.cardState !== undefined;
+  const selectorParams = SELECTOR_PARAMS[difficulty];
+
   const ctx = createSearchContext({
     timeLimitMs: effectiveTimeLimitMs,
     signal: options.signal,
@@ -214,6 +239,11 @@ export function findBestMoveWithStats(
     // root カード/ドロー評価 (evaluateActionWithLookahead / searchDoubleMoveSuperAction) が ctx 経由で読む。
     useKernelSearch: options.useKernelSearch ?? false,
     spectatorMode: options.spectator ?? false,
+    // Issue #235 S4c-1b: world 経路フラグ + selector (M/K)。worldPathActive 時のみ有効化し、
+    // findBestMove が findBestMoveWorld へ分岐 + root で move 上位M + card 上位K に絞る。
+    useTurnActionSearch: worldPathActive,
+    selectorM: worldPathActive ? selectorParams.M : undefined,
+    selectorK: worldPathActive ? selectorParams.K : undefined,
   });
 
   // 定石ブック (序盤のみ)。
@@ -271,6 +301,8 @@ export function findBestMoveWithStats(
     },
     variant,
     ctx,
+    // Issue #235 S4c-1b: worldPathActive 時のみ cardState を渡し findBestMoveWorld へ分岐。
+    worldPathActive ? options.cardState : undefined,
   );
 
   // depth 1 すら完了しなかった場合の server fallback (合法手の先頭を返す)。
@@ -312,12 +344,22 @@ export function findBestMoveWithStats(
   const applyTadasuteGuard =
     difficulty !== "beginner" || Math.random() >= BEGINNER_TADASUTE_ALLOW_RATE;
 
-  if (
+  if (worldPathActive && !usedFallback && searchResult?.bestAction) {
+    // Issue #235 S4c-1b (cutover): world 経路は findBestMoveWorld が root で move/card/draw を
+    // 同列に深読みして best TurnAction を返すため、bolt-on の root action loop + action-phase budget
+    // を skip し bestAction を直接採用する (カードを move と同じ深さで読む = P1 解消)。world 経路は
+    // 通常 deadline 内でカードを読むため action-phase budget (504 対策) は不要。double_move は world で
+    // 候補化されないため bestAction にはならない (実行プラミング = S4c-1d)。
+    selectedAction = searchResult.bestAction;
+    usingCardAction = searchResult.bestAction.kind !== "move";
+  } else if (
+    !worldPathActive &&
     !usedFallback &&
     move !== null &&
     variant.id === "card-shogi" &&
     options.cardState !== undefined
   ) {
+    // bolt-on root action loop (flag OFF = test/bench/rollback 用、S4d で削除予定)。
     const rules = new CurrentRules(variant);
     const aiTurnState: AiTurnState = {
       gameState: state,

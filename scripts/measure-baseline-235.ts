@@ -58,6 +58,10 @@ import type { TurnAction } from "@/lib/shogi/ai/turn/types";
 
 const RUNS = Math.max(1, Number(process.argv[2] ?? "3") || 3);
 const OUT = process.env.BASELINE_OUT ?? "docs/bench-results/issue-235-before-baseline.json";
+// Issue #235 S4c-1b: BENCH_WORLD=1 で WorldState 単一木 (useTurnActionSearch) を計測 (= 新 production
+// 経路)。未指定 (0) は bolt-on 経路 (= 旧 production = before-baseline)。これで同一ハーネスで
+// before (flag OFF) / after (flag ON) を切替計測し cutover の depthCompleted・card% 差を可視化する。
+const USE_WORLD = process.env.BENCH_WORLD === "1";
 const ALL_DIFFICULTIES: Difficulty[] = [
   "beginner",
   "intermediate",
@@ -250,7 +254,7 @@ function measurePerf(difficulty: Difficulty): PerfMetric {
       pos.player,
       difficulty,
       CARD_SHOGI_VARIANT,
-      { cardState },
+      { cardState, useTurnActionSearch: USE_WORLD },
     );
     sumDepth += r.stats.depthCompleted;
     sumNodes += r.stats.nodes;
@@ -277,7 +281,7 @@ function measureCard(difficulty: Difficulty): CardMetric {
       sc.player,
       difficulty,
       CARD_SHOGI_VARIANT,
-      { cardState: sc.cardState },
+      { cardState: sc.cardState, useTurnActionSearch: USE_WORLD },
     );
     const kind = classifyAction(r.action);
     const summary =

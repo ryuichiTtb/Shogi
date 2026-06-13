@@ -366,3 +366,27 @@ S4c-1 = S4 最大の cutover。production AI を bolt-on から WorldState 単�
 
 #### S4c-1 サブ段順序 (確定)
 S4c-1a (world engine) → S4c-1b (production cutover + bench) → [S4c-2 TT fold] → [S4c-1d double_move 別途] → S4d → S4e。各段 lint→typecheck→test:ci→build。
+
+### 12.11 S4c-1b 実装 + M2 + bench で発覚した null-move 退化窓バグ (2026-06-13)
+
+#### M2 マイルストーン2レビュー (S4c-1a+1b 実装完了時、AGENTS.md ルール8)
+独立 adversarial agent (general-purpose、58 tool uses) で S4c-1a+1b をレビュー。**判定 = APPROVE_WITH_NITS** (ブロッカー無し)。cutover gating / blunder guard 整合 / standard・flag OFF 不変 / double_move 除外 / end-to-end カード配線は実コードで健全と確認。反映した指摘:
+- **[MED-1] cutover ブランチの自動テスト皆無** → engine cutover (useTurnActionSearch:true) の特性化テストを search-world.test.ts に追加 (card 採用 / generic move 採用)。
+- **[MED-2] deep-node selector の no-op アロケーション** → `selectBranchCandidates` に早期 return (card/draw 無 + M=∞ なら入力即返し) を追加。
+- **[MED-3] beginner/intermediate の nearEqual が card 採用し得る** → bench で R-11 を確認 (下記)。
+
+#### ★ bench (flag ON) で card% 0% を検出 → 実バグ発覚 (ユーザー指摘が的中)
+S4c-1b cutover 後の bench (BENCH_WORLD=1) で **card% 全難易度 0%** + depthCompleted 異常増 (advanced 15 / expert 22) + node 激減を観測。ユーザーの「カード効果+局面を正しく評価しているか? 一貫して 0% は不自然」という指摘を受け、カード明確有利局面 (自歩 pawn_return で飛の利きを通し成り/駒得) で診断 → **world 探索が無意味な手を選び card を一切採用しない実バグを確認**。
+
+- **根本原因 = null-move 退化窓による ±Infinity 汚染**: `findBestMoveWorld` は aspiration window を持たず PV を full-window (beta=+Infinity) で探索する。`negamaxWorld` の null-move は null 窓 `(-beta, -beta+1)` を使うが、beta=+Infinity では `(-Infinity, -Infinity+1)=(-Infinity, -Infinity)` と退化。これが `quiescenceWorld` に alpha=±Infinity を渡し、`finite > +Infinity = false` で `currentAlpha` が ±Infinity のまま返り、探索全体に ±Infinity が伝播。root 全 action が同値 (-Infinity) 化し argmax が無意味な初手を選ぶ + 反復深化が即完了し depth 暴走。既存 negamax は aspiration で beta 有限のため本問題は起きていなかった。
+- **修正 (`search.ts`)**: null-move を `Number.isFinite(beta)` のときのみ実行。beta=+Infinity では `nullScore >= beta` は原理的に成立し得ず null-move 自体が無意味ゆえ skip が正しい (退化窓回避 + 無駄排除)。
+- **修正後の検証**: 診断局面で world が **pawn_return を正しく選択** (score 931 > 全 move 837)、depth は現実値 (5) に。回帰テスト追加 (±Infinity 汚染なし / engine 経路 card 採用 / generic move 採用)。
+
+#### 修正後 bench (S4c-1、TT 無し、flag ON 計測)
+- depthCompleted: beginner 2.9 / intermediate 4 / advanced 4.7 / expert 4.7 (bolt-on 3/5.33/5.78/6 比で **低下** = TT 無しの想定どおり、棋力ゲート before−15%=5.1 未達)。
+- card%: 依然 ~0% (intermediate 1run で 14%)。**バグ修正後も低い理由 = (i) bench の generic fixture (buildPawnReturnHand) は correct な deep search にとって真にカード有利でない (bolt-on は浅い評価+下駄で過剰採用していた)、(ii) TT 無しで depth 4-5 が浅く、カード戦術 (depth ~5 必要) を justify しきれない**。S4c-2 (TT) で depth 回復 → カード戦術が深く見える → card% 改善見込み。
+
+#### 活性化判断: production cutover は S4c-2 後へ延期 (route flag OFF 据え置き)
+S4c-1 単独 (TT 無し) は depthCompleted が棋力ゲート未達 + card% 低のため、今 route flag を ON にすると AI 弱化 + カード使用減の**回帰**になる。よって **route.ts の `useTurnActionSearch:true` は追加せず** (production は bolt-on 維持 = 無回帰)、engine.ts の cutover 配線は完成・テスト済 (flag OFF で dormant)。**S4c-2 (TT) で depth 回復後に bench 再測定 → net-positive を確認して活性化**。null-move バグ修正は world 経路の correctness fix として本段で確定 (flag OFF でも価値)。
+- **S4c-1 で確定した成果**: world engine (root-only card / bestAction / noise / selector) + **null-move 退化窓バグ修正** + cutover 配線 (dormant) + bench 両刀計測 (BENCH_WORLD)。
+- **次段 S4c-2 (TT cardState fold)** で depth 回復を最優先 → 再 bench → 活性化。

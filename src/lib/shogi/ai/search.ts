@@ -817,6 +817,19 @@ export function selectBranchCandidates(
   ply: number,
   ctx: SearchContext,
 ): TurnAction[] {
+  // 早期 return (MED-2 反映): card/draw が無く M=∞ なら枝刈り結果は入力と同一。deep node は
+  // move-only (expandCards=false) かつ production 既定 M=∞ ゆえこのホットパスで 3 filter + spread の
+  // 無駄アロケーションを回避する (O(n) スキャン + 早期 break のみ)。root (card 有) は通過して通常処理。
+  if (!Number.isFinite(M)) {
+    let hasNonMove = false;
+    for (const a of actions) {
+      if (a.kind !== "move") {
+        hasNonMove = true;
+        break;
+      }
+    }
+    if (!hasNonMove) return actions;
+  }
   const moves = actions.filter((a) => a.kind === "move");
   const topMoves =
     Number.isFinite(M) && moves.length > M
@@ -965,7 +978,13 @@ function negamaxWorld(
   }
 
   // Null Move Pruning (board-based、王手中不可)。盤面のみに依存しカード非依存ゆえ流用可。
-  if (isNullMoveAllowed && depth >= 3 && !inCheck) {
+  // S4c-1b 修正: beta が有限のときのみ実行。findBestMoveWorld は aspiration window を持たず
+  // PV を full-window (beta=+Infinity) で探索するため、beta=+Infinity の null 窓 (-beta, -beta+1)
+  // = (-Infinity, -Infinity) が退化し、quiescence に alpha=±Infinity を渡して探索全体に ±Infinity を
+  // 伝播させていた (root 全 action が -Infinity 化 = カードも move も評価不能)。beta=+Infinity では
+  // `nullScore >= beta` は原理的に成立し得ず null-move 自体が無意味ゆえ、skip が正しい
+  // (既存 negamax は aspiration で beta 有限のため本問題は起きない。S4e で aspiration 導入時に再検討)。
+  if (isNullMoveAllowed && depth >= 3 && !inCheck && Number.isFinite(beta)) {
     const nullWorld: WorldState = {
       ...world,
       gameState: {
