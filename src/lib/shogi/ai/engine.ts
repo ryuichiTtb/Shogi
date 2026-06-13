@@ -91,6 +91,19 @@ const SELECTOR_PARAMS: Record<Difficulty, { M: number; K: number }> = {
   expert: { M: Infinity, K: 1 },
 };
 
+// Issue #235 S4d-5: engagement 下駄の難易度別 margin (cp、決定A=多少損でもカードを使わせる)。
+// world 経路の root で「best から margin 以内の card/draw があれば最善カードを採用」する閾値。
+// 損失は margin で bound されるため、明確に損なカードは選ばない (M1 M-1: world は card 採用時
+// blunder guard を skip するゆえ、強い難易度ほど margin を小さく = タダ捨て閾値 BLUNDER_GUARD_TIE_MARGIN
+// (150) 未満に抑える)。弱い難易度は engagement 大 + noise 支配で多様性を出す。
+// ★本値は S4e で card 使用率 (advanced/expert ≥70% 目標) と棋力のバランスを bench 校正する暫定値。
+const ENGAGEMENT_PARAMS: Record<Difficulty, number> = {
+  beginner: 150,
+  intermediate: 100,
+  advanced: 70,
+  expert: 50,
+};
+
 // Issue #176: 旧 calculateAiMove は完全置換。findBestMoveWithStats (本ファイル末尾) を使う。
 
 // Issue #193 / PR2: blunder guard 同点圏 tie-breaker の閾値 (cp)。
@@ -298,6 +311,8 @@ export function findBestMoveWithStats(
       timeLimitMs: effectiveTimeLimitMs,
       addNoise: strategy.addNoise,
       nearEqualThreshold: strategy.nearEqualThreshold,
+      // Issue #235 S4d-5: engagement 下駄は world 経路のみ (bolt-on/standard は 0=無効)。
+      engagementMargin: worldPathActive ? ENGAGEMENT_PARAMS[difficulty] : 0,
     },
     variant,
     ctx,

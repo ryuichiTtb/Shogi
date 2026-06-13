@@ -425,15 +425,19 @@ describe("S4c-1b: null-move 退化窓修正 (カード有利局面で card を�
     expect(r.stats.usedCardAction).toBe(true);
   });
 
-  it("カード不利な generic 局面では move を選ぶ (過剰なカード採用をしない = 正しく discriminate)", () => {
-    // 初期局面 + pawn_return。序盤で自歩を戻す具体的利得は無く、深い探索は move を選ぶべき。
+  it("S4d-5 (決定A): near-equal な generic 局面では engagement でカードを使う", () => {
+    // 初期局面 + pawn_return。序盤で自歩を戻す具体的利得は無いが best move と僅差 (margin 内) ゆえ、
+    // engagement 下駄 (決定A=多少損でもカードを使わせて楽しくする) により expert はカードを採用する。
+    // 旧テストは「過剰採用しない=move」を期待していたが、決定A で方針反転 (engagementMargin>0)。
+    // 損失は ENGAGEMENT_PARAMS.expert(50cp) < BLUNDER_GUARD_TIE_MARGIN(150) で bound (明確な悪手は不採用)。
     const gs = createInitialGameState(CARD_SHOGI_VARIANT);
     const r = findBestMoveWithStats(gs, "sente", "expert", CARD_SHOGI_VARIANT, {
       cardState: cs(),
       useTurnActionSearch: true,
     });
     expect(r.action).not.toBeNull();
-    expect(r.action!.kind).toBe("move");
+    expect(r.action!.kind).toBe("playCard");
+    expect(r.stats.usedCardAction).toBe(true);
   });
 });
 
@@ -574,4 +578,46 @@ describe("S4c-2b: M2 指摘の MUST テスト補完 (R-14 promote-drop + B-1 tra
     expect(ctxB.ttProbes).toBeGreaterThan(0);
     expect(resB?.move).toBeTruthy(); // trap 局面でも TT 有効で正常に最善手を返す
   });
+});
+
+describe("S4d-5: engagement 下駄 (損失上限つき tie-break)", () => {
+  // sente 金が gote 金をタダ取りできる局面 (best move = 捕獲 +600cp、draw は board 進展なしで明確に劣る)。
+  const placeCapture = (b: Board) => {
+    b[8][0] = pc("king", "sente");
+    b[0][8] = pc("king", "gote");
+    b[5][4] = pc("gold", "sente");
+    b[4][4] = pc("gold", "gote"); // sente 金が前進して取れる (タダ取り)
+  };
+  const gs = buildGameState(placeCapture, "sente");
+  const drawableCs = () =>
+    cardState({
+      mana: { sente: 10, gote: 10 },
+      deck: { sente: [{ instanceId: "d1", defId: "mana_up" }], gote: [] },
+    });
+
+  it("margin=0 → engagement 無効 → 最善 move を採用", () => {
+    const ctx = worldCtx();
+    const res = findBestMove(
+      gs, "sente",
+      { ...DET_OPTIONS, engagementMargin: 0 },
+      CARD_SHOGI_VARIANT, ctx, drawableCs(),
+    );
+    expect(res?.bestAction?.kind).toBe("move");
+  });
+
+  it("margin 巨大 → 僅差でなくても card/draw を採用 (engagement 発火)", () => {
+    const ctx = worldCtx();
+    const res = findBestMove(
+      gs, "sente",
+      { ...DET_OPTIONS, engagementMargin: 100000 },
+      CARD_SHOGI_VARIANT, ctx, drawableCs(),
+    );
+    expect(res?.bestAction?.kind).not.toBe("move"); // draw or card が採用される
+  });
+
+  // 損失上限 (M1 M-1) は root 選択の構造的フィルタ `if (a.score < bestScore - margin) continue`
+  // が保証する: best から margin cp を超えて劣る card/draw は採用されない。深さ探索の draw は局面に
+  // よっては best move と僅差 (取り返し・hand 価値) になり cp 単位の決定論的 fixture が脆いため、
+  // bound の数値検証は production の ENGAGEMENT_PARAMS < BLUNDER_GUARD_TIE_MARGIN(150) で担保し、
+  // 最終的な card 使用率/棋力バランスは S4e bench で校正する (本テストは margin on/off の切替を pin)。
 });
