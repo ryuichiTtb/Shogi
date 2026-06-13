@@ -682,3 +682,8 @@ S4d 全 5 段階を実装・コミット・push 済 (各段 lint 0err/22warn・t
 - **intermediate = depth −18% で ゲート超過** (S4c-2 §13.9 の −16.7% から継続する world 経路の既知制約、S4d/S4e で新規退化ではない)。card% も 93%→0% (engagement が noise/nearEqual で wash out)。
 - **beginner**: depth −4% (許容)、card% 100%→14% (bolt-on の過剰採用が解消、ただし低難易度のカード演出は減る)。
 - **判断の核心**: world は **強い難易度 (adv/exp) で P1 を解消するが、intermediate で depth ゲート超過 + 低難易度の card% 低下**。clean な全難易度活性化はできない。選択肢: (A) adv/exp のみ選択的活性化 (per-difficulty flag、intermediate 退化を回避しつつ P1 解消) / (B) 全活性化 (intermediate の既知 depth コストを受容) / (C) intermediate depth 回復 + 低難易度 engagement 順序を S4e 追加対応してから活性化 / (D) 非活性化 (bolt-on 維持)。**ユーザー確認 (2026-06-14 提示)**。
+
+### 15.4 route flag 活性化 完了 (ユーザー決定 2026-06-14、全難易度)
+ユーザー判断 = **(B) 全難易度活性化**(curated 7局面 fixture は開始局面ベースで gap=0=サンプル限定ゆえ、実戦的な多様局面での検証は別途。まず実動作で判断する方針)。`src/app/api/ai-move/route.ts` に `useTurnActionSearch: true` 追加 (commit `9d4283d`)。production AI が WorldState 単一木 (findBestMoveWorld) へ cutover。lint/typecheck/test:ci 665/build green。rollback = 本行削除 (engine 既定 OFF / bolt-on 残置)。Vercel プレビューで実機確認 → 次アクション判断。
+
+**重要な fixture 限界 (別途検証 TODO)**: card-bench の 7局面 (makeScenarios) は **すべて開始局面 (`{...initial, moveCount:50/120}`) を流用し盤面は初期配置のまま**、手札/マナ設定のみ変えたもの。深さ bench (makeBenchPositions) は initial+8ply の developed 局面だが、card% は開始局面のみで測定。よって card%/gap は実戦局面を代表しない (gap=0 もこれが一因)。**実戦的検証 = AI 自己対戦等で developed 多様局面を生成し各種カード手札で card%/gap を測る fixture を別途作成** (S4f or 派生、推奨「自己対戦 N手で局面自動生成」)。
