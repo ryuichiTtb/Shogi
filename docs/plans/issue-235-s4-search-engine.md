@@ -451,5 +451,29 @@ world 探索の遷移は `applyTurnAction`。boardHash は:
 - 回復確認後、route flag 活性化の是非をユーザーに提示 (棋力 net-positive を数値で示す)。
 
 ### 13.7 サブ分割
-- **S4c-2a**: card-zobrist.ts + computeCardFold + 網羅/correctness テスト (R-3 (d))。production 未配線 (純粋追加)。
-- **S4c-2b**: negamaxWorld/findBestMoveWorld に TT 配線 (hash 引数 + probe/store + boardHash 維持) + R-14 テスト + bench。flag OFF 据え置き。
+- **S4c-2a**: card-zobrist.ts + computeCardFold + 網羅/correctness テスト (R-3 (d) + cardDigest 整合)。production 未配線 (純粋追加)。
+- **S4c-2b**: negamaxWorld/findBestMoveWorld に TT 配線 (hash 引数 + probe/store + boardHash 維持) + R-14/promote-drop テスト + bench。flag OFF 据え置き。
+
+### 13.8 M1 マイルストーン1レビュー反映 (S4c-2 計画策定直後、2026-06-13、AGENTS.md ルール8)
+独立 adversarial agent (general-purpose、30 tool uses、digest/zobrist/world-kernel/move-effects/action-generator を read 実証) で S4c-2 計画をレビュー。**判定 = 条件付き承認**。骨格 (card-zobrist fold / boardHash 維持 / TT 移植 / サブ分割) は実コードと整合し妥当、fold 分類 (noPromoteMarks position-fold 必要性 / hand defId 多重集合 / deck length / evalIrrelevant 除外) は全て PASS と確認。ただし下記を反映する。
+
+#### [BLOCKER] B-1: cardDigest.trapValueDelta スタレネスによる「同一 key・異 score」誤 hit (fold 網羅性の枠外)
+- **問題**: TT は `(boardHash^cardFold)→score` をキャッシュし score は per-node cardDigest 込み。誤 hit ゼロには「同一 key→同一 cardDigest」が要るが、`trapValueDelta` だけは **盤面依存値** (`card-spec-server.ts` checkBreak=kingExposure / no_promote=promotionThreat) でありながら `updateCardDigest` は **trap defId 変化時のみ再計算** (`digest.ts:206-211/234-236`)、盤面だけ動いたノードでは prev 値を流用 (S3b の root スカラー近似)。→ 同一 (board, trap defId) に異経路で到達すると trapValueDelta が path 依存でズレ score 不一致 → TT が誤 hit。fold (key 一意性) では防げない。
+- **反映 (S4c-2 採用 = 最小・安全)**: **trap がセットされたノード (world.cardState.trap.sente!==null || .gote!==null) は TT probe/store を skip** する。これで trapValueDelta スタレネス起因の誤 hit をゼロにする。トラップ保有局面は TT 無効 (depth 回復せず) だが、depth ゲートを測る perf bench (makeBenchPositions=PERF_DECK、トラップ未セット) は TT 有効ゆえ回復を測定可能。**トラップ局面の TT 全面有効化は S4d (trapValueDelta を board 由来の EvalFeature 化し digest スタレネス解消後)**。
+- **テスト追加 (B-1 を捕捉)**: §13.5 R-3(d) は key 差のみ検証で B-1 を素通しする。**「同一 board・同一 trap defId に異経路で到達した 2 ノードの leaf score 一致」を検証する cardDigest 整合テスト**を追加 (trap 無しノードは一致、trap 有りは TT skip を確認)。
+
+#### [MAJOR] M-1/M-2: boardHash 維持規則の確定 + promote-drop テスト
+- **確定規則 (§13.2 を単一規則化)**: **`action.kind==="move" && boardChangedBeyondMove===false` のみ incremental `updateHash(parentBoardHash, parentState, action.move, childState)`、それ以外 (move で boardChangedBeyondMove=true / draw / playCard 全般) は `computeHash(childState.gameState)` 全量**。XOR 手番トグル案は削除 (誤りの温床)。updateHash に渡すのは `action.move` (original、promote:true) でよい — dest 駒種は child board 由来で導出される (`search.ts:154/179`) ため no_promote 発火で promote が落ちても child board と一致 (PASS 実証済)。cardState 変化 (no_promote 発火の trap clear / mark add / mark follow、`move-effects.ts:88-128`) は毎ノード full `computeCardFold` が吸収。
+- **テスト追加**: R-14 (incremental=full 一致) に **「no_promote マーク/トラップで promote が落ちる通常 move」「auto-draw 発火 move (drawProgress が AUTO_DRAW_INTERVAL 到達で deck→hand)」** を必須ケースとして追加 (最も壊れやすい)。
+
+#### [MEDIUM] 反映
+- **MED-1 (hand count 表サイズ)**: `HAND_CARD_KEYS[player][defId][count]` の count 上限を `DECK_TOTAL_MAX` (=30、card-system-config 由来) で定数化 (`MAX_HAND_CARD_COUNT`)、表を `[0..MAX]` 確保。マジックナンバー禁止 (AGENTS 10)。境界超過は防御 (到達しない想定だが明示)。同様に mark fold は squareIndex 0..80、drawProgress 0..AUTO_DRAW_INTERVAL、deck length 0..DECK_TOTAL_MAX、mana 0..MANA_CAP で表サイズ確定。
+- **MED-2 (TT key 空間の非混在)**: world request は move-only negamax を呼ばない (`findBestMove:559` 分岐で保証) ため boardHash-only key (move-only) と boardHash^cardFold key (world) が同一 TT で混在しない。§13.4 に不変条件として明記 + `findBestMoveWorld` の `ctx.tt.newSearch()` で世代隔離。将来 move-only 併用時の衝突注意コメント。
+- **MIN (mate ply / lo 分布)**: mate score は move-only と同じ無調整で一貫 (quiescence qDepth 基準含む、既存忠実 port)。card-zobrist キーは `randomUint32` (zobrist.ts と同) で lo 下位ビットにランダム性を確保 (index 衝突 = R-9 回避)。
+
+#### 見落とし反映 (テスト)
+- **spectatorMode=true アサート**: lastTurnStartedAt=evalIrrelevant は spectatorMode=true 前提。world 探索の applyTurnAction が常に `{spectatorMode:true}` であることをテストで pin (回帰防止)。
+- **double_move fold 予約の強い TODO**: CardGameState に doubleMove フィールドが無く型網羅ガードが効かないため、S4c-1d 着手時の doubleMove fold 漏れ = 即誤 hit。card-zobrist.ts / tt-fold-policy.ts に強い TODO を残す。
+
+#### サブ分割への反映
+- S4c-2a に cardDigest 整合テスト (B-1 捕捉) を追加。S4c-2b に promote-drop / auto-draw の R-14 テスト + trap ノード TT skip の確認を追加。
