@@ -4,7 +4,11 @@
 // 「move-only と byte 等価」は達成不可 (WorldState 探索は per-node cardDigest + applyTurnAction
 // で本質的に別物) ゆえ検証しない。
 import { describe, it, expect } from "vitest";
-import { findBestMove, getWorldLegalActions } from "../search";
+import {
+  findBestMove,
+  getWorldLegalActions,
+  selectBranchCandidates,
+} from "../search";
 import { createSearchContext } from "../search-context";
 import { createInitialGameState } from "../../board";
 import { CARD_SHOGI_VARIANT } from "../../variants/card-shogi";
@@ -12,6 +16,7 @@ import { MANA_CAP } from "../../cards/definitions";
 import type { Board, GameState, Piece, Player } from "../../types";
 import type { CardGameState, CardInstance } from "../../cards/types";
 import type { WorldState } from "../../kernel/world-kernel";
+import type { TurnAction } from "../turn/types";
 
 function emptyBoard(): Board {
   return Array.from({ length: 9 }, () =>
@@ -133,6 +138,55 @@ describe("S4b-2a: getWorldLegalActions (手番ゲート + double_move 除外)", 
     const actions = getWorldLegalActions(world, "gote", CARD_SHOGI_VARIANT);
     expect(actions.length).toBeGreaterThan(0);
     expect(actions.every((a) => a.kind === "move")).toBe(true);
+  });
+});
+
+describe("S4b-2b: selectBranchCandidates (selector 枝刈り)", () => {
+  const gs = createInitialGameState(CARD_SHOGI_VARIANT);
+  const ctx = createSearchContext({ timeLimitMs: 1000 });
+  const mkMove = (fromRow: number): TurnAction => ({
+    kind: "move",
+    move: {
+      type: "move",
+      from: { row: fromRow, col: 0 },
+      to: { row: fromRow - 1, col: 0 },
+      piece: "pawn",
+      player: "sente",
+    },
+  });
+  const actions: TurnAction[] = [
+    mkMove(6),
+    mkMove(5),
+    mkMove(4),
+    mkMove(3),
+    { kind: "playCard", cardInstanceId: "c1", defId: "pawn_return" },
+    { kind: "playCard", cardInstanceId: "c2", defId: "mana_up" },
+    { kind: "draw" },
+  ];
+
+  it("M で move を上位 M に絞る (全展開時は全件)", () => {
+    const full = selectBranchCandidates(actions, Infinity, Infinity, gs, "sente", 0, ctx);
+    expect(full.filter((a) => a.kind === "move")).toHaveLength(4);
+    expect(full.filter((a) => a.kind === "playCard")).toHaveLength(2);
+    expect(full.filter((a) => a.kind === "draw")).toHaveLength(1);
+
+    const m2 = selectBranchCandidates(actions, 2, Infinity, gs, "sente", 0, ctx);
+    expect(m2.filter((a) => a.kind === "move")).toHaveLength(2);
+    expect(m2.filter((a) => a.kind === "playCard")).toHaveLength(2);
+  });
+
+  it("K=0 は card/draw を完全除外 (move-only control)", () => {
+    const ctrl = selectBranchCandidates(actions, 3, 0, gs, "sente", 0, ctx);
+    expect(ctrl.filter((a) => a.kind === "move")).toHaveLength(3);
+    expect(ctrl.filter((a) => a.kind === "playCard")).toHaveLength(0);
+    expect(ctrl.filter((a) => a.kind === "draw")).toHaveLength(0);
+  });
+
+  it("K>0 は card 上位 K + draw を残す", () => {
+    const k1 = selectBranchCandidates(actions, 3, 1, gs, "sente", 0, ctx);
+    expect(k1.filter((a) => a.kind === "move")).toHaveLength(3);
+    expect(k1.filter((a) => a.kind === "playCard")).toHaveLength(1);
+    expect(k1.filter((a) => a.kind === "draw")).toHaveLength(1); // draw は K>0 で含む
   });
 });
 

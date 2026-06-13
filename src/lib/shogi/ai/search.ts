@@ -791,6 +791,47 @@ function actionOrderScore(action: TurnAction, ply: number, ctx: SearchContext): 
   return -1;
 }
 
+// Issue #235 S4b-2b: selector。各ノードの TurnAction を move 上位 M + card 上位 K (+draw) に
+// 枝刈りする (PoC-1 再検証用)。M/K=Infinity は枝刈りなし (全展開)。K=0 は card/draw 完全除外
+// (= move-only control)。move は scoreMove 降順、card は getCardValue 降順で上位を残す。
+// 特性化テストから検証するため export。
+export function selectBranchCandidates(
+  actions: TurnAction[],
+  M: number,
+  K: number,
+  gameState: GameState,
+  player: Player,
+  ply: number,
+  ctx: SearchContext,
+): TurnAction[] {
+  const moves = actions.filter((a) => a.kind === "move");
+  const topMoves =
+    Number.isFinite(M) && moves.length > M
+      ? [...moves]
+          .sort((a, b) => actionOrderScore(b, ply, ctx) - actionOrderScore(a, ply, ctx))
+          .slice(0, M)
+      : moves;
+
+  if (K === 0) return topMoves; // move-only control (card/draw 除外)
+
+  const cards = actions.filter(
+    (a): a is Extract<TurnAction, { kind: "playCard" }> => a.kind === "playCard",
+  );
+  const draws = actions.filter((a) => a.kind === "draw");
+  const topCards =
+    Number.isFinite(K) && cards.length > K
+      ? [...cards]
+          .sort(
+            (a, b) =>
+              getCardValue(b.defId, gameState, player) -
+              getCardValue(a.defId, gameState, player),
+          )
+          .slice(0, K)
+      : cards;
+
+  return [...topMoves, ...topCards, ...draws];
+}
+
 // quiescenceWorld: 静止探索 (move-only captures/promotions)。既存 quiescence と同型だが、
 // per-node cardDigest を明示引数で受け leaf eval に渡す (ctx.cardDigest 固定でなく per-node)。
 // quiescence は applyMoveForSearch (board-only) で cardState 不変ゆえ digest は本階層で一定。
@@ -895,7 +936,13 @@ function negamaxWorld(
     return quiescenceWorld(state, alpha, beta, player, variant, cardDigest, 0, ctx);
   }
 
-  const actions = getWorldLegalActions(world, rootPlayer, variant);
+  let actions = getWorldLegalActions(world, rootPlayer, variant);
+  // S4b-2b: selector 枝刈り (M/K 指定時のみ。未指定=全展開で従来どおり)。
+  if (ctx.selectorM !== undefined || ctx.selectorK !== undefined) {
+    actions = selectBranchCandidates(
+      actions, ctx.selectorM ?? Infinity, ctx.selectorK ?? Infinity, state, player, ply, ctx,
+    );
+  }
   if (actions.length === 0) {
     if (inCheck) return -(MATE_SCORE - ply); // 詰み
     return 0; // ステールメイト
@@ -1007,7 +1054,13 @@ function findBestMoveWorld(
   ctx: SearchContext,
 ): RootSearchResult | null {
   const rootWorld: WorldState = { gameState: state, cardState, doubleMove: null };
-  const rootActions = getWorldLegalActions(rootWorld, player, variant);
+  let rootActions = getWorldLegalActions(rootWorld, player, variant);
+  // S4b-2b: root にも selector を適用 (M/K 指定時のみ)。
+  if (ctx.selectorM !== undefined || ctx.selectorK !== undefined) {
+    rootActions = selectBranchCandidates(
+      rootActions, ctx.selectorM ?? Infinity, ctx.selectorK ?? Infinity, state, player, 0, ctx,
+    );
+  }
   const rootMoves = rootActions
     .filter((a): a is Extract<TurnAction, { kind: "move" }> => a.kind === "move")
     .map((a) => a.move);
