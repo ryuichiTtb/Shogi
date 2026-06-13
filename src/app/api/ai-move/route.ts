@@ -221,11 +221,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         // production 入口の本 route のみ明示 ON にする (案B = default 依存 test/bench の baseline を不変に保つ)。
         // rollback は本行削除のみ。探索は仮想局面評価のため kernel 内で spectatorMode=true 固定 (search.ts、決定論化)。
         useKernelSearch: true,
-        // Issue #235 S4c-1b: WorldState 単一木 cutover の配線は完了済 (engine.ts worldPathActive)
-        // だが、production 活性化 (本行 useTurnActionSearch:true 追加) は **S4c-2 (TT 復帰) 後** に行う。
-        // 理由: S4c-1 は TT 無しで depthCompleted が bolt-on (6) を下回り (world 4〜5、棋力ゲート
-        // before−15% 未達) + カードは深さ不足で justify されにくいため、今活性化すると AI が弱化 +
-        // カード使用減の回帰になる。TT で depth 回復後に bench 再測定し net-positive を確認して活性化する。
+        // Issue #235 S4e (cutover 活性化、ユーザー決定 2026-06-14): WorldState 単一木を production AI
+        // として全難易度で活性化する。S4d で eval 本配線 (no_promote per-piece / 符号逆・幻成り精算 /
+        // trap board 由来化で TT 解禁) + engagement 下駄 (決定A) を実装し、M1/M2 レビュー承認済。
+        // bench (同一マシン world vs bolt-on): advanced/expert は card% 57%→100% (decision A 達成、P1
+        // 解消) + depth −12/−13% (棋力ゲート −15% 内)、eval バグ修正は全難易度に反映。intermediate は
+        // depth −18% (world 経路の既知制約)・低難易度の card% は減るが、ユーザー判断で実動作確認のうえ
+        // 全難易度活性化を採用 (curated 7局面 fixture は開始局面ベースで gap=0=サンプル限定ゆえ、実戦的な
+        // 多様局面での検証は別途実施予定)。rollback = 本行削除 (engine 既定 OFF / bolt-on 経路は残置)。
+        useTurnActionSearch: true,
       },
     );
     // client abort の場合は 499 相当だが、Next.js では client がもう listen して
