@@ -494,3 +494,135 @@ world 探索の遷移は `applyTurnAction`。boardHash は:
 - **TT で depth 回復確認**: advanced/expert (P1 対象) は棋力ゲート達成。intermediate は僅か下 (−16.7%) だが、TT 全面有効化 (S4d で trap ノードも) + selector 校正 (S4e) で改善余地。
 - **card% は依然 ~0%** (engagement 下駄=決定A 未実装 + generic bench fixture が真にカード有利でない)。**card% 70% 達成は S4d/S4e の engagement 下駄 + EvalFeature マター**。
 - **活性化はまだ延期**: depth は回復したが card% が bolt-on (57%) を下回る (= 決定A「カードを使わせる」に反する) ため、route flag は OFF 据え置き。**S4d (EvalFeature + trapValueDelta board 由来化で B-1 解消 = trap ノード TT 解禁 + 既知バグ精算) → S4e (engagement 下駄 + selector 校正 + 最終 bench) で card% を引き上げ、depth + card% 両立を確認してから活性化**。
+
+## 14. S4d 実装計画 (concrete、2026-06-13、EvalFeature 本配線 + 既知バグ精算 + engagement 下駄)
+
+S4d = epic §6 item 7 (iv) の評価寄与を world 探索の leaf に**本配線**し、§6 7.5 の既知負債6件を精算し、決定A の engagement 下駄を world root に載せる。目的は **(1) card% を bolt-on (57%) 以上 (advanced/expert ≥70% 目標、§6) へ引き上げ**、**(2) no_promote の幻成り/符号逆/満額評価を根絶し棋力 correctness を上げる**、**(3) trapValueDelta を board 由来化して trap ノードの TT を解禁し depth をさらに回復**すること。S4c-2 同様 flag OFF で production 不変を保ったまま world 経路を強化し、活性化判断は S4e の最終 bench へ。
+
+### 14.0 ゴール / 非ゴール
+- **ゴール**: (1) no_promote per-piece modifier を `evaluate` の leaf に配線 (computeMaterial / evaluatePromotionThreats への引数追加)。(2) `noPromoteMarkCountDelta` + `NO_PROMOTE_MARK_COEFFICIENT` をフィールドごと削除 (符号逆バグ消滅)。(3) 幻成りを quiescence 生成 (captureGen / getSearchLegalMoves) でも排除 (negamaxWorld 主系統は S4a 済)。(4) trapValueDelta を board 由来 leaf EvalFeature 化 → trap TT skip を撤去し誤 hit ゼロを維持。(5) 残負債精算 (L0→L2 型 / digest.manaCap / DEAD_MANA cap比率化)。(6) world root に engagement 下駄 (難易度別、bounded-loss)。
+- **非ゴール**: selector M/K/budget 校正 + engagement 係数の最終校正 (= S4e)。double_move 統合 (= S4c-1d)。route flag 活性化 (= S4e で net-positive 確認後)。lifecycle (v) の宣言化 (epic 7.2(v)、no_promote follow/cleanup のインライン→registry 移行は将来要素の受け皿で S4d 必須でない。本段は per-piece eval の (iv) に集中、(v) は S5+ park)。movement 系 status (v1 スコープ外、epic 7.4)。
+
+### 14.1 設計の核心: board 由来 slice を leaf に届ける CardDigest enrichment
+epic 7.2(iv)1「リーフ毎 Set 構築は禁止: マーク空なら fast path コストゼロ、非空時のみ slice 参照変化で lookup 再構築しノード帯同」を満たす機構。
+
+- **現状**: `evaluate(state, variant, cardDigest)` は `evaluateCardDigest(cardDigest)` を加算するのみ。cardDigest は **global scalar** (manaDelta/handValueDelta/drawProgressDelta/deadMana) と **stale な trapValueDelta** を持つ。マーク情報は leaf に物理的に届かない (W-1 root スカラー)。
+- **S4d**: CardDigest に **board 由来 slice の参照を帯同**する 2 フィールドを追加 (実体は cardState slice 参照を流用、毎ノード再構築しない):
+  - `noPromoteMarks: { sente: PieceMark[]; gote: PieceMark[] } | null` — マーク空 (両者 length 0) は `null` で fast path 化 (現状ほぼ常時)。`updateCardDigest` が `marksChanged` 検知時のみ参照差し替え。**★M1 B-1 反映: 変化検知は length 比較でなく `prev.noPromoteMarks.sente !== new.noPromoteMarks.sente || ...gote` の参照比較必須** — follow (`moveNoPromoteMark`) は length 不変・position 変化・新参照ゆえ length 比較では検知漏れ → stale marks が per-piece eval 誤評価 + (computeCardFold は position fold なので) TT 誤 hit を生む。`add/remove/moveNoPromoteMark` は全て新参照を返す (effects.ts:30-72) ため参照比較で過不足なし。
+  - `trap: { sente: CardId | null; gote: CardId | null }` — defId のみ (cheap、fold-stable)。`updateCardDigest` が `trapChanged` 検知時のみ差し替え。**stale な `trapValueDelta` スカラーは削除** (B-1 の根本原因)。
+- **leaf 算出 (board 由来)**: `evaluate` は `state` を持つため、cardDigest に帯同した slice から **leaf で board 依存値を算出**する:
+  - per-piece modifier: `computeMaterial(state, variant, marks?)` / `evaluatePromotionThreats(state, player, variant, marks?)` に marks を渡す。marks=null/undefined は fast path (= standard byte 等価、現状の card-shogi マーク無し局面も等価)。
+  - trap value: `evaluate` 内で trap defId が非 null なら `getCardValue(defId, state, player)` を leaf で算出して加算 (board 由来 = 同 board+trap → 同値 = TT 安全)。これが trapValueDelta board 由来化の本体。
+- **コスト**: マーク空 + trap 無しの leaf (bench PERF_DECK の大多数) は fast path で**現状と同コスト**。マーク有り leaf は marks lookup (≤2 個は O(m) インライン比較、epic 7.2(iv)1)。trap 有り leaf のみ getCardValue (kingExposure/promotionThreat board scan) が増えるが、trap 局面は探索全体の一部 + TT 解禁の depth 回復で相殺。
+- **global scalar は据置**: `evaluateCardDigest` は mana/hand/draw/deadMana の global scalar を引き続き加算 (S3 まで通り)。trapValueDelta と noPromoteMarkCountDelta のみ撤去し、それぞれ board 由来 leaf 算出 / per-piece modifier へ移行。
+- **evaluateWithBreakdown 整合**: computeMaterial/evaluatePromotionThreats のシグネチャ変更は debug 用 `evaluateWithBreakdown` にも適用 (marks 未渡で fast path = 構造共有維持、epic 7.2(iv)1 「転記2箇所を作らない」)。
+
+### 14.2 サブ段分割 (revert 粒度・レビュー容易性・依存順)
+低リスク負債 → correctness (幻成り/eval) → TT 解禁 → engagement の順。各段 lint→typecheck→test:ci→build + standard byte 不変 + flag OFF production 不変。
+
+- **S4d-1 (低リスク負債精算、現行挙動不変)**: ① L0→L2 型逆依存解消 (`world-kernel.ts:49` の `TurnAction` import を ai/turn/types から中立 location へ昇格)。② `digest.manaCap` を `MANA_CAP` 定数焼き込み → `cardState.manaCap` 読みに是正 (現行 cap=20 で値不変)。③ `DEAD_MANA_THRESHOLD=16` 定数 → `manaCap × DEAD_MANA_RATIO(0.8)` の動的算出に是正 (現行 cap=20 で 16 不変)。全て **現行値で挙動不変** → card-digest 等価性テスト + byte 不変 gate で pin。④ top-K selector とセンチネル0価値カードの飢餓回避規約 (epic 7.5⑥) は S4d-5 (engagement) と密結合のため S4d-5 へ寄せる。
+- **S4d-2 (幻成り quiescence 排除、correctness)**: `getSearchLegalMoves` / `getCaptureMovesForSearch` / `getPromotionMovesForSearch` に optional `marks?: PieceMark[]` を追加し、マーク駒は promote:true を生成しない (mustPromote マスは promote:false 置換 = dead 許容 D-I、moves.ts S4a と同セマンティクス)。quiescenceWorld にマークを帯同 (negamaxWorld の `world.cardState.noPromoteMarks[player]` 由来)。**quiescence 内マーク追従 = stale 許容**を明文化 + テスト pin (applyMoveForSearch は board-only でマーク非追従。quiescence は浅い戦術探索ゆえ moved-mark の stale は稀。epic 7.2(iv)1 の「stale 許容を明文化+テスト pin」を採用、from/to 追従は v1 非実装)。
+- **S4d-3 (per-piece no_promote eval + 符号逆消滅、最重要 correctness)**: §14.1 の CardDigest noPromoteMarks 帯同 → `computeMaterial`/`evaluatePromotionThreats` per-piece modifier。`noPromoteMarkCountDelta` + `NO_PROMOTE_MARK_COEFFICIENT` フィールドごと削除。card-digest.test 4 箇所 (L275/286/316/532) 追従。
+- **S4d-4 (trapValueDelta board 由来化 + trap TT 解禁)**: §14.1 の CardDigest trap defId 帯同 → `evaluate` leaf で getCardValue 算出。`trapValueDelta` スカラー削除 + `computeTrapValueDelta` 撤去。TT trap-skip ゲート (search.ts 2 箇所: negamaxWorld L977-978 + findBestMoveWorld L1184) 撤去 → trap 局面でも TT 有効化。`search-world.test.ts` の trap-skip 回帰ガード更新 + 誤 hit ゼロ再検証 (異経路・同 board・同 trap → 同 leaf score を pin)。
+- **S4d-5 (engagement 下駄、card% の主ドライバ)**: world root の card/draw スコアに使用促進ボーナス (難易度別、bounded-loss)。センチネル0価値カードの飢餓回避規約 (epic 7.5⑥) を selector 上界に組込み。card% 再 bench。**係数の最終校正は S4e**。
+
+> 依存: S4d-3/S4d-4 は §14.1 の CardDigest enrichment を共有する。enrichment 自体は S4d-3 で先に導入し (noPromoteMarks)、S4d-4 で trap フィールドを追加する形が revert 粒度的に素直 (各段で独立に test green)。S4d-1/S4d-2 は enrichment 非依存で先行可。
+
+### 14.3 各サブ段の concrete 設計 (file-level)
+
+#### S4d-1 (負債精算)
+- `src/lib/shogi/ai/turn/types.ts`: `TurnAction` 型を中立 location (例 `src/lib/shogi/kernel/turn-action-types.ts` 新規、または `cards/types.ts`) へ移し、ai/turn/types は re-export。world-kernel は中立 location から import (L0→L2 逆依存解消)。**型のみの移動 = 実行時影響ゼロ**、全 import 追従。
+- `cards/digest.ts`: `computeCardDigest`/`updateCardDigest` の `manaCap` を `cardState.manaCap` 読みに (L82/L223)。
+- `cards/heuristics.ts`: `DEAD_MANA_THRESHOLD=16` 定数 → `DEAD_MANA_RATIO=0.8` 定数 + `deadManaThreshold(manaCap)` ヘルパ。`evaluateDeadManaPenalty` は digest.manaCap × ratio で算出 (digest に manaCap があるので追加引数不要)。
+- ゲート: card-digest.test 等価性 + evaluate-equivalence byte 不変。
+
+#### S4d-2 (幻成り quiescence)
+- `ai/legal-moves.ts`: `getSearchLegalMoves(state, player, variant, cardState?)` に optional cardState を追加し `getFullLegalMoves(state, player, variant, cardState)` へ透過 (S4a 対応の getFullLegalMoves を活用)。
+- `ai/captureGen.ts`: `getCaptureMovesForSearch`/`getPromotionMovesForSearch` に optional `marks?: PieceMark[]`。マーク判定は moves.ts `isNoPromoteLocked` と同ロジック (座標一致)。マーク駒は (a) capture: promote:true 変種を生成せず promote:false のみ (mustPromote マスも promote:false=dead 許容)、(b) promotion gen: マーク歩/香は生成スキップ (成れない=quiet move ゆえ quiescence 対象外)。
+- `ai/search.ts` quiescenceWorld: `marks?: { sente: PieceMark[]; gote: PieceMark[] }` 引数追加 (両者、capture-drop と手番側生成の両方に要る)。negamaxWorld が `world.cardState.noPromoteMarks` を渡す (L1003 の quiescenceWorld 呼出)。in-check 分岐の getSearchLegalMoves にも手番側 marks を渡す。**★M1 M-3 反映: stale でなく `O(m)` follow 追従**: quiescenceWorld の各再帰遷移で、move.from が手番側 marked 座標一致なら mark を move.to へ更新 / capture で相手 marked 駒が消えたら drop (m≤2 で割当ゼロ、新 marks は再帰へ渡す)。これで quiescence 内でも幻成り判定が正しく追従し復活しない。follow が複雑なら stale 許容 + 実害 cp 実測へ fallback (D-3)。
+- ゲート: no-promote-mark-moves.test に quiescence 生成ケース (capture-promote / promotion-gen のマーク排除 + follow 後の追従) 追加。standard 経路 (marks 未渡) byte 不変。
+
+#### S4d-3 (per-piece eval)
+- `cards/digest.ts`: CardDigest に `noPromoteMarks: { sente: PieceMark[]; gote: PieceMark[] } | null` 追加。`noPromoteMarkCountDelta` 削除。`computeCardDigest`/`updateCardDigest` で marks 空→null / 非空→参照帯同。**★M1 B-1: `marksChanged` を参照比較に変更** (length-only 廃止)。`evaluateCardDigest` から `noPromoteMarkCountDelta * NO_PROMOTE_MARK_COEFFICIENT` 行削除。heuristics.ts の `NO_PROMOTE_MARK_COEFFICIENT` 削除。
+- `evaluators/material.ts`: `computeMaterial(state, variant, marks?)`。**per-piece modifier #1**: マーク駒は成り潜在価値を永久喪失 → `value(promotesTo)−value(type)` の一定割合 `NO_PROMOTE_MATERIAL_DISCOUNT_RATIO` を減価 (sign 付き)。**[オープン論点 D-1、§14.4]** 係数既定値・S4d採否。
+- `evaluators/promotion-threat.ts`: `evaluatePromotionThreats(state, player, variant, marks?)`。**per-piece modifier #2**: opponent のマーク駒は成り不能ゆえ phantom 脅威を**全除去** (penalty 加算スキップ)。これが「相手マーク駒の成り脅威割引」の本体 (correctness 明確、係数不要)。
+- **★M1 MED-2: lookup 挿入点と fast path の固定** (Set 構築禁止、≤2 は O(m) インライン):
+  - material.ts:39 駒ループ内 — `marks` 未渡 (undefined/null) なら従来パス。渡時のみ `isMarked(marks[piece.owner], row, col)` (O(m) 線形) で true なら減価加算。
+  - promotion-threat.ts:46 `if (inPromotionZone)` 前 — opponent 駒が `isMarked(marks[opponent], row, col)` なら penalty 加算を continue で skip。
+  - `isMarked(arr, row, col)`: `arr` 未渡/空は即 false (fast path)、それ以外 `arr.some(m=>m.row===row&&m.col===col)` (m≤2 で実質 O(1)、新規 Set 割当なし)。
+- `evaluate.ts`: `evaluate`/`evaluateWithBreakdown` が cardDigest.noPromoteMarks (null=fast path) を computeMaterial/evaluatePromotionThreats へ渡す。marks=null/undefined は両関数とも未渡=現状ロジック (= standard byte 等価 + card-shogi マーク無し局面も等価)。
+- ゲート: card-digest.test 追従 (削除は **~17 箇所**=`grep -n noPromoteMarkCountDelta` 全ヒット、MED-3) + per-piece eval ケース追加。evaluate-equivalence (standard、marks 無し) byte 不変。新規 per-piece eval 単体 (マーク歩の脅威除去 / material 減価方向 / fast path 等価)。**★M1 MED-4: 自マーク局面で「マーク多いほど自分に不利」方向を pin する決定的テスト** (符号逆回帰 anchor、専用 marks fixture 新規)。
+
+#### S4d-4 (trap board 由来化 + TT 解禁)
+- `cards/digest.ts`: CardDigest に `trap: { sente: CardId|null; gote: CardId|null }` 追加。`trapValueDelta` + `computeTrapValueDelta` 削除。`evaluateCardDigest` から `value += digest.trapValueDelta` 削除。
+- `evaluate.ts`: `evaluate` が cardDigest.trap の非 null defId に対し `getCardValue(defId, state, player)` を leaf 算出 (sente=+ / gote=−、card-spec-server)。variant card-shogi ガード。
+- `ai/search.ts`: negamaxWorld の `ttEnabled` (L977-978) と findBestMoveWorld の `rootTtEnabled` (L1184) の trap 条件を撤去 → 常時 TT 有効。computeCardFold は trap を既に fold 済 (S4c-2a) ゆえ key 一意性は維持。
+- `ai/cards/digest.ts` updateCardDigest: trap defId 帯同に変更 (trapChanged 検知は既存)。
+- **★M1 M-2 (bolt-on 整合)**: bolt-on `evaluateActionWithLookahead` (search.ts:1934、flag OFF production) も共有 `evaluate` を通るため、trap 帯同 + leaf 算出で意図通り動くことを確認。**flag-OFF production の card-shogi trap 評価が root スカラー→leaf 由来へ変わる** (= D-5 のスコープ判断対象、standard は不変)。`evaluate-action.test.ts:431` / `perf-bench-card-usage.test.ts:164` の trapValueDelta 依存箇所を追従更新。
+- ゲート: `search-world.test.ts` trap-skip 回帰ガードを「trap 局面でも TT 有効 + 誤 hit ゼロ」に置換。R-14 拡張 (trap 局面 incremental=full hash + 異経路・同 board・同 trap → 同 leaf score)。trap 局面 bench で depth 回復確認。
+
+#### S4d-5 (engagement 下駄)
+- `ai/search-context.ts`: SearchContext + CreateSearchContextOptions に `engagementMargin?: number` (cp、難易度別)。
+- `ai/engine.ts`: `ENGAGEMENT_PARAMS: Record<Difficulty, number>` (例 advanced/expert に正値、beginner/intermediate は noise が支配的ゆえ 0 or 小)。worldPathActive 時のみ ctx へ注入。
+- `ai/search.ts` findBestMoveWorld: root 選択 (L1252-1300) で **bounded-loss tie-break**: 全 rootActionScores の bestScore に対し、`score ≥ bestScore − engagementMargin` を満たす card/draw アクションがあれば、その中で最良を bestAction に採用 (= 最大 engagementMargin cp の損失上限で「僅差ならカード」)。**暴発防止**: 損失は engagementMargin で bound (tadasute 安全網と二重)。noise/nearEqual (beginner/intermediate) と排他 or 合成順序を明確化 (engagement → nearEqual → addNoise の順、または engagement は nearEqual の card 版として統合)。**[オープン論点 D-2、§14.4]**。
+- センチネル0価値カード飢餓回避 (epic 7.5⑥): selectBranchCandidates の card top-K で getCardValue=0 のカード (解除カード等、価値が探索で創発) が常に枝刈りされる問題 → per-piece modifier 由来の復元価値を O(marks) で機械算出し選別上界に加える。**S4d 時点では該当カード未実装ゆえ規約コメント + テスト雛形のみ** (実害は将来カードで顕在化)。
+- ゲート: card% bench (BENCH_WORLD=1) で advanced/expert card% 上昇を観測。depth 非退化確認。係数最終校正は S4e。
+
+### 14.4 既知の設計判断・オープン論点 (M1 / ユーザー確認対象)
+- **D-1 (per-piece material 減価の係数)**: epic 7.2(iv)1 は「マーク駒の成り上昇分 `value(promotesTo)−value(type)` 減価」を規定。全額減価はマーク歩を負価値化し不当 (歩は成れなくても base 100cp の価値を保つ)。**推奨 = 小さい割合 `NO_PROMOTE_MATERIAL_DISCOUNT_RATIO` (既定 0.1〜0.15 程度) × (promotesTo−type)** で「永続的に成り潜在を失った構造的ハンデ」を表現。**★M1 MED-1 訂正: modifier #1 (自駒 material) と modifier #2 (`evaluatePromotionThreats` は opponent のみ走査) は対象駒の所属が排他で二重計上は構造的に発生しない**。係数を控えめにする根拠は「二重計上回避」ではなく「成れない歩が base 価値を保つ / 構造的ハンデの妥当な cp 表現」。**既定値と「material 減価を S4d で入れるか S4e 校正へ回すか」をユーザー確認**。modifier #2 (相手マーク駒の脅威全除去) は correctness 明確ゆえ S4d 確定。
+- **D-2 (engagement 下駄の機構と難易度適用範囲)**: bounded-loss tie-break (推奨) vs 加算ボーナス。難易度別 engagementMargin の適用範囲 (advanced/expert のみか、全難易度か)。**★M1 M-1 反映: engagementMargin はタダ捨て閾値未満に bound 必須** (world 経路は card 採用時 blunder guard を skip し、探索内 tadasute は深ノード move-only で root card に届かないため margin が唯一の損失上限)。margin < 歩 100cp 級 (目安 BLUNDER_GUARD_TIE_MARGIN=150 未満) で「駒1枚以上損する card」を構造的に排除。採用 card 適用後の簡易 hanging-piece sanity check 併用も S4e で要否判断。noise/nearEqual との合成順序 = engagement→nearEqual→addNoise。**機構・bound・適用方針をユーザー確認** (決定A=多少損でも使わせる、は確定済。係数値は S4e 校正)。
+- **D-3 (quiescence マークの follow vs stale)**: **★M1 M-3 反映: 推奨を stale 許容から `O(m)` follow 追従へ格上げ**。quiescenceWorld の各遷移で from が marked 座標一致なら mark を to へ更新 / capture で marked 駒消滅なら drop (m≤2 で割当ゼロ)。stale は marked 駒が quiescence 内で動いた後に幻成り復活する方向問題を残すため。follow が重ければ stale 許容 + 実害 cp 実測を fallback (定性判断で close しない)。**ユーザー確認は不要レベル (follow 推奨で進める)、M1 で follow 実装の複雑度を実装時に再評価**。
+- **D-4 (TurnAction 型の中立 location)**: 新規 `kernel/turn-action-types.ts` か既存 `cards/types.ts` か。**推奨 = kernel 配下** (L0 が所有、ai/L2 が consume の正しい依存方向)。M1 MIN-2: 新 location が `cards/types` (CardId) を import する形ゆえ循環 (kernel→cards→ai) 不発を型グラフで確認。14 importers 追従 (型のみ=実行時影響ゼロ)。
+- **★D-5 (新規・最重要、M1 M-2 由来): S4d の eval 改変は flag-OFF production (bolt-on) の card-shogi 評価も変える**: `noPromoteMarkCountDelta` 削除 (`evaluateCardDigest` 改変) と trapValueDelta board 由来化 (`evaluate` 改変) は、bolt-on `evaluateActionWithLookahead` (flag OFF でも live = 現 production) が共有する `evaluate`/`evaluateCardDigest` を通る。よって **S4c までの「flag OFF production 完全不変」DoD は S4d では成立しない** (standard variant は variant ガードで byte 不変だが、card-shogi の現 production 評価は符号逆バグ修正等で変わる)。**ユーザー確認**: ① 現 production (bolt-on) に S4d の eval 修正を即時反映してよいか (符号逆バグ等は早期修正の価値あり) / ② world cutover (S4e 活性化) まで bolt-on を凍結し eval 改変を world 専用 leaf wrapper に閉じ込めるか (epic「転記2箇所禁止」と相反、複雑度増)。**推奨 = ①** (bolt-on は S4 で deprecate 予定 + 符号逆は明確なバグ。DoD を「standard byte 不変 + card-shogi flag-OFF 評価は S4d で意図的改善」へ改訂)。
+
+### 14.5 リスク (§5 に S4d 固有を追加)
+- **R-S4d-1 (eval 改変による棋力回帰)**: noPromoteMarkCountDelta 削除 + per-piece 化は card-shogi の評価を変える (意図的、§1)。マーク無し局面 (bench PERF_DECK 大多数) は noPromoteMarks=null で**評価不変**であることを確認 (fast path)。マーク有り局面のみ評価変化。→ bench depth 非退化 + マーク局面の方向性 (自マーク=不利, 相手マーク=有利) を符号テストで pin。
+- **R-S4d-2 (trap TT 誤 hit 再発)**: trapValueDelta を board 由来化したことで「同 board+同 trap defId → 同 leaf score」が成立する前提。getCardValue が純粋 (gameState のみ依存、Explore 確認済) ゆえ成立するが、computeCardFold が trap defId を fold 済 (S4c-2a) であることと併せて誤 hit ゼロを R-14 拡張テストで pin。**digest の他フィールドに board 依存が残っていないか M2 で全 7→6 フィールド再精査** (trapValueDelta 削除後、残りは全 board 非依存のはず)。
+- **R-S4d-3 (quiescence マーク帯同コスト + trap leaf コスト)**: marks 非空時の captureGen O(m) lookup + follow 追従がホットパス。マーク空 fast path で現状コスト維持を確認。trap 局面 leaf の getCardValue は board O(81) 走査 (MIN-3) → **bench nodes/s は trap 局面比率込みで計測**し、TT 解禁の depth 回復が leaf コスト増を上回ることを確認。
+- **R-S4d-4 (engagement 暴発)**: bounded-loss で損失上限を保証。bench で「明確に負ける手をカードで指す」事例が出ないか sanity check (tadasute 安全網 + margin bound)。
+
+### 14.6 検証ゲート + テスト計画
+- 各段 lint→typecheck→test:ci→build。**standard variant byte 不変** (marks/trap は variant.id==="card-shogi" ガード + marks 未渡 fast path = computeMaterial/promotion-threat/getSearchLegalMoves/captureGen 現状等価)。**★D-5 反映: card-shogi の flag-OFF production (bolt-on) 評価は S4d で意図的に改善** (符号逆/trap 精度) — S4c までの「flag OFF 完全不変」は standard に限定し、card-shogi flag-OFF は「意図的改善 + bolt-on 経路テスト/bench で検証」へ DoD 改訂 (ユーザー D-5 承認前提)。
+- S4d-1: card-digest 等価性 + evaluate-equivalence byte 不変 (manaCap/DEAD_MANA は現行値不変)。TurnAction 移設は型のみ=全 importer typecheck green。
+- S4d-2: no-promote-mark-moves.test に quiescence 生成 (capture-promote / promotion-gen) のマーク排除 + follow 追従ケース。standard byte 不変。
+- S4d-3: **card-digest.test の `noPromoteMarkCountDelta` 全ヒット (~17 箇所) 追従** (MED-3) + per-piece eval 単体 (マーク歩脅威除去 / material 減価方向 / fast path 等価) + **符号反転方向 pin テスト (MED-4、専用 marks fixture)**。evaluate-equivalence (standard) byte 不変。
+- S4d-4: search-world.test trap-skip ガード置換 + R-14 trap 拡張 (incremental=full + 異経路同score)。**bolt-on 経路テスト追従: `evaluate-action.test.ts:431` / `perf-bench-card-usage.test.ts:164` の trapValueDelta 依存更新** (M-2)。trap bench depth 回復。
+- S4d-5: card% bench (BENCH_WORLD=1) で advanced/expert card% 観測 (目標帯 ≥70% は S4e 校正後)。depth 非退化。
+- **bench (BENCH_WORLD=1) 総合**: S4c-2 比で (a) depth 維持/向上 (trap TT 解禁で intermediate -16.7% 改善余地)、(b) card% 上昇、(c) nodes/s・TT hit-rate を SearchStats で記録 (退行切り分け、epic 7.6)。
+
+### 14.7 ロールバック
+S4c-2 と同様、各段は flag OFF (route 未配線) で dormant。world 経路の eval 改変は world 探索のみ到達 (production bolt-on は無影響)。問題時は該当段コミット revert。CardDigest enrichment は additive (marks=null/trap 既存 defId)。
+
+### 14.8 M1 マイルストーン1レビュー反映 (S4d 計画策定直後、2026-06-13、AGENTS.md ルール8)
+単一 general-purpose agent (adversarial、Issue #109 観点取得 + digest/evaluate/material/promotion-threat/search world/captureGen/card-spec-server/world-kernel/card-zobrist/関連テストを Read/grep 実証、44 tool uses) で §14 をレビュー。**判定 = 条件付き承認**。骨格 (CardDigest enrichment による board 由来 slice の leaf 配線 / trap board 由来化→TT 解禁 / 5 サブ段) は実コード整合・file:line も概ね正確と確認。下記を反映する。
+
+#### [BLOCKER] B-1: `marksChanged` length-only で follow-move の position 変化を検知できず staleness 二重不整合
+- **問題**: §14.1 は「参照比較で marks 変化検知」と書くが、現状 `updateCardDigest.marksChanged` (digest.ts:212-216) は **length 比較のみ**。no_promote follow (`moveNoPromoteMark`、effects.ts:67 `.map` で新参照・length 不変・position だけ変化) を検知できず、(a) per-piece eval が **旧座標の stale marks** を見て誤評価、(b) `computeCardFold` は marks を **position fold** (card-zobrist.ts:118) ゆえ TT key は正しく変わるのに digest の marks は stale → **同 TT key に異 score = 誤 hit** (S4d-4 で trap-skip を外す文脈で致命)。
+- **反映 (S4d-3 必須)**: §14.3 S4d-3 に「`marksChanged` を **参照比較** (`prev.noPromoteMarks.sente !== new...sente || ...gote`) へ変更」を明示。`add/remove/moveNoPromoteMark` は全て新参照を返す (effects.ts:30-72) ため参照比較で過不足なく検知。R-14 系に「follow-move (length 不変・position 変化) で marks 参照更新 + TT key と digest 整合」テストを必須追加。§14.1 にも反映済 (下記)。
+
+#### [MAJOR] M-1: engagement 下駄が root card 採用時に blunder guard をバイパス (world tadasute は深ノード move-only で root card に届かない)
+- **問題**: world 経路は `bestAction.kind!=="move"` で `usingCardAction=true` (engine.ts:354) → blunder guard skip (engine.ts:433 `!usingCardAction`)。engagement の bounded-loss tie-break は「margin cp 損する card を best にする」設計ゆえ、その card がタダ捨てでも guard が効かない。§14.3 の「tadasute 安全網 + margin bound で二重」は **world 探索内 tadasute が深ノード move-only ゆえ root card に届かない**点を見落とし。
+- **反映 (S4d-5)**: engagementMargin を **タダ捨て閾値 (最小 PIECE_VALUES=歩 100cp 級、BLUNDER_GUARD_TIE_MARGIN=150 を上界の目安) 未満に bound** することを D-2 に明記 (margin < 100cp なら「駒1枚以上損する card」は構造的に採用不可)。加えて採用 card/draw 適用後局面に簡易 hanging-piece sanity check を通す案も M1 で検討 (S4e 校正で要否判断)。noise/nearEqual との合成順序 (engagement→nearEqual→addNoise) を明記し addNoise が engagement bestAction を上書きする経路 (search.ts:1285-1291) を整理。
+
+#### [MAJOR] M-2 / D-5: bolt-on (`evaluateActionWithLookahead`) = flag-OFF production が共有 `evaluate`/`evaluateCardDigest` を通るため、S4d の eval 改変は flag-OFF production の card-shogi 評価も変える
+- **問題**: §14 は「flag OFF production 不変」を DoD に置くが、(i) `noPromoteMarkCountDelta` 削除は `evaluateCardDigest` 改変、(ii) trapValueDelta board 由来化は `evaluate` 改変で、**いずれも bolt-on `evaluateActionWithLookahead` (search.ts:1934、flag OFF でも live = 現 production) が共有**する。よって S4d の eval correctness 修正は **flag-OFF production の card-shogi 評価を意図せず変える**。さらに `evaluate-action.test.ts:431` / `perf-bench-card-usage.test.ts:164` が trapValueDelta 文言・挙動依存で赤化する。
+- **反映 (新オープン論点 D-5、ユーザー確認必須)**: **S4d の DoD を「standard variant は byte 不変、card-shogi flag-OFF production 評価は S4d で意図的に改善 (符号逆/trap 精度)」へ修正する必要がある**。これは大きなスコープ判断 — 「現 production (bolt-on) に符号逆バグ修正等を即時反映してよいか / world cutover まで bolt-on を凍結するか」をユーザーに確認 (§14.4 D-5)。**反映**: §14.6 ゲートに「bolt-on `evaluateActionWithLookahead` が新 leaf trap/per-piece で意図通り動くことを確認 + `evaluate-action.test.ts`・`perf-bench-card-usage.test.ts` の trapValueDelta 依存追従」を追加。standard variant byte 不変は維持 (marks/trap は variant.id==="card-shogi" ガード)。
+
+#### [MAJOR] M-3: quiescence stale の実害は「方向」問題 (marked 駒が quiescence 内で動くと幻成り復活)、定性主張で close しない
+- **問題**: §14.4 D-3 の「stale 許容」は規模 (稀) のみで方向を評価していない。quiescence は capture/promotion を読むため、marked 駒が動いた後に旧座標基準で「marked でない駒」として成り価値込み read = 幻成り復活。
+- **反映 (S4d-2、D-3 改訂)**: **推奨を「stale 許容」から「O(m) follow 追従」へ格上げ**。quiescenceWorld の各遷移で move の from が marked 座標と一致なら mark を to へ更新 / capture で marked 駒消滅なら drop (m≤2 で O(m)、割当ゼロ)。epic 7.2(iv)1 も follow を許容。stale より correctness が高く実害ゼロ化。コスト微増は bench で確認。実装が重ければ stale 許容 + 実害 cp 実測を fallback (M1 要求の「定性で close しない」を満たす)。
+
+#### [MEDIUM] 反映
+- **MED-1 (D-1 論拠訂正)**: material 減価 (modifier #1 = 自駒) と promotion-threat 割引 (modifier #2 = `evaluatePromotionThreats` は opponent のみ走査、promotion-threat.ts:29/36) は **対象駒の所属が排他で二重計上は構造的に発生しない**。D-1 の係数根拠を「二重計上回避」から「成れない歩が base 価値を保つべき / 構造的ハンデの cp 表現」へ訂正 (§14.4 D-1 改訂済)。
+- **MED-2 (lookup 挿入点の具体化)**: §14.3 S4d-3 に marks lookup の挿入点 (material.ts:39 駒ループ内 / promotion-threat.ts:46 `inPromotionZone` 前) と marks=null fast path (lookup 生成自体スキップ、Set 構築禁止、≤2 は O(m) インライン) を擬コードで固定 (反映済、下記 §14.3)。
+- **MED-3 (test 追従カウント訂正)**: card-digest.test の `noPromoteMarkCountDelta` 参照は **~17 箇所** (L138/165/243/275/283/286/295/316/332/482/497/532/539/738/753/767/781)。§14 の「4 箇所」を訂正し `grep -n noPromoteMarkCountDelta` 全ヒットを追従対象に (§14.6 反映)。
+- **MED-4 (符号反転の方向テスト)**: 現 `+noPromoteMarkCountDelta×30` (自マーク=有利の符号逆) → per-piece 化で自マーク=不利へ符号反転。§14.6 S4d-3 ゲートに「自マーク局面で『マーク多いほど自分に不利』方向を pin する決定的テスト」を必須化 (epic 7.1 符号逆の回帰 anchor)。bench fixture が marks を含むか未確認ゆえ専用 marks fixture を新規追加前提。
+
+#### [MINOR] 反映
+- **MIN-1/MIN-2 (TurnAction 移設)**: `world-kernel.ts:49` の `import type TurnAction` のみ実依存 (move-effects はコメントのみ)。移設時 14 importers の追従に注意 (型のみ=実行時影響ゼロ)。新 location が `cards/types` (CardId) を import する形ゆえ循環 (kernel→cards→ai) 不発を型グラフで確認 (D-4)。
+- **MIN-3 (trap leaf コスト)**: getCardValue は board O(81) 走査を trap 局面の leaf 毎に行う。§14.5 R-S4d-3 の bench nodes/s 計測に trap 局面比率込みを明記 (反映済)。
+
+#### PASS 確認 (反証して問題なしと確定)
+- **B (trap TT 解禁の誤hitゼロ)**: `getCardValue`→valueModel は gameState のみ依存・経路非依存 (card-spec-server.ts:164/203/316)、computeCardFold は trap を defId fold 済 (key 一意)、trapValueDelta 削除後の digest 残フィールド (mana/hand/draw/deadMana) は全 board 非依存 = trap-skip 撤去の前提成立。**ただし B-1 の marks staleness が別経路の誤hit を残す**ため B-1 反映が前提。
+- **F (revert 独立性)**: S4d-3 (marks 帯同) → S4d-4 (trap 帯同追加) は enrichment additive で順序妥当。S4d-1/S4d-2 は enrichment 非依存で先行可。
+- **G (file:line)**: search.ts L977-978/L1184/L1252-1300、digest.ts L82/L223、world-kernel.ts:49、getFullLegalMoves=moves.ts:479 すべて実コード一致。
