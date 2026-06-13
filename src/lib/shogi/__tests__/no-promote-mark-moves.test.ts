@@ -16,7 +16,13 @@ import { getPieceMoves, getFullLegalMoves, isCheckmate } from "../moves";
 import { createInitialGameState } from "../board";
 import { createInitialCardState } from "../cards/state";
 import { CARD_SHOGI_VARIANT } from "../variants/card-shogi";
-import type { Board, GameState, Piece, Player, Position } from "../types";
+import {
+  getCaptureMovesForSearch,
+  getPromotionMovesForSearch,
+} from "../ai/captureGen";
+import { followMarksForQuiescence } from "../ai/search";
+import { isSquareMarked } from "../cards/effects";
+import type { Board, GameState, Move, Piece, Player, Position } from "../types";
 import type { CardGameState } from "../cards/types";
 
 function emptyBoard(): Board {
@@ -228,5 +234,139 @@ describe("S4a: no_promote マーク駒の mark-aware 着手生成 (D-I)", () => 
     expect(toRow2).toHaveLength(1); // 非マーク時は 2 (不成 + 任意成り)
     expect(toRow2[0].promote).toBe(false);
     expect(moves.some((m) => m.type === "move" && m.promote === true)).toBe(false);
+  });
+});
+
+describe("S4d-2: quiescence 生成 (captureGen) の mark-aware 化 (幻成り排除)", () => {
+  it("getCaptureMovesForSearch: マーク銀の capture (canPromote) は不成のみ生成 (成り変種抑止)", () => {
+    // sente 銀 row3,col4 が gote 歩 row2,col4 を取る。row2 は成りゾーン進入 = canPromote。
+    const gs = gameStateWith([
+      { pos: { row: 3, col: 4 }, piece: senteSilver },
+      { pos: { row: 2, col: 4 }, piece: gotePawn },
+      { pos: { row: 8, col: 0 }, piece: senteKing },
+      { pos: { row: 0, col: 8 }, piece: goteKing },
+    ]);
+
+    const unmarked = getCaptureMovesForSearch(gs, "sente", CARD_SHOGI_VARIANT).filter(
+      (m) => m.to.row === 2 && m.to.col === 4,
+    );
+    expect(unmarked).toHaveLength(2); // 不成 + 成り
+    expect(unmarked.some((m) => m.promote === true)).toBe(true);
+
+    const cs = markedCardState("sente", [{ row: 3, col: 4 }]);
+    const marked = getCaptureMovesForSearch(
+      gs,
+      "sente",
+      CARD_SHOGI_VARIANT,
+      cs.noPromoteMarks.sente,
+    ).filter((m) => m.to.row === 2 && m.to.col === 4);
+    expect(marked).toHaveLength(1);
+    expect(marked[0].promote).toBe(false);
+  });
+
+  it("getCaptureMovesForSearch: マーク歩の capture (mustPromote マス) は不成で着地 (dead 許容)", () => {
+    // sente 歩 row1,col4 が gote 歩 row0,col4 を取る。row0 = 歩の mustPromote マス。
+    const gs = gameStateWith([
+      { pos: { row: 1, col: 4 }, piece: sentePawn },
+      { pos: { row: 0, col: 4 }, piece: gotePawn },
+      { pos: { row: 8, col: 0 }, piece: senteKing },
+      { pos: { row: 0, col: 8 }, piece: goteKing },
+    ]);
+
+    const unmarked = getCaptureMovesForSearch(gs, "sente", CARD_SHOGI_VARIANT).filter(
+      (m) => m.to.row === 0 && m.to.col === 4,
+    );
+    expect(unmarked).toHaveLength(1);
+    expect(unmarked[0].promote).toBe(true); // 非マークは強制成り
+
+    const cs = markedCardState("sente", [{ row: 1, col: 4 }]);
+    const marked = getCaptureMovesForSearch(
+      gs,
+      "sente",
+      CARD_SHOGI_VARIANT,
+      cs.noPromoteMarks.sente,
+    ).filter((m) => m.to.row === 0 && m.to.col === 4);
+    expect(marked).toHaveLength(1);
+    expect(marked[0].promote).toBe(false); // マークは不成 (dead 許容)
+  });
+
+  it("getPromotionMovesForSearch: マーク歩の非取り成りは生成しない (成れないため対象外)", () => {
+    const gs = gameStateWith([
+      { pos: { row: 3, col: 4 }, piece: sentePawn },
+      { pos: { row: 8, col: 0 }, piece: senteKing },
+      { pos: { row: 0, col: 8 }, piece: goteKing },
+    ]);
+
+    const unmarked = getPromotionMovesForSearch(gs, "sente", CARD_SHOGI_VARIANT).filter(
+      (m) => m.to.row === 2 && m.to.col === 4,
+    );
+    expect(unmarked).toHaveLength(1); // 歩 row3→row2 成り
+
+    const cs = markedCardState("sente", [{ row: 3, col: 4 }]);
+    const marked = getPromotionMovesForSearch(
+      gs,
+      "sente",
+      CARD_SHOGI_VARIANT,
+      cs.noPromoteMarks.sente,
+    );
+    expect(marked.filter((m) => m.to.row === 2 && m.to.col === 4)).toHaveLength(0);
+  });
+
+  it("marks 未渡 / 空配列は従来生成とバイト等価 (fast path)", () => {
+    const gs = gameStateWith([
+      { pos: { row: 1, col: 4 }, piece: sentePawn },
+      { pos: { row: 0, col: 4 }, piece: gotePawn },
+      { pos: { row: 8, col: 0 }, piece: senteKing },
+      { pos: { row: 0, col: 8 }, piece: goteKing },
+    ]);
+    const noArg = getCaptureMovesForSearch(gs, "sente", CARD_SHOGI_VARIANT);
+    const emptyArg = getCaptureMovesForSearch(gs, "sente", CARD_SHOGI_VARIANT, []);
+    expect(emptyArg).toEqual(noArg);
+    expect(noArg.some((m) => m.promote === true)).toBe(true); // 成り変種を含む
+  });
+});
+
+describe("S4d-2: followMarksForQuiescence (quiescence 内マーク追従)", () => {
+  const move = (from: Position, to: Position, extra: Partial<Move> = {}): Move => ({
+    type: "move",
+    from,
+    to,
+    piece: "pawn",
+    player: "sente",
+    ...extra,
+  });
+
+  it("自マーク駒が動いたら from→to へ追従する", () => {
+    const cs = markedCardState("sente", [{ row: 3, col: 4 }]);
+    const next = followMarksForQuiescence(
+      cs,
+      move({ row: 3, col: 4 }, { row: 2, col: 4 }),
+      "sente",
+      "gote",
+    );
+    expect(isSquareMarked(next.noPromoteMarks.sente, 3, 4)).toBe(false);
+    expect(isSquareMarked(next.noPromoteMarks.sente, 2, 4)).toBe(true);
+  });
+
+  it("マーク済の相手駒を取ると相手マークが除去される", () => {
+    const cs = markedCardState("gote", [{ row: 2, col: 4 }]);
+    const next = followMarksForQuiescence(
+      cs,
+      move({ row: 3, col: 4 }, { row: 2, col: 4 }, { captured: "pawn" }),
+      "sente",
+      "gote",
+    );
+    expect(isSquareMarked(next.noPromoteMarks.gote, 2, 4)).toBe(false);
+  });
+
+  it("マークに触れない move は同一参照を返す (fast path、割当ゼロ)", () => {
+    const cs = markedCardState("sente", [{ row: 7, col: 7 }]);
+    const next = followMarksForQuiescence(
+      cs,
+      move({ row: 3, col: 4 }, { row: 2, col: 4 }),
+      "sente",
+      "gote",
+    );
+    expect(next).toBe(cs); // 参照同一
   });
 });

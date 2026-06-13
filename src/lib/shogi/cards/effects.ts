@@ -7,7 +7,7 @@ import { cloneGameState } from "../board";
 import { isPawnDropCheckmate, isInCheck, getCheckingPieces } from "../moves";
 import { unpromotePieceType } from "../variants/standard";
 import { CARD_SHOGI_VARIANT } from "../variants/card-shogi";
-import type { CardGameState, CardId, CardTarget, TrapCapturedPiece } from "./types";
+import type { CardGameState, CardId, CardTarget, PieceMark, TrapCapturedPiece } from "./types";
 
 // ----- no_promote 永続マーク管理 -----
 
@@ -19,6 +19,22 @@ export function hasNoPromoteMark(
   return cardState.noPromoteMarks[player].some(
     (m) => m.row === pos.row && m.col === pos.col,
   );
+}
+
+// Issue #235 S4d (epic §6 7.2(iv)1): (row,col) がマーク集合に含まれるかの軽量判定。
+// 探索ホットパス (captureGen 着手生成 / material・promotion-threat の per-piece eval) から
+// 駒ごとに呼ばれるため、**Set 構築禁止・割当ゼロ**: undefined/空配列は即 false (fast path、
+// 現状ほぼ常時)、非空のみ O(m) 線形比較 (マーク数 m≤2 想定で実質 O(1))。
+export function isSquareMarked(
+  marks: PieceMark[] | undefined,
+  row: number,
+  col: number,
+): boolean {
+  if (marks === undefined || marks.length === 0) return false;
+  for (let i = 0; i < marks.length; i++) {
+    if (marks[i].row === row && marks[i].col === col) return true;
+  }
+  return false;
 }
 
 export function addNoPromoteMark(

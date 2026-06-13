@@ -7,7 +7,7 @@ import { getSearchLegalMoves } from "./legal-moves";
 import { applyMoveForSearch } from "../board";
 import { evaluate, scoreMoveForOrdering } from "./evaluate";
 import { cardResultIntroducesTadasute, hasHangingPiece } from "./blunder-guard";
-import { simulateCardEffect } from "../cards/effects";
+import { simulateCardEffect, moveNoPromoteMark, removeNoPromoteMark } from "../cards/effects";
 import { getCardValue } from "../cards/card-spec-server";
 import {
   getDrawValue,
@@ -870,10 +870,16 @@ export function selectBranchCandidates(
 
 // quiescenceWorld: 静止探索 (move-only captures/promotions)。既存 quiescence と同型だが、
 // per-node cardDigest を明示引数で受け leaf eval に渡す (ctx.cardDigest 固定でなく per-node)。
-// quiescence は applyMoveForSearch (board-only) で cardState 不変ゆえ digest は本階層で一定。
 // TT を使わないため hash は不要 (updateHash 呼出なし)。
+//
+// Issue #235 S4d-2: cardState を帯同し着手生成 (captures/promotions/王手回避) を **mark-aware** 化
+// (マーク駒の幻成りを生成しない)。applyMoveForSearch は board-only でマーク非追従ゆえ、各遷移で
+// `followMarksForQuiescence` により **O(m) follow** (移動した自マーク駒を from→to 追従 / 取られた
+// 相手マーク駒を除去) し childCardState を再帰へ渡す (M1 M-3: stale でなく追従で幻成り復活を防ぐ)。
+// マーク空 (現状ほぼ常時) は follow helper が同参照を返し割当ゼロ = 性能不変。
 function quiescenceWorld(
   state: GameState,
+  cardState: CardGameState,
   alpha: number,
   beta: number,
   player: Player,
@@ -893,13 +899,14 @@ function quiescenceWorld(
 
   const inCheck = isInCheck(state, player, variant);
   if (inCheck) {
-    const moves = getSearchLegalMoves(state, player, variant);
+    const moves = getSearchLegalMoves(state, player, variant, cardState);
     if (moves.length === 0) return -(MATE_SCORE - qDepth);
     let bestScore = NEG_INF;
     for (const move of moves) {
       if (shouldStop(ctx)) return 0;
       const nextState = applyMoveForSearch(state, move);
-      const score = -quiescenceWorld(nextState, -beta, -alpha, opponent, variant, cardDigest, qDepth + 1, ctx);
+      const childCardState = followMarksForQuiescence(cardState, move, player, opponent);
+      const score = -quiescenceWorld(nextState, childCardState, -beta, -alpha, opponent, variant, cardDigest, qDepth + 1, ctx);
       if (score > bestScore) bestScore = score;
       if (score > alpha) alpha = score;
       if (alpha >= beta) return beta;
@@ -913,27 +920,50 @@ function quiescenceWorld(
   let currentAlpha = alpha;
   if (standPat > currentAlpha) currentAlpha = standPat;
 
-  const captures = getCaptureMovesForSearch(state, player, variant);
+  const ownMarks = cardState.noPromoteMarks[player];
+  const captures = getCaptureMovesForSearch(state, player, variant, ownMarks);
   for (const move of captures) {
     if (shouldStop(ctx)) return 0;
     const capturedValue = ORDER_PIECE_VALUES[move.captured!] ?? 100;
     if (standPat + capturedValue + 200 < currentAlpha) continue;
     const nextState = applyMoveForSearch(state, move);
-    const score = -quiescenceWorld(nextState, -beta, -currentAlpha, opponent, variant, cardDigest, qDepth + 1, ctx);
+    const childCardState = followMarksForQuiescence(cardState, move, player, opponent);
+    const score = -quiescenceWorld(nextState, childCardState, -beta, -currentAlpha, opponent, variant, cardDigest, qDepth + 1, ctx);
     if (score >= beta) return beta;
     if (score > currentAlpha) currentAlpha = score;
   }
 
-  const promotions = getPromotionMovesForSearch(state, player, variant);
+  const promotions = getPromotionMovesForSearch(state, player, variant, ownMarks);
   for (const move of promotions) {
     if (shouldStop(ctx)) return 0;
     const nextState = applyMoveForSearch(state, move);
-    const score = -quiescenceWorld(nextState, -beta, -currentAlpha, opponent, variant, cardDigest, qDepth + 1, ctx);
+    const childCardState = followMarksForQuiescence(cardState, move, player, opponent);
+    const score = -quiescenceWorld(nextState, childCardState, -beta, -currentAlpha, opponent, variant, cardDigest, qDepth + 1, ctx);
     if (score >= beta) return beta;
     if (score > currentAlpha) currentAlpha = score;
   }
 
   return currentAlpha;
+}
+
+// Issue #235 S4d-2: quiescence 内のマーク追従 (applyMoveForSearch は board-only でマーク非追従)。
+// 取った相手マーク駒のマークを除去 (取られた駒は手駒復帰しない限り永久マークだが盤上からは消える) +
+// 自マーク駒が動いたら from→to 追従。マーク空なら helper が同参照を返し割当ゼロ (fast path)。
+// 特性化テストから検証するため export。
+export function followMarksForQuiescence(
+  cardState: CardGameState,
+  move: Move,
+  player: Player,
+  opponent: Player,
+): CardGameState {
+  let cs = cardState;
+  if (move.captured !== undefined) {
+    cs = removeNoPromoteMark(cs, opponent, move.to);
+  }
+  if (move.from) {
+    cs = moveNoPromoteMark(cs, player, move.from, move.to);
+  }
+  return cs;
 }
 
 // negamaxWorld: WorldState を回す card-aware negamax。既存 negamax の PVS/null-move/LMR/
@@ -1000,7 +1030,7 @@ function negamaxWorld(
   if (inCheck && ply < MAX_DEPTH - 2) depth++;
 
   if (depth <= 0) {
-    return quiescenceWorld(state, alpha, beta, player, variant, cardDigest, 0, ctx);
+    return quiescenceWorld(state, world.cardState, alpha, beta, player, variant, cardDigest, 0, ctx);
   }
 
   // S4c-1: deep node は move-only (expandCards=false。カードは root のみ展開、計画 §12.10)。
