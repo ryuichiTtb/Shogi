@@ -390,3 +390,66 @@ S4c-1b cutover 後の bench (BENCH_WORLD=1) で **card% 全難易度 0%** + dept
 S4c-1 単独 (TT 無し) は depthCompleted が棋力ゲート未達 + card% 低のため、今 route flag を ON にすると AI 弱化 + カード使用減の**回帰**になる。よって **route.ts の `useTurnActionSearch:true` は追加せず** (production は bolt-on 維持 = 無回帰)、engine.ts の cutover 配線は完成・テスト済 (flag OFF で dormant)。**S4c-2 (TT) で depth 回復後に bench 再測定 → net-positive を確認して活性化**。null-move バグ修正は world 経路の correctness fix として本段で確定 (flag OFF でも価値)。
 - **S4c-1 で確定した成果**: world engine (root-only card / bestAction / noise / selector) + **null-move 退化窓バグ修正** + cutover 配線 (dormant) + bench 両刀計測 (BENCH_WORLD)。
 - **次段 S4c-2 (TT cardState fold)** で depth 回復を最優先 → 再 bench → 活性化。
+
+#### ★ product 決定 (ユーザー、2026-06-13): カード使用に engagement 下駄 = 楽しさ優先 (A)
+「最適に指すと card% が bolt-on (57%) より低くなる」場合の方針として、ユーザーは **A = 多少の損でもカードを使わせてゲームを盛り上げる (engagement 優先)** を選択。**カード使用に engagement 下駄 (card 価値ボーナス) を履かせてよい**と明言。
+- **適用先 = S4d/S4e**: world 経路の root カード/draw スコアに engagement ボーナス (bolt-on の getCardValue/getDrawValue 系 + S3 valueModel + 追加の使用促進係数) を加算し、card% を目標帯 (advanced/expert ≥70%、§6) へ引き上げる。S4e で係数を bench 校正 (使いすぎ=弱化 と 使わなさすぎ=engagement 低 のバランス点を探す)。
+- **棋力との両立**: 下駄は「僅差なら card を選ぶ」程度に抑え、明確に損なカードは依然選ばない (deep search の correctness は維持)。純粋最適 (B) でなく engagement 寄りだが、暴発防止のため tadasute 等の安全網は保持。
+
+## 13. S4c-2 実装計画 (concrete、2026-06-13、TT cardState fold)
+
+S4c-2 = WorldState 探索に **cardState-aware TT** を導入し、S4c-1 で落ちた depthCompleted (world 4-5 < bolt-on 6) を回復する。TT は engine 最大のバグ源 + 誤 hit が silent に棋力を壊す (R-3) ため correctness 最優先で設計する。
+
+### 13.0 ゴール / 非ゴール
+- **ゴール**: (1) world 探索 (negamaxWorld/findBestMoveWorld) に TT probe/store を追加し depthCompleted を bolt-on 比 −15% 以内 (≥5.1) へ回復。(2) TT key = `boardHash ^ cardFold`、cardFold は `CARD_STATE_FOLD_POLICY` (S4b-1b) 準拠。(3) 誤 hit ゼロ (同一盤面・異 cardState は別 key、異 evalIrrelevant slice は同 key)。
+- **非ゴール**: card engagement 下駄 (S4d/S4e、決定 A)。double_move (S4c-1d)。selector 校正 (S4e)。standard variant (move-only TT は無改変)。
+
+### 13.1 card zobrist キー + computeCardFold (新規 `card-zobrist.ts`)
+move-only の zobrist.ts (盤+持駒+手番) は無改変。cardState 用の別キー表を新設 (client-safe、module load 時 random)。`{lo, hi}` 32bit×2 (zobrist.ts と同形式、XOR 合成)。
+- **fold 対象 slice (CARD_STATE_FOLD_POLICY="fold"/"foldLength")**:
+  - `mana` (sente/gote 各 0..MANA_CAP): `MANA_KEYS[player][manaValue]`。
+  - `hand` (sente/gote): **defId 多重集合で正規化** (順序非依存)。各 defId の所持数 count を `HAND_CARD_KEYS[player][defId][count]` で XOR (count 上限は手札最大枚数)。
+  - `trap` (sente/gote): defId or null → `TRAP_KEYS[player][defId]` (null は 0)。
+  - `noPromoteMarks` (sente/gote): **★ count でなく position で fold (correctness)**。mark-aware 合法手生成は「どのマスがマークか」に依存するため、count 一致でも position 違いは別局面 = 別 key にする必要。`MARK_KEYS[player][squareIndex(0..80)]` を各マーク駒位置で XOR (policy は "fold" だが実装は position 単位、§13.5 R-3a)。
+  - `drawProgress` (sente/gote 各 0..AUTO_DRAW_INTERVAL): `DRAW_PROGRESS_KEYS[player][value]`。
+  - `deck` (foldLength): `DECK_LEN_KEYS[player][length]` (length のみ、内容無視)。
+- **evalIrrelevant slice はキーに含めない**: graveyard / manaCap / pendingCard / lastTurnStartedAt。
+- `computeCardFold(cardState: CardGameState): ZobristHash` = 上記の XOR 合成。**毎ノード full 計算** (O(hand 枚数 + mark 数 + 定数) = 小、incremental は不要・誤りの温床になるため避ける)。
+- **doubleMove**: S4c-1 では world.doubleMove 常時 null ゆえ fold 不要。S4c-1d で double_move を木に入れる際に doubleMove(active/movesLeft) を fold へ追加要 (本計画にコメントで予約)。
+
+### 13.2 boardHash の維持 (incremental + 全量再計算ゲート)
+world 探索の遷移は `applyTurnAction`。boardHash は:
+- **通常 move (`boardChangedBeyondMove === false`)**: 既存 `updateHash(parentBoardHash, parentState, move, childState)` で incremental 更新 (move 1 手分、move-only と同関数)。
+- **card / check_break 発火 move (`boardChangedBeyondMove === true`)**: incremental 不可ゆえ `computeHash(childState)` 全量再計算 (S4b-1 の戻り値で検知)。
+- **draw / setTrap / mana_up (盤不変)**: boardChangedBeyondMove=false かつ盤不変だが currentPlayer flip + 手番キー変化 → updateHash は move 前提で使えない。**盤不変ノードは parent boardHash の手番キーのみ XOR トグル** (computeHash の SIDE_TO_MOVE 部分) で更新。← 要検討: draw/setTrap/mana_up は move を持たないため updateHash 不可。簡潔策 = これらも computeHash 全量 (盤不変でも安全)。**判断: 実装簡潔性 + 誤り回避優先で「move 以外 (card/draw 全般) は computeHash 全量、通常 move のみ incremental」とする** (boardChangedBeyondMove は「move だが盤が1手以上動いた」検知用。draw/playCard は applied.turnEnded だが move でないので別途 action.kind で分岐)。
+- root の初期 boardHash = `computeHash(state)`。
+
+### 13.3 TT probe/store を negamaxWorld に追加 (move-only negamax:340-352 を移植)
+- `negamaxWorld` に `hash: ZobristHash` 引数を追加 (boardHash ^ cardFold の合成済 key を渡す)。
+- **probe** (関数冒頭、terminal/leaf チェック後): `ctx.tt.probe(hash.lo, hash.hi)`。`ttEntry.depth >= depth` で exact/lower/upper を適用 (move-only と同ロジック)。`ttMove` を move 順序付けに使用 (card/draw は ttMove 非対象)。
+- **store** (関数末尾、`return maxScore` 前): flag = `maxScore <= originalAlpha ? "upper" : maxScore >= beta ? "lower" : "exact"`、bestMove = 最善 move (card/draw 採用時は null)。停止後 (`ctx.stopped`) は store しない (ノイズ書き戻し回避、move-only と同)。
+- **mate score の ply 調整 (★ correctness)**: TT に格納する mate スコア (`±(MATE_SCORE - ply)`) は ply 依存。move-only negamax が調整しているか確認し、していなければ world でも揃える (していない場合は両系統の既存挙動に合わせ無調整で一貫させる = M1 で確認)。
+- quiescenceWorld は TT 不使用 (move-only quiescence と同、hash 引数も不要のまま)。
+- 子再帰へ渡す hash: 通常 move = `updateHash` 由来 boardHash ^ `computeCardFold(childCardState)`、card/draw = `computeHash` 由来 ^ cardFold。
+
+### 13.4 findBestMoveWorld + engine 配線
+- `findBestMoveWorld`: root boardHash = computeHash、root cardFold = computeCardFold、`ctx.tt.newSearch()` を呼ぶ (move-only findBestMove:568 と同、per-request TT の世代更新)。各 root action の子へ hash を渡す。
+- selector / noise / bestAction は S4c-1 のまま。
+- engine.ts は無改変 (worldPathActive 経路は既存。TT は ctx.tt を共用)。flag OFF 据え置き (活性化は本段 bench で depth 回復確認後、別途ユーザー確認の上)。
+- **bench に TT hit-rate カウンタ追加** (epic item 7.6): `SearchStats` に `ttProbes`/`ttHits` を追加し、退行が fold 起因か eval 起因か切り分け可能にする (S4c-1 比の depth 回復 + hit-rate を測定)。
+
+### 13.5 リスク
+- **R-3 TT 誤 hit (最重要)**: fold 漏れ / 盤面変更ノードの incremental hash 破壊。→ (a) noPromoteMarks を position fold (count でなく)。(b) computeCardFold は全 fold slice を網羅 (CARD_STATE_FOLD_POLICY を Object.keys で回し、fold/foldLength のみ XOR、宣言漏れは型 + test でガード)。(c) 盤面変更ノード (boardChangedBeyondMove / card / draw) は computeHash 全量。(d) 特性化テスト: 同一盤面で (i) 異 hand defId → 別 key、(ii) 異 mark position → 別 key、(iii) 異 graveyard (evalIrrelevant) → 同 key、(iv) 異 deck 内容・同 length → 同 key、(v) 異 deck length → 別 key。
+- **R-9 TT 断片化**: cardState fold で同一盤面が複数 key に分散し hit 率低下。→ hit-rate カウンタで実測、depth 回復が不十分なら fold 粒度を見直す (例: hand を defId 集合でなく枚数のみに緩める = 誤 hit と hit 率のトレードオフ、S4e)。
+- **R-13 mate score TT 汚染**: ply 依存 mate スコアの TT 格納/取得で詰み距離がずれる。→ §13.3 で move-only の扱いに揃える (M1 確認)。
+- **R-14 incremental hash と applyTurnAction の不整合**: updateHash は applyMoveForSearch 前提。applyTurnAction の通常 move 結果と updateHash が一致するか (makeMoveWithEffects の盤変更が applyMoveForSearch と同一か) を特性化テストで pin (computeHash(child) === updateHash(parent, move, child) を通常 move で assert)。
+
+### 13.6 検証ゲート
+- lint→typecheck→test:ci→build。standard byte 不変 (move-only TT 無改変)。flag OFF で production 不変。
+- TT correctness 特性化テスト (R-3 (d) の (i)-(v) + R-14 の incremental=full 一致)。
+- **bench (BENCH_WORLD=1)**: depthCompleted が S4c-1 (4-5) から回復し bolt-on −15% (≥5.1) 達成を確認。TT hit-rate を記録。card% も再測 (depth 回復でカード戦術が見え card% が上がるか観測、ただし engagement 下駄前ゆえ目標 70% は S4d/S4e)。
+- 回復確認後、route flag 活性化の是非をユーザーに提示 (棋力 net-positive を数値で示す)。
+
+### 13.7 サブ分割
+- **S4c-2a**: card-zobrist.ts + computeCardFold + 網羅/correctness テスト (R-3 (d))。production 未配線 (純粋追加)。
+- **S4c-2b**: negamaxWorld/findBestMoveWorld に TT 配線 (hash 引数 + probe/store + boardHash 維持) + R-14 テスト + bench。flag OFF 据え置き。
