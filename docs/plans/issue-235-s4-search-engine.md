@@ -656,3 +656,29 @@ S4d 全 5 段階を実装・コミット・push 済 (各段 lint 0err/22warn・t
 - **(2) intermediate engagement の washes out**: 中級でもカードを使わせたいなら engagement を nearEqual の後に適用する順序変更が要る (現状は noise 演出を優先)。S4e で方針確認。
 - **(3) trap 局面の depth 回復**: S4d-4 で trap TT 解禁したが PERF_DECK は trap 非含有ゆえ標準 bench に効果は出ない。trap 保有 fixture で depth 回復を別途測定 (S4e or 派生)。
 - **(4) route flag 活性化**: depth 維持 + card% 達成だが、**100% の棋力影響を S4e で評価してから** activation 判断 (route.ts に useTurnActionSearch:true、net-positive をユーザー提示)。現状 OFF 据え置き。
+
+## 15. S4e 校正 (engagement margin + selector + 棋力 bench 確定、2026-06-14)
+
+### 15.1 engagement margin 校正 → 現状値で確定 (gap=0 発見)
+ユーザー決定 (2026-06-14): card% を ~70% 帯へ、の前提で margin 校正に着手。**diagnostic (BENCH_GAPS=1、`scripts/measure-baseline-235.ts` の gap モード + `RootSearchResult.rootActionScores` 公開) で「最善 move と最善 card/draw の深読みスコア差 gap」を計測**。
+
+- **★発見: 全7シナリオ × 全4難易度 = 28ケースすべて gap=0** (最善 card のスコアが最善 move と完全一致)。= curated card-favorable な静かな局面では「カードは損な手でなく最善手と同価値」。深い探索の equilibrium が root の minor 変化 (pawn_return / draw / trap) に非感応のため。
+- **意味**: ① advanced/expert の card% 100% は**棋力を一切落としていない** (カード = 最善手と同価値ゆえ損ゼロ)。当初の「100%=毎ターン50-70cp損」は誤前提だった。② margin が効くのは **gap>0 の戦術局面** (例: 駒をタダ取りできる局面では draw の gap>5、engagement テストで実証)。③ **bench fixture (全 gap=0) では margin で ~70% を作れない** (margin>0=100% / margin=0=0% の binary)。bench 100% は curated 局面の値で実対局 card% ではない。
+- **決定 (ユーザー 2026-06-14)**: **現状 margin で確定** = `ENGAGEMENT_PARAMS` beginner140/intermediate100/advanced70/expert50。理由: 歩(100cp)未満で「明確な悪手は選ばない」を保証 + gap=0 で棋力低下なしを数値確認 + 静かな局面で損ゼロでカードを使い (engagement)、戦術局面のみ margin が使いすぎを防ぐ。実対局 card% は margin が自然に調整 (bench 100% より下がる)。
+
+### 15.2 selector M/K → 現状値で確定
+全難易度 M=∞ (全 move、LMR が late move 縮約) / K=1 (PoC-1 実測で K=1 PASS / K=2 FAIL、§11)。S4e で再校正不要と判断 (PoC-1 validated 値を維持)。budget は未導入 (deadline 内で完了、S4d-5 bench で全難易度 avgMs < timeLimit を確認)。
+
+### 15.3 route flag 活性化判断 (world vs bolt-on net-positive、2026-06-14 同一マシン連続測定)
+
+| 難易度 | depth bolt→world | card% bolt→world | depth ゲート(−15%) |
+|---|---|---|---|
+| beginner | 3.00→2.89 (−4%) | 100%→14% | ✅ |
+| intermediate | 5.33→4.39 (**−18%**) | 93%→0% | ⚠️ **超過** |
+| advanced | 5.78→5.11 (−12%) | 57%→**100%** | ✅ |
+| expert | 6.00→5.22 (−13%) | 57%→**100%** | ✅ |
+
+- **advanced/expert (P1 対象) = world が net-positive**: card% 57%→100% (decision A 達成) + eval バグ修正が leaf 到達。depth −12/−13% は −15% ゲート内。
+- **intermediate = depth −18% で ゲート超過** (S4c-2 §13.9 の −16.7% から継続する world 経路の既知制約、S4d/S4e で新規退化ではない)。card% も 93%→0% (engagement が noise/nearEqual で wash out)。
+- **beginner**: depth −4% (許容)、card% 100%→14% (bolt-on の過剰採用が解消、ただし低難易度のカード演出は減る)。
+- **判断の核心**: world は **強い難易度 (adv/exp) で P1 を解消するが、intermediate で depth ゲート超過 + 低難易度の card% 低下**。clean な全難易度活性化はできない。選択肢: (A) adv/exp のみ選択的活性化 (per-difficulty flag、intermediate 退化を回避しつつ P1 解消) / (B) 全活性化 (intermediate の既知 depth コストを受容) / (C) intermediate depth 回復 + 低難易度 engagement 順序を S4e 追加対応してから活性化 / (D) 非活性化 (bolt-on 維持)。**ユーザー確認 (2026-06-14 提示)**。
