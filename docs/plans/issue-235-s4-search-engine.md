@@ -628,3 +628,31 @@ S4c-2 と同様、各段は flag OFF (route 未配線) で dormant。world 経�
 - **B (trap TT 解禁の誤hitゼロ)**: `getCardValue`→valueModel は gameState のみ依存・経路非依存 (card-spec-server.ts:164/203/316)、computeCardFold は trap を defId fold 済 (key 一意)、trapValueDelta 削除後の digest 残フィールド (mana/hand/draw/deadMana) は全 board 非依存 = trap-skip 撤去の前提成立。**ただし B-1 の marks staleness が別経路の誤hit を残す**ため B-1 反映が前提。
 - **F (revert 独立性)**: S4d-3 (marks 帯同) → S4d-4 (trap 帯同追加) は enrichment additive で順序妥当。S4d-1/S4d-2 は enrichment 非依存で先行可。
 - **G (file:line)**: search.ts L977-978/L1184/L1252-1300、digest.ts L82/L223、world-kernel.ts:49、getFullLegalMoves=moves.ts:479 すべて実コード一致。
+
+### 14.9 S4d 実装完了 + bench 結果 (2026-06-13)
+S4d 全 5 段階を実装・コミット・push 済 (各段 lint 0err/22warn・typecheck・test:ci・build green、standard byte 不変、flag OFF route 未配線=production は bolt-on)。
+
+- **S4d-1 `565f4f7`** (refactor): 低リスク負債精算 — TurnAction 型を kernel 中立 location へ移設 (L0→L2 逆依存解消) / digest.manaCap を cardState 読みに是正 / 死にマナ閾値を manaCap×DEAD_MANA_RATIO(0.8) の動的算出へ。全て現行 cap=20 で挙動不変。
+- **S4d-2 `105bbf6`** (fix): 幻成りを quiescence 生成でも排除 — captureGen/getSearchLegalMoves を mark-aware 化 + quiescenceWorld に O(m) follow 追従 (M1 M-3)。共通 isSquareMarked (Set 構築禁止)。
+- **S4d-3 `b2f4da9`** (fix): per-piece no_promote 評価化 + 符号逆フィールド削除 — CardDigest に noPromoteMarks 帯同、material 減価 (modifier #1、係数 0.1) + 成り脅威割引 (modifier #2)、noPromoteMarkCountDelta/NO_PROMOTE_MARK_COEFFICIENT 削除。**★M1 B-1: marksChanged を参照比較へ** (follow の position 変化検知漏れ防止)。
+- **S4d-4 `73b3da6`** (fix): trapValueDelta board 由来化 + trap TT 解禁 — digest.trap(defId) 帯同 + evaluate leaf で getCardValue 算出、computeCardDigest/updateCardDigest から gameState 引数削除、negamaxWorld/findBestMoveWorld の trap-skip TT ゲート撤去。bolt-on (D-5) にも反映。
+- **S4d-5 `9f49cd5`** (feat): engagement 下駄 (決定A) — findBestMoveWorld root に bounded-loss tie-break (best から engagementMargin 以内の card/draw を採用)。ENGAGEMENT_PARAMS (beginner150/intermediate100/advanced70/expert50、< BLUNDER_GUARD_TIE_MARGIN 150)。
+
+#### bench 結果 (BENCH_WORLD=1、RUNS=2、engagement ON)
+
+| 難易度 | depthCompleted | S4c-2 depth | card% | S4c-2 card% | depth ゲート |
+|---|---|---|---|---|---|
+| beginner | 2.89 | 2.89 | 7% | ~0% | ≥2.55 ✅ |
+| intermediate | 4.39 | 4.44 | 0% | ~0% | ≥4.53 ⚠️ (S4c-2 同等) |
+| advanced | **5.11** | 5.11 | **100%** | ~0% | ≥4.91 ✅ |
+| expert | **5.22** | 5.33 | **100%** | ~0% | ≥5.1 ✅ |
+
+- **★advanced/expert card% = 100% (0%→100%)**: engagement 下駄が機能し、目標 ≥70% を達成・超過。決定A (多少損でもカードを使わせる) が world 経路で実現。
+- **depthCompleted 維持**: S4d-3 eval 改修 + S4d-4 trap TT 解禁は PERF_DECK (trap 非含有) で depth を退化させていない (advanced 5.11 同等、expert 5.22≈5.33 run noise 内、intermediate 4.39≈4.44)。eval correctness 強化と depth を両立。
+- **intermediate 0% / beginner 7%**: engagement は nearEqual(80)/addNoise(0.1/0.5) より前に適用するため、noise 系難易度では nearEqual の再ランダム化で card 採用が上書きされ washes out する。**advanced/expert (noise=0) では engagement が唯一のバイアスゆえ 100% に到達**。目標 (advanced/expert ≥70%) は達成。
+
+#### S4e へのオープン論点 (校正)
+- **(1) card% 100% は過剰か**: 100% = 毎ターン必ずカードを使う (margin 内なら)。決定A は満たすが advanced/expert が常に ~50-70cp 損する手を指す = 棋力低下が大きい懸念。**margin を縮小して ~70% 帯へ着地させるか** (engagement と棋力のバランス点) を S4e で bench 校正 + ユーザー確認。暫定 ENGAGEMENT_PARAMS は出発点。
+- **(2) intermediate engagement の washes out**: 中級でもカードを使わせたいなら engagement を nearEqual の後に適用する順序変更が要る (現状は noise 演出を優先)。S4e で方針確認。
+- **(3) trap 局面の depth 回復**: S4d-4 で trap TT 解禁したが PERF_DECK は trap 非含有ゆえ標準 bench に効果は出ない。trap 保有 fixture で depth 回復を別途測定 (S4e or 派生)。
+- **(4) route flag 活性化**: depth 維持 + card% 達成だが、**100% の棋力影響を S4e で評価してから** activation 判断 (route.ts に useTurnActionSearch:true、net-positive をユーザー提示)。現状 OFF 据え置き。
