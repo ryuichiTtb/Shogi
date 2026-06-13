@@ -95,7 +95,7 @@ function searchWorld(
     spectatorMode: true,
     selectorM: M,
     selectorK,
-    cardDigest: computeCardDigest(cardState, state),
+    cardDigest: computeCardDigest(cardState),
   });
   findBestMove(
     state,

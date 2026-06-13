@@ -973,8 +973,9 @@ export function followMarksForQuiescence(
 // 展開ゆえ deep node に rootPlayer gate は不要 → rootPlayer 引数を撤去 (計画 §12.10)。
 // S4c-2b: TT (置換表) を配線。key = boardHash ^ cardFold (computeCardFold)。boardHash は board-only
 // hash を引数で受け取り (通常 move は updateHash incremental、card/draw/check_break は computeHash 全量、
-// §13.8)、本関数で cardFold を毎ノード合成して TT key を作る。**trap セット済ノードは TT skip**
-// (trapValueDelta スタレネスで「同 key・異 score」誤 hit するため、§13.8 B-1。S4d で解消予定)。
+// §13.8)、本関数で cardFold を毎ノード合成して TT key を作る。
+// S4d-4: trap セット済ノードも TT 有効 (旧 trap-skip 撤去)。trap 価値を board 由来 leaf 算出へ
+// 移行 (evaluate の getCardValue) し「同 board + 同 trap defId → 同 score」が成立、誤 hit が消滅。
 function negamaxWorld(
   world: WorldState,
   depth: number,
@@ -1001,29 +1002,28 @@ function negamaxWorld(
     return state.status === "checkmate" ? -(MATE_SCORE - ply) : 0;
   }
 
-  // S4c-2b: TT probe (check extension 前 = move-only negamax と同位置)。trap セット済ノードは
-  // trapValueDelta スタレネス (digest.ts: trap defId 不変だと盤面変化でも prev 流用) により同 key で
-  // score が path 依存にズレ誤 hit するため TT 無効化 (§13.8 B-1。S4d で trapValueDelta を board 由来化後に解禁)。
-  const ttEnabled =
-    world.cardState.trap.sente === null && world.cardState.trap.gote === null;
+  // S4c-2b: TT probe (check extension 前 = move-only negamax と同位置)。
+  // S4d-4: trap セット済ノードも TT 有効化 (旧 trap-skip 撤去)。trapValueDelta スカラーを board 由来
+  // leaf 算出 (evaluate の getCardValue) へ移行したことで「同 board + 同 trap defId → 同 score」が
+  // 成立し誤 hit が消滅 (§13.8 B-1 解消)。digest 残フィールドは全 board 非依存 (mana/hand/draw/deadMana)、
+  // marks は S4d-3 で参照比較化済 (stale 排除)、trap は computeCardFold が defId fold 済で key 一意。
   const cardFold = computeCardFold(world.cardState);
-  const ttKey: ZobristHash | null = ttEnabled
-    ? { lo: (boardHash.lo ^ cardFold.lo) >>> 0, hi: (boardHash.hi ^ cardFold.hi) >>> 0 }
-    : null;
+  const ttKey: ZobristHash = {
+    lo: (boardHash.lo ^ cardFold.lo) >>> 0,
+    hi: (boardHash.hi ^ cardFold.hi) >>> 0,
+  };
   let ttMove: Move | null = null;
-  if (ttKey) {
-    ctx.ttProbes++;
-    const ttEntry = ctx.tt.probe(ttKey.lo, ttKey.hi);
-    if (ttEntry && ttEntry.depth >= depth) {
-      ctx.ttHits++;
-      ttMove = ttEntry.bestMove;
-      if (ttEntry.flag === "exact") return ttEntry.score;
-      if (ttEntry.flag === "lower" && ttEntry.score > alpha) alpha = ttEntry.score;
-      if (ttEntry.flag === "upper" && ttEntry.score < beta) beta = ttEntry.score;
-      if (alpha >= beta) return ttEntry.score;
-    } else if (ttEntry) {
-      ttMove = ttEntry.bestMove;
-    }
+  ctx.ttProbes++;
+  const ttEntry = ctx.tt.probe(ttKey.lo, ttKey.hi);
+  if (ttEntry && ttEntry.depth >= depth) {
+    ctx.ttHits++;
+    ttMove = ttEntry.bestMove;
+    if (ttEntry.flag === "exact") return ttEntry.score;
+    if (ttEntry.flag === "lower" && ttEntry.score > alpha) alpha = ttEntry.score;
+    if (ttEntry.flag === "upper" && ttEntry.score < beta) beta = ttEntry.score;
+    if (alpha >= beta) return ttEntry.score;
+  } else if (ttEntry) {
+    ttMove = ttEntry.bestMove;
   }
 
   const inCheck = isInCheck(state, player, variant);
@@ -1108,7 +1108,7 @@ function negamaxWorld(
     const childWorld = applied.world;
     const childDigest =
       cardDigest !== undefined
-        ? updateCardDigest(cardDigest, world.cardState, childWorld.cardState, childWorld.gameState)
+        ? updateCardDigest(cardDigest, world.cardState, childWorld.cardState)
         : undefined;
     // S4c-2b: child の board-only hash。通常 move (盤 1 手分のみ) は updateHash incremental、
     // card / draw / check_break 発火 move (boardChangedBeyondMove) は computeHash 全量 (§13.8)。
@@ -1163,8 +1163,8 @@ function negamaxWorld(
     }
   }
 
-  // S4c-2b: TT store (trap セット済 = ttKey null では skip、停止後も score 不信頼ゆえ skip、move-only と同)。
-  if (ttKey && !ctx.stopped) {
+  // S4c-2b/S4d-4: TT store (trap 局面も有効。停止後は score 不信頼ゆえ skip、move-only と同)。
+  if (!ctx.stopped) {
     const flag: "exact" | "lower" | "upper" =
       maxScore <= originalAlpha ? "upper" : maxScore >= beta ? "lower" : "exact";
     ctx.tt.store(ttKey.lo, ttKey.hi, depth, maxScore, flag, bestMove);
@@ -1205,21 +1205,17 @@ export function findBestMoveWorld(
 
   const baseDigest =
     ctx.cardDigest ??
-    (variant.id === "card-shogi" ? computeCardDigest(cardState, state) : undefined);
+    (variant.id === "card-shogi" ? computeCardDigest(cardState) : undefined);
 
   // S4c-2b: TT 配線。root board-only hash + per-request TT 世代更新 (move-only findBestMove:newSearch と同)。
-  // trap セット済 root は TT skip (trapValueDelta スタレネス誤 hit 回避、§13.8 B-1)。
+  // S4d-4: trap セット済 root も TT 有効化 (trap board 由来化で誤 hit 解消、§13.8 B-1)。
   const rootBoardHash = computeHash(state);
   ctx.tt.newSearch();
-  const rootTtEnabled = cardState.trap.sente === null && cardState.trap.gote === null;
-  let rootTtKey: ZobristHash | null = null;
-  if (rootTtEnabled) {
-    const rootCardFold = computeCardFold(cardState);
-    rootTtKey = {
-      lo: (rootBoardHash.lo ^ rootCardFold.lo) >>> 0,
-      hi: (rootBoardHash.hi ^ rootCardFold.hi) >>> 0,
-    };
-  }
+  const rootCardFold = computeCardFold(cardState);
+  const rootTtKey: ZobristHash = {
+    lo: (rootBoardHash.lo ^ rootCardFold.lo) >>> 0,
+    hi: (rootBoardHash.hi ^ rootCardFold.hi) >>> 0,
+  };
 
   let bestMove = rootMoves[0];
   let rootMoveScores: { move: Move; score: number }[] = [];
@@ -1233,11 +1229,8 @@ export function findBestMoveWorld(
 
     // S4c-2b: root TT 手で move 順序付け (transposition で root が store 済の場合のみ効く。root 自体は
     // store しない = move-only findBestMove と同、root は rootMoveScores 用に全 action を読むため)。
-    let rootTtMove: Move | null = null;
-    if (rootTtKey) {
-      const rootEntry = ctx.tt.probe(rootTtKey.lo, rootTtKey.hi);
-      rootTtMove = rootEntry?.bestMove ?? null;
-    }
+    const rootEntry = ctx.tt.probe(rootTtKey.lo, rootTtKey.hi);
+    const rootTtMove: Move | null = rootEntry?.bestMove ?? null;
     const sortedRoot = [...rootActions].sort(
       (a, b) => actionOrderScore(b, 0, ctx, rootTtMove) - actionOrderScore(a, 0, ctx, rootTtMove),
     );
@@ -1259,7 +1252,7 @@ export function findBestMoveWorld(
       const childWorld = applied.world;
       const childDigest =
         baseDigest !== undefined
-          ? updateCardDigest(baseDigest, cardState, childWorld.cardState, childWorld.gameState)
+          ? updateCardDigest(baseDigest, cardState, childWorld.cardState)
           : undefined;
       // S4c-2b: child board hash (root: 通常 move=incremental、card/draw=全量)。
       const childBoardHash: ZobristHash =
@@ -1499,11 +1492,11 @@ function searchDoubleMoveSuperAction(
   const prevDigest =
     ctx?.cardDigest ??
     (variant.id === "card-shogi"
-      ? computeCardDigest(state.cardState, state.gameState)
+      ? computeCardDigest(state.cardState)
       : undefined);
   const innerDigest =
     prevDigest !== undefined
-      ? updateCardDigest(prevDigest, state.cardState, newCardState, afterCardWiredCS.gameState)
+      ? updateCardDigest(prevDigest, state.cardState, newCardState)
       : undefined;
 
   // Step 2: 1 手目候補生成 (move-only)。性能配慮で heuristic 上位 K 手に絞る。
@@ -1603,7 +1596,7 @@ function searchDoubleMoveSuperActionKernel(
   // digest prev (root)。ctx 未渡フォールバックは OFF 版 (computeCardDigest) と同方針。
   const prevDigest =
     ctx.cardDigest ??
-    (variant.id === "card-shogi" ? computeCardDigest(state.cardState, state.gameState) : undefined);
+    (variant.id === "card-shogi" ? computeCardDigest(state.cardState) : undefined);
 
   // Step 2: 1 手目候補生成 (move-only)。OFF 同様 heuristic 上位 K 手に絞る。
   const firstMovesAll = getSearchLegalMoves(worldDM.gameState, player, variant);
@@ -1632,7 +1625,7 @@ function searchDoubleMoveSuperActionKernel(
     if (afterFirst.turnEnded) {
       const innerDigest =
         prevDigest !== undefined
-          ? updateCardDigest(prevDigest, state.cardState, worldF.cardState, worldF.gameState)
+          ? updateCardDigest(prevDigest, state.cardState, worldF.cardState)
           : undefined;
       const raw = evaluate(worldF.gameState, variant, innerDigest);
       const score = player === "sente" ? raw : -raw;
@@ -1658,7 +1651,7 @@ function searchDoubleMoveSuperActionKernel(
       // per-combo digest (kernel の worldS.cardState = cost 正確消費 + lazy drawProgress 反映済)。
       const innerDigest =
         prevDigest !== undefined
-          ? updateCardDigest(prevDigest, state.cardState, worldS.cardState, worldS.gameState)
+          ? updateCardDigest(prevDigest, state.cardState, worldS.cardState)
           : undefined;
       const raw = evaluate(worldS.gameState, variant, innerDigest);
       const score = player === "sente" ? raw : -raw;
@@ -1939,11 +1932,11 @@ export function evaluateActionWithLookahead(
   // - standard variant (variant.id !== "card-shogi") では digest は意味を持たないため undefined のまま
   let prevDigest = ctx?.cardDigest;
   if (prevDigest === undefined && variant.id === "card-shogi") {
-    prevDigest = computeCardDigest(state.cardState, state.gameState);
+    prevDigest = computeCardDigest(state.cardState);
   }
   const newDigest =
     prevDigest !== undefined
-      ? updateCardDigest(prevDigest, state.cardState, applied.cardState, applied.gameState)
+      ? updateCardDigest(prevDigest, state.cardState, applied.cardState)
       : prevDigest;
 
   const oppScore = getOpponentResponseScore(
@@ -1961,8 +1954,8 @@ export function evaluateActionWithLookahead(
     return oppScore + getDrawValue(state.gameState, player, state.cardState);
   }
 
-  // PR3-3 C-6 / S3b: トラップ系 (no_promote / check_break) の価値は newDigest.trapValueDelta に
-  // 反映済 (updateCardDigest が applied.gameState から valueModel で局面依存値を precompute、
-  // opp scan の各 evaluate に乗る)。ここでの明示加算は不要 (重複加算回避)。
+  // PR3-3 C-6 / S4d-4: トラップ系 (no_promote / check_break) の価値は evaluate の leaf で
+  // newDigest.trap の defId から getCardValue により board 由来算出される (opp scan の各 evaluate に乗る)。
+  // よって bolt-on でもここでの明示加算は不要 (重複加算回避)。
   return oppScore;
 }

@@ -24,12 +24,13 @@ export type FoldPolicy = "fold" | "foldLength" | "evalIrrelevant";
 export const CARD_STATE_FOLD_POLICY: Record<keyof CardGameState, FoldPolicy> = {
   mana: "fold", // digest + canDraw + getCardActions が参照
   hand: "fold", // getCardActions が hand の defId を読む (合法 card action が内容依存)。fold 時は defId 多重集合で正規化
-  trap: "fold", // digest.trapValueDelta + 同種トラップ抑止
+  trap: "fold", // digest.trap (defId) + leaf trap 価値 (getCardValue) + 同種トラップ抑止。S4d-4 で TT 安全化
   noPromoteMarks: "fold", // digest + mark-aware 合法手生成に影響
   drawProgress: "fold", // digest.drawProgressDelta + canDraw 閾値
   deck: "foldLength", // canDraw は deck.length のみ参照。内容 fold は断片化 (R-9 悪化)、完全無視は auto-draw 後の手札差を誤 hit → length 一致で同一視が正
   graveyard: "evalIrrelevant", // ai/kernel 探索で read ゼロ。fold は hit 率を無駄に落とすだけ
-  manaCap: "evalIrrelevant", // 現状 MANA_CAP 定数。S4d で動的マナ上限を入れたら "fold" へ昇格要
+  manaCap: "evalIrrelevant", // 現状 MANA_CAP 定数 (全局面 20) ゆえ誤 hit なし。★S4d-1 で死にマナ閾値が
+  // digest.manaCap×ratio を読むため、動的マナ上限を入れたら manaCap は eval 依存 → 必ず "fold" へ昇格要
   pendingCard: "evalIrrelevant", // UI 専用、探索未参照
   lastTurnStartedAt: "evalIrrelevant", // 探索は spectatorMode=true 固定 (search.ts) で早指し無効。spectatorMode を可変化したら再検討要
 };

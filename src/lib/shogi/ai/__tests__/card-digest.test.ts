@@ -29,6 +29,7 @@ import {
 import { CARD_SPECS } from "@/lib/shogi/cards/card-spec-server";
 import { createInitialCardState } from "@/lib/shogi/cards/state";
 import { moveNoPromoteMark } from "@/lib/shogi/cards/effects";
+import { evaluate } from "@/lib/shogi/ai/evaluate";
 import { INITIAL_MANA, MANA_CAP } from "@/lib/shogi/cards/definitions";
 import { STANDARD_VARIANT } from "@/lib/shogi/variants/standard";
 import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
@@ -134,7 +135,7 @@ describe("evaluateCardDigest (W-3: variant ガード + W-2: sente 絶対視点)"
     manaCap: MANA_CAP,
     handValueDelta: 5,
     drawProgressDelta: 2,
-    trapValueDelta: 0,
+    trap: { sente: null, gote: null },
     noPromoteMarks: null,
     // PR3-1: 両者 DEAD_MANA_THRESHOLD 以下に設定し、死にマナペナルティ=0 で
     // 既存アサーションの数式 (manaDelta×COEF + handValueDelta + drawProgressDelta×COEF) を維持。
@@ -161,7 +162,7 @@ describe("evaluateCardDigest (W-3: variant ガード + W-2: sente 絶対視点)"
       manaCap: MANA_CAP,
       handValueDelta: 0,
       drawProgressDelta: 0,
-      trapValueDelta: 0,
+      trap: { sente: null, gote: null },
       noPromoteMarks: null,
       manaAbsolute: { sente: 0, gote: 0 },
     };
@@ -235,41 +236,43 @@ describe("handValue 単調減衰関数 (F-5 仮基準)", () => {
   });
 });
 
-describe("computeCardDigest S3b 拡張 (trapValueDelta / noPromoteMarks)", () => {
-  it("トラップなし・マークなし → trapValueDelta=0 / noPromoteMarks=null", () => {
+describe("computeCardDigest / evaluate トラップ (S4d-4 board 由来化)", () => {
+  it("トラップなし・マークなし → trap={null,null} / noPromoteMarks=null", () => {
     const cardState = createInitialCardState(SAMPLE_DECK);
-    const digest = computeCardDigest(cardState, GS);
-    expect(digest.trapValueDelta).toBe(0);
+    const digest = computeCardDigest(cardState);
+    expect(digest.trap).toEqual({ sente: null, gote: null });
     expect(digest.noPromoteMarks).toBeNull();
   });
 
-  it("gameState 省略時はトラップ保有でも trapValueDelta=0 (局面情報なしで算出不可)", () => {
+  it("S4d-4: computeCardDigest は trap の defId を帯同 (価値でなく defId)", () => {
     const cardState = createInitialCardState(SAMPLE_DECK);
     cardState.trap.sente = { instanceId: "t-s1", defId: "check_break", owner: "sente" };
-    expect(computeCardDigest(cardState).trapValueDelta).toBe(0);
+    const digest = computeCardDigest(cardState);
+    expect(digest.trap.sente).toBe("check_break");
+    expect(digest.trap.gote).toBeNull();
   });
 
-  it("sente 盤上トラップは +valueModel(sente)、gote 不在", () => {
-    const cardState = createInitialCardState(SAMPLE_DECK);
-    cardState.trap.sente = {
-      instanceId: "t-s1",
-      defId: "check_break",
-      owner: "sente",
-    };
-    const digest = computeCardDigest(cardState, GS);
-    expect(digest.trapValueDelta).toBe(CHECK_BREAK_VM_SENTE);
+  it("S4d-4: evaluate が sente 盤上トラップ価値を leaf で board 由来算出 (+valueModel(sente))", () => {
+    const base = createInitialCardState(SAMPLE_DECK);
+    const withTrap = createInitialCardState(SAMPLE_DECK);
+    withTrap.trap.sente = { instanceId: "t-s1", defId: "check_break", owner: "sente" };
+    const baseScore = evaluate(GS, CARD_SHOGI_VARIANT, computeCardDigest(base));
+    const trapScore = evaluate(GS, CARD_SHOGI_VARIANT, computeCardDigest(withTrap));
+    expect(trapScore - baseScore).toBe(CHECK_BREAK_VM_SENTE);
     expect(CHECK_BREAK_VM_SENTE).toBeGreaterThan(0); // gross 値は常に正
   });
 
-  it("両者盤上トラップは +valueModel(sente) - valueModel(gote) (sente 絶対視点)", () => {
-    const cardState = createInitialCardState(SAMPLE_DECK);
-    cardState.trap.sente = { instanceId: "t-s", defId: "no_promote", owner: "sente" };
-    cardState.trap.gote = { instanceId: "t-g", defId: "check_break", owner: "gote" };
-    const digest = computeCardDigest(cardState, GS);
+  it("S4d-4: evaluate 両者盤上トラップは +valueModel(sente) - valueModel(gote) (sente 絶対視点)", () => {
+    const base = createInitialCardState(SAMPLE_DECK);
+    const withTrap = createInitialCardState(SAMPLE_DECK);
+    withTrap.trap.sente = { instanceId: "t-s", defId: "no_promote", owner: "sente" };
+    withTrap.trap.gote = { instanceId: "t-g", defId: "check_break", owner: "gote" };
+    const baseScore = evaluate(GS, CARD_SHOGI_VARIANT, computeCardDigest(base));
+    const trapScore = evaluate(GS, CARD_SHOGI_VARIANT, computeCardDigest(withTrap));
     const expected =
       CARD_SPECS.no_promote.valueModel(GS, "sente") -
       CARD_SPECS.check_break.valueModel(GS, "gote");
-    expect(digest.trapValueDelta).toBe(expected);
+    expect(trapScore - baseScore).toBe(expected);
   });
 
   it("S4d-3: 両者マーク有り → noPromoteMarks に両者 slice を帯同 (参照流用)", () => {
@@ -300,21 +303,12 @@ describe("computeCardDigest S3b 拡張 (trapValueDelta / noPromoteMarks)", () =>
     expect(digest.noPromoteMarks!.sente).toHaveLength(0);
   });
 
-  it("S3b: sente 盤上 check_break trap は evaluate に +valueModel(sente)", () => {
-    const base = createInitialCardState(SAMPLE_DECK);
-    const withTrap = createInitialCardState(SAMPLE_DECK);
-    withTrap.trap.sente = { instanceId: "t", defId: "check_break", owner: "sente" };
-    const baseScore = evaluateCardDigest(computeCardDigest(base, GS), CARD_SHOGI_VARIANT);
-    const trapScore = evaluateCardDigest(computeCardDigest(withTrap, GS), CARD_SHOGI_VARIANT);
-    expect(trapScore - baseScore).toBe(CHECK_BREAK_VM_SENTE);
-  });
-
-  it("S3b: gote 盤上 no_promote trap は evaluate に -valueModel(gote) (sente 絶対視点)", () => {
+  it("S4d-4: gote 盤上 no_promote trap は evaluate に -valueModel(gote) (sente 絶対視点)", () => {
     const base = createInitialCardState(SAMPLE_DECK);
     const withTrap = createInitialCardState(SAMPLE_DECK);
     withTrap.trap.gote = { instanceId: "t", defId: "no_promote", owner: "gote" };
-    const baseScore = evaluateCardDigest(computeCardDigest(base, GS), CARD_SHOGI_VARIANT);
-    const trapScore = evaluateCardDigest(computeCardDigest(withTrap, GS), CARD_SHOGI_VARIANT);
+    const baseScore = evaluate(GS, CARD_SHOGI_VARIANT, computeCardDigest(base));
+    const trapScore = evaluate(GS, CARD_SHOGI_VARIANT, computeCardDigest(withTrap));
     expect(trapScore - baseScore).toBe(-NO_PROMOTE_VM_GOTE);
   });
 
@@ -340,12 +334,13 @@ describe("computeCardDigest S3b 拡張 (trapValueDelta / noPromoteMarks)", () =>
     expect(markScore - baseScore).toBe(0);
   });
 
-  it("S3b: standard variant はトラップ価値も 0 (W-3 ガード維持)", () => {
+  it("S4d-4: standard variant はトラップ価値も 0 (W-3 ガード維持)", () => {
     const withTrap = createInitialCardState(SAMPLE_DECK);
     withTrap.trap.sente = { instanceId: "t", defId: "check_break", owner: "sente" };
     withTrap.noPromoteMarks.sente = [{ row: 6, col: 0 }];
+    // standard では evaluateCardDigest=0 + evaluate の leaf trap も variant ガードで非加算。
     expect(
-      evaluateCardDigest(computeCardDigest(withTrap, GS), STANDARD_VARIANT),
+      evaluateCardDigest(computeCardDigest(withTrap), STANDARD_VARIANT),
     ).toBe(0);
   });
 });
@@ -472,7 +467,7 @@ describe("PR3-2 updateCardDigest (増分更新)", () => {
     expect(updated).toEqual(prev);
     // 変化なしフィールドはオブジェクトを参照流用 (再生成なし) で性能寄与
     expect(updated.manaAbsolute).toBe(prev.manaAbsolute);
-    expect(updated.trapValueDelta).toBe(prev.trapValueDelta);
+    expect(updated.trap).toBe(prev.trap);
   });
 
   it("マナのみ変化 → manaDelta / manaAbsolute 更新、他は prev 流用", () => {
@@ -484,7 +479,7 @@ describe("PR3-2 updateCardDigest (増分更新)", () => {
     expect(updated.manaDelta).toBe(csNew.mana.sente - csNew.mana.gote);
     expect(updated.manaAbsolute).toEqual({ sente: csNew.mana.sente, gote: cs.mana.gote });
     // 他フィールドは prev と reference equality
-    expect(updated.trapValueDelta).toBe(prev.trapValueDelta);
+    expect(updated.trap).toBe(prev.trap);
     expect(updated.handValueDelta).toBe(prev.handValueDelta);
     expect(updated.drawProgressDelta).toBe(prev.drawProgressDelta);
     expect(updated.noPromoteMarks).toBe(prev.noPromoteMarks);
@@ -500,41 +495,40 @@ describe("PR3-2 updateCardDigest (増分更新)", () => {
     expect(updated.handValueDelta).toBeGreaterThan(prev.handValueDelta);
     // mana / trap / drawProgress / marks は変化なし
     expect(updated.manaAbsolute).toBe(prev.manaAbsolute);
-    expect(updated.trapValueDelta).toBe(prev.trapValueDelta);
+    expect(updated.trap).toBe(prev.trap);
     expect(updated.drawProgressDelta).toBe(prev.drawProgressDelta);
     expect(updated.noPromoteMarks).toBe(prev.noPromoteMarks);
   });
 
-  it("トラップ設置 (gote: check_break) → trapValueDelta 更新 (-valueModel(gote))", () => {
+  it("S4d-4: トラップ設置 (gote: check_break) → trap.gote defId 更新", () => {
     const cs = createInitialCardState(SAMPLE_DECK);
-    const prev = computeCardDigest(cs, GS);
+    const prev = computeCardDigest(cs);
     const csNew = clone(cs);
     csNew.trap.gote = {
       instanceId: "tg-1",
       defId: "check_break",
       owner: "gote",
     };
-    const updated = updateCardDigest(prev, cs, csNew, GS);
-    // gote トラップは sente 絶対視点で負 (= -valueModel(check_break, gote))。
-    expect(updated.trapValueDelta).toBe(-CARD_SPECS.check_break.valueModel(GS, "gote"));
-    expect(updated.trapValueDelta).toBeLessThan(0);
+    const updated = updateCardDigest(prev, cs, csNew);
+    expect(updated.trap.gote).toBe("check_break");
+    expect(updated.trap.sente).toBeNull();
     // 他は流用
     expect(updated.manaAbsolute).toBe(prev.manaAbsolute);
     expect(updated.handValueDelta).toBe(prev.handValueDelta);
   });
 
-  it("トラップ解除 (gote: check_break → null) → trapValueDelta 更新 (0 へ)", () => {
+  it("S4d-4: トラップ解除 (gote: check_break → null) → trap.gote defId が null へ", () => {
     const cs = createInitialCardState(SAMPLE_DECK);
     cs.trap.gote = {
       instanceId: "tg-1",
       defId: "check_break",
       owner: "gote",
     };
-    const prev = computeCardDigest(cs, GS);
+    const prev = computeCardDigest(cs);
     const csNew = clone(cs);
     csNew.trap.gote = null;
-    const updated = updateCardDigest(prev, cs, csNew, GS);
-    expect(updated.trapValueDelta).toBe(0);
+    const updated = updateCardDigest(prev, cs, csNew);
+    expect(updated.trap.gote).toBeNull();
   });
 
   it("noPromote マーク追加 → noPromoteMarks 更新 (参照変化で検知)", () => {
@@ -583,7 +577,7 @@ describe("PR3-2 updateCardDigest (増分更新)", () => {
     expect(updated.manaAbsolute).toEqual({ sente: csNew.mana.sente, gote: cs.mana.gote });
     expect(updated.handValueDelta).toBeLessThan(prev.handValueDelta);
     // 変化なしフィールドは流用
-    expect(updated.trapValueDelta).toBe(prev.trapValueDelta);
+    expect(updated.trap).toBe(prev.trap);
     expect(updated.drawProgressDelta).toBe(prev.drawProgressDelta);
   });
 
@@ -730,11 +724,12 @@ describe("PR3-2 updateCardDigest 等価性 fixture (= computeCardDigest と byte
       const next = clone(prev);
       sc.mutate(next);
 
-      // S3b: 同一 gameState (GS) を全呼び出しに供給し、トラップ価値も含めた等価性を検証する
-      // (prev は check_break トラップを保有するため trapValueDelta が非0)。
-      const prevDigest = computeCardDigest(prev, GS);
-      const updated = updateCardDigest(prevDigest, prev, next, GS);
-      const recomputed = computeCardDigest(next, GS);
+      // S4d-4: digest は gameState 非依存 (trap は defId 帯同のみ、価値は evaluate leaf 算出)。
+      // updateCardDigest の増分結果が computeCardDigest 全再計算と完全一致する等価性を検証する
+      // (prev は check_break トラップ defId を保有)。
+      const prevDigest = computeCardDigest(prev);
+      const updated = updateCardDigest(prevDigest, prev, next);
+      const recomputed = computeCardDigest(next);
 
       // byte-level 一致 (各フィールドが厳密に同値)
       expect(updated).toEqual(recomputed);
@@ -756,26 +751,26 @@ describe("PR3-3 C-8 evaluateCardDigest 数値固定 (F-5 解消)", () => {
       manaCap: MANA_CAP,
       handValueDelta: 0,
       drawProgressDelta: 0,
-      trapValueDelta: 0,
+      trap: { sente: null, gote: null },
       noPromoteMarks: null,
       manaAbsolute: { sente: 10, gote: 7 }, // 両者しきい値以下で dead mana penalty=0
     };
     expect(evaluateCardDigest(d, CARD_SHOGI_VARIANT)).toBe(30);
   });
 
-  it("数値固定: 純粋 trapValueDelta=80 (他全 0) → +80 cp (evaluate がそのまま加算)", () => {
-    // S3b: トラップ価値は digest.trapValueDelta に precompute 済 (局面依存)。evaluateCardDigest は
-    // それをそのまま加算するだけ = digest に 80 を入れれば評価値 80 (加算ロジックの pin)。
+  it("S4d-4: trap defId は evaluateCardDigest に寄与しない (価値は evaluate leaf へ移行)", () => {
+    // 旧 trapValueDelta スカラー加算を撤去。トラップ価値は evaluate の leaf で getCardValue(defId,
+    // state, player) として board 由来算出する (digest スカラーには乗らない)。
     const d: CardDigest = {
       manaDelta: 0,
       manaCap: MANA_CAP,
       handValueDelta: 0,
       drawProgressDelta: 0,
-      trapValueDelta: 80,
+      trap: { sente: "check_break", gote: null },
       noPromoteMarks: null,
       manaAbsolute: { sente: 10, gote: 10 },
     };
-    expect(evaluateCardDigest(d, CARD_SHOGI_VARIANT)).toBe(80);
+    expect(evaluateCardDigest(d, CARD_SHOGI_VARIANT)).toBe(0);
   });
 
   it("数値固定: 純粋 dead mana sente=20 (上限) → sente 過剰 4 で -4*4 = -16 cp", () => {
@@ -785,7 +780,7 @@ describe("PR3-3 C-8 evaluateCardDigest 数値固定 (F-5 解消)", () => {
       manaCap: MANA_CAP,
       handValueDelta: 0,
       drawProgressDelta: 0,
-      trapValueDelta: 0,
+      trap: { sente: null, gote: null },
       noPromoteMarks: null,
       manaAbsolute: { sente: 20, gote: 16 }, // sente overflow=4, gote overflow=0
     };
@@ -799,7 +794,7 @@ describe("PR3-3 C-8 evaluateCardDigest 数値固定 (F-5 解消)", () => {
       manaCap: MANA_CAP,
       handValueDelta: 0,
       drawProgressDelta: 0,
-      trapValueDelta: 0,
+      trap: { sente: null, gote: null },
       noPromoteMarks: null,
       manaAbsolute: { sente: 10, gote: 10 },
     };

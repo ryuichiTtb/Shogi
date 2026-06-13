@@ -219,7 +219,7 @@ export function findBestMoveWithStats(
   // ガードと二重化することで standard variant への影響を完全排除。
   const cardDigest: CardDigest | undefined =
     options.cardState !== undefined && variant.id === "card-shogi"
-      ? computeCardDigest(options.cardState, state)
+      ? computeCardDigest(options.cardState)
       : undefined;
 
   // Issue #235 S4c-1b (cutover): WorldState 単一木の有効条件。card-shogi + cardState 供給 +

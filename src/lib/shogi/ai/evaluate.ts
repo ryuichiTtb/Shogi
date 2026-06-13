@@ -1,6 +1,7 @@
 import type { GameState, RuleVariant } from "../types";
 import { STANDARD_VARIANT } from "../variants/standard";
 import { evaluateCardDigest, type CardDigest } from "./cards/digest";
+import { getCardValue } from "../cards/card-spec-server";
 
 import { PIECE_VALUES, computeMaterial } from "./evaluators/material";
 import { computeHandValue } from "./evaluators/hand-value";
@@ -82,6 +83,18 @@ export function evaluate(
   // evaluateCardDigest 側で variant.id === "card-shogi" のガード済 (W-3 二重ガード)。
   if (cardDigest !== undefined) {
     score += evaluateCardDigest(cardDigest, variant);
+    // Issue #235 S4d-4: 盤上トラップの局面依存価値を **leaf で board 由来算出**
+    // (digest.trap の defId → getCardValue は gameState のみ依存の純粋関数)。同一 board + 同一
+    // trap defId → 同一値 ゆえ TT 安全 (旧 root スカラー trapValueDelta の stale 誤 hit を解消)。
+    // sente トラップ = +valueModel(sente)、gote = -valueModel(gote) (sente 絶対視点)。
+    if (variant.id === "card-shogi") {
+      if (cardDigest.trap.sente !== null) {
+        score += getCardValue(cardDigest.trap.sente, state, "sente");
+      }
+      if (cardDigest.trap.gote !== null) {
+        score -= getCardValue(cardDigest.trap.gote, state, "gote");
+      }
+    }
   }
 
   return score;

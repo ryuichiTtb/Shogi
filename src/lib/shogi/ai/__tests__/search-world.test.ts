@@ -550,7 +550,7 @@ describe("S4c-2b: M2 指摘の MUST テスト補完 (R-14 promote-drop + B-1 tra
     expect(hashEq(incremental, full)).toBe(true);
   });
 
-  it("trap セット済ノードは TT skip / 非 trap は TT 有効 (B-1 trap-skip 回帰ガード)", () => {
+  it("S4d-4: trap セット済ノードも TT 有効化 (旧 trap-skip 撤去、trap board 由来化で誤 hit 解消)", () => {
     const placeQuiet = (b: Board) => {
       b[8][4] = pc("king", "sente");
       b[0][4] = pc("king", "gote");
@@ -563,12 +563,15 @@ describe("S4c-2b: M2 指摘の MUST テスト補完 (R-14 promote-drop + B-1 tra
     const ctxA = worldCtx();
     findBestMove(gs, "sente", opts, CARD_SHOGI_VARIANT, ctxA, cardState());
     expect(ctxA.ttProbes).toBeGreaterThan(0);
-    // (b) trap セット (quiet で発火しない=全ノード trap 保持): TT skip → ttProbes === 0
+    // (b) trap セット (quiet で発火しない=全ノード trap 保持): S4d-4 で TT も有効 → ttProbes > 0。
+    // trapValueDelta を board 由来 leaf 算出 (getCardValue) へ移行したため「同 board + 同 trap defId →
+    // 同 score」が成立し誤 hit が消滅 (旧 trap-skip が不要に)。
     const ctxB = worldCtx();
     const csTrap = cardState({
       trap: { sente: { instanceId: "t", defId: "no_promote", owner: "sente" }, gote: null },
     });
-    findBestMove(gs, "sente", opts, CARD_SHOGI_VARIANT, ctxB, csTrap);
-    expect(ctxB.ttProbes).toBe(0);
+    const resB = findBestMove(gs, "sente", opts, CARD_SHOGI_VARIANT, ctxB, csTrap);
+    expect(ctxB.ttProbes).toBeGreaterThan(0);
+    expect(resB?.move).toBeTruthy(); // trap 局面でも TT 有効で正常に最善手を返す
   });
 });

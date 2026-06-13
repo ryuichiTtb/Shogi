@@ -439,8 +439,8 @@ describe("S4d-3: per-piece no_promote 評価 modifier", () => {
     ]);
     const noMarkCs = createInitialCardState([{ defId: "no_promote", count: 4 }]);
     const senteMarkCs = markedCardState("sente", [{ row: 4, col: 4 }]);
-    const noMark = evaluate(gs, CARD_SHOGI_VARIANT, computeCardDigest(noMarkCs, gs));
-    const senteMark = evaluate(gs, CARD_SHOGI_VARIANT, computeCardDigest(senteMarkCs, gs));
+    const noMark = evaluate(gs, CARD_SHOGI_VARIANT, computeCardDigest(noMarkCs));
+    const senteMark = evaluate(gs, CARD_SHOGI_VARIANT, computeCardDigest(senteMarkCs));
     // 旧バグでは sente マークで評価値が上がっていた (+30/個)。現行は per-piece 減価で下がる。
     expect(senteMark).toBeLessThan(noMark);
   });
