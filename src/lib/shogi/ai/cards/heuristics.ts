@@ -73,14 +73,13 @@ export const DOUBLE_MOVE_TOP_K = 10;
 // 将来 reducer の doubleMove を route.ts 経由で AI に渡す統合時に再検討
 // (計画 md PR1d-3 コミット 3 セクションに ZZ 反映)。
 
-// PR1d-4: no_promote マーク数差の cardDigest 評価係数 (sente 絶対視点、cp 単位)。
-//   ・NO_PROMOTE_MARK_COEFFICIENT: no_promote マーク 1 個あたり価値 (ギャップ1=案A の
-//     玉位置非依存カウント差に対する係数。計画 md L1395 NO_PROMOTE_PROXIMITY_BONUS=30 を
-//     proximity でなく単純カウント差の係数として流用、ZZ 反映)
+// Issue #235 S4d-3: 旧 `NO_PROMOTE_MARK_COEFFICIENT` (no_promote マーク数差 × 30cp) を削除。
+//   玉位置非依存カウント差 × 係数は **符号逆バグ** (自駒が封じられるほど +有利と誤評価) を抱えており、
+//   no_promote の評価寄与を leaf の per-piece modifier (material 減価 + 成り脅威割引、evaluators/
+//   material.ts・promotion-threat.ts) へ移行したため本係数は不要 (フィールドごと削除で符号逆も消滅)。
 // 注 (Issue #235 S3b): 盤上トラップ自体の価値 (旧 TRAP_VALUE_NO_PROMOTE=50 / CHECK_BREAK=80 の
 //   固定係数) は局面依存 valueModel (card-spec-server、check_break=自玉露出度 / no_promote=相手成り
 //   脅威度) へ移行し、本ファイルから撤去した。digest/search は getCardValue 経由で評価する (依存反転)。
-export const NO_PROMOTE_MARK_COEFFICIENT = 30;
 
 // EARLY_GAME_THRESHOLD: computePhaseStage の序盤(0)→中盤(1)境界 (両者合計 ply)。
 // no_promote 序盤判定とも共通閾値で意味整合 (PR1d-4)。

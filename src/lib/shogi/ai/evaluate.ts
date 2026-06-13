@@ -47,8 +47,13 @@ export function evaluate(
 
   let score = 0;
 
-  // 盤上の駒の評価 (駒価値 + 配置ボーナス)
-  score += computeMaterial(state, variant);
+  // Issue #235 S4d-3: cardDigest 帯同の no_promote マーク (両者、null=マーク無し fast path)。
+  // per-piece modifier (material 減価 / 成り脅威割引) を leaf で board 由来算出するため抽出。
+  // cardDigest 未渡 (standard) は undefined = computeMaterial/evaluatePromotionThreats が fast path。
+  const marks = cardDigest?.noPromoteMarks;
+
+  // 盤上の駒の評価 (駒価値 + 配置ボーナス + S4d-3 マーク駒減価)
+  score += computeMaterial(state, variant, marks);
 
   // 手駒の評価
   score += computeHandValue(state);
@@ -65,9 +70,9 @@ export function evaluate(
   score += evaluatePieceSafety(state, "sente", variant);
   score -= evaluatePieceSafety(state, "gote", variant);
 
-  // 成り込み脅威
-  score += evaluatePromotionThreats(state, "sente", variant);
-  score -= evaluatePromotionThreats(state, "gote", variant);
+  // 成り込み脅威 (S4d-3: 相手マーク駒の phantom 脅威を割引)
+  score += evaluatePromotionThreats(state, "sente", variant, marks);
+  score -= evaluatePromotionThreats(state, "gote", variant, marks);
 
   // テンポボーナス（手番側に小さなボーナス）
   score += state.currentPlayer === "sente" ? 15 : -15;

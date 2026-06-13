@@ -16,15 +16,14 @@
 //   供給して局面依存 valueModel で precompute する `trapValueDelta` (cp) へ cutover。digest は
 //   GameState を持たないため evaluate 時の再計算は不可 = root スカラー方式 (W-1) を維持しつつ局面依存化。
 
-import type { CardGameState } from "../../cards/types";
-import type { GameState, RuleVariant } from "../../types";
+import type { CardGameState, PieceMark } from "../../cards/types";
+import type { GameState, Player, RuleVariant } from "../../types";
 import { getCardValue } from "../../cards/card-spec-server";
 import {
   MANA_DELTA_COEFFICIENT,
   HAND_VALUE_BASE,
   HAND_VALUE_DECAY,
   DRAW_PROGRESS_COEFFICIENT,
-  NO_PROMOTE_MARK_COEFFICIENT,
   DEAD_MANA_RATIO,
   DEAD_MANA_PENALTY_COEF,
 } from "./heuristics";
@@ -45,11 +44,12 @@ export interface CardDigest {
   // gameState を供給して局面依存値を precompute する方式へ cutover** (digest は GameState を
   // 持たないため evaluate 時の再計算は不可 = W-1 root スカラー方式を維持しつつ局面依存化)。
   trapValueDelta: number;
-  // PR1d-4 (ギャップ1=案A): no_promote マーク数差 = sente 数 - gote 数。
-  // W-2 sente 絶対視点。計画 md L1310 の positions 配列 + proximity 評価は
-  // evaluateCardDigest が GameState/玉位置非依存 (W-1 root スカラー方式) のため
-  // 実装不可 → 玉位置非依存の単純カウント差に簡略化 (ZZ 反映)。
-  noPromoteMarkCountDelta: number;
+  // Issue #235 S4d-3 (epic §6 7.2(iv)1): no_promote マークを **leaf per-piece 評価**へ届けるため、
+  // 両者のマーク slice 参照を帯同する (旧 noPromoteMarkCountDelta スカラー = 符号逆バグ + 玉位置非依存
+  // カウント差を per-piece modifier へ移行)。両者マーク空のときは null で leaf を fast path 化
+  // (現状ほぼ常時、割当ゼロ)。**参照は cardState.noPromoteMarks slice を流用** (毎ノード再構築しない。
+  // updateCardDigest が marks slice 参照変化検知時のみ差し替え = M1 B-1 反映)。
+  noPromoteMarks: Record<Player, PieceMark[]> | null;
   // PR3-1: 死にマナペナルティ用の絶対マナ (sente/gote それぞれの生マナ値)。
   // manaDelta だけでは「両者上限到達」を識別できないため、絶対値を別途保持。
   // 計画 md docs/plans/issue-193-pr3-1-card-calibration.md 4.2.2 章。
@@ -72,10 +72,6 @@ export function computeCardDigest(
     computeHandValue(cardState.hand.gote.length);
   const drawProgressDelta =
     cardState.drawProgress.sente - cardState.drawProgress.gote;
-  // PR1d-4 (ギャップ1=案A): cardState.noPromoteMarks は Record<Player, PieceMark[]>。
-  // 玉位置非依存の単純カウント差 (sente 数 - gote 数、W-2 sente 絶対視点)。
-  const noPromoteMarkCountDelta =
-    cardState.noPromoteMarks.sente.length - cardState.noPromoteMarks.gote.length;
   return {
     manaDelta,
     // Issue #235 S4d-1 (epic §6 7.5③): 旧 MANA_CAP 定数焼き込み → cardState.manaCap 読みに是正
@@ -85,10 +81,22 @@ export function computeCardDigest(
     drawProgressDelta,
     // S3b: 盤上トラップの局面依存価値を gameState から precompute (W-1 root スカラー)。
     trapValueDelta: computeTrapValueDelta(cardState, gameState),
-    noPromoteMarkCountDelta,
+    // S4d-3: マーク slice を leaf へ帯同 (両者空は null で fast path、符号逆カウント差を per-piece へ移行)。
+    noPromoteMarks: foldNoPromoteMarks(cardState),
     // PR3-1: 死にマナペナルティ用に絶対値を併せて保持 (O(1) 追加のみ)。
     manaAbsolute: { sente: cardState.mana.sente, gote: cardState.mana.gote },
   };
+}
+
+// Issue #235 S4d-3: cardState.noPromoteMarks を digest 帯同形へ。両者マーク空は null
+// (leaf fast path)、非空は cardState slice 参照を流用した {sente, gote} (毎ノード copy しない)。
+function foldNoPromoteMarks(
+  cardState: CardGameState,
+): Record<Player, PieceMark[]> | null {
+  const sente = cardState.noPromoteMarks.sente;
+  const gote = cardState.noPromoteMarks.gote;
+  if (sente.length === 0 && gote.length === 0) return null;
+  return { sente, gote };
 }
 
 // Issue #235 S3b: 盤上トラップの sente 絶対視点価値 (cp)。
@@ -133,10 +141,11 @@ export function evaluateCardDigest(
   // S3b: 盤上トラップの局面依存価値 (sente 絶対視点)。computeCardDigest/updateCardDigest が
   // gameState から valueModel で precompute 済 (W-1 root スカラー方式維持)。
   value += digest.trapValueDelta;
-  // PR1d-4 (ギャップ1=案A): no_promote マーク数差 × 係数 (玉位置非依存)。
-  // sente 絶対視点: sente の no_promote マークが多いほど + (敵の成りを抑止して有利)。
-  value += digest.noPromoteMarkCountDelta * NO_PROMOTE_MARK_COEFFICIENT;
-  // PR3-1: 死にマナペナルティ (sente 絶対視点)。マナが MANA_CAP=20 に近いほど
+  // Issue #235 S4d-3: 旧 `noPromoteMarkCountDelta × NO_PROMOTE_MARK_COEFFICIENT` を削除
+  // (符号逆バグ = 自駒が封じられるほど +有利と誤評価。digest スカラーでは玉位置非依存カウント差しか
+  // 表現できなかった)。no_promote の評価寄与は leaf の per-piece modifier (material 減価 +
+  // 成り脅威割引、digest.noPromoteMarks 帯同) へ移行し、evaluate が board 由来で算出する。
+  // PR3-1: 死にマナペナルティ (sente 絶対視点)。マナが上限に近いほど
   // 「マナ上限到達後の manaCharge が無効化」する機会損失を負価値として表現。
   // 退化原因 ④ (マナ上限で manaDelta 価値消失) への係数追加。
   //
@@ -212,11 +221,13 @@ export function updateCardDigest(
   const goteTrapDefId = newCardState.trap.gote?.defId ?? null;
   const trapChanged =
     senteTrapDefId !== prevSenteTrapDefId || goteTrapDefId !== prevGoteTrapDefId;
+  // Issue #235 S4d-3 (M1 B-1): marks 変化検知は length 比較でなく **参照比較**。follow
+  // (moveNoPromoteMark) は length 不変・position 変化・新参照ゆえ length 比較では検知漏れ →
+  // leaf per-piece eval が stale 座標を見る + (computeCardFold は position fold ゆえ) TT 誤 hit。
+  // add/remove/moveNoPromoteMark は変化時のみ新参照を返す (effects.ts) ため参照比較で過不足なし。
   const marksChanged =
-    prevCardState.noPromoteMarks.sente.length !==
-      newCardState.noPromoteMarks.sente.length ||
-    prevCardState.noPromoteMarks.gote.length !==
-      newCardState.noPromoteMarks.gote.length;
+    prevCardState.noPromoteMarks.sente !== newCardState.noPromoteMarks.sente ||
+    prevCardState.noPromoteMarks.gote !== newCardState.noPromoteMarks.gote;
 
   return {
     manaDelta: manaChanged
@@ -238,9 +249,9 @@ export function updateCardDigest(
     trapValueDelta: trapChanged
       ? computeTrapValueDelta(newCardState, gameState)
       : prev.trapValueDelta,
-    noPromoteMarkCountDelta: marksChanged
-      ? newCardState.noPromoteMarks.sente.length -
-        newCardState.noPromoteMarks.gote.length
-      : prev.noPromoteMarkCountDelta,
+    // S4d-3: marks 参照変化時のみ帯同 slice を差し替え (両者空は null fast path)。
+    noPromoteMarks: marksChanged
+      ? foldNoPromoteMarks(newCardState)
+      : prev.noPromoteMarks,
   };
 }

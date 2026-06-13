@@ -21,9 +21,13 @@ import {
   getPromotionMovesForSearch,
 } from "../ai/captureGen";
 import { followMarksForQuiescence } from "../ai/search";
+import { evaluate } from "../ai/evaluate";
+import { computeMaterial } from "../ai/evaluators/material";
+import { evaluatePromotionThreats } from "../ai/evaluators/promotion-threat";
+import { computeCardDigest } from "../ai/cards/digest";
 import { isSquareMarked } from "../cards/effects";
 import type { Board, GameState, Move, Piece, Player, Position } from "../types";
-import type { CardGameState } from "../cards/types";
+import type { CardGameState, PieceMark } from "../cards/types";
 
 function emptyBoard(): Board {
   return Array.from({ length: 9 }, () => Array.from({ length: 9 }, () => null));
@@ -368,5 +372,76 @@ describe("S4d-2: followMarksForQuiescence (quiescence 内マーク追従)", () =
       "gote",
     );
     expect(next).toBe(cs); // 参照同一
+  });
+});
+
+describe("S4d-3: per-piece no_promote 評価 modifier", () => {
+  const goteRook: Piece = { type: "rook", owner: "gote" };
+  const marks = (sente: Position[], gote: Position[]): Record<Player, PieceMark[]> => ({
+    sente: sente.map((p) => ({ row: p.row, col: p.col })),
+    gote: gote.map((p) => ({ row: p.row, col: p.col })),
+  });
+
+  it("modifier #2: 相手マーク駒の成り脅威は割引 (phantom 脅威除去)", () => {
+    // gote 飛車を gote 成りゾーン (row7) に置く。sente 視点で成り脅威ペナルティ。
+    const gs = gameStateWith([
+      { pos: { row: 7, col: 4 }, piece: goteRook },
+      { pos: { row: 8, col: 0 }, piece: senteKing },
+      { pos: { row: 0, col: 8 }, piece: goteKing },
+    ]);
+    const unmarked = evaluatePromotionThreats(gs, "sente", CARD_SHOGI_VARIANT);
+    expect(unmarked).toBeLessThan(0); // 飛車の成り脅威ペナルティ
+    const marked = evaluatePromotionThreats(
+      gs,
+      "sente",
+      CARD_SHOGI_VARIANT,
+      marks([], [{ row: 7, col: 4 }]),
+    );
+    expect(marked).toBe(0); // マーク駒は成れない → 脅威ゼロ
+  });
+
+  it("modifier #1: マーク駒は成り潜在喪失分を控えめに減価 (owner にとって不利方向)", () => {
+    const gs = gameStateWith([
+      { pos: { row: 4, col: 4 }, piece: sentePawn },
+      { pos: { row: 8, col: 0 }, piece: senteKing },
+      { pos: { row: 0, col: 8 }, piece: goteKing },
+    ]);
+    const unmarked = computeMaterial(gs, CARD_SHOGI_VARIANT);
+    const marked = computeMaterial(
+      gs,
+      CARD_SHOGI_VARIANT,
+      marks([{ row: 4, col: 4 }], []),
+    );
+    // sente 歩マーク → sente material は減る (歩の成り上昇 500 × 0.1 = 50cp)。
+    expect(unmarked - marked).toBe(50);
+  });
+
+  it("marks 未渡/空は computeMaterial がバイト等価 (fast path)", () => {
+    const gs = gameStateWith([
+      { pos: { row: 4, col: 4 }, piece: sentePawn },
+      { pos: { row: 8, col: 0 }, piece: senteKing },
+      { pos: { row: 0, col: 8 }, piece: goteKing },
+    ]);
+    expect(computeMaterial(gs, CARD_SHOGI_VARIANT, marks([], []))).toBe(
+      computeMaterial(gs, CARD_SHOGI_VARIANT),
+    );
+    expect(computeMaterial(gs, CARD_SHOGI_VARIANT, null)).toBe(
+      computeMaterial(gs, CARD_SHOGI_VARIANT),
+    );
+  });
+
+  it("MED-4 符号反転 anchor: 自マークは自分に不利 (旧 +有利 の符号逆バグを回帰防止)", () => {
+    // sente 歩を盤上に置き、cardState に sente マークを付ける。
+    const gs = gameStateWith([
+      { pos: { row: 4, col: 4 }, piece: sentePawn },
+      { pos: { row: 8, col: 0 }, piece: senteKing },
+      { pos: { row: 0, col: 8 }, piece: goteKing },
+    ]);
+    const noMarkCs = createInitialCardState([{ defId: "no_promote", count: 4 }]);
+    const senteMarkCs = markedCardState("sente", [{ row: 4, col: 4 }]);
+    const noMark = evaluate(gs, CARD_SHOGI_VARIANT, computeCardDigest(noMarkCs, gs));
+    const senteMark = evaluate(gs, CARD_SHOGI_VARIANT, computeCardDigest(senteMarkCs, gs));
+    // 旧バグでは sente マークで評価値が上がっていた (+30/個)。現行は per-piece 減価で下がる。
+    expect(senteMark).toBeLessThan(noMark);
   });
 });

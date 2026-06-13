@@ -1,4 +1,6 @@
 import type { GameState, Player, RuleVariant } from "../../types";
+import type { PieceMark } from "../../cards/types";
+import { isSquareMarked } from "../../cards/effects";
 
 // 成り込み脅威検知。
 //
@@ -20,21 +22,32 @@ const PROMOTION_IMMINENT_THREAT: Record<string, number> = {
 
 // 相手の未成り駒が成りゾーンに侵入している場合のペナルティ
 // Issue #193 / PR1c: PR1c-2/PR1d/PR2 で外部参照するため export 化。本体ロジック不変。
+//
+// Issue #235 S4d-3 (epic §6 7.2(iv)1 per-piece modifier #2): optional `marks`。opponent の
+// マーク駒 (no_promote = 成り不能) は phantom 脅威ゆえ penalty を一切加算しない (成り脅威割引の本体、
+// correctness 明確で係数不要)。marks 未渡/空は fast path = 従来値とバイト等価。
 export function evaluatePromotionThreats(
   state: GameState,
   player: Player,
-  variant: RuleVariant
+  variant: RuleVariant,
+  marks?: Record<Player, PieceMark[]> | null
 ): number {
   let penalty = 0;
   const opponent: Player = player === "sente" ? "gote" : "sente";
   const { rows } = variant.boardSize;
   const zoneRows = variant.rules.promotionZoneRows; // 3
 
+  // S4d-3: opponent のマーク集合 (非空のときのみ脅威除去を適用)。
+  const oppMarks = marks?.[opponent];
+  const hasOppMarks = oppMarks !== undefined && oppMarks.length > 0;
+
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < 9; col++) {
       const piece = state.board[row][col];
       if (!piece || piece.owner !== opponent) continue;
       if (!PROMOTABLE_TYPES.has(piece.type)) continue;
+      // S4d-3: マーク駒は成れない → phantom 脅威ゆえ penalty 対象から除外。
+      if (hasOppMarks && isSquareMarked(oppMarks, row, col)) continue;
 
       // 相手が成りゾーンにいるか判定
       // opponent=senteなら成りゾーンはrow < zoneRows (0,1,2)

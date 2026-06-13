@@ -23,12 +23,12 @@ import {
   HAND_VALUE_BASE,
   HAND_VALUE_DECAY,
   DRAW_PROGRESS_COEFFICIENT,
-  NO_PROMOTE_MARK_COEFFICIENT,
   DEAD_MANA_THRESHOLD,
   DEAD_MANA_PENALTY_COEF,
 } from "../cards/heuristics";
 import { CARD_SPECS } from "@/lib/shogi/cards/card-spec-server";
 import { createInitialCardState } from "@/lib/shogi/cards/state";
+import { moveNoPromoteMark } from "@/lib/shogi/cards/effects";
 import { INITIAL_MANA, MANA_CAP } from "@/lib/shogi/cards/definitions";
 import { STANDARD_VARIANT } from "@/lib/shogi/variants/standard";
 import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
@@ -135,7 +135,7 @@ describe("evaluateCardDigest (W-3: variant ガード + W-2: sente 絶対視点)"
     handValueDelta: 5,
     drawProgressDelta: 2,
     trapValueDelta: 0,
-    noPromoteMarkCountDelta: 0,
+    noPromoteMarks: null,
     // PR3-1: 両者 DEAD_MANA_THRESHOLD 以下に設定し、死にマナペナルティ=0 で
     // 既存アサーションの数式 (manaDelta×COEF + handValueDelta + drawProgressDelta×COEF) を維持。
     manaAbsolute: { sente: 10, gote: 7 },
@@ -162,7 +162,7 @@ describe("evaluateCardDigest (W-3: variant ガード + W-2: sente 絶対視点)"
       handValueDelta: 0,
       drawProgressDelta: 0,
       trapValueDelta: 0,
-      noPromoteMarkCountDelta: 0,
+      noPromoteMarks: null,
       manaAbsolute: { sente: 0, gote: 0 },
     };
     expect(evaluateCardDigest(emptyDigest, CARD_SHOGI_VARIANT)).toBe(0);
@@ -235,12 +235,12 @@ describe("handValue 単調減衰関数 (F-5 仮基準)", () => {
   });
 });
 
-describe("computeCardDigest S3b 拡張 (trapValueDelta / noPromoteMarkCountDelta)", () => {
-  it("トラップなし → trapValueDelta=0 / noPromoteMarkCountDelta=0", () => {
+describe("computeCardDigest S3b 拡張 (trapValueDelta / noPromoteMarks)", () => {
+  it("トラップなし・マークなし → trapValueDelta=0 / noPromoteMarks=null", () => {
     const cardState = createInitialCardState(SAMPLE_DECK);
     const digest = computeCardDigest(cardState, GS);
     expect(digest.trapValueDelta).toBe(0);
-    expect(digest.noPromoteMarkCountDelta).toBe(0);
+    expect(digest.noPromoteMarks).toBeNull();
   });
 
   it("gameState 省略時はトラップ保有でも trapValueDelta=0 (局面情報なしで算出不可)", () => {
@@ -272,7 +272,7 @@ describe("computeCardDigest S3b 拡張 (trapValueDelta / noPromoteMarkCountDelta
     expect(digest.trapValueDelta).toBe(expected);
   });
 
-  it("noPromoteMarkCountDelta は sente 数 - gote 数 (ギャップ1=案A: 玉位置非依存)", () => {
+  it("S4d-3: 両者マーク有り → noPromoteMarks に両者 slice を帯同 (参照流用)", () => {
     const cardState = createInitialCardState(SAMPLE_DECK);
     cardState.noPromoteMarks.sente = [
       { row: 6, col: 0 },
@@ -280,10 +280,13 @@ describe("computeCardDigest S3b 拡張 (trapValueDelta / noPromoteMarkCountDelta
     ];
     cardState.noPromoteMarks.gote = [{ row: 2, col: 8 }];
     const digest = computeCardDigest(cardState);
-    expect(digest.noPromoteMarkCountDelta).toBe(2 - 1);
+    expect(digest.noPromoteMarks).not.toBeNull();
+    // 毎ノード copy せず slice 参照を流用 (= reference equality)。
+    expect(digest.noPromoteMarks!.sente).toBe(cardState.noPromoteMarks.sente);
+    expect(digest.noPromoteMarks!.gote).toBe(cardState.noPromoteMarks.gote);
   });
 
-  it("noPromoteMarkCountDelta は gote 優勢で負 (sente 絶対視点 W-2 整合)", () => {
+  it("S4d-3: 片側のみマーク有り → noPromoteMarks 非 null (両者 slice を帯同)", () => {
     const cardState = createInitialCardState(SAMPLE_DECK);
     cardState.noPromoteMarks.sente = [];
     cardState.noPromoteMarks.gote = [
@@ -292,7 +295,9 @@ describe("computeCardDigest S3b 拡張 (trapValueDelta / noPromoteMarkCountDelta
       { row: 2, col: 2 },
     ];
     const digest = computeCardDigest(cardState);
-    expect(digest.noPromoteMarkCountDelta).toBe(0 - 3);
+    expect(digest.noPromoteMarks).not.toBeNull();
+    expect(digest.noPromoteMarks!.gote).toHaveLength(3);
+    expect(digest.noPromoteMarks!.sente).toHaveLength(0);
   });
 
   it("S3b: sente 盤上 check_break trap は evaluate に +valueModel(sente)", () => {
@@ -313,7 +318,10 @@ describe("computeCardDigest S3b 拡張 (trapValueDelta / noPromoteMarkCountDelta
     expect(trapScore - baseScore).toBe(-NO_PROMOTE_VM_GOTE);
   });
 
-  it("PR1d-4 コミット 2: noPromoteMarkCountDelta × NO_PROMOTE_MARK_COEFFICIENT が評価に反映", () => {
+  it("S4d-3: evaluateCardDigest はマーク有無に依存しない (no_promote 評価は leaf per-piece へ移行)", () => {
+    // 旧 noPromoteMarkCountDelta × 係数 (符号逆バグ) を撤去。マーク数差は evaluateCardDigest に
+    // 寄与しない (= digest スカラー加算ゼロ)。no_promote の評価寄与は evaluate の per-piece modifier
+    // (material 減価 + 成り脅威割引) が board 由来で算出する (evaluators/ のテストで pin)。
     const base = createInitialCardState(SAMPLE_DECK);
     const withMarks = createInitialCardState(SAMPLE_DECK);
     withMarks.noPromoteMarks.sente = [
@@ -329,7 +337,7 @@ describe("computeCardDigest S3b 拡張 (trapValueDelta / noPromoteMarkCountDelta
       computeCardDigest(withMarks),
       CARD_SHOGI_VARIANT,
     );
-    expect(markScore - baseScore).toBe((2 - 1) * NO_PROMOTE_MARK_COEFFICIENT);
+    expect(markScore - baseScore).toBe(0);
   });
 
   it("S3b: standard variant はトラップ価値も 0 (W-3 ガード維持)", () => {
@@ -479,7 +487,7 @@ describe("PR3-2 updateCardDigest (増分更新)", () => {
     expect(updated.trapValueDelta).toBe(prev.trapValueDelta);
     expect(updated.handValueDelta).toBe(prev.handValueDelta);
     expect(updated.drawProgressDelta).toBe(prev.drawProgressDelta);
-    expect(updated.noPromoteMarkCountDelta).toBe(prev.noPromoteMarkCountDelta);
+    expect(updated.noPromoteMarks).toBe(prev.noPromoteMarks);
   });
 
   it("手札増加 (draw 想定) → handValueDelta 更新、mana/trap は流用", () => {
@@ -494,7 +502,7 @@ describe("PR3-2 updateCardDigest (増分更新)", () => {
     expect(updated.manaAbsolute).toBe(prev.manaAbsolute);
     expect(updated.trapValueDelta).toBe(prev.trapValueDelta);
     expect(updated.drawProgressDelta).toBe(prev.drawProgressDelta);
-    expect(updated.noPromoteMarkCountDelta).toBe(prev.noPromoteMarkCountDelta);
+    expect(updated.noPromoteMarks).toBe(prev.noPromoteMarks);
   });
 
   it("トラップ設置 (gote: check_break) → trapValueDelta 更新 (-valueModel(gote))", () => {
@@ -529,14 +537,28 @@ describe("PR3-2 updateCardDigest (増分更新)", () => {
     expect(updated.trapValueDelta).toBe(0);
   });
 
-  it("noPromote マーク追加 → noPromoteMarkCountDelta 更新", () => {
+  it("noPromote マーク追加 → noPromoteMarks 更新 (参照変化で検知)", () => {
     const cs = createInitialCardState(SAMPLE_DECK);
-    const prev = computeCardDigest(cs);
+    const prev = computeCardDigest(cs); // マーク空 → null
     const csNew = clone(cs);
     csNew.noPromoteMarks.sente.push({ row: 6, col: 0 });
     csNew.noPromoteMarks.sente.push({ row: 6, col: 1 });
     const updated = updateCardDigest(prev, cs, csNew);
-    expect(updated.noPromoteMarkCountDelta).toBe(2);
+    expect(updated.noPromoteMarks).not.toBeNull();
+    expect(updated.noPromoteMarks!.sente).toHaveLength(2);
+  });
+
+  it("S4d-3 (M1 B-1): follow (length 不変・position 変化) を参照比較で検知し marks を更新する", () => {
+    // length 比較では検知漏れする follow を、参照比較が正しく拾うことの回帰 anchor。
+    const cs = createInitialCardState(SAMPLE_DECK);
+    cs.noPromoteMarks.sente = [{ row: 6, col: 0 }];
+    const prev = computeCardDigest(cs);
+    // 駒が (6,0)→(5,0) へ追従移動 (length 不変、新参照を返す)。
+    const csNew = moveNoPromoteMark(cs, "sente", { row: 6, col: 0 }, { row: 5, col: 0 });
+    expect(csNew.noPromoteMarks.sente).not.toBe(cs.noPromoteMarks.sente); // 新参照
+    expect(csNew.noPromoteMarks.sente).toHaveLength(cs.noPromoteMarks.sente.length); // length 不変
+    const updated = updateCardDigest(prev, cs, csNew);
+    expect(updated.noPromoteMarks!.sente).toEqual([{ row: 5, col: 0 }]); // 追従後の座標
   });
 
   it("drawProgress 変化 → drawProgressDelta 更新、他流用", () => {
@@ -735,7 +757,7 @@ describe("PR3-3 C-8 evaluateCardDigest 数値固定 (F-5 解消)", () => {
       handValueDelta: 0,
       drawProgressDelta: 0,
       trapValueDelta: 0,
-      noPromoteMarkCountDelta: 0,
+      noPromoteMarks: null,
       manaAbsolute: { sente: 10, gote: 7 }, // 両者しきい値以下で dead mana penalty=0
     };
     expect(evaluateCardDigest(d, CARD_SHOGI_VARIANT)).toBe(30);
@@ -750,7 +772,7 @@ describe("PR3-3 C-8 evaluateCardDigest 数値固定 (F-5 解消)", () => {
       handValueDelta: 0,
       drawProgressDelta: 0,
       trapValueDelta: 80,
-      noPromoteMarkCountDelta: 0,
+      noPromoteMarks: null,
       manaAbsolute: { sente: 10, gote: 10 },
     };
     expect(evaluateCardDigest(d, CARD_SHOGI_VARIANT)).toBe(80);
@@ -764,7 +786,7 @@ describe("PR3-3 C-8 evaluateCardDigest 数値固定 (F-5 解消)", () => {
       handValueDelta: 0,
       drawProgressDelta: 0,
       trapValueDelta: 0,
-      noPromoteMarkCountDelta: 0,
+      noPromoteMarks: null,
       manaAbsolute: { sente: 20, gote: 16 }, // sente overflow=4, gote overflow=0
     };
     // (gote 0 - sente 4) * 4 = -16
@@ -778,7 +800,7 @@ describe("PR3-3 C-8 evaluateCardDigest 数値固定 (F-5 解消)", () => {
       handValueDelta: 0,
       drawProgressDelta: 0,
       trapValueDelta: 0,
-      noPromoteMarkCountDelta: 0,
+      noPromoteMarks: null,
       manaAbsolute: { sente: 10, gote: 10 },
     };
     const v0 = evaluateCardDigest(base, CARD_SHOGI_VARIANT);
