@@ -428,9 +428,9 @@ describe("evaluateActionWithLookahead calibration regression (deterministic、PR
     const trapScore = evaluateActionWithLookahead(
       state, trapAction, "sente", CARD_SHOGI_VARIANT, undefined, false, 1,
     );
-    // digest.trapValueDelta で +valueModel(no_promote, sente) (相手成り脅威で高値) が opp scan の
-    // eval に乗る + 死にマナ回収 (mana 19→16 で overflow 3→0、+12cp)。合計が manaDelta -30cp と
-    // hand -1 の小減を上回り move を超える。calibration regression (脅威0でも trap 選好等) なら fail。
+    // S4d-4: leaf の getCardValue(no_promote, sente) (相手成り脅威で高値) が opp scan の eval に乗る
+    // + 死にマナ回収 (mana 19→16 で overflow 3→0、+12cp)。合計が manaDelta -30cp と hand -1 の小減を
+    // 上回り move を超える。calibration regression (脅威0でも trap 選好等) なら fail。
     expect(trapScore).toBeGreaterThan(moveScore);
   });
 

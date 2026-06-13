@@ -1,20 +1,21 @@
 // Issue #193 / PR1d-1: cardDigest 評価ダイジェスト構造 + 計算/評価関数。
 //
 // 設計の核 (親計画 md L350-356 / PR1d 計画 md L178-189):
-// - 探索開始時に root で 1 回だけ computeCardDigest(cardState, gameState) を呼ぶ
+// - 探索開始時に root で 1 回だけ computeCardDigest(cardState) を呼ぶ (S4d-4: gameState 引数撤去)
 // - evaluate の戻り値に evaluateCardDigest(cardDigest, variant) を加算 (1 op、ホットパス影響無視可)
 // - cardDigest を引数として子ノードに伝播 (= ホットパスでの再計算を構造的に禁止、W-1 反映)
 // - sente 絶対視点で固定 (W-2 反映、evaluate 既存実装 sign = piece.owner === "sente" ? 1 : -1 と符号整合)
 //
-// 段階拡張ロードマップ (PR1d 計画 md L191-196、実装での確定を反映):
-// - PR1d-1: manaDelta / manaCap / handValueDelta / drawProgressDelta
+// 段階拡張ロードマップ (実装での確定を反映):
+// - PR1d-1: manaDelta / manaCap / handValueDelta / drawProgressDelta (global scalar)
 // - PR1d-3: doubleMoveActive は **スキップ** (判断2=案B)。CardGameState に doubleMove
 //   フィールドが無く production root では常に null のため root スカラー化が無意味。
 //   二手指し価値は search.ts の super-action 局所探索が直接捕捉する。
-// - PR1d-4: noPromoteMarkCountDelta (ギャップ1=案A: 玉位置非依存の sente-gote マーク数差)。
-// - Issue #235 S3b: トラップ価値を trapPresence (defId) + 固定 TRAP_VALUE_* から、gameState を
-//   供給して局面依存 valueModel で precompute する `trapValueDelta` (cp) へ cutover。digest は
-//   GameState を持たないため evaluate 時の再計算は不可 = root スカラー方式 (W-1) を維持しつつ局面依存化。
+// - Issue #235 S4d-3: 旧 noPromoteMarkCountDelta (符号逆スカラー) を撤去し、マーク slice を帯同する
+//   noPromoteMarks へ。評価寄与は evaluate の leaf per-piece modifier (material 減価 + 成り脅威割引)。
+// - Issue #235 S4d-4: 旧 trapValueDelta (root スカラー precompute) を撤去し、トラップ defId を帯同する
+//   trap へ。価値は evaluate の leaf で getCardValue(defId, state, player) として board 由来算出
+//   (digest は gameState 非依存になり TT 安全化 = 同 board+同 defId → 同 score)。
 
 import type { CardGameState, CardId, PieceMark } from "../../cards/types";
 import type { Player, RuleVariant } from "../../types";

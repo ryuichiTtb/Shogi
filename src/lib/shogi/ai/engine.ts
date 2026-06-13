@@ -97,8 +97,9 @@ const SELECTOR_PARAMS: Record<Difficulty, { M: number; K: number }> = {
 // blunder guard を skip するゆえ、強い難易度ほど margin を小さく = タダ捨て閾値 BLUNDER_GUARD_TIE_MARGIN
 // (150) 未満に抑える)。弱い難易度は engagement 大 + noise 支配で多様性を出す。
 // ★本値は S4e で card 使用率 (advanced/expert ≥70% 目標) と棋力のバランスを bench 校正する暫定値。
+// 全難易度 BLUNDER_GUARD_TIE_MARGIN(150) 未満 (M2 MINOR-1: beginner も strict に 150 未満へ)。
 const ENGAGEMENT_PARAMS: Record<Difficulty, number> = {
-  beginner: 150,
+  beginner: 140,
   intermediate: 100,
   advanced: 70,
   expert: 50,
