@@ -65,15 +65,20 @@ function makeBenchPositions(): { label: string; state: GameState; player: Player
   return positions;
 }
 
-// 手番側の手札にカードを付与 (pawn_return/mana_up/no_promote 各1) + マナ充足。
-function attachCards(player: Player): CardGameState {
+// 両側の手札にカードを付与 (pawn_return/mana_up/no_promote 各1) + マナ充足。
+// 注: 手番側のみに付与すると cardDigest が非対称になり eval が偏り depth が異常膨張するため、
+// 両側対称に付与して realistic な balanced 局面にする (PoC ratio の交絡回避)。
+function attachCards(): CardGameState {
   const cs = createInitialCardState(POC_DECK);
-  cs.hand[player] = [
-    { instanceId: "poc-pr", defId: "pawn_return" },
-    { instanceId: "poc-mu", defId: "mana_up" },
-    { instanceId: "poc-np", defId: "no_promote" },
+  const hand = (suffix: string) => [
+    { instanceId: `poc-pr-${suffix}`, defId: "pawn_return" as const },
+    { instanceId: `poc-mu-${suffix}`, defId: "mana_up" as const },
+    { instanceId: `poc-np-${suffix}`, defId: "no_promote" as const },
   ];
-  cs.mana[player] = 15;
+  cs.hand.sente = hand("s");
+  cs.hand.gote = hand("g");
+  cs.mana.sente = 15;
+  cs.mana.gote = 15;
   return cs;
 }
 
@@ -133,7 +138,7 @@ console.log(
 );
 
 for (const pos of positions) {
-  const cardState = attachCards(pos.player);
+  const cardState = attachCards();
   const ctrlDepth: number[] = [];
   const testDepth: number[] = [];
   for (let r = 0; r < RUNS; r++) {

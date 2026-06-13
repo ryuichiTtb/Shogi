@@ -236,3 +236,15 @@ S4b-2a (WorldState 並走探索) 実装後、独立 adversarial agent (general-p
 - **[PASS 確認 (実証込み)]**: flag OFF production 不変 (三重ゲート + cardState 未供給 caller + 既存 negamax 無改変)、negamax 符号規約一貫 (相手詰めろで玉逃げ選択を実証)、詰み検知 (status ベース + actions.length===0 整合、頭金詰みを world/move-only 両経路で同一選択)、per-node digest 引数順、findBestMoveWorld root PVS + 返り値常に合法 move、終了性。
 - **[NIT 維持]**: `turnEnded===false` 分岐は 2a で到達不能な防御コード (コメント済、S4c 統合まで現状維持)。stalemate→0 は move-only と意図的一致 (将棋で実質到達不能)。
 - ✅ **(解消済) コミット subject 修正**: M2 修正コミットを一度 `fix: #235 ...` (auto-close 罠) にしたが、ユーザー承認のうえ amend で reword (`7bee0c0`→`c7d3488` = `fix: S4b-2a 〜 (M2指摘、Refs #235)`) + doc commit 載せ替え (`6ae8293`→`3353d97`) + force-with-lease。ブランチ内に `fix #235` 系 subject なしを確認済。
+
+### S4b-2b: selector + PoC-1 再検証 実測結果 (2026-06-13)
+selector (`selectBranchCandidates`) + ハーネス `scripts/measure-poc1-235.ts` で same-engine control 比を実測。fixture = realistic perf 局面 (initial+8ply、両側カード対称付与=cardDigest 偏り回避)、M=10、time=2000ms、3-run median。
+
+| K | median ratio | min | 合否 (≥90%) | 解釈 |
+|---|---|---|---|---|
+| **K=1** (card 上位1+draw) | **90.6%** | 88.5% | ✅ **PASS** | カード追加の純コスト ~9% = 枝刈り余地が実エンジンへ転移 |
+| **K=2** (card 上位2+draw) | 88.5% | 84.6% | ❌ FAIL | ~11.5%、band をわずか超過 |
+
+- **結論 = PoC-1 は K=1 で PASS (S4c cutover 可能)**。原 PoC (bare-αβ) は K=2 で 91-97% だったが、**実エンジンの move 枝刈り (null-move/LMR) で card が相対的に高コスト化**し K=2 は band 超過 — PoC-1 の honest caveat #1「M/K の同値転移は保証されない、実エンジンで再校正」が的中。**S4c selector の既定は K=1**、K=2 を使うなら card 側にも reduction (card-LMR/budget/phase-gating) が必要 (S4e 校正マター)。
+- **絶対 depth が高い (32-39)** のは M=10 selector + 静かな序盤局面での aggressive null-move 枝刈り (実効分岐 ~1.4) のため。fixture を両側カード対称にしても変わらず=cardDigest 非対称由来でないことを確認済。合否は同一エンジン control 比で判定する設計ゆえ絶対 depth は交絡相殺 (TT 無し含め保守的)。**realistic midgame での K 妥当性は S4e 校正で再確認推奨** (PoC fixture は openings で原 PoC と comparable に保つ)。
+- **合否バンドの扱い (§6 整合)**: 本 same-engine control 比 (±10%) が S4c cutover の一次ゲート。production before-baseline 絶対比は S4e 棋力ゲートへ分離 (M1 [BLOCKER] 反映どおり)。
