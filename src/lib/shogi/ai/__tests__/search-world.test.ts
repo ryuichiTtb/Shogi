@@ -513,3 +513,62 @@ describe("S4c-2b: R-14 incremental boardHash === computeHash 全量 (TT 誤hit �
     assertAllMoveHashesConsistent(world);
   });
 });
+
+describe("S4c-2b: M2 指摘の MUST テスト補完 (R-14 promote-drop + B-1 trap-skip)", () => {
+  const hashEq = (a: { lo: number; hi: number }, b: { lo: number; hi: number }) =>
+    a.lo === b.lo && a.hi === b.hi;
+
+  it("no_promote 発火で promote が落ちる move でも incremental === full (R-14 promote-drop)", () => {
+    // gote が no_promote トラップ保有。sente 歩(3,4)→(2,4) 成り宣言で発火 → 成り negate + マーク。
+    const place = (b: Board) => {
+      b[8][4] = pc("king", "sente");
+      b[0][0] = pc("king", "gote");
+      b[3][4] = pc("pawn", "sente");
+    };
+    const gs = buildGameState(place, "sente");
+    const cs = cardState({
+      trap: { sente: null, gote: { instanceId: "t", defId: "no_promote", owner: "gote" } },
+    });
+    const world: WorldState = { gameState: gs, cardState: cs, doubleMove: null };
+    const promoteMoves = getWorldLegalActions(world, CARD_SHOGI_VARIANT, true).filter(
+      (a): a is Extract<TurnAction, { kind: "move" }> =>
+        a.kind === "move" &&
+        a.move.from?.row === 3 &&
+        a.move.from?.col === 4 &&
+        a.move.to.row === 2 &&
+        a.move.to.col === 4 &&
+        a.move.promote === true,
+    );
+    expect(promoteMoves.length).toBe(1);
+    const applied = applyTurnAction(world, promoteMoves[0], { spectatorMode: true });
+    // no_promote 発火は check_break でない → boardChangedBeyondMove=false (incremental 経路)
+    expect(applied.boardChangedBeyondMove).toBe(false);
+    // 成りが落ちて不成歩 (promoted_pawn でない)
+    expect(applied.world.gameState.board[2][4]?.type).toBe("pawn");
+    const incremental = updateHash(computeHash(gs), gs, promoteMoves[0].move, applied.world.gameState);
+    const full = computeHash(applied.world.gameState);
+    expect(hashEq(incremental, full)).toBe(true);
+  });
+
+  it("trap セット済ノードは TT skip / 非 trap は TT 有効 (B-1 trap-skip 回帰ガード)", () => {
+    const placeQuiet = (b: Board) => {
+      b[8][4] = pc("king", "sente");
+      b[0][4] = pc("king", "gote");
+      b[5][4] = pc("gold", "sente");
+      b[3][4] = pc("gold", "gote");
+    };
+    const gs = buildGameState(placeQuiet, "sente");
+    const opts = { maxDepth: 3, timeLimitMs: 60000, addNoise: 0, nearEqualThreshold: 0 };
+    // (a) 非 trap: TT 有効 → ttProbes > 0
+    const ctxA = worldCtx();
+    findBestMove(gs, "sente", opts, CARD_SHOGI_VARIANT, ctxA, cardState());
+    expect(ctxA.ttProbes).toBeGreaterThan(0);
+    // (b) trap セット (quiet で発火しない=全ノード trap 保持): TT skip → ttProbes === 0
+    const ctxB = worldCtx();
+    const csTrap = cardState({
+      trap: { sente: { instanceId: "t", defId: "no_promote", owner: "sente" }, gote: null },
+    });
+    findBestMove(gs, "sente", opts, CARD_SHOGI_VARIANT, ctxB, csTrap);
+    expect(ctxB.ttProbes).toBe(0);
+  });
+});

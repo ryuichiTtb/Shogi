@@ -477,3 +477,20 @@ world 探索の遷移は `applyTurnAction`。boardHash は:
 
 #### サブ分割への反映
 - S4c-2a に cardDigest 整合テスト (B-1 捕捉) を追加。S4c-2b に promote-drop / auto-draw の R-14 テスト + trap ノード TT skip の確認を追加。
+
+### 13.9 S4c-2 実装完了 + bench 結果 (2026-06-13)
+- **S4c-2a `af4481e`**: card-zobrist.ts (computeCardFold) + correctness テスト18件 (fold 区別 / evalIrrelevant 無視 / CARD_STATE_FOLD_POLICY 網羅性ガード)。
+- **S4c-2b `797e404`**: negamaxWorld/findBestMoveWorld に TT 配線 (boardHash 引数 + probe/store + ttMove ordering)、boardHash incremental/全量規則、SearchStats ttProbes/ttHits、**trap ノード TT skip (B-1)**、R-14 テスト3件 (incremental===full、通常/取り/成り/打ち/auto-draw)。test:ci 650。
+
+#### depthCompleted 回復 (bench BENCH_WORLD=1、RUNS=2、TT 有):
+
+| 難易度 | bolt-on baseline | S4c-1 (TT無) | S4c-2 (TT有) | ゲート (before−15%) | 判定 |
+|---|---|---|---|---|---|
+| beginner | 3 | 2.89 | 2.89 | ≥2.55 | ✅ |
+| intermediate | 5.33 | 4.0 | 4.44/4.33 | ≥4.53 | ⚠️ −16.7% (僅か下) |
+| advanced | 5.78 | 4.67 | **5.11** | ≥4.91 | ✅ |
+| expert | 6.0 | 4.67 | **5.33** | ≥5.1 | ✅ |
+
+- **TT で depth 回復確認**: advanced/expert (P1 対象) は棋力ゲート達成。intermediate は僅か下 (−16.7%) だが、TT 全面有効化 (S4d で trap ノードも) + selector 校正 (S4e) で改善余地。
+- **card% は依然 ~0%** (engagement 下駄=決定A 未実装 + generic bench fixture が真にカード有利でない)。**card% 70% 達成は S4d/S4e の engagement 下駄 + EvalFeature マター**。
+- **活性化はまだ延期**: depth は回復したが card% が bolt-on (57%) を下回る (= 決定A「カードを使わせる」に反する) ため、route flag は OFF 据え置き。**S4d (EvalFeature + trapValueDelta board 由来化で B-1 解消 = trap ノード TT 解禁 + 既知バグ精算) → S4e (engagement 下駄 + selector 校正 + 最終 bench) で card% を引き上げ、depth + card% 両立を確認してから活性化**。
