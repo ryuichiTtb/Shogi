@@ -538,6 +538,10 @@ function negamax(
 export interface RootSearchResult {
   move: Move;
   rootMoveScores: { move: Move; score: number }[];
+  // Issue #235 S4c-1: WorldState 探索 (findBestMoveWorld) が返す root 最善 TurnAction
+  // (move / card / draw)。move-only findBestMove は未設定 (engine が {kind:"move", move} を構築 =
+  // 既存不変)。world 経路の engine cutover (S4c-1b) がこれを selectedAction に採用する。
+  bestAction?: TurnAction;
 }
 
 export function findBestMove(
@@ -732,35 +736,44 @@ export function findBestMove(
 }
 
 // =========================================================================
-// Issue #235 S4b-2a: WorldState (TurnAction) 並走探索 (useTurnActionSearch flag 裏)
+// Issue #235 S4b-2a / S4c-1: WorldState (TurnAction) card-aware 探索
 // =========================================================================
 // 既存 negamax / quiescence / findBestMove (move-only deep search) は 1 行も触らず、
-// WorldState を回し move + (自分番) card/draw を TurnAction として木に入れる新 card-aware
+// WorldState を回し move + (root の) card/draw を TurnAction として木に入れる新 card-aware
 // 探索を別シンボルで複製する (standard byte 等価維持の唯一道、計画 §11)。
 //
-// S4b-2a スコープ (実コード精読で確定、計画 §11):
-// - flag OFF (production) では一切到達しない (findBestMove 冒頭で分岐)。standard 完全不変。
+// スコープ (S4b-2a additive 足場 → S4c-1 で production cutover):
+// - flag OFF (= useTurnActionSearch 未指定) では findBestMove 冒頭で分岐せず move-only 経路。
+//   standard variant は cardState 未供給で常に move-only (防御ガード)。
 // - TT は積まない (S4c-2。boardHash TT はカードを木に入れると cardState 差で誤 hit)。
-// - double_move は multi-ply 手番継続が複雑ゆえ木から除外 (S4c 統合)。getWorldLegalActions で除外。
+// - **S4c-1: カードは root のみ展開** (expandCards)。deep node は move-only (相手・自分の深ノード共)。
+//   = 「カードを今打つ」帰結を move と同じ深さで読み公平比較する最小設計 (P1 解消、§12.1-1)。
+// - double_move は S4c-1 では除外 (実行プラミング = S4c-1d)。getWorldLegalActions で除外。
 // - cardDigest は per-node 更新 (updateCardDigest 踏襲、root 固定だと inert 化 = PR3-3 C-9)。
-// - 手番ゲート: card/draw 展開は rootPlayer (自分) ノードのみ (相手は move-only、L-3)。
 // - 着手は getFullLegalMoves(+cardState) で mark-aware (S4a)。quiescence の captureGen は
-//   cardState 非対応ゆえ非 mark-aware (S4c で解消)。
-// - selector はまだ無い (S4b-2b)。本段は全展開・棋力中立。
+//   cardState 非対応ゆえ非 mark-aware (S4c-1d/後段で解消)。
+// - selector は root のみ実効 (S4b-2b、deep node は move-only ゆえ M=∞ で no-op)。
+// - noise/nearEqual は findBestMoveWorld が root アクション上で適用 (D-B)。
 
-// WorldState ノードの合法 TurnAction を生成 (手番ゲート + double_move 除外)。
-// Issue #235 S4b-2a: 特性化テストから手番ゲート/double_move 除外を検証するため export。
+// WorldState ノードの合法 TurnAction を生成。
+// Issue #235 S4c-1: カード/ドローは root の自分番ノードのみ展開する (expandCards=true)。
+// root 以降 (相手番・自分の深ノード) は move-only 継続 = 「カードを今打つ」帰結を move-only で
+// 深く読み move と公平比較する最小設計 (P1 解消。multi-card planning は S5/L3。計画 §12.1-1)。
+// S4b-2a の rootPlayer gate (相手ノードでカード展開される不整合) を expandCards へ是正。
+// double_move は S4c-1 では除外 (実行プラミング未配線 = S4c-1d。AI は候補化しない)。
+// 特性化テストから expandCards gate / double_move 除外を検証するため export。
 export function getWorldLegalActions(
   world: WorldState,
-  rootPlayer: Player,
   variant: RuleVariant,
+  expandCards: boolean,
 ): TurnAction[] {
   const player = world.gameState.currentPlayer;
   // 着手は cardState-aware (マーク駒の幻成りを生成しない、S4a)。
   const moves = getFullLegalMoves(world.gameState, player, variant, world.cardState);
   const actions: TurnAction[] = moves.map((move) => ({ kind: "move" as const, move }));
-  // 手番ゲート (L-3): card/draw は自分 (rootPlayer) ノードのみ展開。相手は move-only。
-  if (variant.id === "card-shogi" && player === rootPlayer) {
+  // card/draw は root の自分番ノードのみ (expandCards)。double_move 継続中 (doubleMove!==null)
+  // は move-only (S4c-1 では doubleMove は常に null だが、S4c-1d の中間ノード move-only を先取り防御)。
+  if (expandCards && variant.id === "card-shogi" && world.doubleMove === null) {
     // 王手中は draw 禁止 (reducer.ts DRAW_CARD = 王手中ドロー不可 と整合。kernel の
     // applyDrawAction は非王手を caller 保証の前提とするため、ここで弾かないと「王手放置パス」
     // を探索木に注入し minimax を汚染する。M2 指摘)。card は getCardActions が王手中 use
@@ -769,14 +782,14 @@ export function getWorldLegalActions(
     const aiState: AiTurnState = {
       gameState: world.gameState,
       cardState: world.cardState,
-      doubleMove: null, // 2a は double_move を木に入れないため常に null
-      isRoot: false,
+      doubleMove: null,
+      isRoot: true,
     };
     if (!playerInCheck && canDraw(world.cardState, player)) {
       actions.push({ kind: "draw" });
     }
     for (const cardAction of getCardActions(aiState, player, variant)) {
-      // double_move は 2a 除外 (S4c で統合)。
+      // double_move は S4c-1 除外 (S4c-1d で統合)。
       if (cardAction.kind === "playCard" && cardAction.defId === "double_move") continue;
       actions.push(cardAction);
     }
@@ -901,14 +914,15 @@ function quiescenceWorld(
 }
 
 // negamaxWorld: WorldState を回す card-aware negamax。既存 negamax の PVS/null-move/LMR/
-// futility/killer/history/quiescence を faithful port し、遷移を applyTurnAction、着手生成を
-// getWorldLegalActions、cardDigest を per-node 更新に置換。TT は積まない (S4c)。
+// futility/killer/history/quiescence を faithful port し、遷移を applyTurnAction、cardDigest を
+// per-node 更新に置換。TT は積まない (S4c-2)。
+// S4c-1: 着手生成は move-only (getWorldLegalActions(world, variant, false))。カードは root のみ
+// 展開ゆえ deep node に rootPlayer gate は不要 → rootPlayer 引数を撤去 (計画 §12.10)。
 function negamaxWorld(
   world: WorldState,
   depth: number,
   alpha: number,
   beta: number,
-  rootPlayer: Player,
   variant: RuleVariant,
   cardDigest: CardDigest | undefined,
   ply: number,
@@ -936,8 +950,10 @@ function negamaxWorld(
     return quiescenceWorld(state, alpha, beta, player, variant, cardDigest, 0, ctx);
   }
 
-  let actions = getWorldLegalActions(world, rootPlayer, variant);
-  // S4b-2b: selector 枝刈り (M/K 指定時のみ。未指定=全展開で従来どおり)。
+  // S4c-1: deep node は move-only (expandCards=false。カードは root のみ展開、計画 §12.10)。
+  let actions = getWorldLegalActions(world, variant, false);
+  // S4b-2b: selector 枝刈り (M/K 指定時のみ。未指定=全展開で従来どおり)。deep node は move-only
+  // ゆえ M=∞ 既定で no-op (S4e で deep-node M 校正余地を残す、MED-2)。
   if (ctx.selectorM !== undefined || ctx.selectorK !== undefined) {
     actions = selectBranchCandidates(
       actions, ctx.selectorM ?? Infinity, ctx.selectorK ?? Infinity, state, player, ply, ctx,
@@ -961,7 +977,7 @@ function negamaxWorld(
     };
     const R = depth >= 6 ? 3 : 2;
     const nullScore = -negamaxWorld(
-      nullWorld, depth - 1 - R, -beta, -beta + 1, rootPlayer, variant, cardDigest, ply + 1, false, ctx,
+      nullWorld, depth - 1 - R, -beta, -beta + 1, variant, cardDigest, ply + 1, false, ctx,
     );
     if (nullScore >= beta) return beta;
   }
@@ -1000,13 +1016,14 @@ function negamaxWorld(
 
     let score: number;
     if (!applied.turnEnded) {
-      // 手番継続 (2a は double_move 除外ゆえ未到達。保険: 同 player 継続=符号反転なし)。
+      // 手番継続 (S4c-1 は double_move 除外ゆえ未到達。S4c-1d で live 化。保険: 同 player
+      // 継続=符号反転なし)。
       score = negamaxWorld(
-        childWorld, depth - 1, alpha, beta, rootPlayer, variant, childDigest, ply + 1, true, ctx,
+        childWorld, depth - 1, alpha, beta, variant, childDigest, ply + 1, true, ctx,
       );
     } else if (i === 0) {
       score = -negamaxWorld(
-        childWorld, depth - 1, -beta, -alpha, rootPlayer, variant, childDigest, ply + 1, true, ctx,
+        childWorld, depth - 1, -beta, -alpha, variant, childDigest, ply + 1, true, ctx,
       );
     } else {
       // PVS + LMR (reduction は move のみ)
@@ -1016,11 +1033,11 @@ function negamaxWorld(
         if (i >= 8 && depth >= 5) reduction = 2;
       }
       score = -negamaxWorld(
-        childWorld, depth - 1 - reduction, -alpha - 1, -alpha, rootPlayer, variant, childDigest, ply + 1, true, ctx,
+        childWorld, depth - 1 - reduction, -alpha - 1, -alpha, variant, childDigest, ply + 1, true, ctx,
       );
       if (score > alpha && score < beta) {
         score = -negamaxWorld(
-          childWorld, depth - 1, -beta, -alpha, rootPlayer, variant, childDigest, ply + 1, true, ctx,
+          childWorld, depth - 1, -beta, -alpha, variant, childDigest, ply + 1, true, ctx,
         );
       }
     }
@@ -1042,10 +1059,12 @@ function negamaxWorld(
   return maxScore;
 }
 
-// findBestMoveWorld: WorldState 探索の root 反復深化。move + (自分番) card/draw を全展開し、
-// depthCompleted を記録。返り値 move は root の最善 move アクション (card/draw 選択は engine.ts
-// 既存経路の役割、S4c で統合)。selector は S4b-2b。
-function findBestMoveWorld(
+// findBestMoveWorld: WorldState 探索の root 反復深化。root で move + card/draw を**同列に**深読みし
+// (S4c-1: カードは root のみ展開、§12.10)、最善 TurnAction (bestAction) を返す。move-only argmax
+// (bestMove) + rootMoveScores も保持し、engine の blunder guard が move 採用時に参照する。
+// noise/nearEqual は root アクション上で適用 (beginner/intermediate 弱さ演出、D-B)。
+// 特性化テストから検証するため export。
+export function findBestMoveWorld(
   state: GameState,
   cardState: CardGameState,
   player: Player,
@@ -1054,7 +1073,7 @@ function findBestMoveWorld(
   ctx: SearchContext,
 ): RootSearchResult | null {
   const rootWorld: WorldState = { gameState: state, cardState, doubleMove: null };
-  let rootActions = getWorldLegalActions(rootWorld, player, variant);
+  let rootActions = getWorldLegalActions(rootWorld, variant, true); // expandCards=true (root)
   // S4b-2b: root にも selector を適用 (M/K 指定時のみ)。
   if (ctx.selectorM !== undefined || ctx.selectorK !== undefined) {
     rootActions = selectBranchCandidates(
@@ -1066,16 +1085,18 @@ function findBestMoveWorld(
     .map((a) => a.move);
   if (rootMoves.length === 0) return null; // 合法手なし (詰み/ステールメイト)
   if (rootActions.length === 1 && rootMoves.length === 1) {
-    return { move: rootMoves[0], rootMoveScores: [] };
+    // 合法手が move 1 つのみ: bestAction も設定 (MINOR、early return の bestAction 漏れ防止)。
+    return { move: rootMoves[0], rootMoveScores: [], bestAction: { kind: "move", move: rootMoves[0] } };
   }
 
-  const opponent: Player = player === "sente" ? "gote" : "sente";
   const baseDigest =
     ctx.cardDigest ??
     (variant.id === "card-shogi" ? computeCardDigest(cardState, state) : undefined);
 
   let bestMove = rootMoves[0];
   let rootMoveScores: { move: Move; score: number }[] = [];
+  let bestAction: TurnAction = { kind: "move", move: bestMove };
+  let rootActionScores: { action: TurnAction; score: number }[] = [];
 
   for (let depth = 1; depth <= options.maxDepth; depth++) {
     if (shouldStop(ctx)) break;
@@ -1089,13 +1110,16 @@ function findBestMoveWorld(
     let alpha = NEG_INF;
     let bestMoveScore = NEG_INF;
     let depthBestMove = bestMove;
+    let depthBestActionScore = NEG_INF;
+    let depthBestAction: TurnAction = bestAction;
     const depthMoveScores: { move: Move; score: number }[] = [];
+    const depthActionScores: { action: TurnAction; score: number }[] = [];
     let stopped = false;
     let i = 0;
 
     for (const action of sortedRoot) {
       if (shouldStop(ctx)) { stopped = true; break; }
-      // root の全 action は turnEnded=true (double_move 除外) → 相手番へ。
+      // root の全 action は turnEnded=true (S4c-1 は double_move 除外) → 相手番へ反転。
       const applied = applyTurnAction(rootWorld, action, { spectatorMode: true });
       const childWorld = applied.world;
       const childDigest =
@@ -1105,17 +1129,19 @@ function findBestMoveWorld(
 
       let score: number;
       if (i === 0) {
-        score = -negamaxWorld(childWorld, depth - 1, NEG_INF, -alpha, opponent, variant, childDigest, 1, true, ctx);
+        score = -negamaxWorld(childWorld, depth - 1, NEG_INF, -alpha, variant, childDigest, 1, true, ctx);
       } else {
-        score = -negamaxWorld(childWorld, depth - 1, -alpha - 1, -alpha, opponent, variant, childDigest, 1, true, ctx);
+        score = -negamaxWorld(childWorld, depth - 1, -alpha - 1, -alpha, variant, childDigest, 1, true, ctx);
         if (score > alpha) {
-          score = -negamaxWorld(childWorld, depth - 1, NEG_INF, -alpha, opponent, variant, childDigest, 1, true, ctx);
+          score = -negamaxWorld(childWorld, depth - 1, NEG_INF, -alpha, variant, childDigest, 1, true, ctx);
         }
       }
 
       if (ctx.stopped) { stopped = true; break; }
 
-      // 返り値 move には move アクションのみ採用 (card/draw 選択は engine.ts 経路、S4c 統合)。
+      // 全 action を同列スコアリング (bestAction)。move のみ別途保持 (blunder guard 用 rootMoveScores)。
+      depthActionScores.push({ action, score });
+      if (score > depthBestActionScore) { depthBestActionScore = score; depthBestAction = action; }
       if (action.kind === "move") {
         depthMoveScores.push({ move: action.move, score });
         if (score > bestMoveScore) { bestMoveScore = score; depthBestMove = action.move; }
@@ -1126,11 +1152,41 @@ function findBestMoveWorld(
 
     if (stopped) break;
     bestMove = depthBestMove;
+    bestAction = depthBestAction;
     rootMoveScores = depthMoveScores;
+    rootActionScores = depthActionScores;
     ctx.depthCompleted = depth;
   }
 
-  return { move: bestMove, rootMoveScores };
+  // S4c-1 (D-B): noise/nearEqual を root アクション上で適用 (findBestMove:711-727 の move-only
+  // noise を TurnAction へ一般化、beginner/intermediate 弱さ演出)。
+  // nearEqual: best から閾値内の root アクションから random (move/card/draw 横断)。
+  if (options.nearEqualThreshold > 0 && rootActionScores.length > 1) {
+    const bestScore = rootActionScores.reduce((m, a) => (a.score > m ? a.score : m), NEG_INF);
+    const candidates = rootActionScores.filter(
+      (a) => a.score >= bestScore - options.nearEqualThreshold,
+    );
+    if (candidates.length > 1) {
+      bestAction = candidates[Math.floor(Math.random() * candidates.length)].action;
+    }
+  }
+  // addNoise: move 上位5 (scoreMoveForOrdering = findBestMove:722 と同関数、MED-1) から random。
+  // card は actionOrderScore 上 -1 で最後尾 ゆえ top-5 はほぼ move = 「ランダム駒 move」(既存挙動踏襲)。
+  if (options.addNoise > 0 && Math.random() < options.addNoise && rootMoves.length > 0) {
+    const sortedMoves = [...rootMoves].sort(
+      (a, b) => scoreMoveForOrdering(b) - scoreMoveForOrdering(a),
+    );
+    const randomIndex = Math.floor(Math.random() * Math.min(rootMoves.length, 5));
+    const noisyMove = sortedMoves[randomIndex];
+    if (noisyMove) bestAction = { kind: "move", move: noisyMove };
+  }
+
+  // bestAction が move のときは move フィールドを一致させる (blunder guard が採用 move と
+  // rootMoveScores の整合を前提とするため)。card/draw 採用時は move-only argmax を保持
+  // (engine が usingCardAction=true で blunder guard を skip = move フィールドは UI 互換用途)。
+  if (bestAction.kind === "move") bestMove = bestAction.move;
+
+  return { move: bestMove, rootMoveScores, bestAction };
 }
 
 // Issue #193 / PR1d-2: TurnAction (move / draw / playCard) を player 視点のスカラー評価値に変換する純粋関数。

@@ -248,3 +248,121 @@ selector (`selectBranchCandidates`) + ハーネス `scripts/measure-poc1-235.ts`
 - **結論 = PoC-1 は K=1 で PASS (S4c cutover 可能)**。原 PoC (bare-αβ) は K=2 で 91-97% だったが、**実エンジンの move 枝刈り (null-move/LMR) で card が相対的に高コスト化**し K=2 は band 超過 — PoC-1 の honest caveat #1「M/K の同値転移は保証されない、実エンジンで再校正」が的中。**S4c selector の既定は K=1**、K=2 を使うなら card 側にも reduction (card-LMR/budget/phase-gating) が必要 (S4e 校正マター)。
 - **絶対 depth が高い (32-39)** のは M=10 selector + 静かな序盤局面での aggressive null-move 枝刈り (実効分岐 ~1.4) のため。fixture を両側カード対称にしても変わらず=cardDigest 非対称由来でないことを確認済。合否は同一エンジン control 比で判定する設計ゆえ絶対 depth は交絡相殺 (TT 無し含め保守的)。**realistic midgame での K 妥当性は S4e 校正で再確認推奨** (PoC fixture は openings で原 PoC と comparable に保つ)。
 - **合否バンドの扱い (§6 整合)**: 本 same-engine control 比 (±10%) が S4c cutover の一次ゲート。production before-baseline 絶対比は S4e 棋力ゲートへ分離 (M1 [BLOCKER] 反映どおり)。
+
+## 12. S4c-1 実装計画 (concrete、2026-06-13、研究調査 + rule-8 計画策定)
+
+S4c-1 = S4 最大の cutover。production AI を bolt-on から WorldState 単一探索木 (`findBestMoveWorld`) へ切替え、**カードを move と同じ深さで読む**ようにする (P1 = advanced/expert カード使い渋り 57% の構造的主因を解消)。**S4c-1 から初めて production の棋力が実際に変わる**。
+
+### 12.0 確定スコープ (ユーザー決定 2026-06-13)
+- **D-A (double_move 完全統合)**: AI が二手指しを**実際に指せる**ようにする。探索木のマルチ ply 統合 (= 二手指しを読んで選べる「決定」側) + 実行プラミング (route payload・engine 入口・ai-action-bridge・reducer 連携 =「実行」側) を S4c-1 に含める。従来の「論点 A = AI 未接続 (ai-action-bridge.ts:44 が null→move フォールバック)」を解消する。
+- **D-B (全難易度 cutover + noise 移植)**: 4 難易度すべてを world 経路へ切替える。`findBestMoveWorld` に `addNoise`/`nearEqualThreshold` を **root アクション上**で移植し、beginner/intermediate の弱さ演出を保つ。
+  - **判断根拠**: 単一探索経路 = bolt-on (約 400 行: evaluateActionWithLookahead/searchDoubleMoveSuperAction(+Kernel)/evaluateAction/getOpponentResponseScore/applyActionForLookahead) を将来完全除去でき、カード評価 2 方式の分裂を**生まない**。難易度で経路分割すると逆に分裂を生む。noise 移植は忠実 (addNoise は actionOrderScore 上位5 = カードが -1 で最後尾ゆえ実質「ランダム駒 move」= 現挙動とほぼ等価。nearEqual は near-best プールにカードが入るだけ)。
+- **D-C (bolt-on は flag-OFF 経路で残置、削除は S4d)**: cutover 中のロールバックを「flag を戻すだけ」で可能にするため、bolt-on は物理削除せず flag-OFF 経路として残す (§7 ロールバック設計を維持)。world 経路が bench/実機で実証された **S4d** で bolt-on (+ useKernelSearch flag) を物理削除する (その時点では git revert がロールバック)。
+
+### 12.1 探索木の確定セマンティクス (M1 反映で正本化)
+1. **カードは root のみ展開** (計画 §3 S4c-1「相手ノード + 自分の深ノードも card/draw 抑止」を正本化):
+   - **現状の不整合 (実コード精読)**: `findBestMoveWorld` root が `negamaxWorld` に rootPlayer=`opponent` を渡す (search.ts:1108) ため、gate `currentPlayer === rootPlayer` が**相手ノードで真**= カードが相手番で展開される (S4b-2a の PoC 探索用挙動)。S4c-1 はこれを是正する。
+   - **正本**: カード/ドロー展開は **root の自分番ノードのみ**。root 以降 (相手番・自分の深ノード) は move-only 継続 (= 「カードを今打つ」の帰結を move-only で深く読む = move との公平比較を成立させる最小設計。multi-card planning は S5/L3)。double_move の継続 move は move ゆえ move-only 木で自然に読まれる。
+   - **実装**: `getWorldLegalActions(world, variant, expandCards: boolean)` へ signature 変更 (rootPlayer 引数を撤去)。root 呼出 (`findBestMoveWorld`) のみ `expandCards=true`、`negamaxWorld` は `expandCards=false` (move-only)。card/draw gate = `expandCards && variant.id==="card-shogi" && world.doubleMove===null`。`negamaxWorld` から rootPlayer 引数を撤去 (threading 簡素化)。
+2. **double_move マルチ ply 統合 (D-A 決定側、R-8 反映)**:
+   - root の自分番ノードで `double_move` カード action を生成 (現 getWorldLegalActions:780 の `continue` 除外を撤去)。
+   - 中間遷移 (turnEnded=false: double_move カード set / 1 手目) は **depth を減らさず**・**符号反転せず**・**同 player 視点で**再帰する (= 「二手指しは 1 ターン」を depth 会計で表現。turn 境界の最終 ply でのみ depth-1)。`applyTurnAction` の turnEnded で判定。
+   - **R-8 不変条件 (中間局面の leaf/TT 禁止)**: 中間ノード (doubleMove !== null) は depth 保存設計により常に depth ≥ 1 で進入する (turn 開始ノードが depth 0 なら leaf 化して double_move を展開しない) → **中間ノードは leaf 評価に到達しない** (quiescence 未呼出)。check_break defer (1 手目保留→2 手目発火) 済の不整合盤面を評価しない。S4c-1 は TT 無しゆえ TT store は N/A (S4c-2 で fold 時に同不変条件を再担保)。本不変条件をコメント + 特性化テスト (中間ノードで evaluate が呼ばれないこと) で pin。
+   - 中間ノードでは futility/LMR を抑止 (`world.doubleMove === null` を gate に追加)。move-only の turn-ending 子のみ PVS/LMR/futility 適用。
+3. **mid-turn 再クエリ実行 (D-A 実行側)**: AI が root で double_move を選んだら、ai-action-bridge が double_move カードを dispatch (現 null 撤去) → reducer が doubleMove 状態へ (currentPlayer は自分のまま) → AI useEffect 再発火 → route payload に doubleMove を載せて再クエリ → engine が mid-turn world を root に探索 (継続 move を move-only で生成) → 最善継続 move を返す → 1 手目 dispatch → movesLeft 2→1 → 同様に 2 手目。**決定側 (root の deep tree) と実行側 (mid-turn 再クエリ) は各々独立に最適でよく、PV の一致は不要**。
+
+### 12.2 返り値拡張: best TurnAction
+- `RootSearchResult` に **`bestAction?: TurnAction`** を additive 追加 (move-only `findBestMove` は未設定 = engine が `{kind:"move", move}` を構築 = 既存不変)。
+- `findBestMoveWorld` を:
+  - root の全 action (move / card / draw / double_move) を**同列にスコアリング**し、`bestAction` (全 kind の argmax) + `bestMove` (move-only argmax、blunder guard 用) + `rootMoveScores` (move のみ) を返す。
+  - root の turnEnded=false action (double_move カード) は同 player・同 depth・無反転で再帰 (12.1-2)。
+  - **noise/nearEqual を root アクション上で適用** (D-B): nearEqualThreshold>0 なら best から閾値内の root アクションから random、addNoise>0 なら actionOrderScore 上位5 から random (= 既存 findBestMove と同型、対象を Move→TurnAction に一般化)。noise 適用後の action を `bestAction` に反映。
+- export 化 (特性化テスト用)。
+
+### 12.3 selector 配線 (root のみ、難易度別注入)
+- selector は **root のみ**適用 (カードが root のみ展開ゆえ deep node では no-op)。`negamaxWorld` 内の selector 呼出 (search.ts:941) を撤去 (move-only deep node では move 全展開 + LMR が move 強度を保つ)。
+- 既定 **M=∞ (move 上限なし=move 強度温存)・K=1** (PoC-1 で K=1 PASS / K=2 FAIL)。難易度別 `SELECTOR_PARAMS: Record<Difficulty,{M,K}>` を engine に新設し ctx.selectorM/K へ注入 (S4c-1 は全難易度 M=∞/K=1、実校正は S4e)。
+
+### 12.4 engine.ts cutover
+- `FindBestMoveOptions` に `useTurnActionSearch?: boolean` を additive 追加 (route が true を渡す)。
+- `worldPathActive = (options.useTurnActionSearch ?? false) && variant.id==="card-shogi" && options.cardState!==undefined`。
+- ctx に `useTurnActionSearch`/`selectorM`/`selectorK` を注入。`findBestMove` に cardState (6 番目引数) を `worldPathActive ? options.cardState : undefined` で渡す → world 経路へ分岐。
+- doubleMove 受領: `FindBestMoveOptions.doubleMove?` (mid-turn 再クエリ用) を additive 追加。rootWorld 構築時に注入。
+- **bolt-on の skip**: `worldPathActive` のとき root action loop (315-381) + actionPhaseDeadlineAt 設定 (335-336) を skip。`selectedAction = searchResult.bestAction`、`usingCardAction = bestAction.kind!=="move"`。world 経路は deadline 内でカードを読むため action-phase budget (504 対策) は不要。
+- blunder guard: 現状の `!usingCardAction` gate で move 選択時のみ作動 (世界経路でも rootMoveScores が deep move score として有効)。
+
+### 12.5 実行プラミング (D-A)
+- **route payload** (use-card-shogi-game.ts:146 + route.ts): `doubleMove`(reducer KernelDoubleMove 相当) と `useTurnActionSearch:true` を追加。
+- **route.ts**: `useTurnActionSearch:true` を常時付与 (S1d の useKernelSearch と併存。world 経路 active 時 useKernelSearch は無効果)。
+- **ai-action-bridge.ts**: double_move を null でなく `[BEGIN_PLAY_CARD(double_move), CONFIRM_PLAY_CARD]` へ (DOUBLE_MOVE_DEF_ID 分岐撤去)。
+- **reducer/hook**: AI が mid-turn (doubleMove 状態) で再クエリされる経路が既存 human フローと同じ machinery (isPlayingCard 等 animation gate) で動くことを検証 (実装時に reducer の doubleMove 遷移 + AI useEffect deps を確認)。
+
+### 12.6 サブ分割 (revert 粒度・review 容易性)
+- **S4c-1a (world engine core、非 double_move、flag OFF)**: §12.1-1 (カード root-only 是正 + getWorldLegalActions signature) + §12.2 (best TurnAction + noise 移植) + §12.3 (selector root-only)。double_move は除外維持。production 不変 (flag OFF)。特性化テスト。
+- **S4c-1b (double_move 決定側、flag OFF)**: §12.1-2/3 の探索木マルチ ply 統合 + R-8 中間ノード no-leaf 不変条件。production 不変 (flag OFF)。特性化テスト (double_move を最善時に選ぶ / 中間ノード無評価 / kernel-search-equivalence の二手指し詰みケース不変)。
+- **S4c-1c (production cutover + 実行プラミング)**: §12.4 (engine cutover) + §12.5 (route/bridge/reducer)。**ここで production 棋力が変わる**。bench 全4難易度 before/after。単一 revert = route の flag を戻す。
+
+### 12.7 検証ゲート (§6 整合 + S4c-1 固有)
+- 各サブ段 lint→typecheck→test:ci→build。standard byte-level 不変 (flag OFF 経路)。
+- **S4c-1c bench (全4難易度 before/after)**: depthCompleted は **TT 無し (S4c-1) + applyTurnAction overhead + カード追加**で**意図的に下がる**。S4c-1 の bench は**情報取得**目的 (no-TT+card コストの可視化) とし、§6 の棋力合否バンド (depthCompleted ≥ before−15% / card% ≥70%) は **TT 復帰後の S4c-2 / 校正後の S4e** で判定する (S4c-1 では「暴落しすぎていないか」「card% が改善方向か」「beginner/intermediate の weakness が保たれるか」を定性確認)。
+- **beginner/intermediate weakness 検証 (D-B 固有)**: noise 移植後の手の分布・depthCompleted を bench で確認し、過度に強くなっていないことを報告。
+- **double_move 実機検証 (D-A)**: AI が二手指しを実際に指す経路を test (ai-action-bridge) + 必要なら手動/Vercel で確認。
+
+### 12.8 リスク (§5 に S4c-1 固有を追加)
+- **R-10 (double_move 実行の machinery 整合)**: mid-turn 再クエリが human フローの animation gate (isPlayingCard/isCheckBreakAnimating) と整合しないと AI が固まる/二重 dispatch。→ reducer/hook の doubleMove 経路を実装時精査 + bridge test。
+- **R-11 (noise 移植による beginner/intermediate 回帰)**: 手の分布変化で弱さが崩れる。→ bench 定量確認、崩れたら nearEqual/addNoise の対象範囲を調整。
+- **R-12 (S4c-1 単独の depthCompleted 暴落)**: TT 無し + カードで深さが大きく落ちる可能性。→ S4c-1 bench は情報目的、棋力ゲートは S4c-2(TT)/S4e(校正)。暴落が致命的なら S4c-2 を前倒し。
+- **R-8 再掲 (中間局面 leaf/TT)**: §12.1-2 の depth 保存設計 + 特性化テストで pin。
+
+### 12.9 M1 マイルストーン1レビュー反映 (S4c-1 計画策定直後、2026-06-13、AGENTS.md ルール8)
+独立 adversarial agent (general-purpose、21 tool uses、search.ts/engine.ts/world-kernel/reducer/hook/route を read+grep 実証) で S4c-1 計画をレビュー。**判定 = CHANGES_REQUESTED**。骨格 (additive→cutover / root-only カード是正 / noise 移植方向 / bolt-on 残置) は実コードと整合し妥当と確認。ただし **D-A (double_move 完全統合) に [BLOCKER] 3 件**が判明し、これらは「実装時確認」でなく「着手前に設計確定が必須」。
+
+#### [BLOCKER] 反映必須 (double_move 実行プラミング)
+- **B-1 (AI useEffect が double_move 中に再発火しない = デッドロック)**: `use-card-shogi-game.ts:207-218` の deps に `state.doubleMove` 無し。CONFIRM_PLAY_CARD(double_move) も MAKE_MOVE(1手目) も `currentPlayer` を `dm.active`(自分)維持 (`reducer.ts:618` / `world-kernel.ts:305`)、`isPlayingCard` も false 維持 (`reducer.ts:1046`)。→ **mid-turn 再クエリ方式 (§12.5) は AI が double_move を選んだ瞬間に 1 手目すら指さず停止する**。
+- **B-2 (route payload 5 箇所連鎖 + 肥大)**: doubleMove 伝播は (1) `use-ai-request.ts AiMoveRequestParams` / (2) `route.ts AiMoveRequestBody`+validateBody / (3) `FindBestMoveOptions` / (4) `findBestMoveWorld` rootWorld 注入 (`search.ts:1056` の `doubleMove:null` ハードコード) / (5) reducer `state.doubleMove`(UI 拡張型 preFirstMoveState/preCardState 含む) → `KernelDoubleMove` narrowing、の 5 箇所。narrowing 無しで送ると payload 肥大 (MAX_PAYLOAD_BYTES=100KB)。
+- **B-3 (mateInOneAvailable 二手指し制約の休眠バグ顕在化 = correctness 穴)**: 二手指し 2 手目には「1 手目で 1 手詰み可能なら 2 手目の詰み手を禁止」制約 (`reducer.ts:357/380` partitionDoubleMoveSecondCandidates)。`getWorldLegalActions:760` は `getFullLegalMoves` のみで本制約を**一切適用しない**。現 bolt-on `searchDoubleMoveSuperAction` も無視しているが、`ai-action-bridge.ts:44` の null フォールバックで double_move を実際に指さないため**休眠**。D-A で実際に指すと**ルール違反手を AI が選び reducer が無条件適用**。探索木・mid-turn・bridge の 3 経路すべてで mateInOne 制約の保証が必要。
+
+#### [MAJOR] 反映
+- **M-1 (round-trip 3 回)**: mid-turn 再クエリは「カード使用 + 各継続 move」で 1 ターン 3 リクエスト = レイテンシ/504 リスク 3 倍 + 不自然 UX。→ **代替 = 1-response 方式** (root で double_move 決定時に move1+move2 もサーバ側で確定し 1 レスポンスで返却、bridge が `[BEGIN_PLAY_CARD, CONFIRM_PLAY_CARD, MAKE_MOVE(1手目), MAKE_MOVE(2手目)]` を 1 dispatch 列で実行)。これは B-1(再発火不要)/B-2(payload doubleMove 不要)/M-1 を**同時に解消**。move1/move2 抽出は (a) 木の double_move 線 PV 追跡 or (b) root の double_move 専用評価ヘルパ (score + move1/move2 返却) のいずれか。
+- **M-2 (R-8 check extension 抑止漏れ)**: §12.1-2 は中間ノードで futility/LMR 抑止と書くが `negamaxWorld:933` の check extension (`depth++`) 抑止を書いていない。中間ノードで depth++ が起きると double_move 経路の evaluate 到達深度が move 経路と非対称化。→ **中間ノード (doubleMove!==null) では check extension も抑止** (depth を親から純粋保存)。既存保険分岐 (`search.ts:1002-1006`) の `depth-1`→`depth` 改変箇所も明記。
+- **M-3 (bolt-on デッドコード化)**: 全難易度 cutover + route 常時 flag ON で bolt-on は flag-OFF test/bench のみ到達。→ S4c-1 完了時点で bolt-on 経路を叩く回帰テスト (kernel-search-equivalence 等が flag OFF) が実在することを §12.7 ゲートで確認。
+
+#### [MEDIUM] 反映
+- **MED-1 (noise ソート関数不一致)**: 既存 `findBestMove` addNoise は `scoreMoveForOrdering` (`search.ts:722`) でソートするが、計画示唆の `actionOrderScore` は `scoreMove` (TT/killer/history 参照) で**別関数**。beginner byte 等価が崩れる。→ noise 移植の move ソートは **`scoreMoveForOrdering` を使う**ことを明記。
+- **MED-2 (deep-node selector 撤去で PoC-1 再実行不能)**: `negamaxWorld:941` の selector 撤去で `measure-poc1-235.ts` の deep-node selector が効かせられなくなる。→ S4b 完了済ゆえ実害なしだが、S4e で deep-node selector が要るなら撤去でなく「root のみ有効化 (deep は M=∞ で no-op)」を選ぶ。計画に注記。
+- **MED-3 (blunder guard rootMoveScores × selector)**: world 経路の rootMoveScores は selector M 絞り後の move のみ。blunder guard の静的フォールバック発動率が変わり得る。→ S4c-1c bench で usedFallback/guard 発動率を観測項目に追加。
+
+#### [MINOR/PASS]
+- DEBUG_AI_EVAL は world 経路でも move から導出可で dangling せず (ただしカード採用時は無関係 move の breakdown を出す点を注記)。usedCardAction stats は bestAction.kind から導出可 (PASS)。Date.now() event の payload 混入懸念は杞憂 (TurnAction/CardInstance はプレーン型、PASS)。single-legal-move early return (`search.ts:1068`) も bestAction 設定が必要。
+
+#### M1 が突き付けた根本論点 (ユーザー確認事項)
+**D-A (double_move 完全統合) は S4c-1 を過大化させ、かつ B-3 (mateInOne 休眠バグ) という correctness landmine を含む。** M1 の推奨 = **double_move を S4c-1 から分離** (決定側のみ先行 or 実行側ごと別段階 S4c-1d)。現 `ai-action-bridge.ts:44` の null フォールバックを維持すれば、非 double_move カードの深読み cutover (P1 の主因解消) を先に安全に出荷でき、double_move は landmine 対応込みで独立段階に切れる。**着手前にユーザーへ double_move スコープと実行方式 (1-response vs 分離) を確認する。**
+
+### 12.10 最終スコープ確定 (ユーザー決定 2026-06-13: double_move 分離) ★本節が S4c-1 の正本
+ユーザー決定 = **double_move を分離**。これにより M1 の [BLOCKER] B-1/B-2/B-3 + [MAJOR] M-1 (すべて double_move 実行起因) は S4c-1 から**除外**され、残る非 double_move 設計は M1 で妥当性確認済 (root-only カード是正・noise 移植方向・bolt-on 残置)。§12.1-2 (double_move マルチ ply) / §12.1-3 (mid-turn 再クエリ) / §12.5 の double_move 部分は **S4c-1d へ繰り下げ (本 S4c-1 では実装しない)**。MED-1/MED-3/M-3/MINOR は本 S4c-1 に反映。
+
+#### S4c-1 で実装する範囲 (非 double_move)
+- **S4c-1a (world engine、flag OFF、production 不変)**:
+  1. `getWorldLegalActions(world, variant, expandCards: boolean)` へ signature 変更 (**rootPlayer 引数撤去**)。card/draw gate = `expandCards && variant.id==="card-shogi" && world.doubleMove===null`。**double_move は引き続き除外** (現 search.ts:780 の `continue` 維持。AI は double_move を候補化しない = 現状の null フォールバックと整合)。draw gate は `!isInCheck && canDraw` 維持。
+  2. `negamaxWorld`: `getWorldLegalActions(world, variant, false)` = move-only。**rootPlayer 引数撤去**。selector 呼出 (search.ts:941) は**残す** (MED-2: move-only に対し M=∞ で no-op、S4e で deep-node M 校正 + PoC-1 再実行余地を保つ)。turnEnded=false 保険分岐 (1002-1006) は double_move 除外ゆえ到達不能のまま維持 (既存 NIT、S4c-1d で live 化)。
+  3. `findBestMoveWorld`:
+     - root = `getWorldLegalActions(rootWorld, variant, true)` + selector (M=∞/K=1 既定)。全 action は turnEnded=true (double_move 除外) → 既存 root 反転処理が正しい。
+     - **bestAction (move/card/draw の argmax) + bestMove (move argmax、blunder guard 用) + rootMoveScores (move のみ) を返す**。
+     - **noise/nearEqual を root アクション上で適用** (D-B): nearEqualThreshold>0 = best から閾値内 root アクションから random、addNoise>0 = **`scoreMoveForOrdering`** (MED-1、既存 findBestMove:722 と同関数) で move 上位5 から random。適用後 action を bestAction へ。
+     - single-legal-move early return (1068) も **bestAction を設定** (MINOR)。
+  4. `RootSearchResult` に `bestAction?: TurnAction` additive 追加 (move-only findBestMove は未設定 = engine が `{kind:"move"}` 構築 = 不変)。`findBestMoveWorld` を export。
+  5. テスト: bestAction 正当性 (move/card/draw) + bestAction/bestMove 一致 (move 採用時) + expandCards gate (カードは root のみ・double_move 除外) + noise の対象が scoreMoveForOrdering + flag OFF production 不変。
+- **S4c-1b (production cutover、全難易度)**:
+  1. `FindBestMoveOptions` に `useTurnActionSearch?: boolean` additive。`SELECTOR_PARAMS: Record<Difficulty,{M:number,K:number}>` 新設 (全難易度 M=∞/K=1、根拠 PoC-1 K=1 PASS をコメント。S4e 校正)。
+  2. engine: `worldPathActive = (options.useTurnActionSearch ?? false) && variant.id==="card-shogi" && options.cardState!==undefined`。ctx に useTurnActionSearch/selectorM/K 注入。`findBestMove` に cardState (6番目) を worldPathActive 時のみ渡す。
+  3. engine: worldPathActive 時 bolt-on root loop (315-381) + actionPhaseDeadlineAt (335-336) を skip。`selectedAction = searchResult.bestAction`、`usingCardAction = bestAction.kind!=="move"`。blunder guard は既存 `!usingCardAction` gate で move 採用時のみ作動 (rootMoveScores が deep move score)。
+  4. route.ts: `useTurnActionSearch:true` を付与 (useKernelSearch と併存、world active 時 useKernelSearch は無効果)。
+  5. bolt-on は flag-OFF で残置 (D-C、削除は S4d)。**M-3: flag-OFF 経路を叩く回帰テスト (kernel-search-equivalence 等) が実在することを確認** (デッドコードでないこと)。
+  6. bench 全4難易度 before/after: depthCompleted (TT 無しで意図的低下、情報目的) / card% (改善方向か) / **usedFallback・blunder guard 発動率 (MED-3)** / **beginner/intermediate weakness (R-11、過度に強化されていないか)**。棋力合否バンドは S4c-2(TT)/S4e(校正) で判定。
+- **double_move 実行**: `ai-action-bridge.ts:44` の null フォールバック維持。world 経路は double_move を候補化しないため bestAction が double_move になることは無く、production は「最善の非 double_move アクション」を指す (旧 bolt-on で double_move 最善時に move へフォールバックしていたのが、新経路では最善カードを指せる = むしろ改善)。
+
+#### S4c-1d (別段階、S4c-1 完了・実証後に着手) = double_move 完全統合
+- 決定側 (探索木マルチ ply 統合 §12.1-2 + R-8 中間ノード no-leaf + **M-2 check extension 抑止**) + 実行側 (**1-response 方式** = サーバ側で card+move1+move2 確定し 1 レスポンス返却、bridge が 1 dispatch 列で実行。B-1 再発火不要/B-2 payload doubleMove 不要) + **B-3 mateInOne 二手指し制約を探索着手生成に組込み**。着手前に専用 M1 を再実施。
+
+#### S4c-1 サブ段順序 (確定)
+S4c-1a (world engine) → S4c-1b (production cutover + bench) → [S4c-2 TT fold] → [S4c-1d double_move 別途] → S4d → S4e。各段 lint→typecheck→test:ci→build。

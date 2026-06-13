@@ -77,8 +77,8 @@ function worldCtx(cardDigest?: undefined) {
   });
 }
 
-describe("S4b-2a: getWorldLegalActions (手番ゲート + double_move 除外)", () => {
-  it("自分番ノードは move + draw + card を生成し double_move を除外する", () => {
+describe("S4c-1: getWorldLegalActions (expandCards gate + double_move 除外)", () => {
+  it("expandCards=true (root) は move + draw + card を生成し double_move を除外する", () => {
     const gs = createInitialGameState(CARD_SHOGI_VARIANT); // sente 番、初期盤
     const pawnReturn: CardInstance = { instanceId: "s-pr", defId: "pawn_return" };
     const doubleMove: CardInstance = { instanceId: "s-dm", defId: "double_move" };
@@ -89,14 +89,14 @@ describe("S4b-2a: getWorldLegalActions (手番ゲート + double_move 除外)", 
     });
     const world: WorldState = { gameState: gs, cardState: cs, doubleMove: null };
 
-    const actions = getWorldLegalActions(world, "sente", CARD_SHOGI_VARIANT);
+    const actions = getWorldLegalActions(world, CARD_SHOGI_VARIANT, true);
 
     expect(actions.some((a) => a.kind === "move")).toBe(true);
     expect(actions.some((a) => a.kind === "draw")).toBe(true);
     expect(
       actions.some((a) => a.kind === "playCard" && a.defId === "pawn_return"),
     ).toBe(true);
-    // double_move は 2a 除外
+    // double_move は S4c-1 除外 (S4c-1d で統合)
     expect(
       actions.some((a) => a.kind === "playCard" && a.defId === "double_move"),
     ).toBe(false);
@@ -117,16 +117,16 @@ describe("S4b-2a: getWorldLegalActions (手番ゲート + double_move 除外)", 
     });
     const world: WorldState = { gameState: gs, cardState: cs, doubleMove: null };
 
-    const actions = getWorldLegalActions(world, "sente", CARD_SHOGI_VARIANT);
+    const actions = getWorldLegalActions(world, CARD_SHOGI_VARIANT, true);
     // 王手中: draw は生成されない (canDraw 単独なら true だが王手で抑止)。
     expect(actions.some((a) => a.kind === "draw")).toBe(false);
     // 王手回避の move は存在する。
     expect(actions.some((a) => a.kind === "move")).toBe(true);
   });
 
-  it("相手番ノード (player !== rootPlayer) は move のみ (card/draw 抑止 = L-3)", () => {
+  it("expandCards=false (deep node) は move のみ (card/draw 抑止 = root のみ展開)", () => {
     const gs = createInitialGameState(CARD_SHOGI_VARIANT); // currentPlayer = sente
-    const pawnReturn: CardInstance = { instanceId: "g-pr", defId: "pawn_return" };
+    const pawnReturn: CardInstance = { instanceId: "s-pr", defId: "pawn_return" };
     const cs = cardState({
       hand: { sente: [pawnReturn], gote: [] },
       mana: { sente: 12, gote: 12 },
@@ -134,8 +134,8 @@ describe("S4b-2a: getWorldLegalActions (手番ゲート + double_move 除外)", 
     });
     const world: WorldState = { gameState: gs, cardState: cs, doubleMove: null };
 
-    // rootPlayer = gote だが currentPlayer = sente → 相手番扱い → move のみ
-    const actions = getWorldLegalActions(world, "gote", CARD_SHOGI_VARIANT);
+    // expandCards=false → 自分番でも card/draw を生成せず move-only (deep node 相当)
+    const actions = getWorldLegalActions(world, CARD_SHOGI_VARIANT, false);
     expect(actions.length).toBeGreaterThan(0);
     expect(actions.every((a) => a.kind === "move")).toBe(true);
   });
@@ -252,8 +252,8 @@ describe("S4b-2a: findBestMoveWorld (flag ON correctness)", () => {
     // 返り値は合法な move (root の合法手集合に含まれる)
     const legalMoves = getWorldLegalActions(
       { gameState: gs, cardState: cs, doubleMove: null },
-      "sente",
       CARD_SHOGI_VARIANT,
+      true,
     ).filter((a) => a.kind === "move");
     expect(
       legalMoves.some(
@@ -264,6 +264,82 @@ describe("S4b-2a: findBestMoveWorld (flag ON correctness)", () => {
       ),
     ).toBe(true);
     expect(ctx.depthCompleted).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("S4c-1: findBestMoveWorld bestAction 返却 + noise 移植", () => {
+  // 無防備な大駒取り (move が明白に最善、手札空)。
+  const placeObviousCapture = (b: Board) => {
+    b[0][0] = pc("king", "gote");
+    b[8][8] = pc("king", "sente");
+    b[4][4] = pc("rook", "sente");
+    b[4][7] = pc("gold", "gote");
+  };
+
+  it("bestAction を返し、move 採用時は result.move と一致する", () => {
+    const gs = buildGameState(placeObviousCapture, "sente");
+    const result = findBestMove(gs, "sente", DET_OPTIONS, CARD_SHOGI_VARIANT, worldCtx(), cardState());
+    expect(result).not.toBeNull();
+    // 手札空 → bestAction は move
+    expect(result!.bestAction).toBeDefined();
+    expect(result!.bestAction!.kind).toBe("move");
+    if (result!.bestAction!.kind === "move") {
+      // bestAction.move は result.move と一致 (blunder guard 整合)
+      expect(result!.bestAction!.move.to).toEqual(result!.move.to);
+    }
+  });
+
+  it("bestAction は root の合法 TurnAction のいずれか (カード保有局面)", () => {
+    const gs = createInitialGameState(CARD_SHOGI_VARIANT);
+    const cs = cardState({
+      hand: { sente: [{ instanceId: "s-pr", defId: "pawn_return" }], gote: [] },
+      mana: { sente: 12, gote: 12 },
+      deck: { sente: [{ instanceId: "d1", defId: "mana_up" }], gote: [] },
+    });
+    const result = findBestMove(gs, "sente", DET_OPTIONS, CARD_SHOGI_VARIANT, worldCtx(), cs);
+    expect(result).not.toBeNull();
+    expect(result!.bestAction).toBeDefined();
+    const rootActions = getWorldLegalActions(
+      { gameState: gs, cardState: cs, doubleMove: null },
+      CARD_SHOGI_VARIANT,
+      true,
+    );
+    const ba = result!.bestAction!;
+    // bestAction は root 候補に含まれる種類 (move/draw/playCard)。double_move は候補化されない。
+    expect(["move", "draw", "playCard"]).toContain(ba.kind);
+    if (ba.kind === "playCard") {
+      expect(ba.defId).not.toBe("double_move");
+      expect(rootActions.some((a) => a.kind === "playCard" && a.defId === ba.defId)).toBe(true);
+    }
+  });
+
+  it("addNoise=1 でも bestAction は合法 move を返す (クラッシュしない)", () => {
+    const gs = buildGameState(placeObviousCapture, "sente");
+    const noisyOpts = { ...DET_OPTIONS, addNoise: 1, nearEqualThreshold: 500 };
+    const result = findBestMove(gs, "sente", noisyOpts, CARD_SHOGI_VARIANT, worldCtx(), cardState());
+    expect(result).not.toBeNull();
+    expect(result!.bestAction).toBeDefined();
+    // addNoise は move 上位5 から選ぶため kind は move
+    expect(result!.bestAction!.kind).toBe("move");
+    const rootMoves = getWorldLegalActions(
+      { gameState: gs, cardState: cardState(), doubleMove: null },
+      CARD_SHOGI_VARIANT,
+      true,
+    ).filter((a) => a.kind === "move");
+    if (result!.bestAction!.kind === "move") {
+      const chosen = result!.bestAction!.move;
+      // 選ばれた move は合法手集合に含まれる
+      expect(
+        rootMoves.some(
+          (a) =>
+            a.kind === "move" &&
+            a.move.from?.row === chosen.from?.row &&
+            a.move.from?.col === chosen.from?.col &&
+            a.move.to.row === chosen.to.row &&
+            a.move.to.col === chosen.to.col,
+        ),
+      ).toBe(true);
+    }
   });
 });
 
