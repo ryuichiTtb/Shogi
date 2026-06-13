@@ -550,6 +550,10 @@ export interface RootSearchResult {
   // (move / card / draw)。move-only findBestMove は未設定 (engine が {kind:"move", move} を構築 =
   // 既存不変)。world 経路の engine cutover (S4c-1b) がこれを selectedAction に採用する。
   bestAction?: TurnAction;
+  // Issue #235 S4e: world 探索の root 全アクション (move/card/draw) の深読みスコア
+  // (engagement 下駄適用 *前*)。engagement margin 校正の診断 (card vs best-move gap 計測) に使う。
+  // move-only findBestMove は未設定。
+  rootActionScores?: { action: TurnAction; score: number }[];
 }
 
 export function findBestMove(
@@ -1344,7 +1348,7 @@ export function findBestMoveWorld(
   // (engine が usingCardAction=true で blunder guard を skip = move フィールドは UI 互換用途)。
   if (bestAction.kind === "move") bestMove = bestAction.move;
 
-  return { move: bestMove, rootMoveScores, bestAction };
+  return { move: bestMove, rootMoveScores, bestAction, rootActionScores };
 }
 
 // Issue #193 / PR1d-2: TurnAction (move / draw / playCard) を player 視点のスカラー評価値に変換する純粋関数。

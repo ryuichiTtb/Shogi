@@ -41,6 +41,9 @@ import {
   findBestMoveWithStats,
   DIFFICULTY_PARAMS,
 } from "@/lib/shogi/ai/engine";
+import { findBestMove } from "@/lib/shogi/ai/search";
+import { createSearchContext } from "@/lib/shogi/ai/search-context";
+import { computeCardDigest } from "@/lib/shogi/ai/cards/digest";
 import {
   createInitialGameState,
   applyMoveForSearch,
@@ -314,6 +317,57 @@ function median(nums: number[]): number {
   const mid = Math.floor(s.length / 2);
   const m = s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
   return round2(m);
+}
+
+// ===== S4e engagement gap 診断 (BENCH_GAPS=1) =====
+// 各カードシナリオで「最善 move の深読みスコア − 最善 card/draw の深読みスコア」= gap を計測する。
+// gap ≤ margin のとき engagement がそのカードを採用する。gap 分布から ~70% (≒5/7 シナリオ) を
+// 達成する margin を決める。baseline ファイルは書かず即 exit (上書き防止)。
+if (process.env.BENCH_GAPS === "1") {
+  const scenarios = makeScenarios();
+  for (const difficulty of DIFFICULTIES) {
+    process.stderr.write(`\n[gaps] === ${difficulty} ===\n`);
+    const gaps: number[] = [];
+    for (const sc of scenarios) {
+      const cardDigest = computeCardDigest(sc.cardState);
+      const ctx = createSearchContext({
+        timeLimitMs: DIFFICULTY_PARAMS[difficulty].timeLimitMs,
+        cardDigest,
+        useTurnActionSearch: true,
+        spectatorMode: true,
+        selectorM: Infinity, // production SELECTOR_PARAMS (全難易度 M=∞)
+        selectorK: 1, // production K=1
+      });
+      const r = findBestMove(
+        sc.state,
+        sc.player,
+        { maxDepth: DIFFICULTY_PARAMS[difficulty].maxDepth, timeLimitMs: DIFFICULTY_PARAMS[difficulty].timeLimitMs, addNoise: 0, nearEqualThreshold: 0, engagementMargin: 0 },
+        CARD_SHOGI_VARIANT,
+        ctx,
+        sc.cardState,
+      );
+      const ras = r?.rootActionScores ?? [];
+      let bestMove = -Infinity;
+      let bestCard = -Infinity;
+      let bestCardKind = "none";
+      for (const a of ras) {
+        if (a.action.kind === "move") {
+          if (a.score > bestMove) bestMove = a.score;
+        } else if (a.score > bestCard) {
+          bestCard = a.score;
+          bestCardKind = a.action.kind === "playCard" ? a.action.defId : "draw";
+        }
+      }
+      const gap = bestMove - bestCard;
+      if (Number.isFinite(gap)) gaps.push(gap);
+      process.stderr.write(
+        `[gaps]   ${sc.label}: bestMove=${bestMove.toFixed(0)} bestCard=${bestCard.toFixed(0)}(${bestCardKind}) gap=${gap.toFixed(0)}\n`,
+      );
+    }
+    const sorted = [...gaps].sort((a, b) => a - b);
+    process.stderr.write(`[gaps]   sorted gaps: [${sorted.map((g) => g.toFixed(0)).join(", ")}]  (margin で 5/7=~70% 採用なら 5番目 ${sorted[4]?.toFixed(0)} 未満)\n`);
+  }
+  process.exit(0);
 }
 
 // ===== main =====
