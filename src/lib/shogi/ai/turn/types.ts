@@ -9,17 +9,14 @@
 // 最後に必ず駒1手」のように move を含むまでターン継続する形に切替えられる。
 // TurnRules.isTurnTerminating の実装差替だけでルール変更耐性を担保する。
 
-import type { CardGameState, CardId, CardInstance, CardTarget, GameEvent } from "@/lib/shogi/cards/types";
-import type { GameState, Move, Player } from "@/lib/shogi/types";
+import type { CardGameState, CardInstance, GameEvent } from "@/lib/shogi/cards/types";
+import type { GameState, Player } from "@/lib/shogi/types";
 
-// AI 探索内で扱う統一行動型。
-// - move: 通常の駒指し (既存 Move の薄いラッパ)
-// - draw: 山札ドロー (マナ DRAW_COST 消費)
-// - playCard: 手札カード使用 (def.cost マナ消費 + 効果適用)
-export type TurnAction =
-  | { kind: "move"; move: Move }
-  | { kind: "draw" }
-  | { kind: "playCard"; cardInstanceId: string; defId: CardId; target?: CardTarget };
+// Issue #235 S4d-1: TurnAction の定義は kernel/turn-action-types.ts (L0 中立) へ移設し、
+// 既存 importer 互換のため本ファイルから re-export する (world-kernel の L0→L2 逆依存を解消)。
+// 本ファイル内 (TurnRules) でも型として使うため import + re-export 両方を行う。
+import type { TurnAction } from "@/lib/shogi/kernel/turn-action-types";
+export type { TurnAction };
 
 // AI 探索内部で参照する世界モデル。reducer state とは独立。
 // - gameState: 既存の駒・盤面・手番情報

@@ -18,7 +18,6 @@
 
 import type { CardGameState } from "../../cards/types";
 import type { GameState, RuleVariant } from "../../types";
-import { MANA_CAP } from "../../cards/definitions";
 import { getCardValue } from "../../cards/card-spec-server";
 import {
   MANA_DELTA_COEFFICIENT,
@@ -26,7 +25,7 @@ import {
   HAND_VALUE_DECAY,
   DRAW_PROGRESS_COEFFICIENT,
   NO_PROMOTE_MARK_COEFFICIENT,
-  DEAD_MANA_THRESHOLD,
+  DEAD_MANA_RATIO,
   DEAD_MANA_PENALTY_COEF,
 } from "./heuristics";
 
@@ -79,7 +78,9 @@ export function computeCardDigest(
     cardState.noPromoteMarks.sente.length - cardState.noPromoteMarks.gote.length;
   return {
     manaDelta,
-    manaCap: MANA_CAP,
+    // Issue #235 S4d-1 (epic §6 7.5③): 旧 MANA_CAP 定数焼き込み → cardState.manaCap 読みに是正
+    // (動的マナ上限構想の前提。現行 cap=20 で値不変)。
+    manaCap: cardState.manaCap,
     handValueDelta,
     drawProgressDelta,
     // S3b: 盤上トラップの局面依存価値を gameState から precompute (W-1 root スカラー)。
@@ -150,12 +151,16 @@ export function evaluateCardDigest(
 }
 
 // PR3-1: 死にマナペナルティ (sente 絶対視点)。
-//   sente が DEAD_MANA_THRESHOLD を超えた分 = sente にとって - (機会損失大)
-//   gote が DEAD_MANA_THRESHOLD を超えた分 = sente にとって + (相手の機会損失)
+//   sente が threshold を超えた分 = sente にとって - (機会損失大)
+//   gote が threshold を超えた分 = sente にとって + (相手の機会損失)
 //   差分 (goteOverflow - senteOverflow) × DEAD_MANA_PENALTY_COEF で対称に算出。
+// Issue #235 S4d-1 (epic §6 7.5④): 閾値を定数 16 → `manaCap × DEAD_MANA_RATIO` の動的算出に是正。
+// per-node の digest.manaCap を使うため、manaCap 動的化時も cap に追従して誤発火しない
+// (現行 cap=20 では 16 で挙動不変)。
 function evaluateDeadManaPenalty(digest: CardDigest): number {
-  const senteOverflow = Math.max(0, digest.manaAbsolute.sente - DEAD_MANA_THRESHOLD);
-  const goteOverflow = Math.max(0, digest.manaAbsolute.gote - DEAD_MANA_THRESHOLD);
+  const threshold = digest.manaCap * DEAD_MANA_RATIO;
+  const senteOverflow = Math.max(0, digest.manaAbsolute.sente - threshold);
+  const goteOverflow = Math.max(0, digest.manaAbsolute.gote - threshold);
   return (goteOverflow - senteOverflow) * DEAD_MANA_PENALTY_COEF;
 }
 
@@ -178,11 +183,9 @@ function evaluateDeadManaPenalty(digest: CardDigest): number {
  *
  * 注意 (W-2 sente 絶対視点維持):
  * - 全フィールドの符号方針は computeCardDigest と同一 (sente が有利なら正)。
- * - prev に含まれる manaCap は静的値 (現状 MANA_CAP=20 固定) のため常に流用。
- *   **将来動的化時の拡張手順 (PR3-3 C-9 / レビュー F-7)**:
- *     1. `prevCardState.manaCap !== newCardState.manaCap` チェックを追加
- *     2. 変化時は `manaCap: newCardState.manaCap` を返却 (非変化時は prev 流用)
- *     3. 動的 manaCap が evaluateCardDigest 計算に組み込まれる場合は併せて該当項も追加
+ * - Issue #235 S4d-1: manaCap は `newCardState.manaCap` を常に読む (O(1))。現行 cap=20 では
+ *   prev 流用と等価だが、動的 manaCap 構想時も自動追従する (旧「常に prev 流用 + 将来手順」を是正)。
+ *   死にマナ閾値も evaluateDeadManaPenalty が digest.manaCap × DEAD_MANA_RATIO で動的算出する。
  */
 export function updateCardDigest(
   prev: CardDigest,
@@ -219,8 +222,9 @@ export function updateCardDigest(
     manaDelta: manaChanged
       ? newCardState.mana.sente - newCardState.mana.gote
       : prev.manaDelta,
-    // manaCap は現状 MANA_CAP 固定 (将来動的化想定で枠は維持、本関数も常に prev 流用)。
-    manaCap: prev.manaCap,
+    // Issue #235 S4d-1: cardState.manaCap を常に読む (O(1)、現行 cap=20 で prev 流用と等価)。
+    // 動的 manaCap 構想時もこの読みで自動追従する (旧「常に prev 流用」を是正)。
+    manaCap: newCardState.manaCap,
     manaAbsolute: manaChanged
       ? { sente: newCardState.mana.sente, gote: newCardState.mana.gote }
       : prev.manaAbsolute,

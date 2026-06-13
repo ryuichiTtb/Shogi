@@ -10,6 +10,7 @@
 
 import type { GameState, Player } from "../../types";
 import type { CardGameState } from "../../cards/types";
+import { MANA_CAP } from "../../cards/definitions";
 
 // ドロー判定 (PR1d-1 → PR3-1 で動的化):
 //   ・MIN_MANA_RESERVE: ドロー判定で「手動ドロー使用後もマナ余裕を保つ」しきい値 (マナ単位)
@@ -136,14 +137,21 @@ export const DRAW_PHASE_END_BONUS = 5;
 
 // 死にマナペナルティ (C-3 で evaluateDeadManaPenalty から参照):
 //   evaluateCardDigest に絶対マナ上限近接ペナルティ項を追加 (sente 絶対視点)。
-//   DEAD_MANA_THRESHOLD=16 (MANA_CAP=20 の 80%) を超えた分に DEAD_MANA_PENALTY_COEF=4 cp/マナ。
+//   manaCap × DEAD_MANA_RATIO(0.8) を超えた分に DEAD_MANA_PENALTY_COEF=4 cp/マナ。
+//
+// Issue #235 S4d-1 (epic §6 7.5④): 旧 `DEAD_MANA_THRESHOLD=16` 定数焼き込みを **cap 比率化**。
+//   閾値は `manaCap × DEAD_MANA_RATIO` で算出し、将来 manaCap が動的化したとき (自分UP/相手DOWN
+//   カード構想) も誤発火しない (cap=20 の現行では 16 で挙動不変)。eval (evaluateDeadManaPenalty)
+//   は per-node の `digest.manaCap` を使い動的に閾値を算出する。`DEAD_MANA_THRESHOLD` は
+//   デフォルト cap 基準の参照値 (= MANA_CAP × ratio = 16) として後方互換のため残す (テスト/可読性)。
 //
 // PR3-1 単体では cardDigest が root スカラーで全候補に同値加算されるため argmax で
 // 打ち消されアクション選択に効かなかった (= inert、レビュー F-1)。
 // **PR3-3 C-6 で evaluateActionWithLookahead に updateCardDigest を per-action wiring
 // したことで効果発現。** 退化原因 ④ (マナ上限で manaDelta 価値消失) はこの wiring と
 // 併せて解消。
-export const DEAD_MANA_THRESHOLD = 16;
+export const DEAD_MANA_RATIO = 0.8;
+export const DEAD_MANA_THRESHOLD = MANA_CAP * DEAD_MANA_RATIO;
 export const DEAD_MANA_PENALTY_COEF = 4;
 
 // 動的ドロー価値 (PR3-1 C-2): 旧固定値 DRAW_VALUE_BONUS=30 を置き換える。

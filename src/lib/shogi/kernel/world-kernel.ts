@@ -46,7 +46,9 @@ import type {
   CardInstance,
   GameEvent,
 } from "@/lib/shogi/cards/types";
-import type { TurnAction } from "@/lib/shogi/ai/turn/types";
+// Issue #235 S4d-1: TurnAction を L0 中立 location から直接 import (旧 ai/turn/types 経由の
+// L0→L2 型逆依存を解消、epic §6 7.5⑤)。
+import type { TurnAction } from "@/lib/shogi/kernel/turn-action-types";
 
 // ===== WorldState (L0) =====
 // kernel が扱う二手指し継続状態。reducer の doubleMove から UI/UNDO 専用フィールド
