@@ -32,6 +32,7 @@ import {
   SIDE_TO_MOVE_KEY, SIDE_TO_MOVE_KEY_HI,
 } from "./zobrist";
 import type { ZobristHash } from "./zobrist";
+import { computeCardFold } from "./card-zobrist";
 import { getCaptureMovesForSearch, getPromotionMovesForSearch } from "./captureGen";
 import {
   MAX_DEPTH,
@@ -108,7 +109,9 @@ export function movesEqual(a: Move, b: Move): boolean {
 
 // Incremental dual hash update after applying a move
 // 全XOR操作に >>> 0 を適用（computeHashとの整合性を保証）
-function updateHash(
+// Issue #235 S4c-2b: R-14 (incremental === computeHash 全量) 特性化テストから検証するため export。
+// production の呼出経路・振る舞いは不変 (export 付与のみ)。
+export function updateHash(
   prevHash: ZobristHash,
   prevState: GameState,
   move: Move,
@@ -799,8 +802,15 @@ export function getWorldLegalActions(
 
 // TurnAction の順序付けスコア: move は既存 scoreMove (TT 手は無いので ttMove=null)、
 // card/draw は move の後ろ (-1。quiet move の history は >=0 ゆえ全 move より後)。
-function actionOrderScore(action: TurnAction, ply: number, ctx: SearchContext): number {
-  if (action.kind === "move") return scoreMove(action.move, null, ply, ctx);
+function actionOrderScore(
+  action: TurnAction,
+  ply: number,
+  ctx: SearchContext,
+  ttMove: Move | null = null,
+): number {
+  // S4c-2b: TT best move (ttMove) を move 順序付けに反映 (move-only negamax と同、scoreMove が
+  // ttMove 一致手を最優先)。card/draw は move の後ろ (-1、quiet move history >= 0 ゆえ全 move より後)。
+  if (action.kind === "move") return scoreMove(action.move, ttMove, ply, ctx);
   return -1;
 }
 
@@ -928,9 +938,13 @@ function quiescenceWorld(
 
 // negamaxWorld: WorldState を回す card-aware negamax。既存 negamax の PVS/null-move/LMR/
 // futility/killer/history/quiescence を faithful port し、遷移を applyTurnAction、cardDigest を
-// per-node 更新に置換。TT は積まない (S4c-2)。
+// per-node 更新に置換。
 // S4c-1: 着手生成は move-only (getWorldLegalActions(world, variant, false))。カードは root のみ
 // 展開ゆえ deep node に rootPlayer gate は不要 → rootPlayer 引数を撤去 (計画 §12.10)。
+// S4c-2b: TT (置換表) を配線。key = boardHash ^ cardFold (computeCardFold)。boardHash は board-only
+// hash を引数で受け取り (通常 move は updateHash incremental、card/draw/check_break は computeHash 全量、
+// §13.8)、本関数で cardFold を毎ノード合成して TT key を作る。**trap セット済ノードは TT skip**
+// (trapValueDelta スタレネスで「同 key・異 score」誤 hit するため、§13.8 B-1。S4d で解消予定)。
 function negamaxWorld(
   world: WorldState,
   depth: number,
@@ -941,6 +955,7 @@ function negamaxWorld(
   ply: number,
   isNullMoveAllowed: boolean,
   ctx: SearchContext,
+  boardHash: ZobristHash,
 ): number {
   ctx.nodes++;
   if (shouldStop(ctx)) return 0;
@@ -954,6 +969,31 @@ function negamaxWorld(
   // (move-only negamax の stalemate→0 と一致させ、no-card 局面の特性化を保つ)。
   if (state.status !== "active") {
     return state.status === "checkmate" ? -(MATE_SCORE - ply) : 0;
+  }
+
+  // S4c-2b: TT probe (check extension 前 = move-only negamax と同位置)。trap セット済ノードは
+  // trapValueDelta スタレネス (digest.ts: trap defId 不変だと盤面変化でも prev 流用) により同 key で
+  // score が path 依存にズレ誤 hit するため TT 無効化 (§13.8 B-1。S4d で trapValueDelta を board 由来化後に解禁)。
+  const ttEnabled =
+    world.cardState.trap.sente === null && world.cardState.trap.gote === null;
+  const cardFold = computeCardFold(world.cardState);
+  const ttKey: ZobristHash | null = ttEnabled
+    ? { lo: (boardHash.lo ^ cardFold.lo) >>> 0, hi: (boardHash.hi ^ cardFold.hi) >>> 0 }
+    : null;
+  let ttMove: Move | null = null;
+  if (ttKey) {
+    ctx.ttProbes++;
+    const ttEntry = ctx.tt.probe(ttKey.lo, ttKey.hi);
+    if (ttEntry && ttEntry.depth >= depth) {
+      ctx.ttHits++;
+      ttMove = ttEntry.bestMove;
+      if (ttEntry.flag === "exact") return ttEntry.score;
+      if (ttEntry.flag === "lower" && ttEntry.score > alpha) alpha = ttEntry.score;
+      if (ttEntry.flag === "upper" && ttEntry.score < beta) beta = ttEntry.score;
+      if (alpha >= beta) return ttEntry.score;
+    } else if (ttEntry) {
+      ttMove = ttEntry.bestMove;
+    }
   }
 
   const inCheck = isInCheck(state, player, variant);
@@ -994,19 +1034,27 @@ function negamaxWorld(
         positionHistory: state.positionHistory,
       },
     };
+    // null-move は盤不変・手番のみ flip ゆえ boardHash は SIDE_TO_MOVE キーのトグルで更新
+    // (cardState 不変なので cardFold は子側で同値再計算)。
+    const nullBoardHash: ZobristHash = {
+      lo: (boardHash.lo ^ SIDE_TO_MOVE_KEY) >>> 0,
+      hi: (boardHash.hi ^ SIDE_TO_MOVE_KEY_HI) >>> 0,
+    };
     const R = depth >= 6 ? 3 : 2;
     const nullScore = -negamaxWorld(
-      nullWorld, depth - 1 - R, -beta, -beta + 1, variant, cardDigest, ply + 1, false, ctx,
+      nullWorld, depth - 1 - R, -beta, -beta + 1, variant, cardDigest, ply + 1, false, ctx, nullBoardHash,
     );
     if (nullScore >= beta) return beta;
   }
 
-  // 順序付け: move を scoreMove 降順、card/draw は後ろ。
+  // 順序付け: move を scoreMove 降順 (S4c-2b: ttMove 最優先)、card/draw は後ろ。
   const sortedActions = [...actions].sort(
-    (a, b) => actionOrderScore(b, ply, ctx) - actionOrderScore(a, ply, ctx),
+    (a, b) => actionOrderScore(b, ply, ctx, ttMove) - actionOrderScore(a, ply, ctx, ttMove),
   );
 
   let maxScore = NEG_INF;
+  let bestMove: Move | null = null;
+  const originalAlpha = alpha;
   let staticEval: number | null = null;
 
   for (let i = 0; i < sortedActions.length; i++) {
@@ -1032,17 +1080,24 @@ function negamaxWorld(
       cardDigest !== undefined
         ? updateCardDigest(cardDigest, world.cardState, childWorld.cardState, childWorld.gameState)
         : undefined;
+    // S4c-2b: child の board-only hash。通常 move (盤 1 手分のみ) は updateHash incremental、
+    // card / draw / check_break 発火 move (boardChangedBeyondMove) は computeHash 全量 (§13.8)。
+    // updateHash の dest 駒種は child board 由来ゆえ no_promote の promote-drop でも child と一致 (R-14)。
+    const childBoardHash: ZobristHash =
+      action.kind === "move" && !applied.boardChangedBeyondMove
+        ? updateHash(boardHash, state, action.move, childWorld.gameState)
+        : computeHash(childWorld.gameState);
 
     let score: number;
     if (!applied.turnEnded) {
       // 手番継続 (S4c-1 は double_move 除外ゆえ未到達。S4c-1d で live 化。保険: 同 player
       // 継続=符号反転なし)。
       score = negamaxWorld(
-        childWorld, depth - 1, alpha, beta, variant, childDigest, ply + 1, true, ctx,
+        childWorld, depth - 1, alpha, beta, variant, childDigest, ply + 1, true, ctx, childBoardHash,
       );
     } else if (i === 0) {
       score = -negamaxWorld(
-        childWorld, depth - 1, -beta, -alpha, variant, childDigest, ply + 1, true, ctx,
+        childWorld, depth - 1, -beta, -alpha, variant, childDigest, ply + 1, true, ctx, childBoardHash,
       );
     } else {
       // PVS + LMR (reduction は move のみ)
@@ -1052,16 +1107,19 @@ function negamaxWorld(
         if (i >= 8 && depth >= 5) reduction = 2;
       }
       score = -negamaxWorld(
-        childWorld, depth - 1 - reduction, -alpha - 1, -alpha, variant, childDigest, ply + 1, true, ctx,
+        childWorld, depth - 1 - reduction, -alpha - 1, -alpha, variant, childDigest, ply + 1, true, ctx, childBoardHash,
       );
       if (score > alpha && score < beta) {
         score = -negamaxWorld(
-          childWorld, depth - 1, -beta, -alpha, variant, childDigest, ply + 1, true, ctx,
+          childWorld, depth - 1, -beta, -alpha, variant, childDigest, ply + 1, true, ctx, childBoardHash,
         );
       }
     }
 
-    if (score > maxScore) maxScore = score;
+    if (score > maxScore) {
+      maxScore = score;
+      bestMove = move; // S4c-2b: TT store 用 (card/draw 採用時は move=null)
+    }
     if (score > alpha) alpha = score;
     if (alpha >= beta) {
       // β cut: killer/history は move のみ更新 (card/draw は対象外)。停止後は更新しない。
@@ -1073,6 +1131,13 @@ function negamaxWorld(
       }
       break;
     }
+  }
+
+  // S4c-2b: TT store (trap セット済 = ttKey null では skip、停止後も score 不信頼ゆえ skip、move-only と同)。
+  if (ttKey && !ctx.stopped) {
+    const flag: "exact" | "lower" | "upper" =
+      maxScore <= originalAlpha ? "upper" : maxScore >= beta ? "lower" : "exact";
+    ctx.tt.store(ttKey.lo, ttKey.hi, depth, maxScore, flag, bestMove);
   }
 
   return maxScore;
@@ -1112,6 +1177,20 @@ export function findBestMoveWorld(
     ctx.cardDigest ??
     (variant.id === "card-shogi" ? computeCardDigest(cardState, state) : undefined);
 
+  // S4c-2b: TT 配線。root board-only hash + per-request TT 世代更新 (move-only findBestMove:newSearch と同)。
+  // trap セット済 root は TT skip (trapValueDelta スタレネス誤 hit 回避、§13.8 B-1)。
+  const rootBoardHash = computeHash(state);
+  ctx.tt.newSearch();
+  const rootTtEnabled = cardState.trap.sente === null && cardState.trap.gote === null;
+  let rootTtKey: ZobristHash | null = null;
+  if (rootTtEnabled) {
+    const rootCardFold = computeCardFold(cardState);
+    rootTtKey = {
+      lo: (rootBoardHash.lo ^ rootCardFold.lo) >>> 0,
+      hi: (rootBoardHash.hi ^ rootCardFold.hi) >>> 0,
+    };
+  }
+
   let bestMove = rootMoves[0];
   let rootMoveScores: { move: Move; score: number }[] = [];
   let bestAction: TurnAction = { kind: "move", move: bestMove };
@@ -1122,8 +1201,15 @@ export function findBestMoveWorld(
     const elapsedFromStart = performance.now() - ctx.startedAt;
     if (elapsedFromStart > options.timeLimitMs * 0.55) break;
 
+    // S4c-2b: root TT 手で move 順序付け (transposition で root が store 済の場合のみ効く。root 自体は
+    // store しない = move-only findBestMove と同、root は rootMoveScores 用に全 action を読むため)。
+    let rootTtMove: Move | null = null;
+    if (rootTtKey) {
+      const rootEntry = ctx.tt.probe(rootTtKey.lo, rootTtKey.hi);
+      rootTtMove = rootEntry?.bestMove ?? null;
+    }
     const sortedRoot = [...rootActions].sort(
-      (a, b) => actionOrderScore(b, 0, ctx) - actionOrderScore(a, 0, ctx),
+      (a, b) => actionOrderScore(b, 0, ctx, rootTtMove) - actionOrderScore(a, 0, ctx, rootTtMove),
     );
 
     let alpha = NEG_INF;
@@ -1145,14 +1231,19 @@ export function findBestMoveWorld(
         baseDigest !== undefined
           ? updateCardDigest(baseDigest, cardState, childWorld.cardState, childWorld.gameState)
           : undefined;
+      // S4c-2b: child board hash (root: 通常 move=incremental、card/draw=全量)。
+      const childBoardHash: ZobristHash =
+        action.kind === "move" && !applied.boardChangedBeyondMove
+          ? updateHash(rootBoardHash, state, action.move, childWorld.gameState)
+          : computeHash(childWorld.gameState);
 
       let score: number;
       if (i === 0) {
-        score = -negamaxWorld(childWorld, depth - 1, NEG_INF, -alpha, variant, childDigest, 1, true, ctx);
+        score = -negamaxWorld(childWorld, depth - 1, NEG_INF, -alpha, variant, childDigest, 1, true, ctx, childBoardHash);
       } else {
-        score = -negamaxWorld(childWorld, depth - 1, -alpha - 1, -alpha, variant, childDigest, 1, true, ctx);
+        score = -negamaxWorld(childWorld, depth - 1, -alpha - 1, -alpha, variant, childDigest, 1, true, ctx, childBoardHash);
         if (score > alpha) {
-          score = -negamaxWorld(childWorld, depth - 1, NEG_INF, -alpha, variant, childDigest, 1, true, ctx);
+          score = -negamaxWorld(childWorld, depth - 1, NEG_INF, -alpha, variant, childDigest, 1, true, ctx, childBoardHash);
         }
       }
 

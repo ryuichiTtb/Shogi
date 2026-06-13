@@ -8,8 +8,11 @@ import {
   findBestMove,
   getWorldLegalActions,
   selectBranchCandidates,
+  updateHash,
 } from "../search";
 import { findBestMoveWithStats } from "../engine";
+import { computeHash } from "../zobrist";
+import { applyTurnAction } from "../../kernel/world-kernel";
 import { createSearchContext } from "../search-context";
 import { createInitialGameState } from "../../board";
 import { CARD_SHOGI_VARIANT } from "../../variants/card-shogi";
@@ -431,5 +434,82 @@ describe("S4c-1b: null-move 退化窓修正 (カード有利局面で card を�
     });
     expect(r.action).not.toBeNull();
     expect(r.action!.kind).toBe("move");
+  });
+});
+
+describe("S4c-2b: R-14 incremental boardHash === computeHash 全量 (TT 誤hit 防止)", () => {
+  // 通常 move (action.kind==="move" && !boardChangedBeyondMove) で
+  // updateHash(computeHash(parent), parent, move, child) が computeHash(child) と一致することを
+  // 各 move 種別 (通常/取り/成り/打ち) で検証。一致しないと TT key がズレ誤 hit する。
+  const hashEq = (a: { lo: number; hi: number }, b: { lo: number; hi: number }) =>
+    a.lo === b.lo && a.hi === b.hi;
+
+  function assertAllMoveHashesConsistent(world: WorldState) {
+    const moves = getWorldLegalActions(world, CARD_SHOGI_VARIANT, true).filter(
+      (a) => a.kind === "move",
+    );
+    expect(moves.length).toBeGreaterThan(0);
+    const parentHash = computeHash(world.gameState);
+    let checked = 0;
+    for (const action of moves) {
+      const applied = applyTurnAction(world, action, { spectatorMode: true });
+      // 通常 move 経路 (incremental 適用条件) のみ検証。盤面1手分以外の変更は computeHash 全量経路。
+      if (action.kind === "move" && !applied.boardChangedBeyondMove) {
+        const incremental = updateHash(parentHash, world.gameState, action.move, applied.world.gameState);
+        const full = computeHash(applied.world.gameState);
+        expect(
+          hashEq(incremental, full),
+          `move ${action.move.from?.row},${action.move.from?.col}->${action.move.to.row},${action.move.to.col}${action.move.promote ? "+" : ""} の incremental hash が computeHash と不一致`,
+        ).toBe(true);
+        checked++;
+      }
+    }
+    return checked;
+  }
+
+  it("通常/取り/成り 局面の全 move で incremental === full", () => {
+    // 取り (飛で金) + 成り (歩が成り圏へ) + 通常 move を含む局面。
+    const place = (b: Board) => {
+      b[8][4] = pc("king", "sente");
+      b[0][4] = pc("king", "gote");
+      b[4][4] = pc("rook", "sente"); // (4,7) の金を取れる + 縦横の通常 move
+      b[4][7] = pc("gold", "gote");
+      b[3][3] = pc("pawn", "sente"); // (2,3) へ成り進入可
+    };
+    const gs = buildGameState(place, "sente");
+    const world: WorldState = { gameState: gs, cardState: cardState(), doubleMove: null };
+    const checked = assertAllMoveHashesConsistent(world);
+    expect(checked).toBeGreaterThan(5);
+  });
+
+  it("打ち (drop) を含む局面の全 move で incremental === full", () => {
+    const place = (b: Board) => {
+      b[8][4] = pc("king", "sente");
+      b[0][4] = pc("king", "gote");
+      b[8][8] = pc("rook", "sente");
+    };
+    const gs = buildGameState(place, "sente");
+    // 持ち駒 (盤の hand) に歩・銀を持たせて drop move を生成。
+    gs.hand.sente = { pawn: 1, silver: 1 };
+    const world: WorldState = { gameState: gs, cardState: cardState(), doubleMove: null };
+    const moves = getWorldLegalActions(world, CARD_SHOGI_VARIANT, true).filter((a) => a.kind === "move");
+    expect(moves.some((a) => a.kind === "move" && a.move.type === "drop")).toBe(true);
+    assertAllMoveHashesConsistent(world);
+  });
+
+  it("auto-draw 発火 move でも incremental === full (盤は1手分・cardState は board 非依存)", () => {
+    const place = (b: Board) => {
+      b[8][4] = pc("king", "sente");
+      b[0][4] = pc("king", "gote");
+      b[6][0] = pc("pawn", "sente");
+    };
+    const gs = buildGameState(place, "sente");
+    // drawProgress を AUTO_DRAW_INTERVAL-1 にし、deck 非空 → move 後の advanceDrawProgress で auto-draw 発火。
+    const cs = cardState({
+      drawProgress: { sente: 4, gote: 0 },
+      deck: { sente: [{ instanceId: "d1", defId: "mana_up" }], gote: [] },
+    });
+    const world: WorldState = { gameState: gs, cardState: cs, doubleMove: null };
+    assertAllMoveHashesConsistent(world);
   });
 });
