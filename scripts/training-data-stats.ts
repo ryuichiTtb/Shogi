@@ -40,11 +40,30 @@ async function main() {
     },
   });
 
-  console.log(`\n=== 直近 ${games.length} 試合 ===`);
+  console.log(`\n=== 直近 ${games.length} 試合 (TrainingGame) ===`);
   for (const g of games) {
     console.log(
       `  ${g.createdAt.toISOString()} | source=${g.source} human=${g.humanColor ?? "-"} ` +
         `winner=${g.winner ?? "-"} status=${g.finalStatus} moves=${g.moveCount} samples=${g._count.samples}`,
+    );
+  }
+
+  // クロスチェック: 既存アプリの対局保存 (Game / GameMove)。
+  // カード将棋を実際に指して保存されたかを確認する (TrainingGame と突き合わせる)。
+  const [appGames, appMoves] = await Promise.all([prisma.game.count(), prisma.gameMove.count()]);
+  console.log(`\n=== 既存アプリ対局 (Game / GameMove) ===`);
+  console.log(`Game     : ${appGames} 試合`);
+  console.log(`GameMove : ${appMoves} 手`);
+  const recentGames = await prisma.game.findMany({
+    orderBy: { updatedAt: "desc" },
+    take: recent,
+    select: { variantId: true, status: true, winner: true, playerColor: true, updatedAt: true, _count: { select: { moves: true } } },
+  });
+  console.log(`\n=== 直近 ${recentGames.length} 対局 (Game) ===`);
+  for (const g of recentGames) {
+    console.log(
+      `  ${g.updatedAt.toISOString()} | variant=${g.variantId} status=${g.status} ` +
+        `winner=${g.winner ?? "-"} playerColor=${g.playerColor} moves=${g._count.moves}`,
     );
   }
 }
