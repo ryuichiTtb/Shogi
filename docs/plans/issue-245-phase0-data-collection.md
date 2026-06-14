@@ -236,4 +236,26 @@ function playOneGame(deckSpec, difSente, difGote, engineVersion) {
 - **`events: GameEvent[]` を必須カラム化**(§1.1 では任意だったが、本要件で必須へ格上げ。マナ増減・盤面効果・トラップ・二手指し軌跡の「変化の理由(delta)」を保持)。`at`(=`Date.now()`)は再現性を汚すため保存時に剥がす(順序は `plyIndex` で担保、M1 NIT-1)。
 - **スナップショット(絶対値)+ events(差分)の両方を保存** = ユーザーが求める「現状のマナ数」(絶対値)と「+1/−N の増減」(差分)を**両立**(冗長でなく要件)。
 - **決定点粒度**: move だけでなく playCard / draw の各決定で1サンプル。人間対局は dispatch 直前キャプチャ(M1 B-2)を **move/card/draw の3種すべて**に適用。自己対戦は while ループ各反復で自然に全決定を記録。両者対称。
-- **過去棋譜の扱い**: 旧 `Game`/`GameMove` は per-ply cardState も eventLog も持たない=本要件を満たせず**学習価値が無い** → ユーザー指示で全削除(rule 5 でスコープ確認後に実行)。新方式で取り直す。
+- **過去棋譜の扱い**: 旧 `Game`/`GameMove` は per-ply cardState も eventLog も持たない=本要件を満たせず**学習価値が無い** → ユーザー指示で全削除(`GameMove`+`Game`+`PlayerStats`、rule 5 でスコープ確認済)。新方式で取り直す。
+
+---
+
+## 10. 網羅監査の確定(2026-06-14、単一 general-purpose agent / コード根拠)
+
+**結論: 「2スナップショット(board+cardState)+ action + events の4バケットで全操作・全状態を漏れなく記録できる」と断定**(取りこぼし無し)。
+
+### 確定事項
+- **状態の完全性**: `serializeGameState` は GameState 全フィールド保存(board.ts:249-256)。`serializeCardState` は `pendingCard`/`lastTurnStartedAt` のみ意図的 null 化(state.ts:60-73)だが、両者は決定点境界の局面再現に不要(カード使用中の中間状態 / 早指しタイマー)。
+- **状態異常は no_promote マークのみ**: 凍結/移動制限/無効化等は**コードに一切存在しない**(grep frozen/freeze/paralyz/stun/disable… = 0 hit)。`noPromoteMarks` は保存される。将来の状態異常追加時は `CardGameState` に足し `serializeCardState` に追記(AGENTS 新規カードチェックリスト4 が横断制約を担保)。
+- **全7カードの効果**は board/hand/mana/trap/marks 差分 + events で完全表現。隠れ状態を作るカードは無い。トラップ発動の理由/取った駒は `trapTriggerEvent.reason`/`capturedPieces` が補完。
+- **ユーザー未列挙だが snapshot に内包済み(=新カラム不要)**: 持ち駒(hand)・手札カード構成・山札残/順序(deck)・墓地・**マナ上限(manaCap, 将来動的)**・設置中トラップ(trap)・自動ドロー進捗(drawProgress)・千日手カウント元(positionHistory)・ドロー source・早指し fastMove。
+- **導出可能=保存しない(冗長回避)**: 王手(check)・合法手・利き/脅威・評価値・千日手回数・詰み判定・二歩/打歩詰め・カード使用条件。すべて snapshot から純粋関数で再計算可能 → 学習時にオンザフライ計算(保存するとロジック変更で陳腐化+二重管理ズレ)。
+
+### 実装時に必ず押さえる点(取りこぼし防止)
+- **二手指し(double_move)は「ターン全体で1サンプル」(方式b)**: 行動前 snapshot=カード使用宣言の直前、events に `cardPlayEvent(double_move)`+`moveEvent`×2 を内包。理由=1手目の中間状態(カード未消費・手札に残る=消費は2手目完了時遅延 reducer.ts:462-491)は snapshot だけでは再現できない=full-snapshot 仮説の唯一の穴。既存 DB 保存も `doubleMove!==null` 中は save skip しターン完了時1回保存(use-card-shogi-game.ts:255,298)=方式b と整合。
+- **トラップ発動は「指した側」の手番の events に出る**(move-effects 経由)。events は reducer の `result.events`(=1操作で生じた束)単位で束ねる。
+- **`at`(Date.now)は剥がす**が、`manaChargeEvent.fastMove`/`drawEvent.source` は学習有用ゆえ**残す**。
+- `mana_up` は deprecated(AI候補外)だが defId としては許容(スキーマ網羅・過去互換)。
+
+### スキーマへの反映(§1.1 を補強)
+4バケットは §1.1 の `boardState`/`cardState`/`action`/`events` にそのまま対応。**追加カラムは不要**(ユーザーの「余分に項目を分けたくない」を満たす)。`TrainingSample` は per-decision 1行で、move/card/draw を `action.kind` で判別。double_move は playCard 1行(events に move×2)。
