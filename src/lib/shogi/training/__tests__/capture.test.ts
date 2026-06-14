@@ -11,7 +11,7 @@ import { captureSamples, captureStep, createCaptureState, type CaptureWorld } fr
 const gs = createInitialGameState(CARD_SHOGI_VARIANT);
 const cs = createInitialCardState([{ defId: "pawn_return", count: 2 }]);
 
-function world(eventLog: GameEvent[], doubleMove: unknown = null): CaptureWorld {
+function world(eventLog: GameEvent[], doubleMove: object | null = null): CaptureWorld {
   return { gameState: gs, cardState: cs, doubleMove, eventLog };
 }
 
@@ -86,5 +86,46 @@ describe("captureStep", () => {
     };
     captureStep(cap, world([autoDraw]));
     expect(captureSamples(cap)).toHaveLength(0);
+  });
+
+  it("手動ドロー → 1サンプル (action=draw)", () => {
+    const cap = createCaptureState();
+    captureStep(cap, world([]));
+    const drawEv: GameEvent = {
+      kind: "drawEvent",
+      player: "sente",
+      instance: { instanceId: "c1", defId: "pawn_return" },
+      source: "manual",
+      at: 1,
+    };
+    captureStep(cap, world([drawEv]));
+    const samples = captureSamples(cap);
+    expect(samples).toHaveLength(1);
+    expect(samples[0].action).toEqual({ kind: "draw" });
+  });
+
+  it("カード2枚を別 decision で使用 → 2サンプル (plyIndex 0,1)", () => {
+    const cap = createCaptureState();
+    captureStep(cap, world([]));
+    const cp1: GameEvent = { kind: "cardPlayEvent", player: "sente", instance: { instanceId: "a", defId: "pawn_return" }, at: 1 };
+    captureStep(cap, world([cp1]));
+    const cp2: GameEvent = { kind: "cardPlayEvent", player: "sente", instance: { instanceId: "b", defId: "pawn_return" }, at: 2 };
+    captureStep(cap, world([cp1, cp2]));
+    const samples = captureSamples(cap);
+    expect(samples).toHaveLength(2);
+    expect(samples[0].action).toMatchObject({ kind: "playCard", cardInstanceId: "a" });
+    expect(samples[1].plyIndex).toBe(1);
+    expect(samples[1].action).toMatchObject({ kind: "playCard", cardInstanceId: "b" });
+  });
+
+  it("カード使用後に auto-draw が伸長しても追加サンプルは作らない", () => {
+    const cap = createCaptureState();
+    captureStep(cap, world([]));
+    const cp: GameEvent = { kind: "cardPlayEvent", player: "sente", instance: { instanceId: "a", defId: "pawn_return" }, at: 1 };
+    captureStep(cap, world([cp]));
+    expect(captureSamples(cap)).toHaveLength(1);
+    const auto: GameEvent = { kind: "drawEvent", player: "sente", instance: { instanceId: "z", defId: "pawn_return" }, source: "auto", at: 2 };
+    captureStep(cap, world([cp, auto]));
+    expect(captureSamples(cap)).toHaveLength(1);
   });
 });

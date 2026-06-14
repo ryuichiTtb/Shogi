@@ -259,3 +259,6 @@ function playOneGame(deckSpec, difSente, difGote, engineVersion) {
 
 ### スキーマへの反映(§1.1 を補強)
 4バケットは §1.1 の `boardState`/`cardState`/`action`/`events` にそのまま対応。**追加カラムは不要**(ユーザーの「余分に項目を分けたくない」を満たす)。`TrainingSample` は per-decision 1行で、move/card/draw を `action.kind` で判別。double_move は playCard 1行(events に move×2)。
+
+### boardState の学習専用直列化(M2 MINOR-1 反映)
+`boardState` は `serializeGameState`(= moveHistory/positionHistory を内包)ではなく、`training/serialize.ts` の **`serializeBoardForTraining`** で `board`/`hand`/`currentPlayer`/`status`/`winner`/`moveCount` のみを保存する。`moveHistory`(各 action から)・`positionHistory`(局面列の千日手カウント)は**導出可能ゆえ非保存**(§10「導出可能=保存しない」)。各サンプルに累積配列を丸ごと持つと N decision に対し O(N²) に肥大する(client メモリ + flush ペイロード)ため。

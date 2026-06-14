@@ -22,7 +22,7 @@ import type { TrainingSampleData } from "./types";
 export interface CaptureWorld {
   gameState: GameState;
   cardState: CardGameState;
-  doubleMove: unknown; // null かどうかだけ参照 (二手指し進行中の保留判定)
+  doubleMove: object | null; // null かどうかだけ参照 (二手指し進行中の保留判定)
   eventLog: readonly GameEvent[];
 }
 

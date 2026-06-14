@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createInitialGameState, serializeGameState } from "@/lib/shogi/board";
+import { createInitialGameState } from "@/lib/shogi/board";
 import { createInitialCardState, serializeCardState } from "@/lib/shogi/cards/state";
 import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
 import type { GameEvent } from "@/lib/shogi/cards/types";
@@ -8,7 +8,7 @@ import type { TurnAction } from "@/lib/shogi/kernel/turn-action-types";
 import type { WorldState } from "@/lib/shogi/kernel/world-kernel";
 import type { Move } from "@/lib/shogi/types";
 
-import { buildTrainingSample, stripEventTimestamp, stripEventTimestamps } from "../serialize";
+import { buildTrainingSample, serializeBoardForTraining, stripEventTimestamp, stripEventTimestamps } from "../serialize";
 
 function makeWorld(): WorldState {
   return {
@@ -72,7 +72,10 @@ describe("buildTrainingSample", () => {
     expect(sample.plyIndex).toBe(0);
     expect(sample.moveCount).toBe(world.gameState.moveCount);
     expect(sample.sideToMove).toBe(world.gameState.currentPlayer);
-    expect(sample.boardState).toEqual(serializeGameState(world.gameState));
+    expect(sample.boardState).toEqual(serializeBoardForTraining(world.gameState));
+    // moveHistory / positionHistory は学習用には保存しない (O(N^2) 肥大回避, §10)。
+    expect(sample.boardState).not.toHaveProperty("moveHistory");
+    expect(sample.boardState).not.toHaveProperty("positionHistory");
     expect(sample.cardState).toEqual(serializeCardState(world.cardState));
     expect(sample.action).toEqual(action);
     expect(sample.events[0]).not.toHaveProperty("at");
