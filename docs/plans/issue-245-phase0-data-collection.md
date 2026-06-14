@@ -77,7 +77,7 @@ model TrainingSample {
   boardState     Json         // serializeGameState(行動前の局面)
   cardState      Json         // serializeCardState(行動前のカード状態)
   action         Json         // 採用した TurnAction { kind:"move"|"draw"|"playCard", ... }
-  events         Json?        // 適用で生じた GameEvent[](ドロー結果等。再現/監査用、任意)
+  events         Json         // 適用で生じた GameEvent[](マナ増減/盤面効果/トラップ/二手指し軌跡。at は剥がす, §9)
   createdAt      DateTime     @default(now())
 
   @@index([trainingGameId])
@@ -87,10 +87,7 @@ model TrainingSample {
 **設計判断**:
 - **勝敗を `TrainingSample` に非正規化しない**: `TrainingGame.winner` を単一情報源とし、エクスポート時に join。理由 = (a) 冗長排除(AGENTS規約)、(b) 人間対局は手ごとにインクリメンタル保存され勝敗は終局時確定 → 非正規化すると全サンプルへの finalize UPDATE(書き込み増幅)が必要になる。join はバッチ(学習データ抽出)時のみで性能上問題なし。
 - **サンプル意味論 = 「行動する側が見た局面(行動前)+ 採用行動」**: value学習(局面→評価)にも policy学習(局面→手)にも素直。自己対戦は自然にこの形(各ループ反復=1 TurnAction)。
-- **粒度**:
-  - **自己対戦**: 決定点粒度(move/card/draw すべて1サンプル)。ヘッドレスなので低コストで全決定を記録。
-  - **人間対局**: フェーズ0は**駒手粒度**(`saveCardShogiMove` フック)を基本とする。同ターン内のカード使用/ドローは次サンプルの `cardState` に反映される。要件1(ユーザー実戦棋譜を学習投入)は駒手粒度の局面+勝敗で充足。決定点粒度への拡張はフェーズ1の改善余地(本計画§5「設計論点」で M1 に諮る)。
-  - 両者は同一スキーマ。`action.kind` で種別判別。自己対戦に intra-turn サンプルが多い非対称は許容・文書化。
+- **粒度(ユーザー要件で確定 2026-06-14 → §9)**: **人間対局・自己対戦とも「決定点粒度」(move / card / draw すべて1サンプル)+ 各サンプルに発生イベント `GameEvent[]` を完全記録**。マナ増減・カード盤面効果(対象マス / 戻した駒)・トラップ発動タイミング・二手指し軌跡・状態異常(no_promote マーク)を漏れなく残す。人間/自己対戦は同一スキーマ・**完全対称**(M1 設計論点1=駒手粒度案はユーザー要件により決定点粒度へ格上げ)。詳細マッピングは §9。
 - **`engineVersion`**: 弱いAI自己対戦を高品質データと誤認しないためのフィルタキー。学習品質に直結。
 
 ### 1.2 データシンク(保存先)
@@ -212,3 +209,31 @@ function playOneGame(deckSpec, difSente, difGote, engineVersion) {
 
 ### 検証済の技術的前提(M1)
 `applyTurnAction`(world-kernel.ts:262, move経路のみ evaluateGameEnd・draw/playCardはstatus据置=正)/ `findBestMoveWithStats`→`{move,action,stats}`(engine.ts:196, route.ts は `useKernelSearch:true`・`useTurnActionSearch` OFF=bolt-on)/ serialize系・createInitial系/ `$transaction`構造(game.ts:227)/ client出力 `src/generated/prisma`/ `SPECTATOR_MAX_MOVES`非kernel組込/ tsx `@/`解決 — いずれも実コードで確認済。
+
+---
+
+## 9. ユーザー要件: 全操作・全状態の完全記録(2026-06-14 確定)
+
+**要件**: 1対局につき「全ての操作と状態」を記録する。手番 / 指し手 / カード使用有無 / 使用カード種別 / カードの盤面効果(対象マス・戻した駒等) / トラップ発動タイミング / 二手指し軌跡 / マナの増減と現在値 / 駒の状態異常 を漏れなく残す。
+
+**結論**: **既存の `GameEvent` ユニオン(`cards/types.ts:177-195`)+ `cardState` スナップショットが、要件項目を完全に表現できる。** 各サンプルに「行動前の盤面/カード状態スナップショット」+「採用 `action`」+「適用で生じた `events: GameEvent[]`」を保存すれば全項目を満たす。要件項目 → 既存データの対応:
+
+| ユーザー要件 | 既存データ(保存元) |
+|---|---|
+| 手番 | `sideToMove`(= `gameState.currentPlayer`)、各 event の `player` |
+| 指し手 | `moveEvent.move`(type/from/to/piece/captured/promote/dropPiece) |
+| カード使用有無・種別 | `cardPlayEvent.instance.defId`(無ければ cardPlayEvent 無し) |
+| カードの盤面効果:対象マス(例:歩を指す系) | `cardPlayEvent.target`(square: row/col / handPiece) |
+| 駒戻し/歩戻しで戻した盤上の駒 | `cardPlayEvent.returnedPiece`(row/col/pieceType) |
+| トラップ発動タイミング | `trapSetEvent`(設置)+ `trapTriggerEvent`(発動: reason=promotion_declared/check_declared, capturedPieces) |
+| 二手指しの軌跡 | 当該ターン内の連続 `moveEvent` 列(doubleMove)+ action.kind |
+| マナ増減(+1/+2 溜まり、早指しボーナス) | `manaChargeEvent`(amount, reason="turn"/"card", fastMove) |
+| マナ減(カード使用で −N) | スナップショット差分(行動前 cardState.mana − 行動後)+ カード def の cost(= 明示計算可能) |
+| マナ現在値 | 各サンプルの `cardState.mana`(両者) |
+| 駒の状態異常(成り禁止マーク等) | `cardState.noPromoteMarks`(両者, row/col)。トラップ設置中 `cardState.trap`、二手指し中フラグも snapshot に内包 |
+
+**設計反映**:
+- **`events: GameEvent[]` を必須カラム化**(§1.1 では任意だったが、本要件で必須へ格上げ。マナ増減・盤面効果・トラップ・二手指し軌跡の「変化の理由(delta)」を保持)。`at`(=`Date.now()`)は再現性を汚すため保存時に剥がす(順序は `plyIndex` で担保、M1 NIT-1)。
+- **スナップショット(絶対値)+ events(差分)の両方を保存** = ユーザーが求める「現状のマナ数」(絶対値)と「+1/−N の増減」(差分)を**両立**(冗長でなく要件)。
+- **決定点粒度**: move だけでなく playCard / draw の各決定で1サンプル。人間対局は dispatch 直前キャプチャ(M1 B-2)を **move/card/draw の3種すべて**に適用。自己対戦は while ループ各反復で自然に全決定を記録。両者対称。
+- **過去棋譜の扱い**: 旧 `Game`/`GameMove` は per-ply cardState も eventLog も持たない=本要件を満たせず**学習価値が無い** → ユーザー指示で全削除(rule 5 でスコープ確認後に実行)。新方式で取り直す。
