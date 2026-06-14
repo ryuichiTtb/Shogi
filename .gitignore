@@ -42,3 +42,6 @@ next-env.d.ts
 
 # Claude Code (personal local override)
 .claude/settings.local.json
+
+# 学習データ (Issue #245): 自己対戦/export の JSONL 等。再生成可能ゆえ git 非追跡。
+/local-data/
