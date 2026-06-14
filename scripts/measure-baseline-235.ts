@@ -341,7 +341,7 @@ if (process.env.BENCH_GAPS === "1") {
       const r = findBestMove(
         sc.state,
         sc.player,
-        { maxDepth: DIFFICULTY_PARAMS[difficulty].maxDepth, timeLimitMs: DIFFICULTY_PARAMS[difficulty].timeLimitMs, addNoise: 0, nearEqualThreshold: 0, engagementMargin: 0 },
+        { maxDepth: DIFFICULTY_PARAMS[difficulty].maxDepth, timeLimitMs: DIFFICULTY_PARAMS[difficulty].timeLimitMs, addNoise: 0, nearEqualThreshold: 0 },
         CARD_SHOGI_VARIANT,
         ctx,
         sc.cardState,

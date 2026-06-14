@@ -53,11 +53,6 @@ interface SearchOptions {
   timeLimitMs: number;
   addNoise: number; // 0.0-1.0 ノイズ比率（beginner向け）
   nearEqualThreshold: number; // 接戦時ランダム選択の閾値（cp）
-  // Issue #235 S4d-5: engagement 下駄 (決定A=多少損でもカードを使わせる)。best から本値 (cp) 以内の
-  // card/draw があれば、その中で最善を採用する (「僅差ならカードを使う」)。0 = 無効 (move-only 経路や
-  // standard では未使用)。損失は本 margin で bound (M1 M-1: world 経路は card 採用時 blunder guard を
-  // skip するため、本 margin が唯一の損失上限ゆえタダ捨て閾値未満に設定)。findBestMoveWorld のみ参照。
-  engagementMargin?: number;
 }
 
 // Issue #176 Stage C: globalTT / killerMoves / historyTable はモジュールスコープ
@@ -1300,25 +1295,9 @@ export function findBestMoveWorld(
     ctx.depthCompleted = depth;
   }
 
-  // S4d-5: engagement 下駄 (決定A)。best から engagementMargin 以内の card/draw があれば、その中で
-  // 最善を採用する (「僅差ならカードを使う」=card% を引き上げる主ドライバ)。nearEqual/addNoise より前に
-  // 適用し、advanced/expert (noise=0) では本処理が唯一のカード採用バイアスになる。損失は margin で
-  // bound (M1 M-1: 採用 card は最善 action から margin cp 以内ゆえ、明確に損なカードは選ばない)。
-  const engagementMargin = options.engagementMargin ?? 0;
-  if (engagementMargin > 0 && rootActionScores.length > 1) {
-    const bestScore = rootActionScores.reduce((m, a) => (a.score > m ? a.score : m), NEG_INF);
-    let bestCardAction: TurnAction | null = null;
-    let bestCardScore = NEG_INF;
-    for (const a of rootActionScores) {
-      if (a.action.kind === "move") continue; // card/draw のみ対象
-      if (a.score < bestScore - engagementMargin) continue; // 損失上限を超えるカードは不採用
-      if (a.score > bestCardScore) {
-        bestCardScore = a.score;
-        bestCardAction = a.action;
-      }
-    }
-    if (bestCardAction !== null) bestAction = bestCardAction;
-  }
+  // Issue #235 S4e: 旧 engagement 下駄 (S4d-5) は **撤去** (2026-06-14)。card/draw を margin 内で
+  // 強制採用する forcing は depth 限定で無駄手を見切れず purposeless な card 使用を招いたため。
+  // bestAction は深読み negamax の argmax (card/draw も move と同列、merit ベース)。
 
   // S4c-1 (D-B): noise/nearEqual を root アクション上で適用 (findBestMove:711-727 の move-only
   // noise を TurnAction へ一般化、beginner/intermediate 弱さ演出)。
