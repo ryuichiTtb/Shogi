@@ -60,7 +60,9 @@ export const ModelName = {
   Card: 'Card',
   PlayerCardCollection: 'PlayerCardCollection',
   Deck: 'Deck',
-  DeckEntry: 'DeckEntry'
+  DeckEntry: 'DeckEntry',
+  TrainingGame: 'TrainingGame',
+  TrainingSample: 'TrainingSample'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -205,6 +207,44 @@ export const DeckEntryScalarFieldEnum = {
 } as const
 
 export type DeckEntryScalarFieldEnum = (typeof DeckEntryScalarFieldEnum)[keyof typeof DeckEntryScalarFieldEnum]
+
+
+export const TrainingGameScalarFieldEnum = {
+  id: 'id',
+  source: 'source',
+  variantId: 'variantId',
+  senteDifficulty: 'senteDifficulty',
+  senteCharacterId: 'senteCharacterId',
+  goteDifficulty: 'goteDifficulty',
+  goteCharacterId: 'goteCharacterId',
+  humanColor: 'humanColor',
+  deckSpecSente: 'deckSpecSente',
+  deckSpecGote: 'deckSpecGote',
+  winner: 'winner',
+  finalStatus: 'finalStatus',
+  moveCount: 'moveCount',
+  engineVersion: 'engineVersion',
+  sourceGameId: 'sourceGameId',
+  createdAt: 'createdAt'
+} as const
+
+export type TrainingGameScalarFieldEnum = (typeof TrainingGameScalarFieldEnum)[keyof typeof TrainingGameScalarFieldEnum]
+
+
+export const TrainingSampleScalarFieldEnum = {
+  id: 'id',
+  trainingGameId: 'trainingGameId',
+  plyIndex: 'plyIndex',
+  moveCount: 'moveCount',
+  sideToMove: 'sideToMove',
+  boardState: 'boardState',
+  cardState: 'cardState',
+  action: 'action',
+  events: 'events',
+  createdAt: 'createdAt'
+} as const
+
+export type TrainingSampleScalarFieldEnum = (typeof TrainingSampleScalarFieldEnum)[keyof typeof TrainingSampleScalarFieldEnum]
 
 
 export const SortOrder = {

@@ -91,3 +91,13 @@ export type Deck = Prisma.DeckModel
  * 
  */
 export type DeckEntry = Prisma.DeckEntryModel
+/**
+ * Model TrainingGame
+ * 
+ */
+export type TrainingGame = Prisma.TrainingGameModel
+/**
+ * Model TrainingSample
+ * 
+ */
+export type TrainingSample = Prisma.TrainingSampleModel
