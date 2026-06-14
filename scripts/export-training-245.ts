@@ -6,7 +6,12 @@
 // 変換は純関数 toTrainingGameRecord (src/lib/shogi/training/db-record.ts) に委譲し、
 // 本スクリプトは Prisma 取得 (カーソルページング = メモリ有界) + fs 書き出しの I/O のみを担う。
 //
-// 読み取り専用 (DB への書き込みは一切しない)。中断対局 (winner=null) は既定で学習除外する。
+// 読み取り専用 (DB への書き込みは一切しない)。outcome ラベル学習の品質のため、既定で
+// 「真の終局を迎えた対局のみ」を出す:
+//   - winner=null (中断) を除外
+//   - finalStatus="active" を除外 (= 自己対戦の手数上限打ち切り。winner が便宜上 "draw" に
+//     なるが真の引き分けではないため、outcome ラベルを汚す。詳細: training/selfplay.ts の
+//     playOneGame は上限到達時 winner="draw"/finalStatus="active" を付与する)
 //
 // 使い方 (リポジトリルートで。worktree に .env が無い場合は DOTENV_CONFIG_PATH を指定):
 //   npx tsx scripts/export-training-245.ts
@@ -17,6 +22,7 @@
 //   EXPORT_OUT             出力先 (既定 /tmp/training-export-245.jsonl)
 //   EXPORT_SOURCE          "human" | "self_play" | "all" (既定 all)
 //   EXPORT_INCLUDE_NULL_WINNER  "1" で中断対局 (winner=null) も含める (既定: 除外)
+//   EXPORT_INCLUDE_UNFINISHED   "1" で打ち切り対局 (finalStatus="active") も含める (既定: 除外)
 //   EXPORT_BATCH           1 クエリで取得する試合数 (既定 100、メモリ/往復のトレードオフ)
 
 import "dotenv/config";
@@ -30,17 +36,21 @@ import { trainingRecordToJsonl } from "@/lib/shogi/training/jsonl";
 const OUT = process.env.EXPORT_OUT ?? "/tmp/training-export-245.jsonl";
 const SOURCE = (process.env.EXPORT_SOURCE ?? "all").toLowerCase();
 const INCLUDE_NULL_WINNER = process.env.EXPORT_INCLUDE_NULL_WINNER === "1";
+const INCLUDE_UNFINISHED = process.env.EXPORT_INCLUDE_UNFINISHED === "1";
 const BATCH = Math.max(1, Number(process.env.EXPORT_BATCH ?? "100") || 100);
 
 async function main() {
-  // フィルタ: source 指定 + 中断対局 (winner=null) は既定で学習除外。
+  // フィルタ: source 指定 + 真の終局のみ (中断 winner=null / 打ち切り finalStatus="active" を既定除外)。
   const where = {
     ...(SOURCE === "human" || SOURCE === "self_play" ? { source: SOURCE } : {}),
     ...(INCLUDE_NULL_WINNER ? {} : { winner: { not: null } }),
+    ...(INCLUDE_UNFINISHED ? {} : { finalStatus: { not: "active" } }),
   };
 
   const total = await prisma.trainingGame.count({ where });
-  console.log(`=== 学習データ export (source=${SOURCE}, 中断含む=${INCLUDE_NULL_WINNER}) ===`);
+  console.log(
+    `=== 学習データ export (source=${SOURCE}, 中断含む=${INCLUDE_NULL_WINNER}, 打ち切り含む=${INCLUDE_UNFINISHED}) ===`,
+  );
   console.log(`対象 TrainingGame: ${total} 試合 → ${OUT}`);
 
   mkdirSync(dirname(OUT), { recursive: true });
