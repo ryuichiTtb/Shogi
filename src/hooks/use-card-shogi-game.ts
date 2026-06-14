@@ -26,7 +26,19 @@ import { SPECTATOR_MAX_MOVES } from "@/lib/shogi/ai/strategy";
 import type { Difficulty } from "@/lib/shogi/types";
 
 // Issue #245 P0-3: 学習データキャプチャ (人間対局)。既存処理には一切干渉しない追加経路。
-import { createCaptureState, captureStep, captureSamples } from "@/lib/shogi/training/capture";
+import {
+  createCaptureState,
+  captureStep,
+  captureSamples,
+  captureStorageSnapshot,
+  restoreCaptureState,
+  type CaptureState,
+} from "@/lib/shogi/training/capture";
+import {
+  readTrainingSnapshot,
+  writeTrainingSnapshot,
+  clearTrainingSnapshot,
+} from "@/lib/shogi/training/capture-storage";
 import type { TrainingGameData } from "@/lib/shogi/training/types";
 import { recordTrainingGame } from "@/app/actions/training";
 
@@ -329,21 +341,34 @@ export function useCardShogiGame({
   // 「行動前 world (= 前 render の盤面 + カード状態) + 採用 action + 生じた events」を
   // サンプル化して貯め、終局時に勝敗ラベル付きで recordTrainingGame へ flush する。
   // 記録は best-effort (env 既定 OFF、失敗は握り潰し)。自分の手も CPU の手も両方記録する。
-  const captureRef = useRef(createCaptureState());
+  // リロード耐性: localStorage から復元して captureRef を遅延初期化する
+  // (キャプチャ effect より前=初回 render 時に確実に復元するため useRef 遅延初期化)。
+  // 観戦 / テスト時は localStorage を使わず空状態で開始 (人間対局のみ永続化)。
+  const captureRef = useRef<CaptureState | null>(null);
+  if (captureRef.current === null) {
+    captureRef.current =
+      !disableServerSync && !(gameConfig.spectatorMode ?? false)
+        ? restoreCaptureState(readTrainingSnapshot(gameId))
+        : createCaptureState();
+  }
   const trainingFlushedRef = useRef(false);
 
-  // キャプチャ effect: 1 render 分を純粋ロジック captureStep に委譲する。
+  // キャプチャ effect: 1 render 分を純粋ロジック captureStep に委譲し、結果を localStorage に保存。
   // (eventLog 伸長 → サンプル追加 / 縮小 (待った) → 破棄 / 二手指し進行中 → 保留)
+  // localStorage 保存により、リロード / 戻る / 進む / 更新でも記録が消えず続きから再開できる。
   useEffect(() => {
     if (disableServerSync) return; // テスト・モック時はキャプチャしない
     if (state.spectatorMode) return; // 観戦 (CPU vs CPU) は人間対局でないため対象外
-    captureStep(captureRef.current, {
+    const cap = captureRef.current;
+    if (!cap) return;
+    captureStep(cap, {
       gameState: state.gameState,
       cardState: state.cardState,
       doubleMove: state.doubleMove,
       eventLog: state.eventLog,
     });
-  }, [state.eventLog, state.gameState, state.cardState, state.doubleMove, state.spectatorMode, disableServerSync]);
+    writeTrainingSnapshot(gameId, captureStorageSnapshot(cap));
+  }, [state.eventLog, state.gameState, state.cardState, state.doubleMove, state.spectatorMode, disableServerSync, gameId]);
 
   // 終局 flush effect: 全終局経路 (checkmate / stalemate / repetition / impasse / resign) を
   // status 監視 1 本で拾う。中断 (active のまま離脱) は flush しない (winner 不明 = 学習除外)。
@@ -356,7 +381,8 @@ export function useCardShogiGame({
     if (trainingFlushedRef.current) return;
     trainingFlushedRef.current = true;
 
-    const samples = captureSamples(captureRef.current);
+    const cap = captureRef.current;
+    const samples = cap ? captureSamples(cap) : [];
     if (samples.length === 0) return;
 
     const humanColor = gameConfig.playerColor;
@@ -377,9 +403,12 @@ export function useCardShogiGame({
     };
 
     // best-effort: 失敗は握り潰し、対局保存・プレイへ波及させない。env OFF は server 側で即 return。
-    void recordTrainingGame(gameData, samples).catch((e) => {
-      console.error("recordTrainingGame failed (best-effort)", e);
-    });
+    // 保存成功 (env OFF の即 resolve 含む) → localStorage バッファをクリア。失敗時は残し次回再訪で再試行余地。
+    void recordTrainingGame(gameData, samples)
+      .then(() => clearTrainingSnapshot(gameId))
+      .catch((e) => {
+        console.error("recordTrainingGame failed (best-effort)", e);
+      });
     // status 不変ターンでの fire を抑止するため deps を status に絞る (resign effect と同方式)。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.gameState.status]);

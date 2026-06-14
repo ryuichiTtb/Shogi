@@ -80,3 +80,33 @@ export function captureStep(cap: CaptureState, world: CaptureWorld): void {
 export function captureSamples(cap: CaptureState): TrainingSampleData[] {
   return cap.samples.map((s) => s.sample);
 }
+
+// ===== リロード耐性 (localStorage バッファ) 用の純粋関数 =====
+
+// localStorage に保存する最小スナップショット (eventLogLenAfter は含めない = 復元時に再ベース)。
+export interface CaptureSnapshot {
+  samples: TrainingSampleData[];
+  plyCounter: number;
+}
+
+// 復元サンプルの凍結マーカー。リロード後 eventLog は [] から再スタートし curLen >= 0 となるため、
+// 待った truncation 条件 (eventLogLenAfter > curLen) を構造的に成立不能にする番兵。
+// = 復元 (pre-reload) サンプルは post-reload の待ったで決して pop されない (capture.ts の縮小分岐参照)。
+const FROZEN_MARKER = -1;
+
+// cap → localStorage 保存用スナップショット (sample 本体のみ抽出)。
+export function captureStorageSnapshot(cap: CaptureState): CaptureSnapshot {
+  return { samples: cap.samples.map((s) => s.sample), plyCounter: cap.plyCounter };
+}
+
+// localStorage から復元した CaptureState を作る。
+// 復元サンプルは FROZEN_MARKER で凍結 (post-reload の待ちで誤 pop されない)、
+// prev は null (post-reload 初回 captureStep で現局面から再セットされる)。
+// plyCounter は復元値を引き継ぐため、post-reload の新サンプルは連番継続し plyIndex 重複しない。
+export function restoreCaptureState(snapshot: CaptureSnapshot): CaptureState {
+  return {
+    samples: snapshot.samples.map((sample) => ({ sample, eventLogLenAfter: FROZEN_MARKER })),
+    plyCounter: snapshot.plyCounter,
+    prev: null,
+  };
+}

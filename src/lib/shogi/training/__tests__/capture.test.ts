@@ -6,7 +6,14 @@ import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
 import type { GameEvent } from "@/lib/shogi/cards/types";
 import type { Move } from "@/lib/shogi/types";
 
-import { captureSamples, captureStep, createCaptureState, type CaptureWorld } from "../capture";
+import {
+  captureSamples,
+  captureStep,
+  captureStorageSnapshot,
+  createCaptureState,
+  restoreCaptureState,
+  type CaptureWorld,
+} from "../capture";
 
 const gs = createInitialGameState(CARD_SHOGI_VARIANT);
 const cs = createInitialCardState([{ defId: "pawn_return", count: 2 }]);
@@ -127,5 +134,61 @@ describe("captureStep", () => {
     const auto: GameEvent = { kind: "drawEvent", player: "sente", instance: { instanceId: "z", defId: "pawn_return" }, source: "auto", at: 2 };
     captureStep(cap, world([cp, auto]));
     expect(captureSamples(cap)).toHaveLength(1);
+  });
+});
+
+describe("captureStorageSnapshot / restoreCaptureState (リロード耐性)", () => {
+  function buildCapWith2Samples() {
+    const cap = createCaptureState();
+    captureStep(cap, world([]));
+    captureStep(cap, world([moveEv(m1, 1)]));
+    captureStep(cap, world([moveEv(m1, 1), moveEv(m2, 2)]));
+    return cap; // samples=2, plyCounter=2
+  }
+
+  it("round-trip: snapshot → restore で samples 本体と plyCounter を保持し、prev は null", () => {
+    const snap = captureStorageSnapshot(buildCapWith2Samples());
+    expect(snap.samples).toHaveLength(2);
+    expect(snap.plyCounter).toBe(2);
+
+    const restored = restoreCaptureState(snap);
+    expect(captureSamples(restored)).toEqual(snap.samples);
+    expect(restored.plyCounter).toBe(2);
+    expect(restored.prev).toBeNull();
+  });
+
+  it("復元 → post-reload で追加(plyIndex 連番継続・復元分は保持)", () => {
+    const restored = restoreCaptureState(captureStorageSnapshot(buildCapWith2Samples()));
+    captureStep(restored, world([])); // post-reload: eventLog 空から再スタート (prev セット)
+    captureStep(restored, world([moveEv(m1, 1)])); // 新規追加
+    const samples = captureSamples(restored);
+    expect(samples).toHaveLength(3); // 復元2 + 新規1
+    expect(samples[2].plyIndex).toBe(2); // plyCounter 連番継続 (plyIndex 重複なし)
+  });
+
+  it("復元 → post-reload の待った(eventLog 縮小)で復元サンプルを誤 pop しない(本丸)", () => {
+    const restored = restoreCaptureState(captureStorageSnapshot(buildCapWith2Samples()));
+    captureStep(restored, world([])); // prev セット
+    captureStep(restored, world([moveEv(m1, 1)])); // post sample (len1)
+    captureStep(restored, world([moveEv(m1, 1), moveEv(m2, 2)])); // post sample (len2)
+    expect(captureSamples(restored)).toHaveLength(4); // 復元2 + post2
+    captureStep(restored, world([moveEv(m1, 1)])); // 待った: len2→1
+    expect(captureSamples(restored)).toHaveLength(3); // post 末尾1だけ pop、復元2は不変
+  });
+
+  it("復元 → eventLog を 0 まで縮小しても復元サンプルは残る", () => {
+    const restored = restoreCaptureState(captureStorageSnapshot(buildCapWith2Samples()));
+    captureStep(restored, world([])); // prev len0
+    captureStep(restored, world([moveEv(m1, 1)])); // post sample (len1)
+    expect(captureSamples(restored)).toHaveLength(3);
+    captureStep(restored, world([])); // 縮小 len1→0
+    expect(captureSamples(restored)).toHaveLength(2); // post pop、復元2残存
+  });
+
+  it("空 snapshot 復元 = createCaptureState 相当", () => {
+    const restored = restoreCaptureState({ samples: [], plyCounter: 0 });
+    expect(captureSamples(restored)).toEqual([]);
+    expect(restored.plyCounter).toBe(0);
+    expect(restored.prev).toBeNull();
   });
 });
