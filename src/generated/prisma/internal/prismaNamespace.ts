@@ -393,7 +393,9 @@ export const ModelName = {
   Card: 'Card',
   PlayerCardCollection: 'PlayerCardCollection',
   Deck: 'Deck',
-  DeckEntry: 'DeckEntry'
+  DeckEntry: 'DeckEntry',
+  TrainingGame: 'TrainingGame',
+  TrainingSample: 'TrainingSample'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -409,7 +411,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "guestSession" | "userPreference" | "game" | "gameMove" | "playerStats" | "card" | "playerCardCollection" | "deck" | "deckEntry"
+    modelProps: "user" | "guestSession" | "userPreference" | "game" | "gameMove" | "playerStats" | "card" | "playerCardCollection" | "deck" | "deckEntry" | "trainingGame" | "trainingSample"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1153,6 +1155,154 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    TrainingGame: {
+      payload: Prisma.$TrainingGamePayload<ExtArgs>
+      fields: Prisma.TrainingGameFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TrainingGameFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TrainingGamePayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TrainingGameFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TrainingGamePayload>
+        }
+        findFirst: {
+          args: Prisma.TrainingGameFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TrainingGamePayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TrainingGameFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TrainingGamePayload>
+        }
+        findMany: {
+          args: Prisma.TrainingGameFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TrainingGamePayload>[]
+        }
+        create: {
+          args: Prisma.TrainingGameCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TrainingGamePayload>
+        }
+        createMany: {
+          args: Prisma.TrainingGameCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TrainingGameCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TrainingGamePayload>[]
+        }
+        delete: {
+          args: Prisma.TrainingGameDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TrainingGamePayload>
+        }
+        update: {
+          args: Prisma.TrainingGameUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TrainingGamePayload>
+        }
+        deleteMany: {
+          args: Prisma.TrainingGameDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TrainingGameUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TrainingGameUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TrainingGamePayload>[]
+        }
+        upsert: {
+          args: Prisma.TrainingGameUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TrainingGamePayload>
+        }
+        aggregate: {
+          args: Prisma.TrainingGameAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTrainingGame>
+        }
+        groupBy: {
+          args: Prisma.TrainingGameGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TrainingGameGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TrainingGameCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TrainingGameCountAggregateOutputType> | number
+        }
+      }
+    }
+    TrainingSample: {
+      payload: Prisma.$TrainingSamplePayload<ExtArgs>
+      fields: Prisma.TrainingSampleFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TrainingSampleFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TrainingSamplePayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TrainingSampleFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TrainingSamplePayload>
+        }
+        findFirst: {
+          args: Prisma.TrainingSampleFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TrainingSamplePayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TrainingSampleFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TrainingSamplePayload>
+        }
+        findMany: {
+          args: Prisma.TrainingSampleFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TrainingSamplePayload>[]
+        }
+        create: {
+          args: Prisma.TrainingSampleCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TrainingSamplePayload>
+        }
+        createMany: {
+          args: Prisma.TrainingSampleCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TrainingSampleCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TrainingSamplePayload>[]
+        }
+        delete: {
+          args: Prisma.TrainingSampleDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TrainingSamplePayload>
+        }
+        update: {
+          args: Prisma.TrainingSampleUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TrainingSamplePayload>
+        }
+        deleteMany: {
+          args: Prisma.TrainingSampleDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TrainingSampleUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TrainingSampleUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TrainingSamplePayload>[]
+        }
+        upsert: {
+          args: Prisma.TrainingSampleUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TrainingSamplePayload>
+        }
+        aggregate: {
+          args: Prisma.TrainingSampleAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTrainingSample>
+        }
+        groupBy: {
+          args: Prisma.TrainingSampleGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TrainingSampleGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TrainingSampleCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TrainingSampleCountAggregateOutputType> | number
+        }
+      }
+    }
   }
 } & {
   other: {
@@ -1318,6 +1468,44 @@ export const DeckEntryScalarFieldEnum = {
 } as const
 
 export type DeckEntryScalarFieldEnum = (typeof DeckEntryScalarFieldEnum)[keyof typeof DeckEntryScalarFieldEnum]
+
+
+export const TrainingGameScalarFieldEnum = {
+  id: 'id',
+  source: 'source',
+  variantId: 'variantId',
+  senteDifficulty: 'senteDifficulty',
+  senteCharacterId: 'senteCharacterId',
+  goteDifficulty: 'goteDifficulty',
+  goteCharacterId: 'goteCharacterId',
+  humanColor: 'humanColor',
+  deckSpecSente: 'deckSpecSente',
+  deckSpecGote: 'deckSpecGote',
+  winner: 'winner',
+  finalStatus: 'finalStatus',
+  moveCount: 'moveCount',
+  engineVersion: 'engineVersion',
+  sourceGameId: 'sourceGameId',
+  createdAt: 'createdAt'
+} as const
+
+export type TrainingGameScalarFieldEnum = (typeof TrainingGameScalarFieldEnum)[keyof typeof TrainingGameScalarFieldEnum]
+
+
+export const TrainingSampleScalarFieldEnum = {
+  id: 'id',
+  trainingGameId: 'trainingGameId',
+  plyIndex: 'plyIndex',
+  moveCount: 'moveCount',
+  sideToMove: 'sideToMove',
+  boardState: 'boardState',
+  cardState: 'cardState',
+  action: 'action',
+  events: 'events',
+  createdAt: 'createdAt'
+} as const
+
+export type TrainingSampleScalarFieldEnum = (typeof TrainingSampleScalarFieldEnum)[keyof typeof TrainingSampleScalarFieldEnum]
 
 
 export const SortOrder = {
@@ -1555,6 +1743,8 @@ export type GlobalOmitConfig = {
   playerCardCollection?: Prisma.PlayerCardCollectionOmit
   deck?: Prisma.DeckOmit
   deckEntry?: Prisma.DeckEntryOmit
+  trainingGame?: Prisma.TrainingGameOmit
+  trainingSample?: Prisma.TrainingSampleOmit
 }
 
 /* Types for Logging */

@@ -140,3 +140,52 @@ model DeckEntry {
 
   @@unique([deckId, cardId])
 }
+
+// 学習用棋譜データ収集 (Issue #245 フェーズ0)。
+// 既存の Game/GameMove (= 最終状態のみ保持・各手番の cardState/eventLog 不在) とは分離し、
+// 学習教材として「1対局の全操作・全状態」を per-decision で保存する専用テーブル。
+
+// 学習用「1試合」= 人間対局 or 自己対戦。勝敗ラベルの単一情報源 (サンプルへ非正規化しない)。
+model TrainingGame {
+  id               String           @id @default(cuid())
+  source           String // "human" | "self_play"
+  variantId        String           @default("card-shogi")
+  // 両者の素性 (人間側は null)。学習データ品質フィルタ用。
+  senteDifficulty  String?
+  senteCharacterId String?
+  goteDifficulty   String?
+  goteCharacterId  String?
+  humanColor       String? // "sente" | "gote" | null (self_play)
+  deckSpecSente    Json? // デッキ構成 (人間側は未保持のため null 許容)
+  deckSpecGote     Json?
+  // 結果ラベル (終局時に確定)。
+  winner           String? // "sente" | "gote" | "draw" | null (中断 = 学習除外)
+  finalStatus      String           @default("active") // GameStatus
+  moveCount        Int              @default(0)
+  // データ来歴 (弱い AI 由来データを高品質扱いしないためのフィルタキー)。
+  engineVersion    String?
+  sourceGameId     String? // human 時、元 Game.id への参照 (任意・トレース用)
+  createdAt        DateTime         @default(now())
+  samples          TrainingSample[]
+
+  @@index([source])
+  @@index([createdAt])
+}
+
+// 学習用「1決定点」のスナップショット (行動前の局面 + カード状態 + 採用行動 + 発生イベント)。
+// move / playCard / draw の各操作で 1 行。double_move はターン単位 1 行 (events に move×2)。
+model TrainingSample {
+  id             String       @id @default(cuid())
+  trainingGameId String
+  trainingGame   TrainingGame @relation(fields: [trainingGameId], references: [id], onDelete: Cascade)
+  plyIndex       Int // 0 始まりの決定通し番号 (試合内で一意)
+  moveCount      Int // その時点の gameState.moveCount (card/draw では据置)
+  sideToMove     String // "sente" | "gote"
+  boardState     Json // serializeBoardForTraining (行動前): 盤面/持ち駒/手番/手数/終局 (moveHistory/positionHistory 除外)
+  cardState      Json // serializeCardState (行動前): マナ/上限/手札/山札/墓地/トラップ/状態異常/ドロー進捗
+  action         Json // 採用 TurnAction { kind: "move" | "draw" | "playCard", ... }
+  events         Json // 発生 GameEvent[] (マナ増減/盤面効果/トラップ/二手指し軌跡。at は剥がす)
+  createdAt      DateTime     @default(now())
+
+  @@unique([trainingGameId, plyIndex])
+}
