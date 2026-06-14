@@ -25,6 +25,11 @@ import { useDbPersistenceGuard } from "./card-shogi/use-db-persistence-guard";
 import { SPECTATOR_MAX_MOVES } from "@/lib/shogi/ai/strategy";
 import type { Difficulty } from "@/lib/shogi/types";
 
+// Issue #245 P0-3: 学習データキャプチャ (人間対局)。既存処理には一切干渉しない追加経路。
+import { createCaptureState, captureStep, captureSamples } from "@/lib/shogi/training/capture";
+import type { TrainingGameData } from "@/lib/shogi/training/types";
+import { recordTrainingGame } from "@/app/actions/training";
+
 interface UseCardShogiGameOptions {
   initialState: GameState;
   initialCardState: CardGameState;
@@ -317,6 +322,67 @@ export function useCardShogiGame({
     disableServerSync,
     canPersist,
   ]);
+
+  // ===== Issue #245 P0-3: 学習データキャプチャ (人間対局) =====
+  // 既存の save / undo / spectator / 二手指し ロジックには一切干渉しない完全追加経路。
+  // reducer の eventLog 伸長を監視し、1 decision (move / playCard / draw) ごとに
+  // 「行動前 world (= 前 render の盤面 + カード状態) + 採用 action + 生じた events」を
+  // サンプル化して貯め、終局時に勝敗ラベル付きで recordTrainingGame へ flush する。
+  // 記録は best-effort (env 既定 OFF、失敗は握り潰し)。自分の手も CPU の手も両方記録する。
+  const captureRef = useRef(createCaptureState());
+  const trainingFlushedRef = useRef(false);
+
+  // キャプチャ effect: 1 render 分を純粋ロジック captureStep に委譲する。
+  // (eventLog 伸長 → サンプル追加 / 縮小 (待った) → 破棄 / 二手指し進行中 → 保留)
+  useEffect(() => {
+    if (disableServerSync) return; // テスト・モック時はキャプチャしない
+    if (state.spectatorMode) return; // 観戦 (CPU vs CPU) は人間対局でないため対象外
+    captureStep(captureRef.current, {
+      gameState: state.gameState,
+      cardState: state.cardState,
+      doubleMove: state.doubleMove,
+      eventLog: state.eventLog,
+    });
+  }, [state.eventLog, state.gameState, state.cardState, state.doubleMove, state.spectatorMode, disableServerSync]);
+
+  // 終局 flush effect: 全終局経路 (checkmate / stalemate / repetition / impasse / resign) を
+  // status 監視 1 本で拾う。中断 (active のまま離脱) は flush しない (winner 不明 = 学習除外)。
+  useEffect(() => {
+    if (disableServerSync) return;
+    if (state.spectatorMode) return;
+    const status = state.gameState.status;
+    if (status === "active") return;
+    if (status === "spectator_max_moves") return; // 人間対局では発生しない (保険)
+    if (trainingFlushedRef.current) return;
+    trainingFlushedRef.current = true;
+
+    const samples = captureSamples(captureRef.current);
+    if (samples.length === 0) return;
+
+    const humanColor = gameConfig.playerColor;
+    const cpuColor: Player = humanColor === "sente" ? "gote" : "sente";
+    const gameData: TrainingGameData = {
+      source: "human",
+      variantId: gameConfig.variant.id,
+      humanColor,
+      senteDifficulty: cpuColor === "sente" ? gameConfig.difficulty : null,
+      senteCharacterId: cpuColor === "sente" ? gameConfig.characterId : null,
+      goteDifficulty: cpuColor === "gote" ? gameConfig.difficulty : null,
+      goteCharacterId: cpuColor === "gote" ? gameConfig.characterId : null,
+      winner: state.gameState.winner ?? "draw",
+      finalStatus: status,
+      moveCount: state.gameState.moveCount,
+      engineVersion: process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA ?? null,
+      sourceGameId: gameId,
+    };
+
+    // best-effort: 失敗は握り潰し、対局保存・プレイへ波及させない。env OFF は server 側で即 return。
+    void recordTrainingGame(gameData, samples).catch((e) => {
+      console.error("recordTrainingGame failed (best-effort)", e);
+    });
+    // status 不変ターンでの fire を抑止するため deps を status に絞る (resign effect と同方式)。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.gameState.status]);
 
   // ----- 公開API -----
 
