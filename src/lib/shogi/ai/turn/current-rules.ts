@@ -53,7 +53,17 @@ export class CurrentRules implements TurnRules {
   //   追加するが、production 経路は依然 findBestMove → getSearchLegalMoves 直接呼出のため、
   //   本メソッド経由の playCard / draw 候補は production からは未到達)。
   getLegalActions(state: AiTurnState, player: Player): TurnAction[] {
-    const moves = getFullLegalMoves(state.gameState, player, this.variant);
+    // Issue #235 S4a (D-I): card-shogi では cardState を getFullLegalMoves に渡し、マーク駒の
+    // 不成手 (最奥段含む) を候補化して幻の成り手を出さない。
+    // 到達範囲の注意: production の実着手選択は findBestMove → getSearchLegalMoves (cardState
+    // 非対応) 由来で、engine.ts は本メソッドが返す move アクションを continue で捨てる (上記
+    // 51-54 行)。よって探索木の mark-aware 化 = AI が幻成り盤面を読まなくする効果は本 S4a では
+    // production 未到達で、S4c (getSearchLegalMoves / captureGen への cardState 配線) で達成する。
+    // 本行が今効くのは SSOT funnel の signature 一貫性と S4c の足場としての価値。
+    // standard は cardState 未供給で従来等価。
+    const cardState =
+      this.variant.id === "card-shogi" ? state.cardState : undefined;
+    const moves = getFullLegalMoves(state.gameState, player, this.variant, cardState);
     const actions: TurnAction[] = moves.map((move) => ({ kind: "move" as const, move }));
 
     if (state.isRoot === true && this.variant.id === "card-shogi") {

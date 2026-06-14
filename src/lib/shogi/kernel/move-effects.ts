@@ -173,7 +173,11 @@ export function makeMoveWithEffects(
   }
 
   // 5. ゲーム終了判定 + 移動イベントログ
-  const evaluated = evaluateGameEnd(postTrapGameState, CARD_SHOGI_VARIANT);
+  // Issue #235 S4a (D-I): 移動後の cardState (マーク追従/追加済) を evaluateGameEnd へ渡す。
+  // verdict (詰み/ステールメート) 自体はマーク不変だが (合法手の有無は到達マス集合に依存し、
+  // マークは promote フラグのみ変える)、mark-aware funnel family と signature を揃え、後続
+  // S4 探索が同経路を再利用できるようにする。standard は未供給で従来等価。
+  const evaluated = evaluateGameEnd(postTrapGameState, CARD_SHOGI_VARIANT, cardStateNext);
   // Issue #220 / #222 検証修正: 二手指し一手目で check_break を保留した場合、形式上の
   // 詰み (トラップ未適用の盤面) は真の終局ではない (ターン完了後にトラップが王手を解除
   // する)。中間局面として active を維持し二手目を継続させる。これがないと MAKE_MOVE 側

@@ -34,7 +34,6 @@ import {
 } from "@/lib/shogi/cards/definitions";
 import {
   getCheckEscapingSquares,
-  hasNoPromoteMark,
   hasSameKindTrapPlaced,
 } from "@/lib/shogi/cards/effects";
 // Issue #235 S1c: move 効果適用ロジックは lib/kernel へ物理移設済 (旧 reducer 内定義)。
@@ -303,6 +302,10 @@ function filterDoubleMoveFirstCandidates(
   player: Player,
   candidates: Move[],
   mateInOneAvailable: boolean,
+  // Issue #235 S4a (D-I): no_promote マーク考慮。1手目で marked 駒が動いた場合のマーク追従までは
+  // 簡略 (state.cardState の pre-1手目マーク位置を使用) で、同一駒2回移動の稀ケースは S4c (WorldState
+  // 搬送) で精緻化。通常 (marked 駒が1手目で動かない) は正しく判定。
+  cardState?: CardGameState,
 ): Move[] {
   const opponent: Player = player === "sente" ? "gote" : "sente";
 
@@ -317,10 +320,10 @@ function filterDoubleMoveFirstCandidates(
     if (!king) return false;
 
     // 1手目で相手玉に詰みなら 2手目不要 → OK
-    if (isCheckmate(after1, opponent, CARD_SHOGI_VARIANT)) return true;
+    if (isCheckmate(after1, opponent, CARD_SHOGI_VARIANT, cardState)) return true;
 
     // 2手目候補 ≥ 1 必須 (詰み禁止フィルタ済 + 相手玉取り除外済 + 自玉王手解消含意)
-    const second = legalSecondMoves(after1, player, mateInOneAvailable);
+    const second = legalSecondMoves(after1, player, mateInOneAvailable, cardState);
     return second.length > 0;
   });
 }
@@ -331,6 +334,8 @@ function legalSecondMoves(
   stateAfterFirst: GameState,
   player: Player,
   mateInOneAvailable: boolean,
+  // Issue #235 S4a (D-I): no_promote マーク考慮 (filterDoubleMoveFirstCandidates から伝播)。
+  cardState?: CardGameState,
 ): Move[] {
   // board 移動の合法手
   const boardMoves: Move[] = [];
@@ -339,7 +344,7 @@ function legalSecondMoves(
     for (let c = 0; c < cols; c++) {
       const piece = stateAfterFirst.board[r][c];
       if (piece && piece.owner === player) {
-        const moves = getPieceMoves(stateAfterFirst, { row: r, col: c }, player, CARD_SHOGI_VARIANT);
+        const moves = getPieceMoves(stateAfterFirst, { row: r, col: c }, player, CARD_SHOGI_VARIANT, cardState);
         for (const m of moves) {
           if (isKingCaptureMove(m)) continue;
           if (!isKingInCheckAfterMove(stateAfterFirst, m)) boardMoves.push(m);
@@ -351,7 +356,7 @@ function legalSecondMoves(
   const all = [...boardMoves, ...dropMoves];
   if (mateInOneAvailable) return all;
   const opponent: Player = player === "sente" ? "gote" : "sente";
-  return all.filter((m) => !isCheckmate(applyMove(stateAfterFirst, m), opponent, CARD_SHOGI_VARIANT));
+  return all.filter((m) => !isCheckmate(applyMove(stateAfterFirst, m), opponent, CARD_SHOGI_VARIANT, cardState));
 }
 
 // 2手目候補を「合法手」と「禁止された詰み手」に分割する (Issue #82)。
@@ -363,6 +368,8 @@ function partitionDoubleMoveSecondCandidates(
   player: Player,
   candidates: Move[],
   mateInOneAvailable: boolean,
+  // Issue #235 S4a (D-I): no_promote マーク考慮 (相手玉の詰み判定に opponent マークが効く)。
+  cardState?: CardGameState,
 ): { legal: Move[]; forbiddenMate: Move[] } {
   const opponent: Player = player === "sente" ? "gote" : "sente";
   const legal: Move[] = [];
@@ -374,7 +381,7 @@ function partitionDoubleMoveSecondCandidates(
       legal.push(m);
       continue;
     }
-    if (isCheckmate(applyMove(gameState, m), opponent, CARD_SHOGI_VARIANT)) {
+    if (isCheckmate(applyMove(gameState, m), opponent, CARD_SHOGI_VARIANT, cardState)) {
       forbiddenMate.push(m);
     } else {
       legal.push(m);
@@ -395,22 +402,24 @@ function legalMovesForPieceSelect(
   const piece = gameState.board[pos.row]?.[pos.col];
   if (!piece || piece.owner !== gameState.currentPlayer) return { legal: [], forbiddenMate: [] };
 
-  const moves = getPieceMoves(gameState, pos, gameState.currentPlayer, CARD_SHOGI_VARIANT);
-  const noPromote = hasNoPromoteMark(state.cardState, gameState.currentPlayer, pos);
-  const filteredByNoPromote = moves.filter((m) => !(noPromote && m.type === "move" && m.promote));
+  // Issue #235 S4a (D-I): cardState を渡してマーク駒の不成手 (最奥段含む) を正しく生成し、
+  // 成り手 (promote=true) は出さない。これで「マーク歩が 2段目→1段目 へ不成で進める」を UI で
+  // 実現 (旧実装は getPieceMoves が最奥段で promote=true のみ生成 → noPromote 後段フィルタで
+  // 除外され、不成手が残らず進入不可だった #235 派生バグ)。後段フィルタは不要化のため撤去。
+  const moves = getPieceMoves(gameState, pos, gameState.currentPlayer, CARD_SHOGI_VARIANT, state.cardState);
 
   const dm = state.doubleMove;
   if (dm && dm.movesLeft === 2) {
     return {
-      legal: filterDoubleMoveFirstCandidates(gameState, gameState.currentPlayer, filteredByNoPromote, dm.mateInOneAvailable),
+      legal: filterDoubleMoveFirstCandidates(gameState, gameState.currentPlayer, moves, dm.mateInOneAvailable, state.cardState),
       forbiddenMate: [],
     };
   }
   if (dm && dm.movesLeft === 1) {
-    return partitionDoubleMoveSecondCandidates(gameState, gameState.currentPlayer, filteredByNoPromote, dm.mateInOneAvailable);
+    return partitionDoubleMoveSecondCandidates(gameState, gameState.currentPlayer, moves, dm.mateInOneAvailable, state.cardState);
   }
   return {
-    legal: filteredByNoPromote.filter((m) => !isKingInCheckAfterMove(gameState, m)),
+    legal: moves.filter((m) => !isKingInCheckAfterMove(gameState, m)),
     forbiddenMate: [],
   };
 }
@@ -1038,7 +1047,7 @@ export function reducer(
           doubleMove: {
             active: player,
             movesLeft: 2,
-            mateInOneAvailable: hasOneMoveMate(state.gameState, player, CARD_SHOGI_VARIANT),
+            mateInOneAvailable: hasOneMoveMate(state.gameState, player, CARD_SHOGI_VARIANT, state.cardState),
             cardInstance: pending.instance,
             cardCost: def.cost,
             preFirstMoveState: preCardSnapshot,

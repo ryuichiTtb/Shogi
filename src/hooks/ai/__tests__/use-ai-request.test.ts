@@ -67,6 +67,8 @@ const sampleAiResponse: AiMoveResponse = {
     usedBook: false,
     usedFallback: false,
     usedCardAction: false,
+    ttProbes: 0,
+    ttHits: 0,
   },
 };
 

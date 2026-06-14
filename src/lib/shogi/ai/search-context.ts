@@ -34,6 +34,10 @@ export interface SearchStats {
   // 同じローカル状態を SearchStats 経由で外部から観測可能にする。
   // 未指定時は false (= 振る舞いキープ、PR1d-1 完了時点と同等)。
   usedCardAction: boolean;
+  // Issue #235 S4c-2b: WorldState 探索 TT の probe/hit 数 (bench で depth 回復が fold 起因か eval
+  // 起因か切り分ける hit-rate 計測用、epic item 7.6)。move-only 経路では常に 0。
+  ttProbes: number;
+  ttHits: number;
 }
 
 export interface SearchContext {
@@ -58,6 +62,19 @@ export interface SearchContext {
   // true のとき evaluateActionWithLookahead / searchDoubleMoveSuperAction が kernel 経路に分岐する
   // (card-shogi のみ、DP-1〜7 を自動適用)。S1d cutover まで production は false 固定。
   useKernelSearch?: boolean;
+  // Issue #235 S4b-2a: WorldState (TurnAction) 並走探索へ切替えるフラグ。既定 false (= production
+  // は move-only deep search のまま完全不変)。true かつ card-shogi のとき findBestMove が
+  // findBestMoveWorld (negamaxWorld/quiescenceWorld、カードを木に入れる新 card-aware 探索) へ
+  // 分岐する。S4b 段では PoC-1 再検証・特性化テスト専用 (production 未配線)。
+  useTurnActionSearch?: boolean;
+  // Issue #235 S4b-2b: WorldState 探索の selector (枝刈り) パラメータ。
+  // selectorM = 各ノードで残す move 上位数 (scoreMove 降順)。undefined = 全 move (枝刈りなし)。
+  // selectorK = 各ノードで残す card 上位数 (getCardValue 降順)。0 = card/draw 完全除外 (move-only
+  //   control)。undefined = 全 card (枝刈りなし)。draw は K>0 のとき含める。
+  // PoC-1 再検証は「selector あり (M/K 制限) vs control (K=0=move-only)」の depthCompleted を
+  // same-engine で比較する (epic §8.4.5 確定基準の実エンジン版)。
+  selectorM?: number;
+  selectorK?: number;
   // Issue #235 S1b: kernel applyTurnAction へ渡す spectatorMode (DP-4 決定論化、早指し無効)。
   // 既定 false。AI 探索の lookahead は手番時間を持たないため manaCharge の早指し判定は
   // 本来不要だが、kernel の makeMoveWithEffects に正しく伝播するため保持する。
@@ -70,6 +87,9 @@ export interface SearchContext {
   // engine.ts が ACTION_PHASE_BUDGET_RATIO から設定する。未設定 (undefined) = 無制限
   // (既存テスト / fixture 生成 (maxDepth 指定) の決定論を保つ互換動作)。
   actionPhaseDeadlineAt?: number;
+  // Issue #235 S4c-2b: WorldState 探索 TT の probe/hit カウンタ (bench hit-rate 計測)。
+  ttProbes: number;
+  ttHits: number;
 }
 
 export interface CreateSearchContextOptions {
@@ -79,6 +99,11 @@ export interface CreateSearchContextOptions {
   // Issue #235 S1b: 下記 2 フラグ。既定 false (= 既存挙動完全保持)。
   useKernelSearch?: boolean;
   spectatorMode?: boolean;
+  // Issue #235 S4b-2a: WorldState 並走探索フラグ。既定 false (= production 不変)。
+  useTurnActionSearch?: boolean;
+  // Issue #235 S4b-2b: selector 枝刈りパラメータ (PoC-1 再検証用)。
+  selectorM?: number;
+  selectorK?: number;
 }
 
 export function createSearchContext(opts: CreateSearchContextOptions): SearchContext {
@@ -97,6 +122,11 @@ export function createSearchContext(opts: CreateSearchContextOptions): SearchCon
     cardDigest: opts.cardDigest,
     useKernelSearch: opts.useKernelSearch ?? false,
     spectatorMode: opts.spectatorMode ?? false,
+    useTurnActionSearch: opts.useTurnActionSearch ?? false,
+    selectorM: opts.selectorM,
+    selectorK: opts.selectorK,
+    ttProbes: 0,
+    ttHits: 0,
   };
 }
 
@@ -147,5 +177,7 @@ export function finalizeStats(
     usedFallback: extras.usedFallback,
     // PR1d-2 (W-6 整合): usedCardAction 未指定時は false (= 振る舞いキープ)
     usedCardAction: extras.usedCardAction ?? false,
+    ttProbes: ctx.ttProbes,
+    ttHits: ctx.ttHits,
   };
 }

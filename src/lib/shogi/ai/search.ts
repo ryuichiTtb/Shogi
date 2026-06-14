@@ -2,18 +2,19 @@ import type { GameState, Move, Player, RuleVariant } from "../types";
 import { STANDARD_VARIANT } from "../variants/standard";
 // Issue #193 / PR1b (Phase 3): 探索ホットパスの合法手生成は getSearchLegalMoves に切替。
 // getFullLegalMoves は本ファイル内で直接呼ばないので import から除外、isInCheck のみ moves から取込む。
-import { isInCheck } from "../moves";
+import { isInCheck, getFullLegalMoves } from "../moves";
 import { getSearchLegalMoves } from "./legal-moves";
 import { applyMoveForSearch } from "../board";
 import { evaluate, scoreMoveForOrdering } from "./evaluate";
 import { cardResultIntroducesTadasute, hasHangingPiece } from "./blunder-guard";
-import { simulateCardEffect } from "../cards/effects";
+import { simulateCardEffect, moveNoPromoteMark, removeNoPromoteMark } from "../cards/effects";
 import { getCardValue } from "../cards/card-spec-server";
 import {
   getDrawValue,
   DOUBLE_MOVE_TOP_K,
 } from "./cards/heuristics";
-import { CurrentRules } from "./turn/current-rules";
+import { CurrentRules, canDraw } from "./turn/current-rules";
+import { getCardActions } from "./turn/action-generator";
 import type { AiTurnState, TurnAction } from "./turn/types";
 import type { CardGameState } from "../cards/types";
 import { CARD_DEFS, DRAW_COST } from "../cards/definitions";
@@ -31,6 +32,7 @@ import {
   SIDE_TO_MOVE_KEY, SIDE_TO_MOVE_KEY_HI,
 } from "./zobrist";
 import type { ZobristHash } from "./zobrist";
+import { computeCardFold } from "./card-zobrist";
 import { getCaptureMovesForSearch, getPromotionMovesForSearch } from "./captureGen";
 import {
   MAX_DEPTH,
@@ -107,7 +109,9 @@ export function movesEqual(a: Move, b: Move): boolean {
 
 // Incremental dual hash update after applying a move
 // 全XOR操作に >>> 0 を適用（computeHashとの整合性を保証）
-function updateHash(
+// Issue #235 S4c-2b: R-14 (incremental === computeHash 全量) 特性化テストから検証するため export。
+// production の呼出経路・振る舞いは不変 (export 付与のみ)。
+export function updateHash(
   prevHash: ZobristHash,
   prevState: GameState,
   move: Move,
@@ -537,6 +541,14 @@ function negamax(
 export interface RootSearchResult {
   move: Move;
   rootMoveScores: { move: Move; score: number }[];
+  // Issue #235 S4c-1: WorldState 探索 (findBestMoveWorld) が返す root 最善 TurnAction
+  // (move / card / draw)。move-only findBestMove は未設定 (engine が {kind:"move", move} を構築 =
+  // 既存不変)。world 経路の engine cutover (S4c-1b) がこれを selectedAction に採用する。
+  bestAction?: TurnAction;
+  // Issue #235 S4e: world 探索の root 全アクション (move/card/draw) の深読みスコア
+  // (engagement 下駄適用 *前*)。engagement margin 校正の診断 (card vs best-move gap 計測) に使う。
+  // move-only findBestMove は未設定。
+  rootActionScores?: { action: TurnAction; score: number }[];
 }
 
 export function findBestMove(
@@ -544,8 +556,16 @@ export function findBestMove(
   player: Player,
   options: SearchOptions,
   variant: RuleVariant = STANDARD_VARIANT,
-  ctx?: SearchContext
+  ctx?: SearchContext,
+  // Issue #235 S4b-2a: WorldState 探索 (useTurnActionSearch ON) 用の root cardState。
+  // flag OFF / standard / 未供給では以降の move-only 探索をそのまま実行 (production 完全不変)。
+  cardState?: CardGameState,
 ): RootSearchResult | null {
+  // Issue #235 S4b-2a: useTurnActionSearch ON かつ card-shogi かつ cardState 供給時は
+  // WorldState (TurnAction) 探索へ分岐 (カードを木に入れる新 card-aware 探索)。
+  if (ctx?.useTurnActionSearch && variant.id === "card-shogi" && cardState !== undefined) {
+    return findBestMoveWorld(state, cardState, player, options, variant, ctx);
+  }
   const moves = getSearchLegalMoves(state, player, variant);
   if (moves.length === 0) return null;
   // 合法手 1 つのみ: 比較対象が無いので rootMoveScores は空で返す。
@@ -722,6 +742,594 @@ export function findBestMove(
   return { move: bestMove, rootMoveScores };
 }
 
+// =========================================================================
+// Issue #235 S4b-2a / S4c-1: WorldState (TurnAction) card-aware 探索
+// =========================================================================
+// 既存 negamax / quiescence / findBestMove (move-only deep search) は 1 行も触らず、
+// WorldState を回し move + (root の) card/draw を TurnAction として木に入れる新 card-aware
+// 探索を別シンボルで複製する (standard byte 等価維持の唯一道、計画 §11)。
+//
+// スコープ (S4b-2a additive 足場 → S4c-1 で production cutover):
+// - flag OFF (= useTurnActionSearch 未指定) では findBestMove 冒頭で分岐せず move-only 経路。
+//   standard variant は cardState 未供給で常に move-only (防御ガード)。
+// - TT は積まない (S4c-2。boardHash TT はカードを木に入れると cardState 差で誤 hit)。
+// - **S4c-1: カードは root のみ展開** (expandCards)。deep node は move-only (相手・自分の深ノード共)。
+//   = 「カードを今打つ」帰結を move と同じ深さで読み公平比較する最小設計 (P1 解消、§12.1-1)。
+// - double_move は S4c-1 では除外 (実行プラミング = S4c-1d)。getWorldLegalActions で除外。
+// - cardDigest は per-node 更新 (updateCardDigest 踏襲、root 固定だと inert 化 = PR3-3 C-9)。
+// - 着手は getFullLegalMoves(+cardState) で mark-aware (S4a)。quiescence の captureGen は
+//   cardState 非対応ゆえ非 mark-aware (S4c-1d/後段で解消)。
+// - selector は root のみ実効 (S4b-2b、deep node は move-only ゆえ M=∞ で no-op)。
+// - noise/nearEqual は findBestMoveWorld が root アクション上で適用 (D-B)。
+
+// WorldState ノードの合法 TurnAction を生成。
+// Issue #235 S4c-1: カード/ドローは root の自分番ノードのみ展開する (expandCards=true)。
+// root 以降 (相手番・自分の深ノード) は move-only 継続 = 「カードを今打つ」帰結を move-only で
+// 深く読み move と公平比較する最小設計 (P1 解消。multi-card planning は S5/L3。計画 §12.1-1)。
+// S4b-2a の rootPlayer gate (相手ノードでカード展開される不整合) を expandCards へ是正。
+// double_move は S4c-1 では除外 (実行プラミング未配線 = S4c-1d。AI は候補化しない)。
+// 特性化テストから expandCards gate / double_move 除外を検証するため export。
+export function getWorldLegalActions(
+  world: WorldState,
+  variant: RuleVariant,
+  expandCards: boolean,
+): TurnAction[] {
+  const player = world.gameState.currentPlayer;
+  // 着手は cardState-aware (マーク駒の幻成りを生成しない、S4a)。
+  const moves = getFullLegalMoves(world.gameState, player, variant, world.cardState);
+  const actions: TurnAction[] = moves.map((move) => ({ kind: "move" as const, move }));
+  // card/draw は root の自分番ノードのみ (expandCards)。double_move 継続中 (doubleMove!==null)
+  // は move-only (S4c-1 では doubleMove は常に null だが、S4c-1d の中間ノード move-only を先取り防御)。
+  if (expandCards && variant.id === "card-shogi" && world.doubleMove === null) {
+    // 王手中は draw 禁止 (reducer.ts DRAW_CARD = 王手中ドロー不可 と整合。kernel の
+    // applyDrawAction は非王手を caller 保証の前提とするため、ここで弾かないと「王手放置パス」
+    // を探索木に注入し minimax を汚染する。M2 指摘)。card は getCardActions が王手中 use
+    // condition で自前に枝刈り済。
+    const playerInCheck = isInCheck(world.gameState, player, variant);
+    const aiState: AiTurnState = {
+      gameState: world.gameState,
+      cardState: world.cardState,
+      doubleMove: null,
+      isRoot: true,
+    };
+    if (!playerInCheck && canDraw(world.cardState, player)) {
+      actions.push({ kind: "draw" });
+    }
+    for (const cardAction of getCardActions(aiState, player, variant)) {
+      // double_move は S4c-1 除外 (S4c-1d で統合)。
+      if (cardAction.kind === "playCard" && cardAction.defId === "double_move") continue;
+      actions.push(cardAction);
+    }
+  }
+  return actions;
+}
+
+// TurnAction の順序付けスコア: move は既存 scoreMove (TT 手は無いので ttMove=null)、
+// card/draw は move の後ろ (-1。quiet move の history は >=0 ゆえ全 move より後)。
+function actionOrderScore(
+  action: TurnAction,
+  ply: number,
+  ctx: SearchContext,
+  ttMove: Move | null = null,
+): number {
+  // S4c-2b: TT best move (ttMove) を move 順序付けに反映 (move-only negamax と同、scoreMove が
+  // ttMove 一致手を最優先)。card/draw は move の後ろ (-1、quiet move history >= 0 ゆえ全 move より後)。
+  if (action.kind === "move") return scoreMove(action.move, ttMove, ply, ctx);
+  return -1;
+}
+
+// Issue #235 S4b-2b: selector。各ノードの TurnAction を move 上位 M + card 上位 K (+draw) に
+// 枝刈りする (PoC-1 再検証用)。M/K=Infinity は枝刈りなし (全展開)。K=0 は card/draw 完全除外
+// (= move-only control)。move は scoreMove 降順、card は getCardValue 降順で上位を残す。
+// 特性化テストから検証するため export。
+export function selectBranchCandidates(
+  actions: TurnAction[],
+  M: number,
+  K: number,
+  gameState: GameState,
+  player: Player,
+  ply: number,
+  ctx: SearchContext,
+): TurnAction[] {
+  // 早期 return (MED-2 反映): card/draw が無く M=∞ なら枝刈り結果は入力と同一。deep node は
+  // move-only (expandCards=false) かつ production 既定 M=∞ ゆえこのホットパスで 3 filter + spread の
+  // 無駄アロケーションを回避する (O(n) スキャン + 早期 break のみ)。root (card 有) は通過して通常処理。
+  if (!Number.isFinite(M)) {
+    let hasNonMove = false;
+    for (const a of actions) {
+      if (a.kind !== "move") {
+        hasNonMove = true;
+        break;
+      }
+    }
+    if (!hasNonMove) return actions;
+  }
+  const moves = actions.filter((a) => a.kind === "move");
+  const topMoves =
+    Number.isFinite(M) && moves.length > M
+      ? [...moves]
+          .sort((a, b) => actionOrderScore(b, ply, ctx) - actionOrderScore(a, ply, ctx))
+          .slice(0, M)
+      : moves;
+
+  if (K === 0) return topMoves; // move-only control (card/draw 除外)
+
+  const cards = actions.filter(
+    (a): a is Extract<TurnAction, { kind: "playCard" }> => a.kind === "playCard",
+  );
+  const draws = actions.filter((a) => a.kind === "draw");
+  const topCards =
+    Number.isFinite(K) && cards.length > K
+      ? [...cards]
+          .sort(
+            (a, b) =>
+              getCardValue(b.defId, gameState, player) -
+              getCardValue(a.defId, gameState, player),
+          )
+          .slice(0, K)
+      : cards;
+
+  return [...topMoves, ...topCards, ...draws];
+}
+
+// quiescenceWorld: 静止探索 (move-only captures/promotions)。既存 quiescence と同型だが、
+// per-node cardDigest を明示引数で受け leaf eval に渡す (ctx.cardDigest 固定でなく per-node)。
+// TT を使わないため hash は不要 (updateHash 呼出なし)。
+//
+// Issue #235 S4d-2: cardState を帯同し着手生成 (captures/promotions/王手回避) を **mark-aware** 化
+// (マーク駒の幻成りを生成しない)。applyMoveForSearch は board-only でマーク非追従ゆえ、各遷移で
+// `followMarksForQuiescence` により **O(m) follow** (移動した自マーク駒を from→to 追従 / 取られた
+// 相手マーク駒を除去) し childCardState を再帰へ渡す (M1 M-3: stale でなく追従で幻成り復活を防ぐ)。
+// マーク空 (現状ほぼ常時) は follow helper が同参照を返し割当ゼロ = 性能不変。
+function quiescenceWorld(
+  state: GameState,
+  cardState: CardGameState,
+  alpha: number,
+  beta: number,
+  player: Player,
+  variant: RuleVariant,
+  cardDigest: CardDigest | undefined,
+  qDepth: number,
+  ctx: SearchContext,
+): number {
+  ctx.nodes++;
+  if (shouldStop(ctx)) return 0;
+  const opponent: Player = player === "sente" ? "gote" : "sente";
+
+  if (qDepth > MAX_Q_DEPTH) {
+    const rawScore = evaluate(state, variant, cardDigest);
+    return player === "sente" ? rawScore : -rawScore;
+  }
+
+  const inCheck = isInCheck(state, player, variant);
+  if (inCheck) {
+    const moves = getSearchLegalMoves(state, player, variant, cardState);
+    if (moves.length === 0) return -(MATE_SCORE - qDepth);
+    let bestScore = NEG_INF;
+    for (const move of moves) {
+      if (shouldStop(ctx)) return 0;
+      const nextState = applyMoveForSearch(state, move);
+      const childCardState = followMarksForQuiescence(cardState, move, player, opponent);
+      const score = -quiescenceWorld(nextState, childCardState, -beta, -alpha, opponent, variant, cardDigest, qDepth + 1, ctx);
+      if (score > bestScore) bestScore = score;
+      if (score > alpha) alpha = score;
+      if (alpha >= beta) return beta;
+    }
+    return bestScore;
+  }
+
+  const rawScore = evaluate(state, variant, cardDigest);
+  const standPat = player === "sente" ? rawScore : -rawScore;
+  if (standPat >= beta) return beta;
+  let currentAlpha = alpha;
+  if (standPat > currentAlpha) currentAlpha = standPat;
+
+  const ownMarks = cardState.noPromoteMarks[player];
+  const captures = getCaptureMovesForSearch(state, player, variant, ownMarks);
+  for (const move of captures) {
+    if (shouldStop(ctx)) return 0;
+    const capturedValue = ORDER_PIECE_VALUES[move.captured!] ?? 100;
+    if (standPat + capturedValue + 200 < currentAlpha) continue;
+    const nextState = applyMoveForSearch(state, move);
+    const childCardState = followMarksForQuiescence(cardState, move, player, opponent);
+    const score = -quiescenceWorld(nextState, childCardState, -beta, -currentAlpha, opponent, variant, cardDigest, qDepth + 1, ctx);
+    if (score >= beta) return beta;
+    if (score > currentAlpha) currentAlpha = score;
+  }
+
+  const promotions = getPromotionMovesForSearch(state, player, variant, ownMarks);
+  for (const move of promotions) {
+    if (shouldStop(ctx)) return 0;
+    const nextState = applyMoveForSearch(state, move);
+    const childCardState = followMarksForQuiescence(cardState, move, player, opponent);
+    const score = -quiescenceWorld(nextState, childCardState, -beta, -currentAlpha, opponent, variant, cardDigest, qDepth + 1, ctx);
+    if (score >= beta) return beta;
+    if (score > currentAlpha) currentAlpha = score;
+  }
+
+  return currentAlpha;
+}
+
+// Issue #235 S4d-2: quiescence 内のマーク追従 (applyMoveForSearch は board-only でマーク非追従)。
+// 取った相手マーク駒のマークを除去 (取られた駒は手駒復帰しない限り永久マークだが盤上からは消える) +
+// 自マーク駒が動いたら from→to 追従。マーク空なら helper が同参照を返し割当ゼロ (fast path)。
+// 特性化テストから検証するため export。
+export function followMarksForQuiescence(
+  cardState: CardGameState,
+  move: Move,
+  player: Player,
+  opponent: Player,
+): CardGameState {
+  let cs = cardState;
+  if (move.captured !== undefined) {
+    cs = removeNoPromoteMark(cs, opponent, move.to);
+  }
+  if (move.from) {
+    cs = moveNoPromoteMark(cs, player, move.from, move.to);
+  }
+  return cs;
+}
+
+// negamaxWorld: WorldState を回す card-aware negamax。既存 negamax の PVS/null-move/LMR/
+// futility/killer/history/quiescence を faithful port し、遷移を applyTurnAction、cardDigest を
+// per-node 更新に置換。
+// S4c-1: 着手生成は move-only (getWorldLegalActions(world, variant, false))。カードは root のみ
+// 展開ゆえ deep node に rootPlayer gate は不要 → rootPlayer 引数を撤去 (計画 §12.10)。
+// S4c-2b: TT (置換表) を配線。key = boardHash ^ cardFold (computeCardFold)。boardHash は board-only
+// hash を引数で受け取り (通常 move は updateHash incremental、card/draw/check_break は computeHash 全量、
+// §13.8)、本関数で cardFold を毎ノード合成して TT key を作る。
+// S4d-4: trap セット済ノードも TT 有効 (旧 trap-skip 撤去)。trap 価値を board 由来 leaf 算出へ
+// 移行 (evaluate の getCardValue) し「同 board + 同 trap defId → 同 score」が成立、誤 hit が消滅。
+function negamaxWorld(
+  world: WorldState,
+  depth: number,
+  alpha: number,
+  beta: number,
+  variant: RuleVariant,
+  cardDigest: CardDigest | undefined,
+  ply: number,
+  isNullMoveAllowed: boolean,
+  ctx: SearchContext,
+  boardHash: ZobristHash,
+): number {
+  ctx.nodes++;
+  if (shouldStop(ctx)) return 0;
+
+  const state = world.gameState;
+  const player = state.currentPlayer;
+  const opponent: Player = player === "sente" ? "gote" : "sente";
+
+  // 終局 (applyTurnAction の evaluateGameEnd が status を設定済): leaf として確定値を返す。
+  // checkmate = 手番側 (player) が詰まされ = player 視点で最悪。stalemate/draw 等は 0
+  // (move-only negamax の stalemate→0 と一致させ、no-card 局面の特性化を保つ)。
+  if (state.status !== "active") {
+    return state.status === "checkmate" ? -(MATE_SCORE - ply) : 0;
+  }
+
+  // S4c-2b: TT probe (check extension 前 = move-only negamax と同位置)。
+  // S4d-4: trap セット済ノードも TT 有効化 (旧 trap-skip 撤去)。trapValueDelta スカラーを board 由来
+  // leaf 算出 (evaluate の getCardValue) へ移行したことで「同 board + 同 trap defId → 同 score」が
+  // 成立し誤 hit が消滅 (§13.8 B-1 解消)。digest 残フィールドは全 board 非依存 (mana/hand/draw/deadMana)、
+  // marks は S4d-3 で参照比較化済 (stale 排除)、trap は computeCardFold が defId fold 済で key 一意。
+  const cardFold = computeCardFold(world.cardState);
+  const ttKey: ZobristHash = {
+    lo: (boardHash.lo ^ cardFold.lo) >>> 0,
+    hi: (boardHash.hi ^ cardFold.hi) >>> 0,
+  };
+  let ttMove: Move | null = null;
+  ctx.ttProbes++;
+  const ttEntry = ctx.tt.probe(ttKey.lo, ttKey.hi);
+  if (ttEntry && ttEntry.depth >= depth) {
+    ctx.ttHits++;
+    ttMove = ttEntry.bestMove;
+    if (ttEntry.flag === "exact") return ttEntry.score;
+    if (ttEntry.flag === "lower" && ttEntry.score > alpha) alpha = ttEntry.score;
+    if (ttEntry.flag === "upper" && ttEntry.score < beta) beta = ttEntry.score;
+    if (alpha >= beta) return ttEntry.score;
+  } else if (ttEntry) {
+    ttMove = ttEntry.bestMove;
+  }
+
+  const inCheck = isInCheck(state, player, variant);
+  if (inCheck && ply < MAX_DEPTH - 2) depth++;
+
+  if (depth <= 0) {
+    return quiescenceWorld(state, world.cardState, alpha, beta, player, variant, cardDigest, 0, ctx);
+  }
+
+  // S4c-1: deep node は move-only (expandCards=false。カードは root のみ展開、計画 §12.10)。
+  let actions = getWorldLegalActions(world, variant, false);
+  // S4b-2b: selector 枝刈り (M/K 指定時のみ。未指定=全展開で従来どおり)。deep node は move-only
+  // ゆえ M=∞ 既定で no-op (S4e で deep-node M 校正余地を残す、MED-2)。
+  if (ctx.selectorM !== undefined || ctx.selectorK !== undefined) {
+    actions = selectBranchCandidates(
+      actions, ctx.selectorM ?? Infinity, ctx.selectorK ?? Infinity, state, player, ply, ctx,
+    );
+  }
+  if (actions.length === 0) {
+    if (inCheck) return -(MATE_SCORE - ply); // 詰み
+    return 0; // ステールメイト
+  }
+
+  // Null Move Pruning (board-based、王手中不可)。盤面のみに依存しカード非依存ゆえ流用可。
+  // S4c-1b 修正: beta が有限のときのみ実行。findBestMoveWorld は aspiration window を持たず
+  // PV を full-window (beta=+Infinity) で探索するため、beta=+Infinity の null 窓 (-beta, -beta+1)
+  // = (-Infinity, -Infinity) が退化し、quiescence に alpha=±Infinity を渡して探索全体に ±Infinity を
+  // 伝播させていた (root 全 action が -Infinity 化 = カードも move も評価不能)。beta=+Infinity では
+  // `nullScore >= beta` は原理的に成立し得ず null-move 自体が無意味ゆえ、skip が正しい
+  // (既存 negamax は aspiration で beta 有限のため本問題は起きない。S4e で aspiration 導入時に再検討)。
+  if (isNullMoveAllowed && depth >= 3 && !inCheck && Number.isFinite(beta)) {
+    const nullWorld: WorldState = {
+      ...world,
+      gameState: {
+        ...state,
+        currentPlayer: opponent,
+        moveHistory: state.moveHistory,
+        positionHistory: state.positionHistory,
+      },
+    };
+    // null-move は盤不変・手番のみ flip ゆえ boardHash は SIDE_TO_MOVE キーのトグルで更新
+    // (cardState 不変なので cardFold は子側で同値再計算)。
+    const nullBoardHash: ZobristHash = {
+      lo: (boardHash.lo ^ SIDE_TO_MOVE_KEY) >>> 0,
+      hi: (boardHash.hi ^ SIDE_TO_MOVE_KEY_HI) >>> 0,
+    };
+    const R = depth >= 6 ? 3 : 2;
+    const nullScore = -negamaxWorld(
+      nullWorld, depth - 1 - R, -beta, -beta + 1, variant, cardDigest, ply + 1, false, ctx, nullBoardHash,
+    );
+    if (nullScore >= beta) return beta;
+  }
+
+  // 順序付け: move を scoreMove 降順 (S4c-2b: ttMove 最優先)、card/draw は後ろ。
+  const sortedActions = [...actions].sort(
+    (a, b) => actionOrderScore(b, ply, ctx, ttMove) - actionOrderScore(a, ply, ctx, ttMove),
+  );
+
+  let maxScore = NEG_INF;
+  let bestMove: Move | null = null;
+  const originalAlpha = alpha;
+  let staticEval: number | null = null;
+
+  for (let i = 0; i < sortedActions.length; i++) {
+    const action = sortedActions[i];
+    const move = action.kind === "move" ? action.move : null;
+    const isCapture = move !== null && move.captured !== undefined;
+    const isPromotion = move !== null && move.promote === true;
+    const isKiller = move !== null && isKillerMove(move, ply, ctx);
+
+    // Futility Pruning (move のみ、depth 1-2 の非戦術手、王手中除外、i>0)
+    if (move !== null && depth <= 2 && !isCapture && !isPromotion && !inCheck && i > 0) {
+      if (staticEval === null) {
+        const rawEval = evaluate(state, variant, cardDigest);
+        staticEval = player === "sente" ? rawEval : -rawEval;
+      }
+      const margin = depth === 1 ? 300 : 500;
+      if (staticEval + margin <= alpha) continue;
+    }
+
+    const applied = applyTurnAction(world, action, { spectatorMode: true });
+    const childWorld = applied.world;
+    const childDigest =
+      cardDigest !== undefined
+        ? updateCardDigest(cardDigest, world.cardState, childWorld.cardState)
+        : undefined;
+    // S4c-2b: child の board-only hash。通常 move (盤 1 手分のみ) は updateHash incremental、
+    // card / draw / check_break 発火 move (boardChangedBeyondMove) は computeHash 全量 (§13.8)。
+    // updateHash の dest 駒種は child board 由来ゆえ no_promote の promote-drop でも child と一致 (R-14)。
+    const childBoardHash: ZobristHash =
+      action.kind === "move" && !applied.boardChangedBeyondMove
+        ? updateHash(boardHash, state, action.move, childWorld.gameState)
+        : computeHash(childWorld.gameState);
+
+    let score: number;
+    if (!applied.turnEnded) {
+      // 手番継続 (S4c-1 は double_move 除外ゆえ未到達。S4c-1d で live 化。保険: 同 player
+      // 継続=符号反転なし)。
+      score = negamaxWorld(
+        childWorld, depth - 1, alpha, beta, variant, childDigest, ply + 1, true, ctx, childBoardHash,
+      );
+    } else if (i === 0) {
+      score = -negamaxWorld(
+        childWorld, depth - 1, -beta, -alpha, variant, childDigest, ply + 1, true, ctx, childBoardHash,
+      );
+    } else {
+      // PVS + LMR (reduction は move のみ)
+      let reduction = 0;
+      if (move !== null && i >= 3 && depth >= 3 && !isCapture && !isPromotion && !isKiller && !inCheck) {
+        reduction = 1;
+        if (i >= 8 && depth >= 5) reduction = 2;
+      }
+      score = -negamaxWorld(
+        childWorld, depth - 1 - reduction, -alpha - 1, -alpha, variant, childDigest, ply + 1, true, ctx, childBoardHash,
+      );
+      if (score > alpha && score < beta) {
+        score = -negamaxWorld(
+          childWorld, depth - 1, -beta, -alpha, variant, childDigest, ply + 1, true, ctx, childBoardHash,
+        );
+      }
+    }
+
+    if (score > maxScore) {
+      maxScore = score;
+      bestMove = move; // S4c-2b: TT store 用 (card/draw 採用時は move=null)
+    }
+    if (score > alpha) alpha = score;
+    if (alpha >= beta) {
+      // β cut: killer/history は move のみ更新 (card/draw は対象外)。停止後は更新しない。
+      if (!ctx.stopped && move !== null) {
+        updateKillerMove(move, ply, ctx);
+        const fromIdx = moveFromIndex(move);
+        const toIdx = moveToIndex(move);
+        ctx.historyTable[fromIdx][toIdx] += depth * depth;
+      }
+      break;
+    }
+  }
+
+  // S4c-2b/S4d-4: TT store (trap 局面も有効。停止後は score 不信頼ゆえ skip、move-only と同)。
+  if (!ctx.stopped) {
+    const flag: "exact" | "lower" | "upper" =
+      maxScore <= originalAlpha ? "upper" : maxScore >= beta ? "lower" : "exact";
+    ctx.tt.store(ttKey.lo, ttKey.hi, depth, maxScore, flag, bestMove);
+  }
+
+  return maxScore;
+}
+
+// findBestMoveWorld: WorldState 探索の root 反復深化。root で move + card/draw を**同列に**深読みし
+// (S4c-1: カードは root のみ展開、§12.10)、最善 TurnAction (bestAction) を返す。move-only argmax
+// (bestMove) + rootMoveScores も保持し、engine の blunder guard が move 採用時に参照する。
+// noise/nearEqual は root アクション上で適用 (beginner/intermediate 弱さ演出、D-B)。
+// 特性化テストから検証するため export。
+export function findBestMoveWorld(
+  state: GameState,
+  cardState: CardGameState,
+  player: Player,
+  options: SearchOptions,
+  variant: RuleVariant,
+  ctx: SearchContext,
+): RootSearchResult | null {
+  const rootWorld: WorldState = { gameState: state, cardState, doubleMove: null };
+  let rootActions = getWorldLegalActions(rootWorld, variant, true); // expandCards=true (root)
+  // S4b-2b: root にも selector を適用 (M/K 指定時のみ)。
+  if (ctx.selectorM !== undefined || ctx.selectorK !== undefined) {
+    rootActions = selectBranchCandidates(
+      rootActions, ctx.selectorM ?? Infinity, ctx.selectorK ?? Infinity, state, player, 0, ctx,
+    );
+  }
+  const rootMoves = rootActions
+    .filter((a): a is Extract<TurnAction, { kind: "move" }> => a.kind === "move")
+    .map((a) => a.move);
+  if (rootMoves.length === 0) return null; // 合法手なし (詰み/ステールメイト)
+  if (rootActions.length === 1 && rootMoves.length === 1) {
+    // 合法手が move 1 つのみ: bestAction も設定 (MINOR、early return の bestAction 漏れ防止)。
+    return { move: rootMoves[0], rootMoveScores: [], bestAction: { kind: "move", move: rootMoves[0] } };
+  }
+
+  const baseDigest =
+    ctx.cardDigest ??
+    (variant.id === "card-shogi" ? computeCardDigest(cardState) : undefined);
+
+  // S4c-2b: TT 配線。root board-only hash + per-request TT 世代更新 (move-only findBestMove:newSearch と同)。
+  // S4d-4: trap セット済 root も TT 有効化 (trap board 由来化で誤 hit 解消、§13.8 B-1)。
+  const rootBoardHash = computeHash(state);
+  ctx.tt.newSearch();
+  const rootCardFold = computeCardFold(cardState);
+  const rootTtKey: ZobristHash = {
+    lo: (rootBoardHash.lo ^ rootCardFold.lo) >>> 0,
+    hi: (rootBoardHash.hi ^ rootCardFold.hi) >>> 0,
+  };
+
+  let bestMove = rootMoves[0];
+  let rootMoveScores: { move: Move; score: number }[] = [];
+  let bestAction: TurnAction = { kind: "move", move: bestMove };
+  let rootActionScores: { action: TurnAction; score: number }[] = [];
+
+  for (let depth = 1; depth <= options.maxDepth; depth++) {
+    if (shouldStop(ctx)) break;
+    const elapsedFromStart = performance.now() - ctx.startedAt;
+    if (elapsedFromStart > options.timeLimitMs * 0.55) break;
+
+    // S4c-2b: root TT 手で move 順序付け (transposition で root が store 済の場合のみ効く。root 自体は
+    // store しない = move-only findBestMove と同、root は rootMoveScores 用に全 action を読むため)。
+    const rootEntry = ctx.tt.probe(rootTtKey.lo, rootTtKey.hi);
+    const rootTtMove: Move | null = rootEntry?.bestMove ?? null;
+    const sortedRoot = [...rootActions].sort(
+      (a, b) => actionOrderScore(b, 0, ctx, rootTtMove) - actionOrderScore(a, 0, ctx, rootTtMove),
+    );
+
+    let alpha = NEG_INF;
+    let bestMoveScore = NEG_INF;
+    let depthBestMove = bestMove;
+    let depthBestActionScore = NEG_INF;
+    let depthBestAction: TurnAction = bestAction;
+    const depthMoveScores: { move: Move; score: number }[] = [];
+    const depthActionScores: { action: TurnAction; score: number }[] = [];
+    let stopped = false;
+    let i = 0;
+
+    for (const action of sortedRoot) {
+      if (shouldStop(ctx)) { stopped = true; break; }
+      // root の全 action は turnEnded=true (S4c-1 は double_move 除外) → 相手番へ反転。
+      const applied = applyTurnAction(rootWorld, action, { spectatorMode: true });
+      const childWorld = applied.world;
+      const childDigest =
+        baseDigest !== undefined
+          ? updateCardDigest(baseDigest, cardState, childWorld.cardState)
+          : undefined;
+      // S4c-2b: child board hash (root: 通常 move=incremental、card/draw=全量)。
+      const childBoardHash: ZobristHash =
+        action.kind === "move" && !applied.boardChangedBeyondMove
+          ? updateHash(rootBoardHash, state, action.move, childWorld.gameState)
+          : computeHash(childWorld.gameState);
+
+      let score: number;
+      if (i === 0) {
+        score = -negamaxWorld(childWorld, depth - 1, NEG_INF, -alpha, variant, childDigest, 1, true, ctx, childBoardHash);
+      } else {
+        score = -negamaxWorld(childWorld, depth - 1, -alpha - 1, -alpha, variant, childDigest, 1, true, ctx, childBoardHash);
+        if (score > alpha) {
+          score = -negamaxWorld(childWorld, depth - 1, NEG_INF, -alpha, variant, childDigest, 1, true, ctx, childBoardHash);
+        }
+      }
+
+      if (ctx.stopped) { stopped = true; break; }
+
+      // 全 action を同列スコアリング (bestAction)。move のみ別途保持 (blunder guard 用 rootMoveScores)。
+      depthActionScores.push({ action, score });
+      if (score > depthBestActionScore) { depthBestActionScore = score; depthBestAction = action; }
+      if (action.kind === "move") {
+        depthMoveScores.push({ move: action.move, score });
+        if (score > bestMoveScore) { bestMoveScore = score; depthBestMove = action.move; }
+      }
+      if (score > alpha) alpha = score;
+      i++;
+    }
+
+    if (stopped) break;
+    bestMove = depthBestMove;
+    bestAction = depthBestAction;
+    rootMoveScores = depthMoveScores;
+    rootActionScores = depthActionScores;
+    ctx.depthCompleted = depth;
+  }
+
+  // Issue #235 S4e: 旧 engagement 下駄 (S4d-5) は **撤去** (2026-06-14)。card/draw を margin 内で
+  // 強制採用する forcing は depth 限定で無駄手を見切れず purposeless な card 使用を招いたため。
+  // bestAction は深読み negamax の argmax (card/draw も move と同列、merit ベース)。
+
+  // S4c-1 (D-B): noise/nearEqual を root アクション上で適用 (findBestMove:711-727 の move-only
+  // noise を TurnAction へ一般化、beginner/intermediate 弱さ演出)。
+  // nearEqual: best から閾値内の root アクションから random (move/card/draw 横断)。
+  if (options.nearEqualThreshold > 0 && rootActionScores.length > 1) {
+    const bestScore = rootActionScores.reduce((m, a) => (a.score > m ? a.score : m), NEG_INF);
+    const candidates = rootActionScores.filter(
+      (a) => a.score >= bestScore - options.nearEqualThreshold,
+    );
+    if (candidates.length > 1) {
+      bestAction = candidates[Math.floor(Math.random() * candidates.length)].action;
+    }
+  }
+  // addNoise: move 上位5 (scoreMoveForOrdering = findBestMove:722 と同関数、MED-1) から random。
+  // card は actionOrderScore 上 -1 で最後尾 ゆえ top-5 はほぼ move = 「ランダム駒 move」(既存挙動踏襲)。
+  if (options.addNoise > 0 && Math.random() < options.addNoise && rootMoves.length > 0) {
+    const sortedMoves = [...rootMoves].sort(
+      (a, b) => scoreMoveForOrdering(b) - scoreMoveForOrdering(a),
+    );
+    const randomIndex = Math.floor(Math.random() * Math.min(rootMoves.length, 5));
+    const noisyMove = sortedMoves[randomIndex];
+    if (noisyMove) bestAction = { kind: "move", move: noisyMove };
+  }
+
+  // bestAction が move のときは move フィールドを一致させる (blunder guard が採用 move と
+  // rootMoveScores の整合を前提とするため)。card/draw 採用時は move-only argmax を保持
+  // (engine が usingCardAction=true で blunder guard を skip = move フィールドは UI 互換用途)。
+  if (bestAction.kind === "move") bestMove = bestAction.move;
+
+  return { move: bestMove, rootMoveScores, bestAction, rootActionScores };
+}
+
 // Issue #193 / PR1d-2: TurnAction (move / draw / playCard) を player 視点のスカラー評価値に変換する純粋関数。
 //
 // 設計意図:
@@ -892,11 +1500,11 @@ function searchDoubleMoveSuperAction(
   const prevDigest =
     ctx?.cardDigest ??
     (variant.id === "card-shogi"
-      ? computeCardDigest(state.cardState, state.gameState)
+      ? computeCardDigest(state.cardState)
       : undefined);
   const innerDigest =
     prevDigest !== undefined
-      ? updateCardDigest(prevDigest, state.cardState, newCardState, afterCardWiredCS.gameState)
+      ? updateCardDigest(prevDigest, state.cardState, newCardState)
       : undefined;
 
   // Step 2: 1 手目候補生成 (move-only)。性能配慮で heuristic 上位 K 手に絞る。
@@ -996,7 +1604,7 @@ function searchDoubleMoveSuperActionKernel(
   // digest prev (root)。ctx 未渡フォールバックは OFF 版 (computeCardDigest) と同方針。
   const prevDigest =
     ctx.cardDigest ??
-    (variant.id === "card-shogi" ? computeCardDigest(state.cardState, state.gameState) : undefined);
+    (variant.id === "card-shogi" ? computeCardDigest(state.cardState) : undefined);
 
   // Step 2: 1 手目候補生成 (move-only)。OFF 同様 heuristic 上位 K 手に絞る。
   const firstMovesAll = getSearchLegalMoves(worldDM.gameState, player, variant);
@@ -1025,7 +1633,7 @@ function searchDoubleMoveSuperActionKernel(
     if (afterFirst.turnEnded) {
       const innerDigest =
         prevDigest !== undefined
-          ? updateCardDigest(prevDigest, state.cardState, worldF.cardState, worldF.gameState)
+          ? updateCardDigest(prevDigest, state.cardState, worldF.cardState)
           : undefined;
       const raw = evaluate(worldF.gameState, variant, innerDigest);
       const score = player === "sente" ? raw : -raw;
@@ -1051,7 +1659,7 @@ function searchDoubleMoveSuperActionKernel(
       // per-combo digest (kernel の worldS.cardState = cost 正確消費 + lazy drawProgress 反映済)。
       const innerDigest =
         prevDigest !== undefined
-          ? updateCardDigest(prevDigest, state.cardState, worldS.cardState, worldS.gameState)
+          ? updateCardDigest(prevDigest, state.cardState, worldS.cardState)
           : undefined;
       const raw = evaluate(worldS.gameState, variant, innerDigest);
       const score = player === "sente" ? raw : -raw;
@@ -1332,11 +1940,11 @@ export function evaluateActionWithLookahead(
   // - standard variant (variant.id !== "card-shogi") では digest は意味を持たないため undefined のまま
   let prevDigest = ctx?.cardDigest;
   if (prevDigest === undefined && variant.id === "card-shogi") {
-    prevDigest = computeCardDigest(state.cardState, state.gameState);
+    prevDigest = computeCardDigest(state.cardState);
   }
   const newDigest =
     prevDigest !== undefined
-      ? updateCardDigest(prevDigest, state.cardState, applied.cardState, applied.gameState)
+      ? updateCardDigest(prevDigest, state.cardState, applied.cardState)
       : prevDigest;
 
   const oppScore = getOpponentResponseScore(
@@ -1354,8 +1962,8 @@ export function evaluateActionWithLookahead(
     return oppScore + getDrawValue(state.gameState, player, state.cardState);
   }
 
-  // PR3-3 C-6 / S3b: トラップ系 (no_promote / check_break) の価値は newDigest.trapValueDelta に
-  // 反映済 (updateCardDigest が applied.gameState から valueModel で局面依存値を precompute、
-  // opp scan の各 evaluate に乗る)。ここでの明示加算は不要 (重複加算回避)。
+  // PR3-3 C-6 / S4d-4: トラップ系 (no_promote / check_break) の価値は evaluate の leaf で
+  // newDigest.trap の defId から getCardValue により board 由来算出される (opp scan の各 evaluate に乗る)。
+  // よって bolt-on でもここでの明示加算は不要 (重複加算回避)。
   return oppScore;
 }

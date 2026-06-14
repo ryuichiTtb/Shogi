@@ -1,7 +1,9 @@
 import type { GameState, Move, Player, Position, RuleVariant } from "../types";
+import type { PieceMark } from "../cards/types";
 import { STANDARD_VARIANT, PIECE_DEF_MAP } from "../variants/standard";
 import { applyMoveForSearch } from "../board";
 import { isInCheck } from "../moves";
+import { isSquareMarked } from "../cards/effects";
 
 // 駒の価値テーブル（MVV-LVA用）
 const MVV_LVA_VALUES: Record<string, number> = {
@@ -18,10 +20,16 @@ function inPromotionZone(row: number, player: Player, rows: number, zoneRows: nu
 
 // 探索用の取り駒生成（全合法手生成を避け、取り駒のみ直接生成）
 // 王手放置チェック付き、MVV-LVAソート済み
+//
+// Issue #235 S4d-2: optional `marks` (= player の noPromoteMarks) を受け、マーク駒 (成り無効化)
+// は promote:true 変種を生成しない (mustPromote マスは promote:false=dead 許容 D-I に置換)。
+// quiescenceWorld の幻成り排除用。marks 未渡 (standard / move-only quiescence) は従来生成と
+// バイト等価 (isSquareMarked が undefined を即 false で fast path)。
 export function getCaptureMovesForSearch(
   state: GameState,
   player: Player,
-  variant: RuleVariant = STANDARD_VARIANT
+  variant: RuleVariant = STANDARD_VARIANT,
+  marks?: PieceMark[],
 ): Move[] {
   const captures: Move[] = [];
   const { rows, cols } = variant.boardSize;
@@ -34,6 +42,9 @@ export function getCaptureMovesForSearch(
 
       const def = PIECE_DEF_MAP.get(piece.type);
       if (!def) continue;
+
+      // S4d-2: この駒がマーク (成り無効) かを 1 回判定し、push 時に成り変種を抑止する。
+      const locked = isSquareMarked(marks, row, col);
 
       for (const pattern of def.movePatterns) {
         for (const [dr, dc] of pattern.directions) {
@@ -53,17 +64,18 @@ export function getCaptureMovesForSearch(
             const mustPromote = mustPromoteAfterMove(to, piece.type, player, variant);
             const canPromote = canPromoteMoveFast(from, to, player, rows, piece.type, variant);
 
-            if (mustPromote) {
+            if (mustPromote && !locked) {
               captures.push({
                 type: "move", from, to, piece: piece.type,
                 captured: target.type, promote: true, player,
               });
             } else {
+              // S4d-2: locked かつ mustPromote のときも不成で着地 (dead 許容 D-I、盤上内)。
               captures.push({
                 type: "move", from, to, piece: piece.type,
                 captured: target.type, promote: false, player,
               });
-              if (canPromote) {
+              if (canPromote && !locked) {
                 captures.push({
                   type: "move", from, to, piece: piece.type,
                   captured: target.type, promote: true, player,
@@ -82,17 +94,18 @@ export function getCaptureMovesForSearch(
                   const mustPromote = mustPromoteAfterMove(to, piece.type, player, variant);
                   const canPromote = canPromoteMoveFast(from, to, player, rows, piece.type, variant);
 
-                  if (mustPromote) {
+                  if (mustPromote && !locked) {
                     captures.push({
                       type: "move", from, to, piece: piece.type,
                       captured: target.type, promote: true, player,
                     });
                   } else {
+                    // S4d-2: locked かつ mustPromote のときも不成で着地 (dead 許容 D-I、盤上内)。
                     captures.push({
                       type: "move", from, to, piece: piece.type,
                       captured: target.type, promote: false, player,
                     });
-                    if (canPromote) {
+                    if (canPromote && !locked) {
                       captures.push({
                         type: "move", from, to, piece: piece.type,
                         captured: target.type, promote: true, player,
@@ -149,10 +162,15 @@ function canPromoteMoveFast(
 
 // 静止探索用: 非取り成り手の生成（歩・香の成りゾーンへの移動）
 // 2三歩成りのような重要な戦術手を静止探索で検知するため
+//
+// Issue #235 S4d-2: 本関数は promote:true 手のみ生成するため、マーク駒 (成り無効) は
+// 着手自体をスキップする (成れない歩/香の不成移動は quiet move で本関数の対象外)。
+// marks 未渡は従来生成とバイト等価。
 export function getPromotionMovesForSearch(
   state: GameState,
   player: Player,
-  variant: RuleVariant = STANDARD_VARIANT
+  variant: RuleVariant = STANDARD_VARIANT,
+  marks?: PieceMark[],
 ): Move[] {
   const promotions: Move[] = [];
   const { rows, cols } = variant.boardSize;
@@ -166,6 +184,9 @@ export function getPromotionMovesForSearch(
 
       // 歩と香のみ（最も重要な非取り成り手）
       if (piece.type !== "pawn" && piece.type !== "lance") continue;
+
+      // S4d-2: マーク駒は成れない → 成り手生成をスキップ (幻成り排除)。
+      if (isSquareMarked(marks, row, col)) continue;
 
       const def = PIECE_DEF_MAP.get(piece.type);
       if (!def || !def.canPromote) continue;

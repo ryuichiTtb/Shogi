@@ -13,6 +13,7 @@
 // (本フェーズ計画) L137 以降参照。
 
 import { getFullLegalMoves } from "@/lib/shogi/moves";
+import type { CardGameState } from "@/lib/shogi/cards/types";
 import type { GameState, Move, Player, RuleVariant } from "@/lib/shogi/types";
 
 /**
@@ -21,11 +22,16 @@ import type { GameState, Move, Player, RuleVariant } from "@/lib/shogi/types";
  * PR1b 段階では `getFullLegalMoves` の透過的な wrap として実装し、
  * 出力 set が `getFullLegalMoves` と完全一致することを fixture で保証する。
  * 内部実装の最適化は後続 PR で行う。
+ *
+ * Issue #235 S4d-2: optional `cardState` を透過追加。card-shogi の WorldState 探索
+ * (quiescenceWorld 王手回避分岐) がマーク認識 (幻成り排除) のため渡す。未渡 (standard /
+ * move-only quiescence) は getFullLegalMoves(cardState=undefined) でバイト等価。
  */
 export function getSearchLegalMoves(
   state: GameState,
   player: Player,
   variant: RuleVariant,
+  cardState?: CardGameState,
 ): Move[] {
-  return getFullLegalMoves(state, player, variant);
+  return getFullLegalMoves(state, player, variant, cardState);
 }

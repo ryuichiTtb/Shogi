@@ -221,6 +221,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         // production 入口の本 route のみ明示 ON にする (案B = default 依存 test/bench の baseline を不変に保つ)。
         // rollback は本行削除のみ。探索は仮想局面評価のため kernel 内で spectatorMode=true 固定 (search.ts、決定論化)。
         useKernelSearch: true,
+        // Issue #235 S4e: WorldState 単一木の production 活性化 (`useTurnActionSearch:true`) は
+        // **取消 (revert、2026-06-14)**。理由: 活性化後の実機確認で AI が **engagement 下駄
+        // (S4d-5、決定A の card 使用促進) により無駄なカード使用を多発** (序盤の過剰ドロー / タダで
+        // 取られる位置への歩打ち / 打った歩を次手番で駒戻し = カード・手番の浪費) させ、改悪と判明。
+        // 根本原因: engagement の bounded-loss tie-break が「margin 内なら毎ターン card を採用」する
+        // ため、depth 限定で card の無駄 (tempo 損・浪費) を見切れない局面で purposeless な card 使用を
+        // 強制していた。**カードを「使わせる」forcing は誤りで、カードを「使いたくなる」= 正しい
+        // 評価で merit ベースに使わせるのが本筋**。production は安定版 (bolt-on、eval バグ修正は D-5 で
+        // 反映済) に戻す。engagement 撤去 + card 評価の本格改善後に再活性化を検討する (本行再追加)。
       },
     );
     // client abort の場合は 499 相当だが、Next.js では client がもう listen して
