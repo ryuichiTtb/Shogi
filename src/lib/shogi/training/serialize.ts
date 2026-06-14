@@ -1,7 +1,7 @@
 // 学習用サンプルの直列化 (Issue #245 フェーズ0)。
 //
-// 局面・カード状態は既存の serializeGameState / serializeCardState を再利用し、
-// ロスレスに JSON 化する (新たな直列化ロジックを増やさない = 冗長排除)。
+// 盤面は学習用 serializeBoardForTraining (moveHistory / positionHistory を除外しサイズ削減)、
+// カード状態は既存 serializeCardState を再利用してロスレスに JSON 化する。
 // イベントは at (= Date.now()) のみ剥がして保存する (計画 §10, M1 NIT-1)。
 // 純粋関数のみ (React / Next / Prisma / Node fs 非依存)。
 

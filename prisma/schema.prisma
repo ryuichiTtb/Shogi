@@ -181,7 +181,7 @@ model TrainingSample {
   plyIndex       Int // 0 始まりの決定通し番号 (試合内で一意)
   moveCount      Int // その時点の gameState.moveCount (card/draw では据置)
   sideToMove     String // "sente" | "gote"
-  boardState     Json // serializeGameState (行動前): 盤面/持ち駒/手番/手数
+  boardState     Json // serializeBoardForTraining (行動前): 盤面/持ち駒/手番/手数/終局 (moveHistory/positionHistory 除外)
   cardState      Json // serializeCardState (行動前): マナ/上限/手札/山札/墓地/トラップ/状態異常/ドロー進捗
   action         Json // 採用 TurnAction { kind: "move" | "draw" | "playCard", ... }
   events         Json // 発生 GameEvent[] (マナ増減/盤面効果/トラップ/二手指し軌跡。at は剥がす)

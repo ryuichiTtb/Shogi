@@ -262,3 +262,17 @@ function playOneGame(deckSpec, difSente, difGote, engineVersion) {
 
 ### boardState の学習専用直列化(M2 MINOR-1 反映)
 `boardState` は `serializeGameState`(= moveHistory/positionHistory を内包)ではなく、`training/serialize.ts` の **`serializeBoardForTraining`** で `board`/`hand`/`currentPlayer`/`status`/`winner`/`moveCount` のみを保存する。`moveHistory`(各 action から)・`positionHistory`(局面列の千日手カウント)は**導出可能ゆえ非保存**(§10「導出可能=保存しない」)。各サンプルに累積配列を丸ごと持つと N decision に対し O(N²) に肥大する(client メモリ + flush ペイロード)ため。
+
+---
+
+## 11. M3 マージ前レビュー反映(2026-06-14、単一 general-purpose agent / Issue #109 観点)
+
+**総合判定: APPROVE_WITH_NITS(マージ可)**。production 非デグレ「副作用なし」断定(対局フックは完全 additive=新規 ref + effect 2 本のみ、既存 state/dispatch/effect 無改変、再描画増なし、env 未設定なら DB アクセスも起きない)。ゲート緑(lint 0err / typecheck / test:ci 695)。BLOCKER/MAJOR なし。指摘は全てドキュメント/コメント陳腐化 → 以下反映済。
+
+- **NIT-1 (反映)**: `scripts/import-training-jsonl.ts`・`--sink jsonl|db` CLI は **未実装(phase0 スコープ外)**。§1.2/§2 の該当記述は将来構想であり、実装は `scripts/selfplay-245.ts`(env 駆動 `SELFPLAY_*`、JSONL 出力のみ)。JSONL→DB 取り込みはフェーズ1以降で必要時に追加。人間対局は DB 直記録、自己対戦は JSONL で、収集自体は成立済み。
+- **NIT-2 (反映)**: `boardState` のコメント「serializeGameState」を実態 `serializeBoardForTraining` へ修正(serialize.ts / types.ts / schema.prisma の3箇所)。
+- **NIT-3 (反映)**: §5 論点1 の「phase0 は駒手粒度を推奨」は **撤回**。粒度は **decision-point(move/playCard/draw 各1サンプル、double_move はターン1)で確定**(§9/§10 が正本)。
+- **NIT-4 (反映=既知制約を残課題へ明記)**:
+  - **長手数対局の flush payload**: server action 引数 samples は ~3.7KB/サンプル(実測)。150手超(≒300サンプル超)で Next server action の bodySizeLimit(既定1MB)に接近/超過しうる。超過時 flush は失敗するが localStorage 退避で**消失せず**(対局再訪で再 flush 余地)、対局保存・プレイ・UI には best-effort で無影響。将来対策候補: `next.config` の bodySizeLimit 引き上げ / 分割送信 / 逐次 DB 追記。
+  - **戻る→進むで同一手を指し直した場合の重複サンプル**: リロードで eventLog が空リセットされるため差分検知が効かず、復元分 + 指し直し分で同一局面が二重に入りうる(winner は単一ゆえ実害軽微)。完全 dedup は eventLog の DB 永続化が必要でスコープ外。学習側で plyIndex unique + 局面 dedup で吸収可能。
+- **未実装(phase0 完了の妨げにならない)**: P0-5(観戦対局の DB 保存=自己対戦が代替)、JSONL→DB import。

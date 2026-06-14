@@ -27,7 +27,7 @@ export interface TrainingSampleData {
   plyIndex: number; // 0 始まりの決定通し番号 (試合内で一意)
   moveCount: number; // その時点の gameState.moveCount (card / draw では据置 = 同値が並ぶ)
   sideToMove: Player; // この局面で行動する側
-  boardState: unknown; // serializeGameState(行動前) の結果 (JSON)
+  boardState: unknown; // serializeBoardForTraining(行動前) の結果 (JSON、moveHistory/positionHistory 除外)
   cardState: unknown; // serializeCardState(行動前) の結果 (JSON)
   action: TurnAction; // 採用した行動
   events: TrainingEvent[]; // 適用で生じたイベント (at 剥がし)
