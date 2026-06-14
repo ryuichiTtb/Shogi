@@ -53,6 +53,12 @@ export interface TrainingGameData {
   sourceGameId?: string | null; // human 時、元 Game.id への参照 (任意)
 }
 
+// 1 試合分のまとまり (メタ + per-decision サンプル列)。JSONL の 1 行 / sink の保存単位。
+export interface TrainingGameRecord {
+  game: TrainingGameData;
+  samples: TrainingSampleData[];
+}
+
 // 1 試合分 (メタ + per-decision サンプル列) を確定保存するシンク。
 //
 // 中断対局 (winner=null) は学習除外ゆえ「終局時に 1 試合分まとめて書く」方式で十分。
