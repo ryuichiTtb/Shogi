@@ -6,6 +6,7 @@ import { isInCheck, getFullLegalMoves } from "../moves";
 import { getSearchLegalMoves } from "./legal-moves";
 import { applyMoveForSearch } from "../board";
 import { evaluate, scoreMoveForOrdering } from "./evaluate";
+import { evaluateLearned, hasLearnedModel } from "./learned/infer";
 import { cardResultIntroducesTadasute, hasHangingPiece } from "./blunder-guard";
 import { simulateCardEffect, moveNoPromoteMark, removeNoPromoteMark } from "../cards/effects";
 import { getCardValue } from "../cards/card-spec-server";
@@ -881,6 +882,25 @@ export function selectBranchCandidates(
 // `followMarksForQuiescence` により **O(m) follow** (移動した自マーク駒を from→to 追従 / 取られた
 // 相手マーク駒を除去) し childCardState を再帰へ渡す (M1 M-3: stale でなく追従で幻成り復活を防ぐ)。
 // マーク空 (現状ほぼ常時) は follow helper が同参照を返し割当ゼロ = 性能不変。
+
+// Issue #245 P1-3: World 探索リーフ評価の切替を 1 箇所へ集約する (M1 MAJOR-1: 呼び出し点は
+// 複数 [stand-pat / qDepth 上限 / futility staticEval] だが切替ロジックはここだけ)。
+// ctx.useLearnedEval かつ学習モデルがロード済のときのみ NN 評価 (evaluateLearned、cp 較正済) を
+// 用い、それ以外は人手 evaluate にフォールバックする (flag OFF / モデル未ロード = production 完全不変)。
+// 戻り値は先手絶対視点 cp (evaluate と同一規約) ゆえ呼び出し側の player 符号変換はそのまま使える。
+function evalLeafWorld(
+  state: GameState,
+  cardState: CardGameState,
+  variant: RuleVariant,
+  cardDigest: CardDigest | undefined,
+  ctx: SearchContext,
+): number {
+  if (ctx.useLearnedEval && hasLearnedModel()) {
+    return evaluateLearned(state, cardState);
+  }
+  return evaluate(state, variant, cardDigest);
+}
+
 function quiescenceWorld(
   state: GameState,
   cardState: CardGameState,
@@ -897,7 +917,7 @@ function quiescenceWorld(
   const opponent: Player = player === "sente" ? "gote" : "sente";
 
   if (qDepth > MAX_Q_DEPTH) {
-    const rawScore = evaluate(state, variant, cardDigest);
+    const rawScore = evalLeafWorld(state, cardState, variant, cardDigest, ctx);
     return player === "sente" ? rawScore : -rawScore;
   }
 
@@ -918,7 +938,7 @@ function quiescenceWorld(
     return bestScore;
   }
 
-  const rawScore = evaluate(state, variant, cardDigest);
+  const rawScore = evalLeafWorld(state, cardState, variant, cardDigest, ctx);
   const standPat = player === "sente" ? rawScore : -rawScore;
   if (standPat >= beta) return beta;
   let currentAlpha = alpha;
@@ -1101,7 +1121,7 @@ function negamaxWorld(
     // Futility Pruning (move のみ、depth 1-2 の非戦術手、王手中除外、i>0)
     if (move !== null && depth <= 2 && !isCapture && !isPromotion && !inCheck && i > 0) {
       if (staticEval === null) {
-        const rawEval = evaluate(state, variant, cardDigest);
+        const rawEval = evalLeafWorld(state, world.cardState, variant, cardDigest, ctx);
         staticEval = player === "sente" ? rawEval : -rawEval;
       }
       const margin = depth === 1 ? 300 : 500;

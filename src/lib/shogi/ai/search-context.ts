@@ -75,6 +75,11 @@ export interface SearchContext {
   // same-engine で比較する (epic §8.4.5 確定基準の実エンジン版)。
   selectorM?: number;
   selectorK?: number;
+  // Issue #245 P1-3: World 探索リーフ評価を学習 NN (evaluateLearned) へ切替えるフラグ。
+  // 既定 false (= 人手 evaluate のまま = production 完全不変)。true かつ学習モデルがロード済の
+  // ときのみ evalLeafWorld が NN 評価へ分岐する (= useTurnActionSearch との二重 flag、M1 MAJOR-2)。
+  // production route は両 flag OFF。bench / test が World 経路上でのみ ON にして検証する。
+  useLearnedEval?: boolean;
   // Issue #235 S1b: kernel applyTurnAction へ渡す spectatorMode (DP-4 決定論化、早指し無効)。
   // 既定 false。AI 探索の lookahead は手番時間を持たないため manaCharge の早指し判定は
   // 本来不要だが、kernel の makeMoveWithEffects に正しく伝播するため保持する。
@@ -104,6 +109,8 @@ export interface CreateSearchContextOptions {
   // Issue #235 S4b-2b: selector 枝刈りパラメータ (PoC-1 再検証用)。
   selectorM?: number;
   selectorK?: number;
+  // Issue #245 P1-3: World リーフ評価を学習 NN へ切替えるフラグ。既定 false (= production 不変)。
+  useLearnedEval?: boolean;
 }
 
 export function createSearchContext(opts: CreateSearchContextOptions): SearchContext {
@@ -125,6 +132,7 @@ export function createSearchContext(opts: CreateSearchContextOptions): SearchCon
     useTurnActionSearch: opts.useTurnActionSearch ?? false,
     selectorM: opts.selectorM,
     selectorK: opts.selectorK,
+    useLearnedEval: opts.useLearnedEval ?? false,
     ttProbes: 0,
     ttHits: 0,
   };
