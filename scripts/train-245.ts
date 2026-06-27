@@ -83,21 +83,24 @@ function main() {
 
   const model = createModel(FEATURE_DIM, HIDDEN, SEED);
   const logEvery = Math.max(1, Math.floor(EPOCHS / 10));
-  const { lossHistory } = trainModel(model, trainRows, {
+  // ★早期停止: 毎エポック val を評価し、最良 val のモデル重みを採用する (P1-4 で過学習が判明、
+  // val はごく初期に底打ちし以降上昇するため、最終重みでなく汎化最良点を保存する)。
+  const { lossHistory, valHistory, bestValLoss, bestEpoch } = trainModel(model, trainRows, {
     epochs: EPOCHS,
     batchSize: BATCH,
     lr: LR,
     weightDecay: WD,
     seed: SEED + 1,
-    onEpoch: (e, loss) => {
-      if (e % logEvery === 0 || e === EPOCHS - 1) {
-        const vl = mse(valRows, model);
-        console.log(`  epoch ${e}: train MSE ${loss.toFixed(4)} | val MSE ${vl.toFixed(4)}`);
-      }
-    },
+    validate: () => mse(valRows, model),
   });
 
-  const finalTrain = lossHistory[lossHistory.length - 1];
+  for (let e = 0; e < lossHistory.length; e += logEvery) {
+    console.log(`  epoch ${e}: train MSE ${lossHistory[e].toFixed(4)} | val MSE ${valHistory[e].toFixed(4)}`);
+  }
+  console.log(`  best: epoch ${bestEpoch} | val MSE ${(bestValLoss ?? 0).toFixed(4)} (この重みを採用)`);
+
+  // trainModel が最良 val の重みを復元済 → finalVal は最良 val と一致する。
+  const finalTrain = lossHistory[bestEpoch ?? lossHistory.length - 1];
   const finalVal = mse(valRows, model);
 
   mkdirSync(dirname(OUT), { recursive: true });

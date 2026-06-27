@@ -17,11 +17,18 @@ export interface TrainOptions {
   weightDecay?: number; // AdamW 流の decoupled L2 (既定 0)
   seed?: number; // シャッフルの決定性 (既定 7)
   onEpoch?: (epoch: number, loss: number) => void; // エポックごとの平均損失コールバック
+  // 早期停止 (P1-4 で過学習が判明: val はごく初期に底打ちし以降上昇)。validate を渡すと毎エポック
+  // 評価し、最良 val のモデル重みを保持して終了時に復元する (= 過学習前の汎化最良点を採用)。
+  validate?: () => number; // val 損失を返す (低いほど良い)
+  patience?: number; // 改善なしが patience エポック続いたら打ち切り (未指定 = 全エポック実行し最良を採用)
 }
 
 export interface TrainResult {
   model: MlpModel;
-  lossHistory: number[]; // エポックごとの平均 MSE
+  lossHistory: number[]; // エポックごとの平均 train MSE
+  valHistory: number[]; // validate 指定時のエポックごと val (未指定なら空)
+  bestValLoss: number | null; // 最良 val (validate 未指定なら null)
+  bestEpoch: number | null; // 最良 val のエポック
 }
 
 const B1 = 0.9;
@@ -60,7 +67,17 @@ export function trainModel(
   const n = rows.length;
   const order = Array.from({ length: n }, (_, i) => i);
   const lossHistory: number[] = [];
+  const valHistory: number[] = [];
   let step = 0;
+
+  // 早期停止用の最良スナップショット (val が改善したエポックの重みを slice コピーで保持)。
+  let bestValLoss: number | null = null;
+  let bestEpoch: number | null = null;
+  let bestW1: Float32Array | null = null;
+  let bestB1: Float32Array | null = null;
+  let bestW2: Float32Array | null = null;
+  let bestB2 = 0;
+  let sinceImprove = 0;
 
   for (let epoch = 0; epoch < epochs; epoch++) {
     // Fisher-Yates シャッフル (seed 決定的)。
@@ -125,9 +142,35 @@ export function trainModel(
     const avg = epochLoss / Math.max(1, n);
     lossHistory.push(avg);
     opts.onEpoch?.(epoch, avg);
+
+    // 早期停止: val を評価し最良点の重みを保持 (validate は mutate 済みモデルを参照)。
+    if (opts.validate) {
+      const vl = opts.validate();
+      valHistory.push(vl);
+      if (bestValLoss === null || vl < bestValLoss) {
+        bestValLoss = vl;
+        bestEpoch = epoch;
+        bestW1 = model.w1.slice();
+        bestB1 = model.b1.slice();
+        bestW2 = model.w2.slice();
+        bestB2 = model.b2;
+        sinceImprove = 0;
+      } else {
+        sinceImprove++;
+        if (opts.patience !== undefined && sinceImprove >= opts.patience) break;
+      }
+    }
   }
 
-  return { model, lossHistory };
+  // 最良 val の重みを復元する (過学習前の汎化最良点を採用)。validate 未指定なら最終重みのまま。
+  if (bestW1 && bestB1 && bestW2) {
+    model.w1.set(bestW1);
+    model.b1.set(bestB1);
+    model.w2.set(bestW2);
+    model.b2 = bestB2;
+  }
+
+  return { model, lossHistory, valHistory, bestValLoss, bestEpoch };
 }
 
 // Adam 更新 (配列パラメータ)。grad は accumulator (バッチ合計)、inv=1/batchSize で平均化。

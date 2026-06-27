@@ -53,4 +53,40 @@ describe("trainModel", () => {
     });
     expect(seen).toEqual([0, 1, 2, 3, 4]);
   });
+
+  it("validate 指定で最良 val の重みを採用し復元する (早期停止)", () => {
+    const train = makeRows();
+    const val = makeRows();
+    const model = createModel(8, 16, 1);
+    const valFn = () => {
+      let s = 0;
+      for (const r of val) {
+        const d = predictSparse(model, r.idx, r.val) - r.label;
+        s += d * d;
+      }
+      return s / val.length;
+    };
+    const res = trainModel(model, train, { epochs: 40, seed: 2, validate: valFn });
+    expect(res.valHistory.length).toBe(40);
+    expect(res.bestEpoch).not.toBeNull();
+    expect(res.bestValLoss).toBeCloseTo(Math.min(...res.valHistory), 10);
+    // 最良重みが復元されている = 最終モデルの val == bestValLoss。
+    expect(valFn()).toBeCloseTo(res.bestValLoss!, 10);
+  });
+
+  it("patience で改善が止まると早期打ち切りする", () => {
+    // val を「4,3,2,1,0(最良),1,2,...」と動かし、patience=2 で底の 2 エポック後に打ち切る。
+    let c = 0;
+    const res = trainModel(createModel(8, 8, 1), makeRows(), {
+      epochs: 200,
+      seed: 3,
+      patience: 2,
+      validate: () => {
+        c += 1;
+        return Math.abs(c - 5); // c=5 (epoch4) で 0 = 最良
+      },
+    });
+    expect(res.bestEpoch).toBe(4);
+    expect(res.lossHistory.length).toBe(7); // epoch 0..6 で打ち切り (200 まで回らない)
+  });
 });
