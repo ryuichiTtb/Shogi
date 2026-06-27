@@ -28,6 +28,9 @@ const OUT = process.env.SELFPLAY_OUT ?? "/tmp/selfplay-245.jsonl";
 const ENGINE_VERSION = process.env.SELFPLAY_ENGINE ?? "bolt-on";
 // 手数上限 (未指定なら playOneGame 既定 = SPECTATOR_MAX_MOVES=200)。動作確認・短時間生成用。
 const MAX_MOVES = process.env.SELFPLAY_MAX_MOVES ? Number(process.env.SELFPLAY_MAX_MOVES) : undefined;
+// 追記モード: 既存 JSONL を truncate せず末尾へ足す。高難易度の長時間生成を複数回に分けて
+// 累積するため (バックグラウンド生成がセッション境界で中断されても進捗を失わない)。
+const APPEND = process.env.SELFPLAY_APPEND === "1";
 
 // production 同等のデッキ構成 (perf-bench と整合)。
 const DECK = [
@@ -52,7 +55,7 @@ const aiChooser: ChooseAction = (world: WorldState, player: Player) => {
 
 function main() {
   mkdirSync(dirname(OUT), { recursive: true });
-  writeFileSync(OUT, ""); // truncate
+  if (!APPEND) writeFileSync(OUT, ""); // 既定は truncate。APPEND 時は既存へ累積。
 
   let totalSamples = 0;
   const winners: Record<"sente" | "gote" | "draw", number> = { sente: 0, gote: 0, draw: 0 };
