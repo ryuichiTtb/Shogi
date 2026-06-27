@@ -117,6 +117,9 @@ function main() {
       samples: rows.length,
       games: gameIds.length,
       valGames: nValGames,
+      // ★M2 MINOR-1: 保留 (val) 試合 index を書き出し、diag が同一集合を読めるようにする
+      // (分割再現を「入力順序の暗黙一致」に頼らず train を単一情報源にする)。
+      valGameIds: [...valGameSet].sort((a, b) => a - b),
       trainSamples: trainRows.length,
       valSamples: valRows.length,
       finalTrainMse: finalTrain,

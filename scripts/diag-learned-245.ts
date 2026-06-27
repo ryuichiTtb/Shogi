@@ -19,6 +19,7 @@
 import { readFileSync } from "node:fs";
 
 import { deserializeCardState } from "@/lib/shogi/cards/state";
+import { computeCardDigest } from "@/lib/shogi/ai/cards/digest";
 import { evaluate } from "@/lib/shogi/ai/evaluate";
 import { winnerToLabel } from "@/lib/shogi/ai/learned/feature-export";
 import { evaluateLearned, loadLearnedModel } from "@/lib/shogi/ai/learned/infer";
@@ -47,7 +48,9 @@ interface Diag {
 }
 
 function main() {
-  loadLearnedModel(JSON.parse(readFileSync(MODEL, "utf8")).model);
+  const payload = JSON.parse(readFileSync(MODEL, "utf8"));
+  loadLearnedModel(payload.model);
+  const meta = payload.meta ?? {};
 
   // 対局を emit 順 (encode と同じ: winner=null は除外) に集める。
   const games: ReturnType<typeof parseTrainingRecordLine>[] = [];
@@ -66,18 +69,32 @@ function main() {
     }
   }
 
-  // 試合単位 train/val 分割を train-245 と同じ手順で再現 (保留集合を揃える)。
-  const rng = mulberry32(SEED);
-  const ids = games.map((_, i) => i);
-  for (let i = ids.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    [ids[i], ids[j]] = [ids[j], ids[i]];
+  // ★保留 (val) 集合の決定 (M2 MINOR-1): train が model.meta.valGameIds を書いていればそれを
+  // 単一情報源として使い、emit 順 index の一致は試合数で検証する (DIAG_IN が学習時と食い違えば警告)。
+  // 無い場合 (旧モデル) は train と同 seed/val_frac で分割を再現するフォールバック。
+  let valSet: Set<number>;
+  if (Array.isArray(meta.valGameIds)) {
+    if (typeof meta.games === "number" && meta.games !== games.length) {
+      console.warn(
+        `⚠️ 試合数不一致 (model.meta.games=${meta.games} ≠ diag 読込=${games.length}): ` +
+          `DIAG_IN が学習時の入力 (ファイル・順序) と異なる可能性。保留集合がズレ結果は無効になりうる。`,
+      );
+    }
+    valSet = new Set(meta.valGameIds as number[]);
+  } else {
+    const rng = mulberry32(SEED);
+    const ids = games.map((_, i) => i);
+    for (let i = ids.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+    }
+    const nVal = Math.min(
+      Math.max(ids.length > 1 ? 1 : 0, Math.floor(ids.length * VAL_FRAC)),
+      Math.max(0, ids.length - 1),
+    );
+    valSet = new Set(ids.slice(0, nVal));
   }
-  const nVal = Math.min(
-    Math.max(ids.length > 1 ? 1 : 0, Math.floor(ids.length * VAL_FRAC)),
-    Math.max(0, ids.length - 1),
-  );
-  const valSet = new Set(ids.slice(0, nVal));
+  const nVal = valSet.size;
 
   const d: Diag = { total: 0, handCorrect: 0, nnCorrect: 0, lateTotal: 0, handLate: 0, nnLate: 0 };
 
@@ -91,7 +108,10 @@ function main() {
       const s = rec.samples[si];
       const state = s.boardState as GameState;
       const card = deserializeCardState(s.cardState);
-      const hand = evaluate(state, CARD_SHOGI_VARIANT);
+      // ★公平化 (M2 MINOR-2): 人手 evaluate にも cardDigest を渡す。未渡だとカード項
+      // (evaluateCardDigest / trap 価値) が skip され、全カード状態を使う NN に有利に偏るため、
+      // 両者を同一情報量 (盤面+カード状態) で比較して「学習の純粋な価値」を測る。
+      const hand = evaluate(state, CARD_SHOGI_VARIANT, computeCardDigest(card));
       const nn = evaluateLearned(state, card);
       const isLate = si >= Math.floor(n / 2);
 
