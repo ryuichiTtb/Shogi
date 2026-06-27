@@ -35,6 +35,7 @@ function main() {
   let games = 0;
   let samples = 0;
   let skippedGames = 0; // winner=null 等で行ゼロの試合
+  let gameIndex = 0; // 出力試合への連番 (試合単位 train/val 分割キー)、全入力ファイル横断で一意。
   const labelCounts: Record<string, number> = { "1": 0, "0": 0, "-1": 0 };
   const sources: Record<string, number> = {};
 
@@ -50,12 +51,15 @@ function main() {
     let chunk = "";
     for (const line of lines) {
       const record = parseTrainingRecordLine(line);
-      const rows = gameToSparseRows(record);
+      // gameIndex は「行を生成した試合」へ一意採番 (試合単位 train/val 分割のキー)。
+      // 中断などで空配列の試合には採番せず、出力試合に連番を振る。
+      const rows = gameToSparseRows(record, gameIndex);
       games += 1;
       if (rows.length === 0) {
         skippedGames += 1;
         continue;
       }
+      gameIndex += 1;
       sources[record.game.source] = (sources[record.game.source] ?? 0) + 1;
       for (const r of rows) {
         chunk += JSON.stringify(r) + "\n";

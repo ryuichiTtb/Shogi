@@ -34,6 +34,7 @@ export function winnerToLabel(winner: Player | "draw" | null | undefined): numbe
 export interface SparseFeatureRow {
   label: number; // 先手絶対視点 z (= ゲーム結果。全サンプル共通)
   sideToMove: Player; // 補助情報 (将来の手番視点正規化・分析用)
+  game: number; // 試合インデックス。★試合単位の train/val 分割でデータリークを防ぐためのキー。
   idx: number[]; // 非ゼロ特徴の索引 (昇順)
   val: number[]; // idx に対応する値
 }
@@ -41,7 +42,11 @@ export interface SparseFeatureRow {
 // 1 サンプル (行動前局面) → 疎特徴行。
 // boardState は serializeBoardForTraining 出力 = 構造的に EncoderPosition を満たす。
 // cardState は serializeCardState 出力 → deserializeCardState で CardGameState へ復元。
-export function sampleToSparseRow(sample: TrainingSampleData, label: number): SparseFeatureRow {
+export function sampleToSparseRow(
+  sample: TrainingSampleData,
+  label: number,
+  game = 0,
+): SparseFeatureRow {
   const pos = sample.boardState as EncoderPosition;
   const card = deserializeCardState(sample.cardState);
   const f = encodePosition(pos, card);
@@ -53,13 +58,14 @@ export function sampleToSparseRow(sample: TrainingSampleData, label: number): Sp
       val.push(f[i]);
     }
   }
-  return { label, sideToMove: sample.sideToMove, idx, val };
+  return { label, sideToMove: sample.sideToMove, game, idx, val };
 }
 
 // 1 試合 → 特徴行列 (ゲーム結果ラベルを全サンプルへ付与)。
 // winner=null (中断) の試合は学習対象外ゆえ空配列を返す。
-export function gameToSparseRows(record: TrainingGameRecord): SparseFeatureRow[] {
+// game (試合インデックス) は呼び出し側が一意に採番し、試合単位の train/val 分割キーとして使う。
+export function gameToSparseRows(record: TrainingGameRecord, game = 0): SparseFeatureRow[] {
   const label = winnerToLabel(record.game.winner);
   if (label === null) return [];
-  return record.samples.map((s) => sampleToSparseRow(s, label));
+  return record.samples.map((s) => sampleToSparseRow(s, label, game));
 }

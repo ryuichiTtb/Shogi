@@ -82,6 +82,11 @@ describe("sampleToSparseRow", () => {
     expect(row.label).toBe(-1);
     expect(row.sideToMove).toBe("gote");
   });
+
+  it("game インデックスを帯同する (既定 0、指定値を反映)", () => {
+    expect(sampleToSparseRow(makeSample(0), 1).game).toBe(0);
+    expect(sampleToSparseRow(makeSample(0), 1, 7).game).toBe(7);
+  });
 });
 
 describe("gameToSparseRows", () => {
@@ -98,5 +103,10 @@ describe("gameToSparseRows", () => {
 
   it("中断 (winner=null) の試合は空配列 (学習除外)", () => {
     expect(gameToSparseRows(makeRecord(null, 5))).toEqual([]);
+  });
+
+  it("game インデックスを全サンプルへ伝播する (試合単位分割キー)", () => {
+    const rows = gameToSparseRows(makeRecord("sente", 4), 3);
+    expect(rows.every((r) => r.game === 3)).toBe(true);
   });
 });
