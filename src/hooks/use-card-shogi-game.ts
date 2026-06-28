@@ -18,7 +18,7 @@ import { isValidCardTargetSquare } from "@/lib/shogi/cards/effects";
 // Step 5 (Issue #107): reducer (Action 型 / state 型 / makeMoveWithEffects /
 // reducer 関数本体) は src/hooks/card-shogi/reducer.ts に分離。本ファイルは
 // useReducer + useEffect + useCallback の薄いフックとして公開 API のみを担う。
-import { reducer } from "./card-shogi/reducer";
+import { reducer, lastMoveHighlightSquares } from "./card-shogi/reducer";
 import { turnActionToReducerActions } from "./card-shogi/ai-action-bridge";
 import { canUndoFromState } from "./card-shogi/undo-policy";
 import { useDbPersistenceGuard } from "./card-shogi/use-db-persistence-guard";
@@ -70,6 +70,9 @@ export function useCardShogiGame({
     promotionPendingMove: null,
     cardState: initialCardState,
     eventLog: [],
+    // Issue #242: 初期化 (新規 / リロード) は moveHistory 末尾手から緑を導出。
+    // リロード後 (eventLog 空) でも通常手の直前手ハイライトを従来どおり維持する。
+    lastActionHighlights: lastMoveHighlightSquares(initialState),
     isDrawing: false,
     pendingDrawPlayer: null,
     pendingDrawSource: null,
@@ -696,6 +699,8 @@ export function useCardShogiGame({
     // Issue #82 (二手指し): 2手目で「禁止された詰み手」(mateInOneAvailable=false 時)。
     // UI で赤×表示し、クリック時にダイアログで禁止理由を説明するため legalMoves と別管理。
     forbiddenMateMoves: state.forbiddenMateMoves,
+    // Issue #242: 直前アクションの緑ハイライト集合 (通常手 / カード作用 / 二手指し軌跡 / 王手崩し)。
+    lastActionHighlights: state.lastActionHighlights,
     isAiThinking: state.isAiThinking,
     promotionPendingMove: state.promotionPendingMove,
     cardState: state.cardState,

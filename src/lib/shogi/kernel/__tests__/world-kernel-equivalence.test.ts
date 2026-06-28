@@ -164,6 +164,7 @@ function makeReducerState(
     pendingPlayCardOpponent: null,
     isCheckBreakAnimating: false,
     doubleMove: null,
+    lastActionHighlights: [],
     undoSnapshots: [],
     spectatorMode: true, // DP-4 決定論化
     isPaused: false,
