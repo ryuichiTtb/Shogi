@@ -1382,6 +1382,40 @@ export function findBestMoveWorld(
   return { move: bestMove, rootMoveScores, bestAction, rootActionScores };
 }
 
+// Issue #245 Stage 2 P2-0 (search-score bootstrapping): 局面の **move-only backed-up 評価値**を
+// 深さ depth で返す (先手絶対視点 cp)。学習ラベル生成専用のエントリ (scripts/label-search-score-245.ts)。
+// findBestMoveWorld は root でカードを全展開する (card×target 爆発) が、本 label は move-only の
+// backed-up 値 (= findBestMoveWorld の rootMoveScores の max と等価) しか使わないため、ここでは
+// move-only の negamaxWorld を 1 度だけ呼ぶ。カード手順の深読みを省くことで label 生成を大幅高速化し
+// (同値)、draw を探索しないことで山札順序 (encoder 非符号化の隠れ状態) への依存を断つ (M1 MAJOR)。
+// カード価値はリーフ評価 (cardDigest) と encoder 特徴で label に残る。useLearnedEval は ctx に従う
+// (iteration-0 は OFF = 人手 evaluate)。production 探索経路は本関数を呼ばない (新規 export = 無影響)。
+export function evaluatePositionWorldMoveOnly(
+  state: GameState,
+  cardState: CardGameState,
+  depth: number,
+  variant: RuleVariant,
+  ctx: SearchContext,
+): number {
+  const world: WorldState = { gameState: state, cardState, doubleMove: null };
+  const digest =
+    ctx.cardDigest ??
+    (variant.id === "card-shogi" ? computeCardDigest(cardState) : undefined);
+  const boardHash = computeHash(state);
+  ctx.tt.newSearch();
+  // 反復深化 (depth 1..depth)。浅い探索が TT / killer / history を埋めて深い探索の手順序を改善し
+  // αβ 枝刈りを効かせる (= 単発の深さ depth 探索より桁違いに速い、標準テク)。各反復は full-window
+  // (NEG_INF, POS_INF) の厳密 minimax 値で aspiration の取りこぼしが無い。root は beta=+Infinity ゆえ
+  // null-move は自動 skip (Number.isFinite ガード) ＝安全。negamaxWorld は手番相対値 (leaf の先手絶対
+  // cp を player 視点へ正規化済) を返す → 先手絶対視点へ戻す。
+  let rel = 0;
+  for (let d = 1; d <= depth; d++) {
+    if (shouldStop(ctx)) break;
+    rel = negamaxWorld(world, d, NEG_INF, POS_INF, variant, digest, 0, true, ctx, boardHash);
+  }
+  return state.currentPlayer === "sente" ? rel : -rel;
+}
+
 // Issue #193 / PR1d-2: TurnAction (move / draw / playCard) を player 視点のスカラー評価値に変換する純粋関数。
 //
 // 設計意図:

@@ -31,6 +31,11 @@ export interface TrainingSampleData {
   cardState: unknown; // serializeCardState(行動前) の結果 (JSON)
   action: TurnAction; // 採用した行動
   events: TrainingEvent[]; // 適用で生じたイベント (at 剥がし)
+  // Issue #245 Stage 2 P2-0: search-score ラベル生成 (Pass 1) が付与する「この局面を World 探索で
+  // 深さ D まで読んだ move-only backed-up 値 (先手絶対視点 cp)」。生 (フェーズ0/1) のサンプルには無く
+  // (undefined)、scripts/label-search-score-245.ts が拡張 JSONL で付与する。null = 合法 move 1 つ以下で
+  // backed-up 不能 (encode 段が outcome のみへフォールバック)。DB スキーマには持たない (JSONL のみ)。
+  searchScore?: number | null;
 }
 
 // 学習用「1試合」のメタ + 勝敗ラベル。勝敗の単一情報源 (サンプルへ非正規化しない)。

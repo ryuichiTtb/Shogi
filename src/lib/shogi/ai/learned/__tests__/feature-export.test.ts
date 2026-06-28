@@ -6,8 +6,10 @@ import { serializeBoardForTraining } from "@/lib/shogi/training/serialize";
 import type { TrainingGameRecord, TrainingSampleData } from "@/lib/shogi/training/types";
 import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
 
+import { squashBootstrapLabel } from "../bootstrap-label";
 import { encodePosition, FEATURE_DIM, type EncoderPosition } from "../encoder";
 import {
+  gameToBootstrapRows,
   gameToSparseRows,
   sampleToSparseRow,
   winnerToLabel,
@@ -108,5 +110,41 @@ describe("gameToSparseRows", () => {
   it("game インデックスを全サンプルへ伝播する (試合単位分割キー)", () => {
     const rows = gameToSparseRows(makeRecord("sente", 4), 3);
     expect(rows.every((r) => r.game === 3)).toBe(true);
+  });
+});
+
+describe("gameToBootstrapRows", () => {
+  const PARAMS = { alpha: 0.5, cpRef: 1000, cpScale: 1000 };
+
+  it("searchScore 付きサンプルは squash(search, outcome) ラベルを付ける", () => {
+    const rec = makeRecord("sente", 2); // outcome z=+1
+    rec.samples[0].searchScore = 200;
+    rec.samples[1].searchScore = -800;
+    const rows = gameToBootstrapRows(rec, PARAMS);
+    expect(rows[0].label).toBeCloseTo(squashBootstrapLabel(200, 1, PARAMS), 10);
+    expect(rows[1].label).toBeCloseTo(squashBootstrapLabel(-800, 1, PARAMS), 10);
+  });
+
+  it("searchScore 無/null のサンプルは outcome のみ squash (α 無効) へフォールバック", () => {
+    const rec = makeRecord("gote", 2); // outcome z=-1
+    rec.samples[0].searchScore = 300;
+    rec.samples[1].searchScore = null;
+    const rows = gameToBootstrapRows(rec, PARAMS);
+    expect(rows[0].label).toBeCloseTo(squashBootstrapLabel(300, -1, PARAMS), 10);
+    // searchScore=null → squash(0, -1, alpha:0) = tanh(-1)
+    expect(rows[1].label).toBeCloseTo(Math.tanh(-1), 10);
+  });
+
+  it("中断 (winner=null) の試合は空配列 (outcome 同様、学習除外)", () => {
+    const rec = makeRecord(null, 3);
+    rec.samples[0].searchScore = 100;
+    expect(gameToBootstrapRows(rec, PARAMS)).toEqual([]);
+  });
+
+  it("game インデックスを全サンプルへ伝播する", () => {
+    const rec = makeRecord("draw", 2);
+    rec.samples.forEach((s) => (s.searchScore = 0));
+    const rows = gameToBootstrapRows(rec, PARAMS, 5);
+    expect(rows.every((r) => r.game === 5)).toBe(true);
   });
 });

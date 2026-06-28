@@ -13,6 +13,7 @@ import { deserializeCardState } from "@/lib/shogi/cards/state";
 import type { Player } from "@/lib/shogi/types";
 import type { TrainingGameRecord, TrainingSampleData } from "@/lib/shogi/training/types";
 
+import { squashBootstrapLabel, type BootstrapLabelParams } from "./bootstrap-label";
 import { encodePosition, type EncoderPosition } from "./encoder";
 
 // 勝敗 → 先手絶対視点のラベル z ∈ {+1, 0, -1} (encoder/評価の「正=先手有利」規約に一致)。
@@ -68,4 +69,26 @@ export function gameToSparseRows(record: TrainingGameRecord, game = 0): SparseFe
   const label = winnerToLabel(record.game.winner);
   if (label === null) return [];
   return record.samples.map((s) => sampleToSparseRow(s, label, game));
+}
+
+// Issue #245 Stage 2: search-score bootstrapping ラベルで 1 試合 → 特徴行列。
+// 各サンプルの searchScore (Pass 1 で付与、先手絶対視点 cp) と試合の outcome (z) を §3.4 の
+// cp 空間混合 → tanh squash でラベル化する (label ∈ [-1,1])。searchScore が無い/null のサンプルは
+// outcome のみを squash したラベル (= α 無効 = 純 outcome) を付け、label 空間を [-1,1] で一貫させる。
+// winner=null (中断) の試合は学習対象外ゆえ空配列を返す (outcome 同様)。
+export function gameToBootstrapRows(
+  record: TrainingGameRecord,
+  params: BootstrapLabelParams,
+  game = 0,
+): SparseFeatureRow[] {
+  const outcomeZ = winnerToLabel(record.game.winner);
+  if (outcomeZ === null) return [];
+  return record.samples.map((s) => {
+    const ss = s.searchScore;
+    const label =
+      ss === undefined || ss === null
+        ? squashBootstrapLabel(0, outcomeZ, { ...params, alpha: 0 }) // search 無 → outcome のみ squash
+        : squashBootstrapLabel(ss, outcomeZ, params);
+    return sampleToSparseRow(s, label, game);
+  });
 }
