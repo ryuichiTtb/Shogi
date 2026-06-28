@@ -1317,6 +1317,7 @@ export function findBestMoveWorld(
         // ゆえ best card は先頭 (cardSeen=0) で非 reduce、低評価の late card (cardSeen>=1) のみ
         // depth-1 縮約する。null 窓が alpha を超えたら full-depth 再探索で取りこぼしを防ぐ (安全)。
         // move は従来どおり非 reduce (root の move 強度温存)。
+        // depth>=3 ガード: 縮約後 depth-1-1 = depth-2 >= 1 を担保し負深さ (quiescence 直行) を防ぐ。
         const reduction = action.kind !== "move" && cardSeen >= 1 && depth >= 3 ? 1 : 0;
         score = -negamaxWorld(childWorld, depth - 1 - reduction, -alpha - 1, -alpha, variant, childDigest, 1, true, ctx, childBoardHash);
         if (score > alpha) {

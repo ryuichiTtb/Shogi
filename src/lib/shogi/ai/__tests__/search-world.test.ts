@@ -412,7 +412,8 @@ describe("S4c-1b: null-move 退化窓修正 (カード有利局面で card を�
 
   it("findBestMoveWithStats(useTurnActionSearch:true) も pawn_return を採用 (production cutover 経路)", () => {
     const gs = buildGameState(placePawnReturnTactic, "sente");
-    // expert: addNoise=0/nearEqual=0 で決定的。selector K=1 (production) でも card が top-1 で残る。
+    // expert: addNoise=0/nearEqual=0 で決定的。selector K=∞ (Issue #245 Stage 1a 足切り廃止) で
+    // 全 pawn_return 対象を候補化し、カード有利な本局面では深読みで card を採用する。
     const r = findBestMoveWithStats(gs, "sente", "expert", CARD_SHOGI_VARIANT, {
       cardState: cs(),
       useTurnActionSearch: true,

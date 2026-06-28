@@ -198,7 +198,7 @@
 - **順序付け是正**: card/draw アクションを「使った直後の浅い評価」(`cardOrderKey` = apply 後の `evalLeafWorld`) で降順ソート。`getCardValue`=0 の盤面カードも実効果で順位付けされ best card が先頭に来る。move は従来 `scoreMove` 維持。tier は move → card → draw。
 - **soft reduction**: late card/draw (cardOrderKey 降順で 2 枚目以降、depth>=3) を null 窓で depth-1 縮約。best card (先頭) は非 reduce。null 窓が alpha 超過時は full-depth 再探索で取りこぼし防止 (αβ 安全)。move は非 reduce (root の move 強度温存)。
 
-**効果 (実測)**: 手札 4 枚・2000ms で K=∞ の depthCompleted が **Stage 1a の 3 → Stage 1b で 4** に回復 (= K=1 ベースライン同等)。**「捨てない (全カード候補化) かつ深さを失わない」が成立**。bestAction は依然 over-valued な盤面カード (= pieceSafety 過大評価、Stage 2 マター)。test:ci 747 緑、bestAction は順序付け変更で不変 (αβ 正当性保持)。
+**効果 (実測)**: 手札 4 枚・2000ms で K=∞ の depthCompleted が **Stage 1a の 3 → Stage 1b で 4** に回復 (= K=1 ベースライン同等)。**「捨てない (全カード候補化) かつ深さを失わない」が成立**。bestAction は依然 over-valued な盤面カード (= pieceSafety 過大評価、Stage 2 マター)。test:ci 747 緑。順序付け変更で **到達最大スコアは不変** (αβ 正当性。argmax は strict `>` ゆえ同点 tie の選択 action は変わりうるが、dormant 経路 + tie は元々実装依存で実害なし。M2 MINOR)。
 
 ## 12. Stage 1 完了範囲と deep-node カード展開 (§4.4) の据え置き判断 (2026-06-28)
 
