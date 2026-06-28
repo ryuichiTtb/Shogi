@@ -33,7 +33,9 @@ export function winnerToLabel(winner: Player | "draw" | null | undefined): numbe
 
 // 疎な特徴行 (非ゼロのみ)。dense は FEATURE_DIM 次元のゼロ配列に idx→val を書けば復元できる。
 export interface SparseFeatureRow {
-  label: number; // 先手絶対視点 z (= ゲーム結果。全サンプル共通)
+  // 先手絶対視点の学習ラベル。outcome 経路 (gameToSparseRows) では z∈{+1,0,-1} (試合結果・全サンプル
+  // 共通)、bootstrap 経路 (gameToBootstrapRows) では §3.4 で squash した連続値 ∈ [-1,1] (サンプル個別)。
+  label: number;
   sideToMove: Player; // 補助情報 (将来の手番視点正規化・分析用)
   game: number; // 試合インデックス。★試合単位の train/val 分割でデータリークを防ぐためのキー。
   idx: number[]; // 非ゼロ特徴の索引 (昇順)

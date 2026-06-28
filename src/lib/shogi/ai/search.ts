@@ -1408,6 +1408,9 @@ export function evaluatePositionWorldMoveOnly(
   // (NEG_INF, POS_INF) の厳密 minimax 値で aspiration の取りこぼしが無い。root は beta=+Infinity ゆえ
   // null-move は自動 skip (Number.isFinite ガード) ＝安全。negamaxWorld は手番相対値 (leaf の先手絶対
   // cp を player 視点へ正規化済) を返す → 先手絶対視点へ戻す。
+  // 呼び出し側 (label 生成) は depth が確実に完了する十分大きい時間予算を渡す前提
+  // (label-search-score-245.ts は既定 600000ms)。万一 depth 1 完了前に shouldStop が刺さると
+  // rel は初期値 0 のまま = 中立評価で返る (探索全体を壊すよりは安全側のフォールバック)。
   let rel = 0;
   for (let d = 1; d <= depth; d++) {
     if (shouldStop(ctx)) break;

@@ -5,6 +5,7 @@
 // で本質的に別物) ゆえ検証しない。
 import { describe, it, expect } from "vitest";
 import {
+  evaluatePositionWorldMoveOnly,
   findBestMove,
   getWorldLegalActions,
   selectBranchCandidates,
@@ -15,6 +16,7 @@ import { computeHash } from "../zobrist";
 import { applyTurnAction } from "../../kernel/world-kernel";
 import { createSearchContext } from "../search-context";
 import { createInitialGameState } from "../../board";
+import { createInitialCardState } from "../../cards/state";
 import { CARD_SHOGI_VARIANT } from "../../variants/card-shogi";
 import { MANA_CAP } from "../../cards/definitions";
 import type { Board, GameState, Piece, Player } from "../../types";
@@ -612,5 +614,35 @@ describe("S4e: engagement 下駄 撤去後の merit ベース card 採用", () =
       CARD_SHOGI_VARIANT, ctx, drawableCs(),
     );
     expect(res?.bestAction?.kind).toBe("move"); // 最善 = 金のタダ取り (card/draw は強制されない)
+  });
+});
+
+// Issue #245 Stage 2 P2-0: search-score ラベル生成の符号規約 (M2 MINOR-1)。
+// evaluatePositionWorldMoveOnly は negamaxWorld の手番相対値を **先手絶対視点** へ変換する
+// (`currentPlayer==="sente" ? rel : -rel`)。符号は #235 で繰り返しバグった最危険領域ゆえ、
+// 「材料有利な側が、手番に依らず先手絶対視点で正しい符号になる」ことを決定的に検証する。
+describe("evaluatePositionWorldMoveOnly (先手絶対視点の符号規約)", () => {
+  const card = createInitialCardState([{ defId: "pawn_return", count: 2 }]);
+  // 初期盤面に持駒の飛車を一方へ追加 = 明確な材料差。手番だけ差し替えて評価する。
+  const evalWithAdvantage = (advantage: Player, currentPlayer: Player): number => {
+    const base = createInitialGameState(CARD_SHOGI_VARIANT);
+    const state: GameState = {
+      ...base,
+      hand: advantage === "sente" ? { sente: { rook: 1 }, gote: {} } : { sente: {}, gote: { rook: 1 } },
+      currentPlayer,
+    };
+    const ctx = createSearchContext({ timeLimitMs: 60000, useLearnedEval: false });
+    return evaluatePositionWorldMoveOnly(state, card, 2, CARD_SHOGI_VARIANT, ctx);
+  };
+
+  it("先手が材料有利なら、手番に依らず先手絶対視点で正", () => {
+    expect(evalWithAdvantage("sente", "sente")).toBeGreaterThan(0);
+    // ★後手手番でも正 = gote 分岐の符号反転 (-rel) が正しいことの検証 (これが無いと負になる)。
+    expect(evalWithAdvantage("sente", "gote")).toBeGreaterThan(0);
+  });
+
+  it("後手が材料有利なら、手番に依らず先手絶対視点で負", () => {
+    expect(evalWithAdvantage("gote", "sente")).toBeLessThan(0);
+    expect(evalWithAdvantage("gote", "gote")).toBeLessThan(0);
   });
 });

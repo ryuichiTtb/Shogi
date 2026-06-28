@@ -33,8 +33,10 @@ export interface TrainingSampleData {
   events: TrainingEvent[]; // 適用で生じたイベント (at 剥がし)
   // Issue #245 Stage 2 P2-0: search-score ラベル生成 (Pass 1) が付与する「この局面を World 探索で
   // 深さ D まで読んだ move-only backed-up 値 (先手絶対視点 cp)」。生 (フェーズ0/1) のサンプルには無く
-  // (undefined)、scripts/label-search-score-245.ts が拡張 JSONL で付与する。null = 合法 move 1 つ以下で
-  // backed-up 不能 (encode 段が outcome のみへフォールバック)。DB スキーマには持たない (JSONL のみ)。
+  // (undefined)、scripts/label-search-score-245.ts が拡張 JSONL で付与する。DB スキーマには持たない
+  // (JSONL のみ)。現状の Pass 1 (evaluatePositionWorldMoveOnly) は終局/合法手なしでも確定値を返すため
+  // 常に number だが、将来の採点不能局面に備え null を許容し、encode 段 (gameToBootstrapRows) は
+  // null/undefined を outcome のみのラベルへフォールバックする防御を持つ。
   searchScore?: number | null;
 }
 
