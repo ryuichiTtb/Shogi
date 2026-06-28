@@ -192,6 +192,23 @@
 
 **テスト是正**: [search-world.test.ts](../../src/lib/shogi/ai/__tests__/search-world.test.ts) の「カード不利な generic 局面では move を選ぶ」は前提 (初期局面=カード中立) が cap 撤廃で崩れたため、**現挙動を pin する特性化テスト**へ是正 (現評価は pieceSafety 過大評価で歩戻しを選ぶ = Stage 2 で評価が改善されたら更新される検知点)。
 
+## 11. Stage 1b 実装記録 (2026-06-28)
+
+**変更** ([search.ts](../../src/lib/shogi/ai/search.ts) `findBestMoveWorld`、root のみ。deep node は move-only ゆえ非変更):
+- **順序付け是正**: card/draw アクションを「使った直後の浅い評価」(`cardOrderKey` = apply 後の `evalLeafWorld`) で降順ソート。`getCardValue`=0 の盤面カードも実効果で順位付けされ best card が先頭に来る。move は従来 `scoreMove` 維持。tier は move → card → draw。
+- **soft reduction**: late card/draw (cardOrderKey 降順で 2 枚目以降、depth>=3) を null 窓で depth-1 縮約。best card (先頭) は非 reduce。null 窓が alpha 超過時は full-depth 再探索で取りこぼし防止 (αβ 安全)。move は非 reduce (root の move 強度温存)。
+
+**効果 (実測)**: 手札 4 枚・2000ms で K=∞ の depthCompleted が **Stage 1a の 3 → Stage 1b で 4** に回復 (= K=1 ベースライン同等)。**「捨てない (全カード候補化) かつ深さを失わない」が成立**。bestAction は依然 over-valued な盤面カード (= pieceSafety 過大評価、Stage 2 マター)。test:ci 747 緑、bestAction は順序付け変更で不変 (αβ 正当性保持)。
+
+## 12. Stage 1 完了範囲と deep-node カード展開 (§4.4) の据え置き判断 (2026-06-28)
+
+**Stage 1 (= §5 の「K-cap 廃止 + soft reductions + 順序付け是正」) は 1a + 1b で完了**。
+
+**deep-node カード展開 (§4.4「多枚カード手順を木で展開」) は据え置く**。理由:
+- §5 の Stage 1 定義に deep-node 展開は含まれない (root の「捨てない」が Stage 1 の主眼)。
+- deep-node でカードを展開すると枝分かれが激増し深さコストが大きい。一方、現在の評価は **カードを過大評価する** (§10 pieceSafety) ため、深い card 手順を読んでも over-valued な線を高コストで探索するだけで **Stage 2 (評価改善) 前は net-value が低い**。
+- → deep-node 展開は **Stage 2 (学習評価) と対で実装**するのが合理的 (評価が card 手順を正しく価値判断できてから木を深く広げる)。
+
 ## 9. 参照
 
 - フェーズ1 PoC 計画: [issue-245-phase1-learned-eval.md](./issue-245-phase1-learned-eval.md)

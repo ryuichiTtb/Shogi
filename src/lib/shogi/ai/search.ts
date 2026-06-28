@@ -1241,6 +1241,22 @@ export function findBestMoveWorld(
     hi: (rootBoardHash.hi ^ rootCardFold.hi) >>> 0,
   };
 
+  // Issue #245 Stage 1b (順序付け是正): card/draw アクションを「使った直後の浅い評価」で
+  // 順序付けするキーを 1 度だけ事前計算する。getCardValue=0 の盤面カードも実効果 (apply 後の
+  // 静的評価) で順位付けされ、best card が先頭に来て αβ 効率が回復する (§4.3)。move は従来
+  // scoreMove (actionOrderScore) を維持。root のアクション集合は深さ間で不変ゆえ再計算不要。
+  const cardOrderKey = new Map<TurnAction, number>();
+  for (const a of rootActions) {
+    if (a.kind === "move") continue;
+    const ap = applyTurnAction(rootWorld, a, { spectatorMode: true });
+    const d =
+      baseDigest !== undefined
+        ? updateCardDigest(baseDigest, cardState, ap.world.cardState)
+        : undefined;
+    // evalLeafWorld は先手絶対視点 cp。手番側 (sente) に良いほど高い → 降順で best card 先頭。
+    cardOrderKey.set(a, evalLeafWorld(ap.world.gameState, ap.world.cardState, variant, d, ctx));
+  }
+
   let bestMove = rootMoves[0];
   let rootMoveScores: { move: Move; score: number }[] = [];
   let bestAction: TurnAction = { kind: "move", move: bestMove };
@@ -1255,9 +1271,17 @@ export function findBestMoveWorld(
     // store しない = move-only findBestMove と同、root は rootMoveScores 用に全 action を読むため)。
     const rootEntry = ctx.tt.probe(rootTtKey.lo, rootTtKey.hi);
     const rootTtMove: Move | null = rootEntry?.bestMove ?? null;
-    const sortedRoot = [...rootActions].sort(
-      (a, b) => actionOrderScore(b, 0, ctx, rootTtMove) - actionOrderScore(a, 0, ctx, rootTtMove),
-    );
+    // Issue #245 Stage 1b: tier (move → card → draw) を保ちつつ、move は scoreMove (actionOrderScore)、
+    // card/draw は浅い評価キー (cardOrderKey) 降順で並べる (best card 先頭 = αβ 効率)。
+    const sortedRoot = [...rootActions].sort((a, b) => {
+      const ta = a.kind === "move" ? 0 : a.kind === "playCard" ? 1 : 2;
+      const tb = b.kind === "move" ? 0 : b.kind === "playCard" ? 1 : 2;
+      if (ta !== tb) return ta - tb;
+      if (ta === 0) {
+        return actionOrderScore(b, 0, ctx, rootTtMove) - actionOrderScore(a, 0, ctx, rootTtMove);
+      }
+      return (cardOrderKey.get(b) ?? 0) - (cardOrderKey.get(a) ?? 0);
+    });
 
     let alpha = NEG_INF;
     let bestMoveScore = NEG_INF;
@@ -1268,6 +1292,7 @@ export function findBestMoveWorld(
     const depthActionScores: { action: TurnAction; score: number }[] = [];
     let stopped = false;
     let i = 0;
+    let cardSeen = 0; // Issue #245 Stage 1b: 処理済み card/draw 数 (late card の soft reduction 用)
 
     for (const action of sortedRoot) {
       if (shouldStop(ctx)) { stopped = true; break; }
@@ -1288,7 +1313,12 @@ export function findBestMoveWorld(
       if (i === 0) {
         score = -negamaxWorld(childWorld, depth - 1, NEG_INF, -alpha, variant, childDigest, 1, true, ctx, childBoardHash);
       } else {
-        score = -negamaxWorld(childWorld, depth - 1, -alpha - 1, -alpha, variant, childDigest, 1, true, ctx, childBoardHash);
+        // Issue #245 Stage 1b: late card/draw を浅く読む soft reduction。card は cardOrderKey 降順
+        // ゆえ best card は先頭 (cardSeen=0) で非 reduce、低評価の late card (cardSeen>=1) のみ
+        // depth-1 縮約する。null 窓が alpha を超えたら full-depth 再探索で取りこぼしを防ぐ (安全)。
+        // move は従来どおり非 reduce (root の move 強度温存)。
+        const reduction = action.kind !== "move" && cardSeen >= 1 && depth >= 3 ? 1 : 0;
+        score = -negamaxWorld(childWorld, depth - 1 - reduction, -alpha - 1, -alpha, variant, childDigest, 1, true, ctx, childBoardHash);
         if (score > alpha) {
           score = -negamaxWorld(childWorld, depth - 1, NEG_INF, -alpha, variant, childDigest, 1, true, ctx, childBoardHash);
         }
@@ -1304,6 +1334,7 @@ export function findBestMoveWorld(
         if (score > bestMoveScore) { bestMoveScore = score; depthBestMove = action.move; }
       }
       if (score > alpha) alpha = score;
+      if (action.kind !== "move") cardSeen++;
       i++;
     }
 
