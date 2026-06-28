@@ -546,13 +546,13 @@ describe("valueModel 局面依存 (S3a): check_break = 自玉露出度", () => {
     expect(vm(makeState(), "sente")).toBeCloseTo(P_MIN_VAL, 5);
   });
 
-  it("露出玉 (近傍が相手の利き) は安全玉より高価値、上限以内", () => {
+  it("露出玉 (相手の利き + 王手) は安全玉より高価値、上限以内", () => {
     const safe = makeState();
     place(safe, { row: 8, col: 4 }, { type: "king", owner: "sente" });
     const exposed = makeState();
     place(exposed, { row: 4, col: 4 }, { type: "king", owner: "sente" });
-    // gote 飛車2枚で玉の近傍に利きを通す (露出度 = 近傍被利き数。王手の有無は価値に非寄与)。
-    place(exposed, { row: 0, col: 4 }, { type: "rook", owner: "gote" }); // 縦 → 近傍{3,4}
+    // gote 飛車2枚で縦横から玉を王手 + 近傍に利きを通す。
+    place(exposed, { row: 0, col: 4 }, { type: "rook", owner: "gote" }); // 縦 → 近傍{3,4} + 玉{4,4}王手
     place(exposed, { row: 4, col: 0 }, { type: "rook", owner: "gote" }); // 横 → 近傍{4,3}
     const exposedVal = vm(exposed, "sente");
     expect(exposedVal).toBeGreaterThan(vm(safe, "sente"));
@@ -560,15 +560,14 @@ describe("valueModel 局面依存 (S3a): check_break = 自玉露出度", () => {
     expect(exposedVal).toBeGreaterThanOrEqual(P_MIN_VAL);
   });
 
-  it("露出度 (近傍被利き数) が大きいほど単調に価値が上がる", () => {
-    // low: 近傍3マス被利き / high: 近傍5マス被利き (いずれも王手なし = 王手は価値に非寄与)。
+  it("露出度が大きいほど単調に価値が上がる", () => {
+    // low: 王手なし・近傍のみ被利き / high: 王手あり・近傍被利き
     const low = makeState();
     place(low, { row: 4, col: 4 }, { type: "king", owner: "sente" });
-    place(low, { row: 0, col: 3 }, { type: "rook", owner: "gote" }); // 列3縦利き → 近傍{3,3}{4,3}{5,3} (玉=列4で非王手)
+    place(low, { row: 0, col: 3 }, { type: "rook", owner: "gote" }); // 列3縦利き (玉は列4=非王手)
     const high = makeState();
     place(high, { row: 4, col: 4 }, { type: "king", owner: "sente" });
-    place(high, { row: 0, col: 3 }, { type: "rook", owner: "gote" }); // 列3縦利き → 近傍{3,3}{4,3}{5,3}
-    place(high, { row: 3, col: 0 }, { type: "rook", owner: "gote" }); // 行3横利き → 近傍{3,3}{3,4}{3,5}
+    place(high, { row: 0, col: 4 }, { type: "rook", owner: "gote" }); // 列4縦利き → 王手 + 近傍{3,4}
     expect(vm(high, "sente")).toBeGreaterThan(vm(low, "sente"));
   });
 });

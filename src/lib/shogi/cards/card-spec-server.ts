@@ -129,6 +129,7 @@ const NO_PROMOTE_E_DAMAGE = 160; // no_promote 発動時の期待効果 (cp、�
 // D-KS=C: 自玉露出度 / 相手成り脅威度は moves / variants プリミティブで自前算出するため、
 // 露出・脅威 → 確率の正規化基準も本実装独自 (PoC-2 の evaluateKingSafety スケールは非継承)。
 const KING_EXPOSURE_REF = 6; // 自玉露出度がこの値で P_MAX に到達
+const KING_IN_CHECK_WEIGHT = 3; // 王手中は露出度に加点 (現に王手される確率が高い)
 const PROMO_THREAT_REF = 6; // 相手成り脅威度がこの値で P_MAX に到達
 const PROMO_PROXIMITY_MAX = 3; // 相手の成り地点までの距離がこの値未満の駒を脅威として加点
 
@@ -136,12 +137,8 @@ function clamp01(x: number): number {
   return x < 0 ? 0 : x > 1 ? 1 : x;
 }
 
-// 自玉露出度: 自玉の 8 近傍のうち相手の利きがあるマス数。
+// 自玉露出度: 自玉の 8 近傍のうち相手の利きがあるマス数 + 王手中の加点。
 // 玉不在 (異常局面) は露出度 0 (= 最小 trigger) を返す。
-// 注 (Issue #245 派生): かつて「王手中は +KING_IN_CHECK_WEIGHT」加点していたが削除した。
-// check_break は checkUsage="forbidden" で王手中はセット不可、かつセット済トラップは王手宣言で
-// 即発火 (王手駒を捕獲) するため、「自玉が王手された状態で check_break の valueModel が呼ばれる」
-// 局面は到達不能 = デッドコードだった。
 function kingExposure(gameState: GameState, player: Player): number {
   const board = gameState.board;
   const boardSize = { rows: board.length, cols: board[0]?.length ?? 0 };
@@ -158,6 +155,7 @@ function kingExposure(gameState: GameState, player: Player): number {
       if (isSquareAttackedByFast(board, { row: r, col: c }, opponent, boardSize)) exposure++;
     }
   }
+  if (isSquareAttackedByFast(board, kingPos, opponent, boardSize)) exposure += KING_IN_CHECK_WEIGHT;
   return exposure;
 }
 
