@@ -25,7 +25,14 @@ interface ShogiBoardProps {
   playerColor: Player;
   selectedSquare: Position | null;
   legalMoves: Move[];
-  lastMove: Move | null;
+  // 直前手の起点・終点 (緑ハイライト)。標準将棋・board-design はこちらを使う。
+  // lastMoveSquares が指定された場合はそちらが優先され、本 prop は無視される (省略可)。
+  lastMove?: Move | null;
+  // Issue #242: 「直前アクションで緑ハイライトすべきマス集合」。カード将棋は通常手に加え
+  // カード作用 (歩戻し/駒戻し/二歩指し/二手指し軌跡/王手崩しの除去位置) も緑にするため、
+  // moveHistory 末尾だけでは表現できない複数マスを reducer 側で算出して渡す。
+  // 指定時は lastMove より優先。空配列 [] は「緑なし」を意味し lastMove へはフォールバックしない。
+  lastMoveSquares?: Position[];
   isAiThinking: boolean;
   inCheck: boolean;
   onSquareClick: (pos: Position) => void;
@@ -134,7 +141,7 @@ const BoardSquare = memo(function BoardSquare({
   // (盤テクスチャが視覚ベースなので OS テーマでの分岐は不要)。
   // 優先順序は元実装の cn() 出現順に合わせる:
   //   forbiddenMate > cardTarget > legalTarget(piece) > legalTarget(empty)
-  //   > selected > kingInCheck > lastMove
+  //   > selected > kingInCheck > lastMoveSq (直前アクション = 通常手 / カード作用マス)
   const tint: string | null = isForbiddenMate
     ? "rgba(220, 38, 38, 0.55)"   // red-600 / 警告
     : isCardTarget
@@ -148,7 +155,7 @@ const BoardSquare = memo(function BoardSquare({
             : isKingInCheck
               ? "rgba(220, 38, 38, 0.65)" // red-600 / 王手警告
               : isLastMoveSq
-                ? "rgba(16, 185, 129, 0.40)" // emerald-500 / 直前手
+                ? "rgba(16, 185, 129, 0.40)" // emerald-500 / 直前アクション
                 : null;
 
   // 盤全体サイズ (= 9 cell + 8 gap)。各マスはここから visual 位置のオフセットだけ
@@ -291,6 +298,7 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
     selectedSquare,
     legalMoves,
     lastMove,
+    lastMoveSquares,
     isAiThinking,
     inCheck,
     onSquareClick,
@@ -344,6 +352,15 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
   const forbiddenMateSet = new Set(
     (forbiddenMateSquares ?? []).map((p) => `${p.row}-${p.col}`)
   );
+  // Issue #242: 直前アクションの緑ハイライト集合。lastMoveSquares 指定時はそれを使い
+  // (空配列なら緑なし。?? は undefined のときだけ lastMove へフォールバックする)、
+  // 未指定の標準将棋・board-design では lastMove の from/to (drop は to のみ) から導出する。
+  const lastMoveSet = new Set(
+    (
+      lastMoveSquares ??
+      (lastMove ? (lastMove.from ? [lastMove.from, lastMove.to] : [lastMove.to]) : [])
+    ).map((p) => `${p.row}-${p.col}`)
+  );
 
   const isGote = playerColor === "gote";
   const cellSize = getShogiBoardCellSize(squareSize);
@@ -368,13 +385,6 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
     isGote,
     onSquareClick,
   });
-
-  const isLastMoveSquare = (row: number, col: number): boolean => {
-    if (!lastMove) return false;
-    const matchTo = lastMove.to.row === row && lastMove.to.col === col;
-    const matchFrom = !!lastMove.from && lastMove.from.row === row && lastMove.from.col === col;
-    return matchTo || matchFrom;
-  };
 
   const isPlayerTurn = currentPlayer === playerColor;
   const canHover = isPlayerTurn && !isAiThinking;
@@ -437,7 +447,7 @@ export const ShogiBoard = memo(forwardRef<ShogiBoardHandle, ShogiBoardProps>(fun
               const isForbiddenMate = forbiddenMateSet.has(`${rowIdx}-${colIdx}`);
               const isNoPromote = noPromoteSet.has(`${rowIdx}-${colIdx}`);
               const isHidden = hiddenSet.has(`${rowIdx}-${colIdx}`);
-              const isLastMoveSq = isLastMoveSquare(rowIdx, colIdx);
+              const isLastMoveSq = lastMoveSet.has(`${rowIdx}-${colIdx}`);
               const isKingInCheck =
                 inCheck &&
                 piece?.type === "king" &&

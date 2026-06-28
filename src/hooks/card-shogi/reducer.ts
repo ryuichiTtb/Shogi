@@ -93,6 +93,12 @@ export interface CardShogiGameStateInternal {
   // legalMoves とは別管理。UI で赤×表示し、クリック時にダイアログで禁止理由を説明するため。
   // 通常時 / 二手指し以外の場面では常に空。
   forbiddenMateMoves: Move[];
+  // Issue #242: 直前の盤面変化アクションで「緑ハイライトすべきマス集合」(直前手の単一情報源)。
+  // 通常手は from/to、カード作用 (歩戻し/駒戻し/二歩指し) は対象マス、二手指しは 2手分の軌跡、
+  // 王手崩しは除去された駒の位置を含む。reducer が各遷移で生成 events から純粋に算出して保持する。
+  // moveHistory に乗らないカード由来の盤面変化を表現するために必要 (旧実装は moveHistory 末尾のみ)。
+  // UI 派生 state のため DB 永続化しない。リロード / 待った復元時は moveHistory 末尾手から再導出。
+  lastActionHighlights: Position[];
   isAiThinking: boolean;
   promotionPendingMove: Move | null;
   cardState: CardGameState;
@@ -227,6 +233,50 @@ function pushUndoSnapshot(state: CardShogiGameStateInternal): UndoSnapshot[] {
 function isKingInCheckAfterMove(gameState: GameState, move: Move): boolean {
   const nextState = applyMove(gameState, move);
   return isInCheck(nextState, move.player, CARD_SHOGI_VARIANT);
+}
+
+// Issue #242: 1 アクションが生成した events から「緑ハイライトすべき盤上マス」を導出する純粋関数。
+// move / card / 王手崩しを後方走査ヒューリスティックなしで一律に扱える (reducer が遷移ごとに
+// 当該アクションの events をそのまま渡すため、ターン境界判定が不要)。
+//   - moveEvent      : 起点 from (あれば) + 終点 to (= 通常手 / 二手指し各手 / 攻め手の軌跡)
+//   - cardPlayEvent  : square ターゲット (歩戻し/駒戻し/二歩指しの作用マス)。returnedPiece は
+//                      target と同マスなので target で代表。mana_up / double_move は target 無 → 空。
+//   - trapTriggerEvent: capturedPieces を持つトラップ (現状 check_break) で除去された (持駒化された)
+//                      駒の元位置。王手崩しでは通常 攻め手の to と同一 (= 重複) だが、開き王手など
+//                      to≠除去位置のケースもあるため capturedPieces を明示的に拾う。
+// 同一マスが複数 event 由来で重複しうる (王手崩しの to=除去位置等) ため、最後に dedupe して
+// 「距離 1 の集合」として返す (UI 側も Set 化するが state を素直な集合に保つ)。
+// handPiece ターゲット (現行 production カードには存在しない) は盤上マスでないため対象外。
+// 盤上マスに作用する新カードを追加する際は本関数の分岐拡張が必要 (AGENTS.md カード追加チェックリスト)。
+function highlightSquaresForEvents(events: GameEvent[]): Position[] {
+  const out: Position[] = [];
+  const seen = new Set<string>();
+  const add = (p: Position) => {
+    const key = `${p.row}-${p.col}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ row: p.row, col: p.col });
+  };
+  for (const ev of events) {
+    if (ev.kind === "moveEvent") {
+      if (ev.move.from) add(ev.move.from);
+      add(ev.move.to);
+    } else if (ev.kind === "cardPlayEvent") {
+      if (ev.target?.kind === "square") add({ row: ev.target.row, col: ev.target.col });
+    } else if (ev.kind === "trapTriggerEvent" && ev.capturedPieces) {
+      for (const cp of ev.capturedPieces) add({ row: cp.row, col: cp.col });
+    }
+  }
+  return out;
+}
+
+// Issue #242: moveHistory 末尾手から緑ハイライトを導出するフォールバック (drop は to のみ)。
+// 初期化 (新規 / リロードで eventLog が空) / 待った復元時に使う。カード由来ハイライトは
+// moveHistory に乗らないためリロードで消えるが、通常手の緑は従来どおり維持される (非デグレ)。
+export function lastMoveHighlightSquares(gameState: GameState): Position[] {
+  const lm = gameState.moveHistory[gameState.moveHistory.length - 1];
+  if (!lm) return [];
+  return lm.from ? [lm.from, lm.to] : [lm.to];
 }
 
 
@@ -602,6 +652,8 @@ export function reducer(
             gameState: result.gameState,
             cardState: result.cardState,
             eventLog: [...state.eventLog, ...result.events],
+            // 二手指し1手目で詰み → 1手目の軌跡を緑に
+            lastActionHighlights: highlightSquaresForEvents(result.events),
             selectedSquare: null,
             selectedHandPiece: null,
             legalMoves: [],
@@ -618,6 +670,8 @@ export function reducer(
           gameState: { ...result.gameState, currentPlayer: dm.active },
           cardState: result.cardState,
           eventLog: [...state.eventLog, ...result.events],
+          // 二手指し1手目の軌跡を緑に (2手目完了時に move2 分を蓄積する)
+          lastActionHighlights: highlightSquaresForEvents(result.events),
           selectedSquare: null,
           selectedHandPiece: null,
           legalMoves: [],
@@ -640,6 +694,11 @@ export function reducer(
           gameState: result.gameState, // currentPlayer は applyMove で正しく opponent に
           cardState: result.cardState,
           eventLog: [...state.eventLog, ...result.events],
+          // 二手指し: 1手目 (state.lastActionHighlights) + 2手目 (result.events) の軌跡を蓄積
+          lastActionHighlights: [
+            ...state.lastActionHighlights,
+            ...highlightSquaresForEvents(result.events),
+          ],
           selectedSquare: null,
           selectedHandPiece: null,
           legalMoves: [],
@@ -660,6 +719,8 @@ export function reducer(
         gameState: result.gameState,
         cardState: result.cardState,
         eventLog: [...state.eventLog, ...result.events],
+        // 通常手 (+ 発動時は王手崩しの除去位置) を緑に。applyTurnEndEffects は ...state で透過保持。
+        lastActionHighlights: highlightSquaresForEvents(result.events),
         selectedSquare: null,
         selectedHandPiece: null,
         legalMoves: [],
@@ -705,6 +766,8 @@ export function reducer(
             gameState: result.gameState,
             cardState: result.cardState,
             eventLog: [...state.eventLog, ...result.events],
+            // 二手指し1手目 (成り) で詰み → 1手目の軌跡を緑に
+            lastActionHighlights: highlightSquaresForEvents(result.events),
             promotionPendingMove: null,
             selectedSquare: null,
             selectedHandPiece: null,
@@ -720,6 +783,8 @@ export function reducer(
           gameState: { ...result.gameState, currentPlayer: dm.active },
           cardState: result.cardState,
           eventLog: [...state.eventLog, ...result.events],
+          // 二手指し1手目 (成り) の軌跡を緑に (2手目完了時に move2 分を蓄積する)
+          lastActionHighlights: highlightSquaresForEvents(result.events),
           promotionPendingMove: null,
           selectedSquare: null,
           selectedHandPiece: null,
@@ -742,6 +807,11 @@ export function reducer(
           gameState: result.gameState,
           cardState: result.cardState,
           eventLog: [...state.eventLog, ...result.events],
+          // 二手指し: 1手目 (state.lastActionHighlights) + 2手目 (result.events) の軌跡を蓄積
+          lastActionHighlights: [
+            ...state.lastActionHighlights,
+            ...highlightSquaresForEvents(result.events),
+          ],
           promotionPendingMove: null,
           selectedSquare: null,
           selectedHandPiece: null,
@@ -762,6 +832,8 @@ export function reducer(
         gameState: result.gameState,
         cardState: result.cardState,
         eventLog: [...state.eventLog, ...result.events],
+        // 通常手 (成り、+ 発動時は王手崩しの除去位置) を緑に。applyTurnEndEffects は ...state で透過保持。
+        lastActionHighlights: highlightSquaresForEvents(result.events),
         promotionPendingMove: null,
         selectedSquare: null,
         legalMoves: [],
@@ -819,6 +891,9 @@ export function reducer(
           pendingCard: null,
         },
         eventLog: target.eventLog,
+        // Issue #242: 復元後の盤の直前手 (moveHistory 末尾) を緑に再導出する。
+        // 待った復元分のカード由来ハイライトは moveHistory に乗らないため通常手基準へ戻す。
+        lastActionHighlights: lastMoveHighlightSquares(target.gameState),
         // UI 一時 state はすべてクリア
         selectedSquare: null,
         selectedHandPiece: null,
@@ -1080,11 +1155,16 @@ export function reducer(
       // (王手解除ガードは applyCardEffectLogic 内蔵)。
       if (!applied) return state;
 
+      // Issue #242: カード作用マスを緑に。歩戻し/駒戻し/二歩指しは square ターゲットを持つので
+      // それを緑にする。mana_up / トラップセットは盤面を変えず空集合になるため、直前の緑
+      // (= 相手の直前手など) を保持してちらつきを防ぐ (盤面が見た目変わらない以上、緑も変えない)。
+      const cardHighlights = highlightSquaresForEvents([applied.event]);
       return {
         ...state,
         gameState: applied.gameState,
         // kernel は pendingCard を変更しないため明示クリア (カード使用 = pendingCard 解消)。
         cardState: { ...applied.cardState, pendingCard: null },
+        lastActionHighlights: cardHighlights.length ? cardHighlights : state.lastActionHighlights,
         // 駒選択状態もクリア
         selectedSquare: null,
         selectedHandPiece: null,
@@ -1173,6 +1253,8 @@ export function reducer(
         gameState: dm.preFirstMoveState.gameState,
         cardState: { ...dm.preFirstMoveState.cardState, pendingCard: null },
         eventLog: dm.preFirstMoveState.eventLog,
+        // Issue #242: 1手目を取り消した → 復元盤の直前手 (相手の手) を緑に戻す (move1 の緑を残さない)
+        lastActionHighlights: lastMoveHighlightSquares(dm.preFirstMoveState.gameState),
         selectedSquare: null,
         selectedHandPiece: null,
         legalMoves: [],
@@ -1207,6 +1289,8 @@ export function reducer(
         gameState: dm.preCardState.gameState,
         cardState: { ...dm.preCardState.cardState, pendingCard: null },
         eventLog: dm.preCardState.eventLog,
+        // Issue #242: カード使用自体を取り消した → 復元盤の直前手 (相手の手) を緑に戻す
+        lastActionHighlights: lastMoveHighlightSquares(dm.preCardState.gameState),
         selectedSquare: null,
         selectedHandPiece: null,
         legalMoves: [],
