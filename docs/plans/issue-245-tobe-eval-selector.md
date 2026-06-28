@@ -181,6 +181,17 @@
 
 ---
 
+## 10. Stage 1a 実装記録・調査結果 (2026-06-28)
+
+**変更**: `SELECTOR_PARAMS` の card 上限 K=1 → ∞ (全難易度、[engine.ts](../../src/lib/shogi/ai/engine.ts))。route OFF 据置ゆえ production 無回帰 (test:ci 747 緑)。
+
+**判明した重要事実 (実コード調査)**:
+- **盲点は §1.4 の記述より深刻**: `pawn_return` / `piece_return` 等は **targeted card** で、手札 1 枚から **対象ごとに多数の playCard アクション** (pawn_return は自歩 9 通り) を生成する。旧 K=1 は対象も含め上位 1 つしか残さず、**良い対象を構造的に見落としていた** (「カード1種だけ」でなく「狙いどころのほぼ全部」を捨てていた)。
+- **「カード下駄」は存在しなかった**: cap 撤廃で初期局面の AI が「飛車の前の歩を戻す」を最善視 (深読み +40 / 静的 +88) する現象を評価内訳で分解した結果、駆動項は **`pieceSafety` = +85** (飛筋が開き相手の無防備な歩を「タダ取り可能」と見る浅い 1 手検知。取りに行く飛車の深入りリスクは見ない)。cardDigest 項はむしろ **−7**。**= カードへの意図的加点ではなく、盤面評価 (pieceSafety) の浅さがカードで露出した**もの。これは実機のカード乱用 (無意味な歩戻し) の正体であり、手作り係数では綺麗に直せない = **Stage 2 (学習評価) が本丸**。
+- **深さコスト**: 手札 4 枚 (盤面系3+トラップ1)・2000ms で depthCompleted **4→3 (−1 ply)**。root の card×target 分岐増が原因 → **Stage 1b (card-aware ordering + soft reductions) で回収する動機**。
+
+**テスト是正**: [search-world.test.ts](../../src/lib/shogi/ai/__tests__/search-world.test.ts) の「カード不利な generic 局面では move を選ぶ」は前提 (初期局面=カード中立) が cap 撤廃で崩れたため、**現挙動を pin する特性化テスト**へ是正 (現評価は pieceSafety 過大評価で歩戻しを選ぶ = Stage 2 で評価が改善されたら更新される検知点)。
+
 ## 9. 参照
 
 - フェーズ1 PoC 計画: [issue-245-phase1-learned-eval.md](./issue-245-phase1-learned-eval.md)

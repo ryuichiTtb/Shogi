@@ -425,17 +425,25 @@ describe("S4c-1b: null-move 退化窓修正 (カード有利局面で card を�
     expect(r.stats.usedCardAction).toBe(true);
   });
 
-  it("カード不利な generic 局面では move を選ぶ (engagement 撤去後 = merit ベース)", () => {
-    // 初期局面 + pawn_return。序盤で自歩を戻す具体的利得は無く best move と僅差 (gap≈0) ゆえ、
-    // engagement 下駄を撤去した現行では tie は move が勝つ (argmax は move を先順) = カードを強制しない。
-    // S4e で「margin 内なら毎ターン card 採用」する forcing を撤去したため、purposeless な card 使用なし。
+  it("初期局面: 全 pawn_return 対象を探索し現評価が最善視する歩戻しを採用 (Issue #245 Stage 1a 特性化)", () => {
+    // Issue #245 Stage 1a (足切り廃止 K=1→∞): pawn_return は自歩 9 通りを対象に取れる。
+    // 旧 K=1 cap は 9 対象のうち 1 つしか残さず「飛車の前の歩を戻す」高評価対象を見落として
+    // いた (= 盲点)。cap 撤廃で全対象を探索した結果、現在の手作り評価は「飛車の前の歩を戻す」を
+    // 最善視し playCard を採用する。
+    //
+    // ★これは "正しい" 好手ではなく現評価の **既知の過大評価** を pin する特性化テストである:
+    //   飛筋を開けると相手の歩を pieceSafety が「タダ取り可能」と +85 する浅い 1 手検知が原因
+    //   (取りに行く飛車の深入りリスクを見ていない)。カード下駄ではなく盤面評価の浅さ。
+    //   調査詳細: docs/plans/issue-245-tobe-eval-selector.md (2026-06-28)。
+    //   本来の修正は Stage 2 (学習評価)。Stage 2 で評価が改善されると本テストは更新される
+    //   見込み (= 過大評価が解消された検知点)。
     const gs = createInitialGameState(CARD_SHOGI_VARIANT);
     const r = findBestMoveWithStats(gs, "sente", "expert", CARD_SHOGI_VARIANT, {
       cardState: cs(),
       useTurnActionSearch: true,
     });
     expect(r.action).not.toBeNull();
-    expect(r.action!.kind).toBe("move");
+    expect(r.action!.kind).toBe("playCard");
   });
 });
 

@@ -81,14 +81,20 @@ export const DIFFICULTY_PARAMS: Record<Difficulty, DifficultyParams> = {
 
 // Issue #235 S4c-1b: WorldState 探索 selector の難易度別パラメータ。
 // M = root で残す move 上位数 (Infinity = 全 move = move 強度温存。LMR が late move を縮約)。
-// K = root で残す card 上位数 (PoC-1 実測で K=1 PASS / K=2 FAIL = depthCompleted same-engine
-//     control 比 ±10% band、計画 §11)。draw は K>0 で含む。
-// S4c-1 は全難易度 M=∞/K=1。難易度別の実校正 (card-LMR/budget 導入) は S4e。
+// K = root で残す card 上位数。
+//
+// Issue #245 ToBe Stage 1a (足切り廃止): K=1 → Infinity (全 card 候補化)。旧 K=1 は
+//   getCardValue 降順で上位 1 枚だけ残すため、盤面カード (getCardValue=0) が手札トラップ
+//   (正値) に押し出され探索に到達しない盲点があった (docs/plans/issue-245-tobe-eval-selector.md §1.4)。
+//   K=∞ で「捨てない」= 全カードを候補に入れ、良し悪しは深読みが判定する。root のカード数は
+//   手札枚数で有界 (deep node は現状 move-only) ゆえコスト増は限定的。深さ影響は bench で確認。
+//   card 間の順序付け是正 (getCardValue) と card-aware reductions は Stage 1b、deep node の
+//   カード展開 (多枚カード手順) は Stage 1c。route OFF 据置ゆえ production (bolt-on) 不変。
 const SELECTOR_PARAMS: Record<Difficulty, { M: number; K: number }> = {
-  beginner: { M: Infinity, K: 1 },
-  intermediate: { M: Infinity, K: 1 },
-  advanced: { M: Infinity, K: 1 },
-  expert: { M: Infinity, K: 1 },
+  beginner: { M: Infinity, K: Infinity },
+  intermediate: { M: Infinity, K: Infinity },
+  advanced: { M: Infinity, K: Infinity },
+  expert: { M: Infinity, K: Infinity },
 };
 
 // Issue #235 S4e: 旧 engagement 下駄 (ENGAGEMENT_PARAMS、S4d-5) は **撤去** (2026-06-14)。
