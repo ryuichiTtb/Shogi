@@ -22,9 +22,15 @@
 // env:
 //   LABEL_IN        入力対局 JSONL (既定 local-data/training/human-245.jsonl)
 //   LABEL_OUT       出力拡張 JSONL (既定 local-data/training/labeled-245.jsonl)
+//   LABEL_IN        入力対局 JSONL (カンマ区切りで複数可、既定 local-data/training/human-245.jsonl)
 //   LABEL_DEPTH     探索深さ D (既定 4)
 //   LABEL_TIME_MS   1 局面あたりの安全網時間上限 (既定 600000 = 探索が D で完了し切れる十分大)
-//   LABEL_MAX_GAMES 処理する試合数の上限 (既定 = 全件。smoke では 1〜2)
+//   LABEL_MAX_GAMES 処理する試合数の上限 (全入力横断・shard 適用前に先頭から切出。既定 = 全件)
+//   LABEL_SHARD_COUNT / LABEL_SHARD_INDEX  並列分散 (8 コア活用)。COUNT 分割の INDEX 番目の試合のみ
+//     処理する (試合 i を i%COUNT===INDEX のシャードが担当)。既定 1/0 = 分散なし。各シャードは別 OUT
+//     を指定し、完了後に concat する (シェルの起動側が担う)。production 非依存のデータ準備スクリプト。
+//   ★winner=null (中断) の試合は採点せず除外する (encode 段でも除外され学習に使われないため、
+//     高コストな探索を無駄打ちしない)。
 
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -37,11 +43,16 @@ import { parseTrainingRecordLine, trainingRecordToJsonl } from "@/lib/shogi/trai
 import type { GameState } from "@/lib/shogi/types";
 import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
 
-const IN = process.env.LABEL_IN ?? "local-data/training/human-245.jsonl";
+const IN = (process.env.LABEL_IN ?? "local-data/training/human-245.jsonl")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 const OUT = process.env.LABEL_OUT ?? "local-data/training/labeled-245.jsonl";
 const DEPTH = Number(process.env.LABEL_DEPTH ?? "4");
 const TIME_MS = Number(process.env.LABEL_TIME_MS ?? "600000");
 const MAX_GAMES = Number(process.env.LABEL_MAX_GAMES ?? String(Number.MAX_SAFE_INTEGER));
+const SHARD_COUNT = Math.max(1, Number(process.env.LABEL_SHARD_COUNT ?? "1"));
+const SHARD_INDEX = Math.max(0, Number(process.env.LABEL_SHARD_INDEX ?? "0"));
 
 // 学習用 boardState は moveHistory / positionHistory を除外している (serializeBoardForTraining)。
 // 探索は両者を参照しうる (千日手検出等) ため空配列で補って GameState を復元する。局面を独立採点
@@ -58,16 +69,34 @@ function main() {
   mkdirSync(dirname(OUT), { recursive: true });
   writeFileSync(OUT, ""); // truncate (Pass 1 は α 非依存ゆえ毎回作り直しでよい)
 
-  const content = readFileSync(IN, "utf8");
-  const lines = content.split("\n").filter((l) => l.trim().length > 0);
+  // 全入力ファイルの行を結合 → MAX_GAMES で先頭から切出 (shard 適用前) → このシャード担当行のみ抽出。
+  // 全シャードが同じ「先頭 MAX_GAMES 試合」の窓を見るよう、切出はシャード分割の前に行う。
+  let allLines: string[] = [];
+  for (const file of IN) {
+    try {
+      allLines.push(...readFileSync(file, "utf8").split("\n").filter((l) => l.trim().length > 0));
+    } catch {
+      console.warn(`[label-search-score-245] 入力が読めません (skip): ${file}`);
+    }
+  }
+  if (Number.isFinite(MAX_GAMES)) allLines = allLines.slice(0, MAX_GAMES);
+  const myLines = allLines.filter((_, i) => i % SHARD_COUNT === SHARD_INDEX);
+  console.log(
+    `shard ${SHARD_INDEX}/${SHARD_COUNT}: 全 ${allLines.length} 試合中 ${myLines.length} 試合を担当`,
+  );
 
   let games = 0;
   let samples = 0;
+  let skipped = 0; // winner=null (中断) で採点除外した試合
   const startedAll = performance.now();
 
-  for (const line of lines) {
-    if (games >= MAX_GAMES) break;
+  for (const line of myLines) {
     const record = parseTrainingRecordLine(line);
+    // winner=null (中断) は encode 段でも除外される → 高コストな探索を無駄打ちせず skip。
+    if (record.game.winner == null) {
+      skipped += 1;
+      continue;
+    }
     const gStart = performance.now();
 
     for (const sample of record.samples) {
@@ -91,7 +120,7 @@ function main() {
   }
 
   const totalMs = performance.now() - startedAll;
-  console.log(`\nDone. ${games} 試合 / ${samples} サンプル -> ${OUT}`);
+  console.log(`\nDone (shard ${SHARD_INDEX}/${SHARD_COUNT}). ${games} 試合 / ${samples} サンプル (中断除外 ${skipped}) -> ${OUT}`);
   console.log(`  depth=${DEPTH}, 総時間 ${(totalMs / 1000).toFixed(1)}s, 平均 ${(totalMs / Math.max(1, samples)).toFixed(0)} ms/局面`);
 }
 
