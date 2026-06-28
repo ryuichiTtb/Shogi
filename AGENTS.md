@@ -443,7 +443,34 @@ Issue対応やコード変更依頼で実装・検証・コミットが完了し
      - `state.doubleMove` のような明示的な「ターン継続中」フラグを reducer に持つこと
      - DB 保存スキップ (`src/hooks/use-card-shogi-game.ts` の save useEffect) も該当フラグを考慮
 
-5. **AI / 探索側の更新** (Issue #193 / PR1a で追加)
+5. **盤上背景色 (緑ハイライト) 制御の確認** (Issue #242)
+   - **要件仕様の段階で必ず定義する**: 新カードの仕様検討時に「このカードを使用した後、盤上の
+     どのマスを緑 (直前アクション) ハイライトすべきか」を UX 観点で決める。原則「カード使用で
+     見た目が変化した盤上マス」を緑にし、パッと見でどこに作用したかが分かるようにする
+     (背景: 旧実装はカードによる駒移動で緑が出ず、視認できなかった = Issue #242)。
+   - **実装の単一情報源**: 緑ハイライトは `src/hooks/card-shogi/reducer.ts` の
+     `lastActionHighlights` (`CardShogiGameStateInternal`) が単一情報源。各遷移が生成した
+     `GameEvent` から純粋関数 `highlightSquaresForEvents` が導出し、UI へは ShogiBoard の
+     `lastMoveSquares` prop で渡る (`moveHistory` 末尾だけでは表現できないカード由来の盤面変化を
+     表現するための仕組み)。
+   - **判断指針**:
+     - **`cardPlayEvent` に square ターゲットを載せる型** (歩戻し / 駒戻し / 二歩指し系)
+       → `highlightSquaresForEvents` が target マスを自動で緑にする (**追加対応不要**)
+     - **複数マスに作用する / target を持たず特定マスを変える / 新しい event kind で盤面を変える型**
+       → `highlightSquaresForEvents` の event 分岐を拡張して作用マスを push する
+     - **駒を除去して持駒化する型** (王手崩し系)
+       → 除去位置を `trapTriggerEvent.capturedPieces` 等から拾う (既存分岐でカバー)
+     - **盤面を見た目変えない型** (mana_up / トラップセット等)
+       → ハイライト不要。現挙動は「直前の緑を保持」(ちらつき防止) で OK
+     - **複数 ply (二手指し系)** は各手の軌跡を蓄積する (reducer の `doubleMove` 分岐を参照)
+   - `handPiece` ターゲットは盤上マスでないため緑対象外。同一マスの重複は
+     `highlightSquaresForEvents` 側で dedupe 済。
+   - **テスト**: 盤上を変えるカードは reducer 統合テストで `next.lastActionHighlights` が作用マスを
+     含むことを 1〜2 ケース固定する (例: `reducer.test.ts` の Issue #242 describe 群)。
+   - **影響なしの場合** (= 盤面を見た目変えないカード) は本節に「該当なし (盤面非変更)」と
+     PR コメントで明記すれば足りる。
+
+6. **AI / 探索側の更新** (Issue #193 / PR1a で追加)
    - **新カードが AI 側 `getLegalActions` で候補生成に含まれる**ように `src/lib/shogi/ai/turn/current-rules.ts` (or PR1d で追加される `action-generator.ts`) を更新
      - PR1a 時点では move-only のため自動的にスキップされるが、PR1d で playCard 候補生成が入るときに必要
    - **新カードが評価関数 (cardDigest) に影響する場合** は `src/lib/shogi/ai/cards/digest.ts` の `CardDigest` interface に該当フィールドを追加 (PR1d 段階で構造を整備)
@@ -453,12 +480,12 @@ Issue対応やコード変更依頼で実装・検証・コミットが完了し
    - **bench fixture に新カード使用局面を追加** (棋力影響を測定): `perf-bench.test.ts` に新カード保有の midgame 局面を含めて、新カード追加前後で `depthCompleted` ±10% 以内であることを確認
    - **影響なしの場合 (= 効果が単発で AI が探索に組み込めない種類)** は本節に「該当なし」と PR コメントで明記すれば足りる
 
-6. **テスト**
+7. **テスト**
    - `npm run test:ci -- src/hooks/card-shogi/__tests__/undo-policy.test.ts` が緑であることを確認
    - 新カードの効果関数のユニットテストを `effects.test.ts` に追加
    - 1 ターン複数 ply 系の場合は reducer 統合テストも追加
 
-7. **prisma seed**
+8. **prisma seed**
    - `ALL_CARD_DEFS` 経由で自動的に Card マスタ・DeckEntry・PlayerCardCollection に投入される
    - 既存ローカル DB に反映するには `npm run db:seed` を実行
 
