@@ -389,6 +389,7 @@ export function CardShogiGame({
     selectedHandPiece,
     legalMoves,
     forbiddenMateMoves,
+    lastActionHighlights,
     isAiThinking,
     promotionPendingMove,
     cardState,
@@ -1733,7 +1734,7 @@ export function CardShogiGame({
               playerColor={playerColor}
               selectedSquare={selectedSquare}
               legalMoves={legalMoves}
-              lastMove={gameState.moveHistory[gameState.moveHistory.length - 1] ?? null}
+              lastMoveSquares={lastActionHighlights}
               isAiThinking={isAiThinking}
               inCheck={inCheck}
               onSquareClick={handleSquareClick}
@@ -2146,7 +2147,7 @@ export function CardShogiGame({
               playerColor={playerColor}
               selectedSquare={selectedSquare}
               legalMoves={legalMoves}
-              lastMove={gameState.moveHistory[gameState.moveHistory.length - 1] ?? null}
+              lastMoveSquares={lastActionHighlights}
               isAiThinking={isAiThinking}
               inCheck={inCheck}
               onSquareClick={handleSquareClick}

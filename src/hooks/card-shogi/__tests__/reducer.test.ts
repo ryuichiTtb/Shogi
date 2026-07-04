@@ -6,7 +6,7 @@ import type { GameState } from "@/lib/shogi/types";
 import type { CardGameState, CardInstance, GameEvent } from "@/lib/shogi/cards/types";
 import { MANA_CAP, DRAW_COST, AUTO_DRAW_INTERVAL, CARD_DEFS } from "@/lib/shogi/cards/definitions";
 
-import { reducer, type CardShogiGameStateInternal } from "../reducer";
+import { reducer, lastMoveHighlightSquares, type CardShogiGameStateInternal } from "../reducer";
 
 // ===== fixtures =====
 
@@ -47,6 +47,8 @@ function makeInitialState(
     isCheckBreakAnimating: false,
     doubleMove: null,
     forbiddenMateMoves: [],
+    // Issue #242: 直前アクションの緑ハイライト集合。production init と同様 moveHistory 末尾から導出。
+    lastActionHighlights: lastMoveHighlightSquares(gameState),
     undoSnapshots: [],
     // Issue #193 / PR1a (B-3 対応): 観戦モード関連の新規フィールド。既存テストでは
     // 常に false (= 人間プレイ時の挙動) を想定。観戦モード固有の挙動 (早指し disable /
@@ -785,6 +787,16 @@ describe("reducer / 王手崩しトラップ (check_break)", () => {
       expect(trapEvent.capturedPieces).toBeDefined();
       expect(trapEvent.capturedPieces!.length).toBeGreaterThan(0);
     }
+    // Issue #242: 王手崩し発動時、攻め手の from/to + 除去された駒の位置を緑ハイライトに含む。
+    // 本ケースでは攻め駒の着地 (3,4) = 除去位置なので dedupe され 2 マス [{3,4},{4,4}] になる。
+    expect(next.lastActionHighlights).toEqual(
+      expect.arrayContaining([
+        { row: 4, col: 4 }, // from (攻め手の起点)
+        { row: 3, col: 4 }, // to = 除去された王手駒の位置
+      ]),
+    );
+    // 重複 (to=除去位置) は除去され距離 1 集合になっている
+    expect(next.lastActionHighlights).toHaveLength(2);
   });
 
   it("COMMIT_CHECK_BREAK で isCheckBreakAnimating がクリアされる", () => {
@@ -2254,5 +2266,276 @@ describe("reducer / 演出オーケストレーション統合 (S1d cutover)", (
     expect(next.pendingPlayCardOpponent).toBe("gote");
     const last = next.eventLog[next.eventLog.length - 1];
     expect(last.kind).toBe("trapSetEvent");
+  });
+});
+
+describe("reducer / Issue #242: 直前アクション緑ハイライト (lastActionHighlights)", () => {
+  it("MAKE_MOVE (通常手): from/to を緑ハイライトに設定", () => {
+    const state = makeInitialState();
+    const move = {
+      type: "move" as const,
+      player: "sente" as const,
+      piece: "pawn",
+      from: { row: 6, col: 4 },
+      to: { row: 5, col: 4 },
+    };
+    const next = reducer(state, { type: "MAKE_MOVE", move });
+    expect(next.lastActionHighlights).toEqual([
+      { row: 6, col: 4 },
+      { row: 5, col: 4 },
+    ]);
+  });
+
+  it("CONFIRM_PLAY_CARD (歩戻し): 戻した駒の元位置を緑ハイライトに設定", () => {
+    const c = card("pr1", "pawn_return");
+    const state = makeInitialState(
+      undefined,
+      makeInitialCardState({
+        mana: { sente: 5, gote: 0 },
+        hand: { sente: [c], gote: [] },
+        pendingCard: {
+          instance: c,
+          player: "sente",
+          phase: "confirm",
+          target: { kind: "square", row: 6, col: 4 },
+        },
+      }),
+    );
+    const next = reducer(state, { type: "CONFIRM_PLAY_CARD" });
+    // 効果が適用された (盤上の歩が持ち駒へ戻り、マスが空に) こと
+    expect(next.gameState.board[6][4]).toBeNull();
+    // 元位置を緑に
+    expect(next.lastActionHighlights).toEqual([{ row: 6, col: 4 }]);
+  });
+
+  it("CONFIRM_PLAY_CARD (駒戻し): 戻した駒の元位置を緑ハイライトに設定", () => {
+    const c = card("pcr1", "piece_return");
+    // sente の銀 (初期盤面 row8,col2) を持ち駒へ戻す。玉露出しない駒なので合法。
+    const state = makeInitialState(
+      undefined,
+      makeInitialCardState({
+        mana: { sente: 5, gote: 0 },
+        hand: { sente: [c], gote: [] },
+        pendingCard: {
+          instance: c,
+          player: "sente",
+          phase: "confirm",
+          target: { kind: "square", row: 8, col: 2 },
+        },
+      }),
+    );
+    const next = reducer(state, { type: "CONFIRM_PLAY_CARD" });
+    expect(next.gameState.board[8][2]).toBeNull();
+    expect(next.lastActionHighlights).toEqual([{ row: 8, col: 2 }]);
+  });
+
+  it("CONFIRM_PLAY_CARD (二歩指し): 打った位置を緑ハイライトに設定", () => {
+    const c = card("dp1", "double_pawn");
+    // sente に持ち駒の歩を 1 枚追加 (初期盤面は row6 全列に未成り歩あり = 同列条件を満たす)。
+    const baseGame = makeInitialState().gameState;
+    const game: GameState = {
+      ...baseGame,
+      hand: { ...baseGame.hand, sente: { ...baseGame.hand.sente, pawn: 1 } },
+    };
+    const state = makeInitialState(
+      game,
+      makeInitialCardState({
+        mana: { sente: 5, gote: 0 },
+        hand: { sente: [c], gote: [] },
+        pendingCard: {
+          instance: c,
+          player: "sente",
+          phase: "confirm",
+          target: { kind: "square", row: 5, col: 4 },
+        },
+      }),
+    );
+    const next = reducer(state, { type: "CONFIRM_PLAY_CARD" });
+    expect(next.gameState.board[5][4]).toEqual({ type: "pawn", owner: "sente" });
+    expect(next.lastActionHighlights).toEqual([{ row: 5, col: 4 }]);
+  });
+
+  it("CONFIRM_PLAY_CARD (mana_up): 盤面非変更カードは直前の緑ハイライトを保持 (ちらつき防止)", () => {
+    const c = card("mu1", "mana_up");
+    const prevHighlights = [
+      { row: 2, col: 7 },
+      { row: 3, col: 7 },
+    ];
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(
+        undefined,
+        makeInitialCardState({
+          mana: { sente: 5, gote: 0 },
+          hand: { sente: [c], gote: [] },
+          pendingCard: { instance: c, player: "sente", phase: "confirm" },
+        }),
+      ),
+      lastActionHighlights: prevHighlights,
+    };
+    const next = reducer(state, { type: "CONFIRM_PLAY_CARD" });
+    // mana_up は盤面を変えない → square ハイライト無 → 直前の緑を維持
+    expect(next.lastActionHighlights).toEqual(prevHighlights);
+  });
+
+  it("二手指し: 1手目で move1、2手目完了で move1+move2 の軌跡を蓄積", () => {
+    const dmCard = card("dm1", "double_move");
+    const snapshot = {
+      gameState: makeInitialState().gameState,
+      cardState: makeInitialCardState(),
+      eventLog: [],
+    };
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState(
+        undefined,
+        makeInitialCardState({
+          mana: { sente: 5, gote: 0 },
+          hand: { sente: [dmCard], gote: [] },
+        }),
+      ),
+      doubleMove: {
+        active: "sente",
+        movesLeft: 2,
+        mateInOneAvailable: false,
+        cardInstance: dmCard,
+        cardCost: 5,
+        preFirstMoveState: snapshot,
+        preCardState: snapshot,
+      },
+    };
+    const move1 = {
+      type: "move" as const,
+      player: "sente" as const,
+      piece: "pawn",
+      from: { row: 6, col: 4 },
+      to: { row: 5, col: 4 },
+    };
+    const afterMove1 = reducer(state, { type: "MAKE_MOVE", move: move1 });
+    expect(afterMove1.doubleMove?.movesLeft).toBe(1);
+    expect(afterMove1.lastActionHighlights).toEqual([
+      { row: 6, col: 4 },
+      { row: 5, col: 4 },
+    ]);
+
+    const move2 = {
+      type: "move" as const,
+      player: "sente" as const,
+      piece: "pawn",
+      from: { row: 6, col: 3 },
+      to: { row: 5, col: 3 },
+    };
+    const afterMove2 = reducer(afterMove1, { type: "MAKE_MOVE", move: move2 });
+    expect(afterMove2.doubleMove).toBeNull();
+    expect(afterMove2.lastActionHighlights).toEqual([
+      { row: 6, col: 4 },
+      { row: 5, col: 4 },
+      { row: 6, col: 3 },
+      { row: 5, col: 3 },
+    ]);
+  });
+
+  it("UNDO: 復元後の moveHistory 末尾手から緑ハイライトを再導出", () => {
+    const m0 = {
+      type: "move" as const,
+      player: "gote" as const,
+      piece: "pawn",
+      from: { row: 2, col: 4 },
+      to: { row: 3, col: 4 },
+    };
+    const m1 = {
+      type: "move" as const,
+      player: "sente" as const,
+      piece: "pawn",
+      from: { row: 6, col: 4 },
+      to: { row: 5, col: 4 },
+    };
+    const m2 = {
+      type: "move" as const,
+      player: "gote" as const,
+      piece: "pawn",
+      from: { row: 2, col: 5 },
+      to: { row: 3, col: 5 },
+    };
+    const snap0Game: GameState = {
+      ...makeInitialState().gameState,
+      moveHistory: [m0],
+      moveCount: 1,
+    };
+    const snap1Game: GameState = {
+      ...makeInitialState().gameState,
+      moveHistory: [m0, m1],
+      moveCount: 2,
+    };
+    const state: CardShogiGameStateInternal = {
+      ...makeInitialState({
+        ...makeInitialState().gameState,
+        moveHistory: [m0, m1, m2],
+        moveCount: 3,
+      }),
+      // 現在は m2 の軌跡が緑 (UNDO 前)
+      lastActionHighlights: [
+        { row: 2, col: 5 },
+        { row: 3, col: 5 },
+      ],
+      eventLog: [
+        { kind: "moveEvent", move: m0, at: 0 },
+        { kind: "moveEvent", move: m1, at: 1 },
+        { kind: "moveEvent", move: m2, at: 2 },
+      ],
+      undoSnapshots: [
+        { gameState: snap0Game, cardState: makeInitialCardState(), eventLog: [] },
+        {
+          gameState: snap1Game,
+          cardState: makeInitialCardState(),
+          eventLog: [
+            { kind: "moveEvent", move: m0, at: 0 },
+            { kind: "moveEvent", move: m1, at: 1 },
+          ],
+        },
+      ],
+    };
+    const next = reducer(state, { type: "UNDO" });
+    // UNDO 成立 (snap0 = m0 まで巻き戻る)
+    expect(next).not.toBe(state);
+    // 復元後の moveHistory 末尾 (= m0) の from/to が緑に
+    expect(next.lastActionHighlights).toEqual([
+      { row: 2, col: 4 },
+      { row: 3, col: 4 },
+    ]);
+  });
+
+  it("lastMoveHighlightSquares: 空は []、通常手は from+to、打ちは to のみ", () => {
+    const empty = makeInitialState().gameState;
+    expect(lastMoveHighlightSquares(empty)).toEqual([]);
+
+    const withMove: GameState = {
+      ...empty,
+      moveHistory: [
+        {
+          type: "move",
+          player: "sente",
+          piece: "pawn",
+          from: { row: 6, col: 4 },
+          to: { row: 5, col: 4 },
+        },
+      ],
+    };
+    expect(lastMoveHighlightSquares(withMove)).toEqual([
+      { row: 6, col: 4 },
+      { row: 5, col: 4 },
+    ]);
+
+    const withDrop: GameState = {
+      ...empty,
+      moveHistory: [
+        {
+          type: "drop",
+          player: "sente",
+          piece: "pawn",
+          dropPiece: "pawn",
+          to: { row: 4, col: 4 },
+        },
+      ],
+    };
+    expect(lastMoveHighlightSquares(withDrop)).toEqual([{ row: 4, col: 4 }]);
   });
 });
