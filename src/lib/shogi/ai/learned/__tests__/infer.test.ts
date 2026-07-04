@@ -8,9 +8,11 @@ import { createModel, serializeModel } from "../mlp";
 import {
   CP_SCALE,
   evaluateLearned,
+  getInferenceCount,
   getLearnedModel,
   hasLearnedModel,
   loadLearnedModel,
+  resetInferenceCount,
 } from "../infer";
 
 function gs() {
@@ -22,6 +24,7 @@ function cs() {
 
 afterEach(() => {
   loadLearnedModel(null); // シングルトンをテスト間でリセット
+  resetInferenceCount(); // カウンタもテスト間干渉を避けてリセット
 });
 
 describe("loadLearnedModel / hasLearnedModel", () => {
@@ -62,5 +65,23 @@ describe("evaluateLearned", () => {
   it("同一モデル・同一局面は同一評価 (決定的)", () => {
     loadLearnedModel(serializeModel(createModel(2478, 16, 5)));
     expect(evaluateLearned(gs(), cs())).toBe(evaluateLearned(gs(), cs()));
+  });
+});
+
+describe("getInferenceCount / resetInferenceCount (P2-2a silent fallback 検知)", () => {
+  it("実 forward でインクリメント / reset で 0 / 終局は非計数", () => {
+    loadLearnedModel(serializeModel(createModel(2478, 8, 1)));
+    resetInferenceCount();
+    expect(getInferenceCount()).toBe(0);
+    evaluateLearned(gs(), cs());
+    expect(getInferenceCount()).toBe(1);
+    evaluateLearned(gs(), cs());
+    expect(getInferenceCount()).toBe(2);
+    // 終局 (checkmate / 非 active) は predictSparse 前に早期 return ゆえカウントしない。
+    evaluateLearned({ ...gs(), status: "checkmate", winner: "sente" }, cs());
+    evaluateLearned({ ...gs(), status: "repetition" }, cs());
+    expect(getInferenceCount()).toBe(2);
+    resetInferenceCount();
+    expect(getInferenceCount()).toBe(0);
   });
 });

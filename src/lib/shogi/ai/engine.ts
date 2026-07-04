@@ -184,6 +184,11 @@ export interface FindBestMoveOptions {
   // 未指定時 false (= bolt-on 経路 = flag OFF、S4d 削除まで rollback/test/bench 用に残置)。
   // route.ts が card-shogi で true を渡し、カードを move と同じ深さで読む production 経路にする。
   useTurnActionSearch?: boolean;
+  // Issue #245 P2-2a: World 探索リーフ評価を学習 NN (evaluateLearned) へ切替えるフラグ。
+  // 未指定時 false (= 人手 evaluate = production 完全不変)。useTurnActionSearch:true (world 経路) と
+  // 併用したときのみ evalLeafWorld が NN 分岐する二重 flag (search-context.ts の useLearnedEval)。
+  // 勝率ハーネス / bench が検証で ON にする。route.ts は本フラグを渡さない (= 常に OFF)。
+  useLearnedEval?: boolean;
 }
 
 export interface FindBestMoveResult {
@@ -256,6 +261,9 @@ export function findBestMoveWithStats(
     useTurnActionSearch: worldPathActive,
     selectorM: worldPathActive ? selectorParams.M : undefined,
     selectorK: worldPathActive ? selectorParams.K : undefined,
+    // Issue #245 P2-2a: 学習 eval フラグ (既定 OFF)。evalLeafWorld は useTurnActionSearch 経路の
+    // リーフでのみ本フラグ + hasLearnedModel() の両真時に NN へ分岐 (route 未伝播で production 不変)。
+    useLearnedEval: options.useLearnedEval ?? false,
   });
 
   // 定石ブック (序盤のみ)。

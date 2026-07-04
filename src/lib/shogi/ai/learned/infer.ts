@@ -39,6 +39,18 @@ export function hasLearnedModel(): boolean {
   return LEARNED_MODEL !== null;
 }
 
+// Issue #245 P2-2a: 実 NN forward 回数のカウンタ (module-local)。勝率ハーネスが「学習経路が
+// 一度も通らずに人手 eval へ silent fallback したまま勝率≈50% で誤 PASS する」事故を検知するため、
+// 対局後に呼出 > 0 を assert する。production は useLearnedEval OFF ゆえ evaluateLearned 非到達 =
+// カウンタ据置 (0)。終局の早期 return (下記) はカウントしない (実 forward のみ)。
+let INFERENCE_COUNT = 0;
+export function getInferenceCount(): number {
+  return INFERENCE_COUNT;
+}
+export function resetInferenceCount(): void {
+  INFERENCE_COUNT = 0;
+}
+
 // 学習評価: 局面 → 先手絶対視点の cp スコア。モデル未ロード時は呼び出し側が evalLeafWorld で
 // ガードする前提だが、防御的に未ロードなら例外を投げる (静かな 0 評価で探索が壊れるのを防ぐ)。
 export function evaluateLearned(state: GameState, cardState: CardGameState): number {
@@ -65,6 +77,7 @@ export function evaluateLearned(state: GameState, cardState: CardGameState): num
       val.push(f[i]);
     }
   }
+  INFERENCE_COUNT += 1; // 実 forward のみ計数 (終局早期 return は除外、silent fallback 検知用)。
   const y = predictSparse(model, idx, val);
   return y * CP_SCALE;
 }

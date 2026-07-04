@@ -3,7 +3,7 @@
 // correctness (合法手返却・詰み検知・終了・手番ゲート・double_move 除外)。
 // 「move-only と byte 等価」は達成不可 (WorldState 探索は per-node cardDigest + applyTurnAction
 // で本質的に別物) ゆえ検証しない。
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import {
   evaluatePositionWorldMoveOnly,
   findBestMove,
@@ -12,6 +12,8 @@ import {
   updateHash,
 } from "../search";
 import { findBestMoveWithStats } from "../engine";
+import { createModel, serializeModel } from "../learned/mlp";
+import { getInferenceCount, loadLearnedModel, resetInferenceCount } from "../learned/infer";
 import { computeHash } from "../zobrist";
 import { applyTurnAction } from "../../kernel/world-kernel";
 import { createSearchContext } from "../search-context";
@@ -644,5 +646,68 @@ describe("evaluatePositionWorldMoveOnly (先手絶対視点の符号規約)", ()
   it("後手が材料有利なら、手番に依らず先手絶対視点で負", () => {
     expect(evalWithAdvantage("gote", "sente")).toBeLessThan(0);
     expect(evalWithAdvantage("gote", "gote")).toBeLessThan(0);
+  });
+});
+
+// Issue #245 Stage 2 P2-2a: engine (findBestMoveWithStats) の useLearnedEval 配線。
+// evalLeafWorld は useTurnActionSearch 経路 (world) のリーフでのみ useLearnedEval && hasLearnedModel()
+// の両真時に NN へ分岐する二重 flag。NN 呼出カウンタで「実際に NN 経路を通ったか」を検証し、
+// silent fallback (未ロードで人手 eval のまま) と明示 OFF を区別する = 勝率ハーネスの誤 PASS 防止。
+describe("findBestMoveWithStats の useLearnedEval 配線 (P2-2a)", () => {
+  const fixture = () => {
+    const state = createInitialGameState(CARD_SHOGI_VARIANT);
+    const base = createInitialCardState([
+      { defId: "pawn_return", count: 4 },
+      { defId: "no_promote", count: 4 },
+      { defId: "double_pawn", count: 4 },
+    ]);
+    const cardState: CardGameState = { ...base, mana: { sente: 12, gote: 12 } };
+    return { state, cardState };
+  };
+
+  afterEach(() => {
+    loadLearnedModel(null);
+    resetInferenceCount();
+  });
+
+  it("world 経路 + useLearnedEval:true + モデルロードで NN が呼ばれる", () => {
+    loadLearnedModel(serializeModel(createModel(2478, 8, 1)));
+    resetInferenceCount();
+    const { state, cardState } = fixture();
+    findBestMoveWithStats(state, "sente", "expert", CARD_SHOGI_VARIANT, {
+      cardState,
+      useKernelSearch: true,
+      useTurnActionSearch: true,
+      useLearnedEval: true,
+      maxDepth: 2,
+    });
+    expect(getInferenceCount()).toBeGreaterThan(0);
+  });
+
+  it("useLearnedEval:false は NN 非経由 (人手 eval、明示 OFF = production 経路)", () => {
+    loadLearnedModel(serializeModel(createModel(2478, 8, 1)));
+    resetInferenceCount();
+    const { state, cardState } = fixture();
+    findBestMoveWithStats(state, "sente", "expert", CARD_SHOGI_VARIANT, {
+      cardState,
+      useKernelSearch: true,
+      useTurnActionSearch: true,
+      useLearnedEval: false,
+      maxDepth: 2,
+    });
+    expect(getInferenceCount()).toBe(0);
+  });
+
+  it("world 経路 OFF (useTurnActionSearch 未指定) なら useLearnedEval:true でも NN 未到達", () => {
+    loadLearnedModel(serializeModel(createModel(2478, 8, 1)));
+    resetInferenceCount();
+    const { state, cardState } = fixture();
+    findBestMoveWithStats(state, "sente", "expert", CARD_SHOGI_VARIANT, {
+      cardState,
+      useKernelSearch: true,
+      useLearnedEval: true,
+      maxDepth: 2,
+    });
+    expect(getInferenceCount()).toBe(0);
   });
 });
