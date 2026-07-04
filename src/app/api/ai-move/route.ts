@@ -27,6 +27,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getCurrentAppUser } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/prisma";
 import { findBestMoveWithStats } from "@/lib/shogi/ai/engine";
+// Issue #245 Preview 配線: 学習 NN の呼出カウンタ (silent fallback 検知)。infer.ts は production 探索
+// 経路 (evalLeafWorld) が既に import 済ゆえ新規バンドル増なし。1.67MB 重み JSON は preview-model の
+// 動的 import 側にのみ含まれ、本 import には含まれない。
+import { getInferenceCount, resetInferenceCount } from "@/lib/shogi/ai/learned/infer";
 // Issue #193 / PR1c-2 Phase B: SPECTATOR_TIME_LIMIT_MS import 削除。
 // engine 内で createStrategy({ spectator }) 経由で Strategy 構築時に Math.min override 処理される。
 import { getVariantById } from "@/lib/shogi/variants";
@@ -35,6 +39,14 @@ import type { Difficulty, GameState, Player } from "@/lib/shogi/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 10;
+
+// Issue #245 Preview 実機検証 配線 (計画 docs/plans/issue-245-preview-playtest-wiring.md)。
+// env ENABLE_LEARNED_EVAL=1 を設定した Vercel Preview デプロイでのみ、AI が学習評価 (NN) の world
+// 単一木で指す (useTurnActionSearch + useLearnedEval 両 ON)。**未設定 (= production/main の既定) は
+// 両フラグ未伝播 = worldPathActive=false (engine.ts) = 従来 bolt-on 経路でバイト不変**。Vercel は
+// per-environment env ゆえ Preview のみ設定 → production 環境は影響ゼロ。可逆 (env 削除 or 本行削除)。
+// ★効くのは card-shogi + cardState 供給時のみ (world 経路の前提、M1 M-2)。standard 将棋は従来どおり。
+const LEARNED_EVAL_ENABLED = process.env.ENABLE_LEARNED_EVAL === "1";
 
 const VALID_DIFFICULTIES = new Set<Difficulty>([
   "beginner",
@@ -195,6 +207,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   try {
     const variant = getVariantById(body.variantId);
+    // Issue #245 Preview 配線: 学習脳を 1 回ロード (動的 import ゆえ production=本ブロック非実行=
+    // preview-model + 1.67MB 重み JSON は本番 cold-start に一切載らず完全隔離)。ロード成否は
+    // preview-model 内で console.info、この手の NN 呼出は下記 getInferenceCount で検知 (M1 M-1)。
+    if (LEARNED_EVAL_ENABLED) {
+      const { ensureLearnedModelLoaded } = await import("@/lib/shogi/ai/learned/preview-model");
+      ensureLearnedModelLoaded();
+      resetInferenceCount();
+    }
     // PR1a (E-1): 観戦モード時のみ timeLimitMs を SPECTATOR_TIME_LIMIT_MS で短縮。
     // それ以外は既存挙動 (DIFFICULTY_PARAMS[difficulty].timeLimitMs)。
     const result = findBestMoveWithStats(
@@ -230,8 +250,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         // 強制していた。**カードを「使わせる」forcing は誤りで、カードを「使いたくなる」= 正しい
         // 評価で merit ベースに使わせるのが本筋**。production は安定版 (bolt-on、eval バグ修正は D-5 で
         // 反映済) に戻す。engagement 撤去 + card 評価の本格改善後に再活性化を検討する (本行再追加)。
+        //
+        // Issue #245 Preview 配線: env ON 時のみ world 単一木 + 学習 NN を有効化 (検証用トグル)。
+        // false の既定は `undefined` = 未伝播 = worldPathActive false = 上記 bolt-on 経路で不変。
+        // 効くのは card-shogi + cardState 供給時のみ (M1 M-2、standard は worldPathActive false)。
+        useTurnActionSearch: LEARNED_EVAL_ENABLED || undefined,
+        useLearnedEval: LEARNED_EVAL_ENABLED || undefined,
       },
     );
+    // Issue #245 Preview 配線 (M1 M-1): この手で NN が実際に呼ばれたかをログ。0 なら学習脳が効かず
+    // 人手 eval へ silent fallback = 「検証したつもり」の空振り (baseline と同挙動)。Vercel Function
+    // ログで確認できるようにする (env ON 時のみ、production は非実行)。
+    if (LEARNED_EVAL_ENABLED) {
+      const nnCalls = getInferenceCount();
+      if (nnCalls === 0) {
+        console.warn(
+          "[learned-eval] ⚠️ NN 呼出 0 = 学習脳が効いていない (人手 eval へ silent fallback)。" +
+            "モデルロード失敗 / standard variant / cardState 未供給 のいずれかを確認。",
+        );
+      } else {
+        console.info(`[learned-eval] NN 呼出 ${nnCalls} 回 (この手, difficulty=${body.difficulty})。`);
+      }
+    }
     // client abort の場合は 499 相当だが、Next.js では client がもう listen して
     // いないので status は意味を持たない。fallback で 200 を返す。
     return NextResponse.json(result);
