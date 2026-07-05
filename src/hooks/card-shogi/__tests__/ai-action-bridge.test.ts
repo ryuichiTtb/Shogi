@@ -71,7 +71,7 @@ describe("turnActionToReducerActions", () => {
       cardInstanceId: "inst-4",
       defId: "double_move",
     };
-    const move2: Move = { type: "move", from: { row: 5, col: 4 }, to: { row: 4, col: 4 }, piece: "pawn" };
+    const move2: Move = { type: "move", from: { row: 5, col: 4 }, to: { row: 4, col: 4 }, piece: "pawn", player: "sente" };
     expect(turnActionToReducerActions(action, "sente", { move1: sampleMove, move2 })).toEqual([
       { type: "BEGIN_PLAY_CARD", player: "sente", instanceId: "inst-4" },
       { type: "CONFIRM_PLAY_CARD" },

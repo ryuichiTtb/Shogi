@@ -1229,8 +1229,10 @@ function negamaxWorld(
 //   中間ノード規律 (TT skip / null-move 抑止 / 符号 / depth 会計 / hash) がすべて本ヘルパに局所化され、
 //   negamaxWorld 本体は無改変 = dm 手札なし局面で探索結果バイト等価 (無回帰の構造的成立)。
 // ★B-1 (hash 手番パリティ汚染) 解消: W3 進入時に computeHash 全量計算 (updateHash の無条件 flip を回避)。
-// ★B-3 (詰み規約) 解消: 2手目詰み禁止を **kernel 適用後の status** で判定 = trap (check_break 等) 込みで
-//   UI (reducer) と同一結果 (M-2)。mateInOneAvailable は UI と同一 hasOneMoveMate。
+// ★B-3 (詰み規約) 解消: 2手目詰み禁止を **kernel 適用後の status** で判定 (M-2)。mateInOneAvailable は
+//   UI (reducer:1125) と同一 hasOneMoveMate。★check_break トラップ局面では kernel status は UI の生
+//   isCheckmate より permissive (トラップで崩れる詰みを許可) だが **一方向・安全側** = 「生盤面で詰み ⟹
+//   kernel でも詰み」ゆえ AI が本物の禁じ手詰みを指すことはない (逆向きの乖離のみ、実害なし。M2 MINOR-1)。
 // ★1手目候補は RELAXED (getKingSafePseudoLegalMoves、自玉王手容認で 2手目解消を許容、玉取り除外)、
 //   2手目候補は getLegalMoves (自玉安全ゆえ 1手目 self-check を解消する手のみ通過) + 玉取り除外。
 function searchDoubleMoveLineWorld(
@@ -1248,7 +1250,10 @@ function searchDoubleMoveLineWorld(
   // カード使用 (W1: doubleMove set、盤面・手番・マナ消費は kernel が処理、turnEnded=false)。
   const w1 = applyTurnAction(rootWorld, dmAction, { spectatorMode: true }).world;
   const mateInOneAvailable = hasOneMoveMate(state, player, variant, cardState);
-  const firstMoves = getKingSafePseudoLegalMoves(state, player, variant).filter((m) => !isKingCapture(m));
+  // 1手目候補: RELAXED (自玉王手容認)。getKingSafePseudoLegalMoves は玉取りを内部で除外済 (moves.ts:671)。
+  // cardState 未伝播だが no_promote マーク駒の成りは kernel 適用時に silent block されるため不正状態は生じない
+  // (候補集合が UI より広いだけ、M2 MINOR-2)。2手目側は getLegalMoves に cardState 伝播済。
+  const firstMoves = getKingSafePseudoLegalMoves(state, player, variant);
 
   let bestScore = NEG_INF;
   let bestMove1: Move | null = null;

@@ -113,3 +113,16 @@
 MINOR N-1〜N-7 / NIT: §2.1 (RELAXED 1手目線 N-1、着手空=score 積まない N-2、pair は探索済合法のみ N-3、ctx.stopped 伝播 N-4)、§3 (N-5)、§4 bench (dm 入りデッキ fixture N-7)、card-zobrist TODO (N-6) に反映。
 
 **結論**: §2 をヘルパ方式へ改稿済 (下記)。実装着手可。
+
+## 8. M2 レビュー反映 (2026-07-05、単一 general-purpose agent / #109、実装完了時・push 前)
+
+**判定: CHANGES_REQUIRED → 反映済で push 可 (APPROVE_WITH_NITS 相当)**。設計・符号・詰み規約・無回帰の構造は健全と確認 (A 符号/depth OK・B 非 dm 経路バイト等価 OK・C 防御ガード OK・D production 等価 OK)。以下を反映:
+
+| # | 指摘 | 反映 |
+|---|---|---|
+| **BLOCKER-1** | `npm run typecheck` 赤 (`ai-action-bridge.test.ts` の `move2` リテラルに `Move.player` 欠落、TS2741)。test:ci は esbuild で型剥がすため緑だが tsc/build は失敗。**bridge テスト追加後に typecheck 再実行を怠った手落ち** | `move2` に `player:"sente"` 追加 → typecheck/lint/test:ci 795/build **全緑を再確認** |
+| MINOR-1 | B-3 の kernel status 判定は check_break 局面で UI の生 isCheckmate より permissive。ただし「生盤面で詰み ⟹ kernel でも詰み」ゆえ **一方向・安全側** (AI が本物の禁じ手詰みを指さない)。コメントの「UI と同一結果」は不正確 | ヘルパ header コメントを「一方向・安全側の乖離」と正確化 |
+| MINOR-2 | 1手目 `getKingSafePseudoLegalMoves` に cardState 未伝播 (no_promote マーク駒の成りは kernel silent-block されるため候補が広いだけ・不正状態なし) | コメントで kernel silent-block 委譲を明記。冗長な `.filter(!isKingCapture)` 除去 (getKingSafePseudoLegalMoves が内部除外済、NIT-2) |
+| NIT-1 | 詰みスコア特性化・check_break 集合比較・4-dispatch reducer E2E のテスト薄 | 後続 (段階c の実機確認 + 派生テスト) で補完。現行 7 件で主要点はカバー |
+
+**教訓**: 最終編集 (テスト追加) 後に full gate 全項目 (特に typecheck) を再実行してから完了報告する (rule 実装ガイドライン6)。
