@@ -201,6 +201,9 @@ export interface FindBestMoveResult {
   //   (上位 PR で UI 統合する際の伝播経路、PR1d-2 段階では SearchStats.usedCardAction で観測のみ)
   // - card-shogi variant 以外 / cardState 未渡時は `action: { kind: "move", move }` または null
   action: TurnAction | null;
+  // Issue #245 S4c-1d: action が double_move のとき、実行用の 1手目/2手目 (1手目詰み時 move2=null)。
+  // 1-response 方式で route→client bridge へ搬送し 4-dispatch 列で二手指しを実行する。他アクション時 undefined。
+  doubleMove?: { move1: Move; move2: Move | null };
   stats: SearchStats;
 }
 
@@ -356,6 +359,8 @@ export function findBestMoveWithStats(
   //   PR1d-2 段階では action フィールドは observability 用途のみ、上位 PR で UI 統合)
   let selectedAction: TurnAction | null = move !== null ? { kind: "move", move } : null;
   let usingCardAction = false;
+  // Issue #245 S4c-1d: bestAction=double_move 時の実行用 move ペア (1-response 方式で route→bridge へ搬送)。
+  let doubleMoveMoves: { move1: Move; move2: Move | null } | undefined;
 
   // Issue #193 / PR2 (検証フィードバック): タダ捨て (無防備な駒の只取り) を全難易度で
   // 原則防止する。初級 (beginner) のみ弱さ演出として確率的に guard を skip し許容する。
@@ -368,10 +373,13 @@ export function findBestMoveWithStats(
     // Issue #235 S4c-1b (cutover): world 経路は findBestMoveWorld が root で move/card/draw を
     // 同列に深読みして best TurnAction を返すため、bolt-on の root action loop + action-phase budget
     // を skip し bestAction を直接採用する (カードを move と同じ深さで読む = P1 解消)。world 経路は
-    // 通常 deadline 内でカードを読むため action-phase budget (504 対策) は不要。double_move は world で
-    // 候補化されないため bestAction にはならない (実行プラミング = S4c-1d)。
+    // 通常 deadline 内でカードを読むため action-phase budget (504 対策) は不要。
+    // Issue #245 S4c-1d: double_move も root で候補化され bestAction になり得る。実行用 move ペアを搬送。
     selectedAction = searchResult.bestAction;
     usingCardAction = searchResult.bestAction.kind !== "move";
+    if (searchResult.bestAction.kind === "playCard" && searchResult.bestAction.defId === "double_move") {
+      doubleMoveMoves = searchResult.doubleMoveMoves;
+    }
   } else if (
     !worldPathActive &&
     !usedFallback &&
@@ -534,6 +542,7 @@ export function findBestMoveWithStats(
   return {
     move,
     action: selectedAction,
+    doubleMove: doubleMoveMoves,
     stats: finalizeStats(ctx, { usedBook, usedFallback, usedCardAction: usingCardAction }),
   };
 }

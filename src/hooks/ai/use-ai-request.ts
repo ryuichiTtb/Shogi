@@ -57,6 +57,10 @@ export interface AiMoveResponse {
   // 型に追加するだけで action が呼び出し側 (use-card-shogi-game) に伝播する。
   // null は action 未算出 (standard variant / cardState 未渡時、後方互換で move のみ使用)。
   action: TurnAction | null;
+  // Issue #245 S4c-1d: action が double_move のとき、実行用の 1手目/2手目 (1手目詰み時 move2=null)。
+  // route.ts は result 全体を JSON パススルーするため本フィールド追加で bridge へ伝播する。
+  // 未設定 (bolt-on / dm 以外 / 旧サーバ) は bridge が null フォールバック = 従来挙動。
+  doubleMove?: { move1: Move; move2: Move | null };
   stats: SearchStats;
 }
 

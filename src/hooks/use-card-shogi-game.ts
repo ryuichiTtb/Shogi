@@ -202,10 +202,11 @@ export function useCardShogiGame({
       // Step 3 (Issue #107) / Issue #176: 旧実装の固定 500ms 待ちを撤廃。
       // Route Handler 化により AI 応答が独立したため、追加待機は体感悪化のみ。
       //
-      // action を reducer Action 列へ変換。null は double_move (AI 未接続、論点 A)
-      // のため move フォールバック。action 自体が無い (後方互換) 場合も move を指す。
+      // action を reducer Action 列へ変換。Issue #245 S4c-1d: double_move は response.doubleMove
+      // (実行用 move ペア) 供給時に 4-dispatch 列へ変換 (1-response 方式)。未供給 (bolt-on/旧サーバ)
+      // は bridge が null → move フォールバック。action 自体が無い (後方互換) 場合も move を指す。
       const acts = action
-        ? turnActionToReducerActions(action, effectiveAiPlayer)
+        ? turnActionToReducerActions(action, effectiveAiPlayer, result.response.doubleMove)
         : null;
       if (acts) {
         acts.forEach((a) => dispatch(a));
