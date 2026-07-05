@@ -42,6 +42,10 @@ import {
 import type { TrainingGameData } from "@/lib/shogi/training/types";
 import { recordTrainingGame } from "@/app/actions/training";
 
+// Issue #245 派生 (二手指し演出): AI の二手指しで 1手目 dispatch から 2手目 dispatch までの「間」(ms)。
+// 1手目→2手目 が個別に見える最小限の待ち。長すぎると冗長・短すぎると一瞬に戻るため中庸値。
+const DOUBLE_MOVE_STEP_GAP_MS = 800;
+
 interface UseCardShogiGameOptions {
   initialState: GameState;
   initialCardState: CardGameState;
@@ -126,6 +130,20 @@ export function useCardShogiGame({
     onError: handleAiError,
     onAutoRetry: handleAiAutoRetry,
   });
+
+  // Issue #245 派生 (二手指し演出): AI の二手指しは 1手目→(間)→2手目 を段階 dispatch する。
+  // その「間」の setTimeout を保持し、unmount/game 差替え時に確実に clear する (宙ぶらりんの
+  // 2手目 dispatch を防ぐ)。段階中は isAiThinking=true を維持し AI effect の再発火を防ぐ。
+  const doubleMoveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    // unmount (観戦もう1局の key 差替え含む) 時に保留中の2手目タイマーを破棄。
+    return () => {
+      if (doubleMoveTimerRef.current) {
+        clearTimeout(doubleMoveTimerRef.current);
+        doubleMoveTimerRef.current = null;
+      }
+    };
+  }, []);
 
   // AI 自動応手
   useEffect(() => {
@@ -217,13 +235,31 @@ export function useCardShogiGame({
       const acts = action
         ? turnActionToReducerActions(action, effectiveAiPlayer, result.response.doubleMove)
         : null;
-      if (acts) {
-        acts.forEach((a) => dispatch(a));
-      } else if (move) {
-        dispatch({ type: "MAKE_MOVE", move });
+      // Issue #245 派生 (二手指し演出): AI の二手指し (doubleMove ペア + 2手目あり = acts 4 個
+      // [BEGIN, CONFIRM, MAKE_MOVE(1), MAKE_MOVE(2)]) は、1手目までを即 dispatch し、2手目を
+      // DOUBLE_MOVE_STEP_GAP_MS の「間」を置いて dispatch する。これにより 1手目→間→2手目 が
+      // 個別に見える (現状は同期一括で一瞬)。段階中は isAiThinking=true を維持して AI effect の
+      // 中間 state 再発火を防ぐ。1手目詰み (move2=null = acts 3 個) や通常カードは従来の一括 dispatch。
+      const isStagedDoubleMove =
+        acts !== null && result.response.doubleMove?.move2 != null && acts.length >= 4;
+      if (isStagedDoubleMove && acts) {
+        acts.slice(0, 3).forEach((a) => dispatch(a)); // BEGIN, CONFIRM, 1手目
+        const move2Act = acts[3];
+        doubleMoveTimerRef.current = setTimeout(() => {
+          doubleMoveTimerRef.current = null;
+          dispatch(move2Act); // 2手目 (間を置いて)
+          dispatch({ type: "SET_AI_THINKING", thinking: false });
+          onComment?.("ai_move");
+        }, DOUBLE_MOVE_STEP_GAP_MS);
+      } else {
+        if (acts) {
+          acts.forEach((a) => dispatch(a));
+        } else if (move) {
+          dispatch({ type: "MAKE_MOVE", move });
+        }
+        dispatch({ type: "SET_AI_THINKING", thinking: false });
+        onComment?.("ai_move");
       }
-      dispatch({ type: "SET_AI_THINKING", thinking: false });
-      onComment?.("ai_move");
     })();
     // 依存配列の補足:
     // - isPlayingCard: 旧仕様では「演出 → ターン交代」の順で、ターン交代時には isPlayingCard=false

@@ -859,7 +859,10 @@ export function CardShogiGame({
               }
               if (!opponentPieceFlightFired) {
                 playFlightKeyRef.current += 1;
-                playSfx("card_use_animation");
+                // Issue #245 派生 (二手指し演出): AI が二手指しを使ったときは「使用確定音」
+                // (card_use_confirm = サブマシンガンのボルトリリース、人間が「使用する」を押したときの音)
+                // を鳴らす。他のカードは従来どおり card_use_animation (刀の素振り)。
+                playSfx(ev.instance.defId === "double_move" ? "card_use_confirm" : "card_use_animation");
                 setPlayFlight({ card: ev.instance, key: playFlightKeyRef.current, isTrap: false });
               }
             }
@@ -2303,8 +2306,11 @@ export function CardShogiGame({
         open={forbiddenMateDialogOpen}
         onClose={() => setForbiddenMateDialogOpen(false)}
       />
-      {/* Issue #82: 二手指し (double_move) 中の上端バナー + 戻すボタン + キャンセルボタン */}
-      {doubleMove && !isPlayingCard && (
+      {/* Issue #82: 二手指し (double_move) 中の上端バナー + 戻すボタン + キャンセルボタン。
+          Issue #245 派生 (二手指し演出): 自分 (playerColor) の二手指しのみ表示。AI の二手指しは
+          段階演出中 (1手目→間→2手目) に doubleMove が非 null になるが、人間向けの「戻す/キャンセル」
+          を AI 手番中に出さない (active === playerColor でガード)。 */}
+      {doubleMove && doubleMove.active === playerColor && !isPlayingCard && (
         <DoubleMoveNotice
           movesLeft={doubleMove.movesLeft}
           canUndoFirst={
