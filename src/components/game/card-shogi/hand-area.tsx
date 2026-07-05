@@ -31,7 +31,14 @@ interface HandAreaProps {
   // stack レイアウト時に重ね表示するカード枚数の上限 (Issue #105 モバイル省幅化)。
   // 超過分は「×N (合計枚数)」ラベルで補う。デフォルト 5。
   stackMaxVisible?: number;
+  // Issue #245 派生 (二手指し演出): AI が使用中のカードを **表向き + 緑枠 + 発光** で強調する
+  // instanceId。faceDown/stack でも当該カードだけ表向きにし「このカードを使うぞ」を示す。null=強調なし。
+  highlightRevealCardId?: string | null;
 }
+
+// Issue #245 派生: 使用予告カードの緑枠+発光ラッパ (faceDown/stack/表向きの全レイアウト共通)。
+const REVEAL_HIGHLIGHT_CLASS =
+  "rounded-md ring-2 ring-green-400 shadow-[0_0_16px_rgba(74,222,128,0.85)] animate-pulse";
 
 interface HandCardProps {
   card: CardInstance;
@@ -43,6 +50,8 @@ interface HandCardProps {
   isFresh: boolean;
   // Issue #130: 自動ドロー由来のカードを emerald で光らせる (isFresh=manual amber と排他)
   isAutoFresh: boolean;
+  // Issue #245 派生: AI 使用予告カードの緑枠+発光強調 (表向きレイアウト時)。
+  isRevealHighlight: boolean;
   onCardClick?: (instanceId: string) => void;
 }
 
@@ -57,6 +66,7 @@ const HandCard = memo(function HandCard({
   hideCardDescription,
   isFresh,
   isAutoFresh,
+  isRevealHighlight,
   onCardClick,
 }: HandCardProps) {
   const handleClick = useCallback(() => {
@@ -69,6 +79,7 @@ const HandCard = memo(function HandCard({
         "rounded-md",
         isFresh && "animate-hand-card-flash",
         isAutoFresh && "animate-hand-card-flash-emerald",
+        isRevealHighlight && REVEAL_HIGHLIGHT_CLASS,
       )}
     >
       <CardView
@@ -99,10 +110,12 @@ export const HandArea = memo(function HandArea({
   hideCardDescription = false,
   unusableCardIds,
   stackMaxVisible = 5,
+  highlightRevealCardId = null,
 }: HandAreaProps) {
   if (hand.length === 0) {
     return <div className="text-xs text-muted-foreground py-2 px-3">{emptyLabel}</div>;
   }
+  const isHighlight = (id: string) => highlightRevealCardId != null && id === highlightRevealCardId;
 
   // 重ね表示(stack): 隣接カードを重ねる。Phase 0 では相手手札の裏向き表示で使用。
   // 表示は最大 stackMaxVisible 枚までに制限し、超過分は「×N」ラベルで補う
@@ -113,11 +126,17 @@ export const HandArea = memo(function HandArea({
     const visible = hand.slice(0, stackMaxVisible);
     return (
       <div data-hand-area className="flex flex-row items-center" aria-label={`カード ${total}枚`}>
-        {visible.map((c, i) => (
-          <div key={c.instanceId} className={cn(i > 0 && overlapClass)}>
-            <CardView card={c} faceDown={faceDown} size={size} />
-          </div>
-        ))}
+        {visible.map((c, i) => {
+          const hl = isHighlight(c.instanceId);
+          return (
+            // 強調カードは前面 (z) + 表向き + 緑枠発光。重なりで隠れないよう ml リセット。
+            <div key={c.instanceId} className={cn(i > 0 && !hl && overlapClass, hl && "relative z-10")}>
+              <div className={cn(hl && REVEAL_HIGHLIGHT_CLASS)}>
+                <CardView card={c} faceDown={hl ? false : faceDown} size={size} />
+              </div>
+            </div>
+          );
+        })}
         {total > stackMaxVisible && (
           <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-muted text-foreground text-[10px] font-bold leading-none shrink-0 self-center">
             ×{total}
@@ -133,9 +152,14 @@ export const HandArea = memo(function HandArea({
         data-hand-area
         className={cn("flex gap-1", layout === "vertical" ? "flex-col" : "flex-row")}
       >
-        {hand.map((c) => (
-          <CardView key={c.instanceId} card={c} faceDown size={size} fullWidth={fullWidth} />
-        ))}
+        {hand.map((c) => {
+          const hl = isHighlight(c.instanceId);
+          return (
+            <div key={c.instanceId} className={cn(hl && REVEAL_HIGHLIGHT_CLASS)}>
+              <CardView card={c} faceDown={hl ? false : true} size={size} fullWidth={fullWidth} />
+            </div>
+          );
+        })}
       </div>
     );
   }
@@ -174,6 +198,7 @@ export const HandArea = memo(function HandArea({
             hideCardDescription={hideCardDescription}
             isFresh={isFresh}
             isAutoFresh={isAutoFresh}
+            isRevealHighlight={isHighlight(c.instanceId)}
             onCardClick={onCardClick}
           />
         );

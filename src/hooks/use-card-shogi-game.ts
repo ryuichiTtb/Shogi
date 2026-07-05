@@ -42,10 +42,11 @@ import {
 import type { TrainingGameData } from "@/lib/shogi/training/types";
 import { recordTrainingGame } from "@/app/actions/training";
 
-// Issue #245 派生 (二手指し演出 v2): AI の二手指しの段階タイミング。
-// INTRO = カード確定 (CONFIRM) から 1手目までの間 = 中央「二手指し」オーバーレイ (PLAY_*≈1240ms、
-// board-overlay.tsx の double_move config) を見せ切る待ち。GAP = 1手目から 2手目までの間。
-// シーケンス: [BEGIN,CONFIRM] → (INTRO: 文言+確定音) → 1手目 → (GAP) → 2手目 → カード使用アニメ。
+// Issue #245 派生 (二手指し演出): AI の二手指しの段階タイミング。
+// INTRO = カード確定 (CONFIRM) から 1手目までの間 = 使用カードを手札で表向き+緑枠+発光させて
+// 「このカードを使うぞ」を予告 (card-shogi-game の aiDoubleMoveHighlightId effect + 確定音) する待ち。
+// GAP = 1手目から 2手目までの間。シーケンス:
+// [BEGIN,CONFIRM] → (INTRO: 手札カード予告+確定音) → 1手目 → (GAP) → 2手目 (=カード使用中央アニメ同時)。
 const DOUBLE_MOVE_INTRO_MS = 1400;
 const DOUBLE_MOVE_STEP_GAP_MS = 900;
 
