@@ -2310,7 +2310,7 @@ export function CardShogiGame({
           Issue #245 派生 (二手指し演出): 自分 (playerColor) の二手指しのみ表示。AI の二手指しは
           段階演出中 (1手目→間→2手目) に doubleMove が非 null になるが、人間向けの「戻す/キャンセル」
           を AI 手番中に出さない (active === playerColor でガード)。 */}
-      {doubleMove && doubleMove.active === playerColor && !isPlayingCard && (
+      {doubleMove && doubleMove.active === playerColor && !spectatorMode && !isPlayingCard && (
         <DoubleMoveNotice
           movesLeft={doubleMove.movesLeft}
           canUndoFirst={
