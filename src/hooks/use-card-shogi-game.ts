@@ -42,9 +42,12 @@ import {
 import type { TrainingGameData } from "@/lib/shogi/training/types";
 import { recordTrainingGame } from "@/app/actions/training";
 
-// Issue #245 派生 (二手指し演出): AI の二手指しで 1手目 dispatch から 2手目 dispatch までの「間」(ms)。
-// 1手目→2手目 が個別に見える最小限の待ち。長すぎると冗長・短すぎると一瞬に戻るため中庸値。
-const DOUBLE_MOVE_STEP_GAP_MS = 800;
+// Issue #245 派生 (二手指し演出 v2): AI の二手指しの段階タイミング。
+// INTRO = カード確定 (CONFIRM) から 1手目までの間 = 中央「二手指し」オーバーレイ (PLAY_*≈1240ms、
+// board-overlay.tsx の double_move config) を見せ切る待ち。GAP = 1手目から 2手目までの間。
+// シーケンス: [BEGIN,CONFIRM] → (INTRO: 文言+確定音) → 1手目 → (GAP) → 2手目 → カード使用アニメ。
+const DOUBLE_MOVE_INTRO_MS = 1400;
+const DOUBLE_MOVE_STEP_GAP_MS = 900;
 
 interface UseCardShogiGameOptions {
   initialState: GameState;
@@ -243,14 +246,20 @@ export function useCardShogiGame({
       const isStagedDoubleMove =
         acts !== null && result.response.doubleMove?.move2 != null && acts.length >= 4;
       if (isStagedDoubleMove && acts) {
-        acts.slice(0, 3).forEach((a) => dispatch(a)); // BEGIN, CONFIRM, 1手目
+        // v2 シーケンス: カード確定 → (INTRO: 中央「二手指し」文言+確定音、component が doubleMove
+        // state を検知して表示) → 1手目 → (GAP) → 2手目。段階中は isAiThinking=true を維持。
+        acts.slice(0, 2).forEach((a) => dispatch(a)); // BEGIN, CONFIRM (doubleMove state 発生)
+        const move1Act = acts[2];
         const move2Act = acts[3];
         doubleMoveTimerRef.current = setTimeout(() => {
-          doubleMoveTimerRef.current = null;
-          dispatch(move2Act); // 2手目 (間を置いて)
-          dispatch({ type: "SET_AI_THINKING", thinking: false });
-          onComment?.("ai_move");
-        }, DOUBLE_MOVE_STEP_GAP_MS);
+          dispatch(move1Act); // 1手目 (文言表示を見せ切ってから)
+          doubleMoveTimerRef.current = setTimeout(() => {
+            doubleMoveTimerRef.current = null;
+            dispatch(move2Act); // 2手目 (間を置いて)。reducer が cardPlayEvent を push → カード使用アニメ。
+            dispatch({ type: "SET_AI_THINKING", thinking: false });
+            onComment?.("ai_move");
+          }, DOUBLE_MOVE_STEP_GAP_MS);
+        }, DOUBLE_MOVE_INTRO_MS);
       } else {
         if (acts) {
           acts.forEach((a) => dispatch(a));

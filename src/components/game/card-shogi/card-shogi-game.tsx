@@ -587,6 +587,41 @@ export function CardShogiGame({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isReady]);
 
+  // Issue #245 派生 (二手指し演出 v2): AI が二手指しを確定 (CONFIRM → doubleMove state 発生、
+  // movesLeft===2) した瞬間に、**カード使用アニメーション (CardPlayFlight) を先出し**する。
+  // 音は card_use_confirm (人間が「使用する」を押したときの音 = 二手指しの音のユーザー指定)。
+  // 1手目は hook 側が DOUBLE_MOVE_INTRO_MS (演出尺 PLAY_*≈1240ms + 余白) 待って dispatch する
+  // ため「カード演出 → 1手目 → 間 → 2手目」の順になる。この先出しは表示専用 (commit 非連動):
+  // 完了時は aiDoubleMoveIntroFlightRef で判定し finalize/completeStep を skip する
+  // (二手指しのカード消費は 2手目完了時に reducer が行う。COMMIT_PLAY_CARD は isPlayingCard=false
+  // で no-op だが、進行中の他演出ステップを誤 pop しないよう明示ガード)。
+  // 人間の二手指し (active===playerColor かつ非観戦) は自分で確定操作するため対象外。
+  // movesLeft 2→1 遷移や待った (1→2 復帰) では fireKey ガードで再発火しない。
+  const aiDoubleMoveIntroFiredRef = useRef<string | null>(null);
+  const aiDoubleMoveIntroFlightRef = useRef(false);
+  useEffect(() => {
+    if (!doubleMove) {
+      aiDoubleMoveIntroFiredRef.current = null;
+      return;
+    }
+    const isAiSide = spectatorMode || doubleMove.active !== playerColor;
+    if (!isAiSide || doubleMove.movesLeft !== 2) return;
+    const fireKey = `${doubleMove.active}:${gameState.moveCount}`;
+    if (aiDoubleMoveIntroFiredRef.current === fireKey) return;
+    aiDoubleMoveIntroFiredRef.current = fireKey;
+    aiDoubleMoveIntroFlightRef.current = true;
+    playFlightKeyRef.current += 1;
+    playSfx("card_use_confirm");
+    setPlayFlight({
+      card: {
+        instanceId: doubleMove.cardInstance.instanceId,
+        defId: doubleMove.cardInstance.defId,
+      },
+      key: playFlightKeyRef.current,
+      isTrap: false,
+    });
+  }, [doubleMove, spectatorMode, playerColor, gameState.moveCount, playSfx]);
+
   const lastEventIndexRef = useRef(0);
 
   // 表示中の山札ラッパーから矩形を取得 (xl 以上 → タブレット → モバイル の順に visibility 判定)
@@ -857,12 +892,14 @@ export function CardShogiGame({
                   opponentPieceFlightFired = true;
                 }
               }
-              if (!opponentPieceFlightFired) {
+              if (ev.instance.defId === "double_move") {
+                // Issue #245 派生 (二手指し演出 v2): 二手指しのカード使用アニメは冒頭 (doubleMove
+                // 検知 effect の先出し) で表示済み。2手目後の本ステップでは中央カードを再表示せず
+                // 即 pop して次の演出 (check 等) へ進める (マナ浮遊は上の triggerManaFlight で発火済)。
+                completeStep(step);
+              } else if (!opponentPieceFlightFired) {
                 playFlightKeyRef.current += 1;
-                // Issue #245 派生 (二手指し演出): AI が二手指しを使ったときは「使用確定音」
-                // (card_use_confirm = サブマシンガンのボルトリリース、人間が「使用する」を押したときの音)
-                // を鳴らす。他のカードは従来どおり card_use_animation (刀の素振り)。
-                playSfx(ev.instance.defId === "double_move" ? "card_use_confirm" : "card_use_animation");
+                playSfx("card_use_animation");
                 setPlayFlight({ card: ev.instance, key: playFlightKeyRef.current, isTrap: false });
               }
             }
@@ -1298,6 +1335,13 @@ export function CardShogiGame({
 
   const handlePlayFlightComplete = useCallback(() => {
     setPlayFlight(null);
+    // Issue #245 派生 (二手指し演出 v2): AI 二手指しの先出しカード演出は表示専用。
+    // カード消費は 2手目完了時に reducer が行うため finalize せず、進行中の他演出ステップも
+    // 誤 pop しない (このタイミングで active step があるのは前手の演出が流れている場合のみ)。
+    if (aiDoubleMoveIntroFlightRef.current) {
+      aiDoubleMoveIntroFlightRef.current = false;
+      return;
+    }
     finalizePlayCard();
     // Issue #222: cardUse ステップ完了 → キュー pop して次演出へ。
     const step = activeStepRef.current;
