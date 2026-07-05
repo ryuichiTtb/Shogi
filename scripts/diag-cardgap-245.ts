@@ -42,7 +42,12 @@ const IN = (process.env.DIAG_IN ?? "local-data/training/labeled-small.jsonl")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
-const SAMPLE = Math.max(0, Number(process.env.DIAG_SAMPLE ?? "30") || 30);
+// DIAG_SAMPLE=0 で実データ診断を skip (fixture のみ)。0 は falsy ゆえ `|| 30` フォールバックだと
+// 30 に化けるため、未指定と 0 を明示分岐する (未指定=既定 30、指定値は Number 化して負/NaN は 0)。
+const SAMPLE =
+  process.env.DIAG_SAMPLE !== undefined
+    ? Math.max(0, Math.floor(Number(process.env.DIAG_SAMPLE)) || 0)
+    : 30;
 const DEPTH = Math.max(1, Number(process.env.DIAG_DEPTH ?? "4") || 4);
 
 // maxDepth 固定 + timeLimitMs 十分大 (findBestMoveWorld の timeLimitMs*0.55 早期 break を避ける、M1 NIT-3)。
