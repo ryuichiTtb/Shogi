@@ -38,9 +38,11 @@ export function MatchSetup({ mode }: MatchSetupProps) {
   const isPending = pendingLabel !== null;
   const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty>("beginner");
   const [selectedColor, setSelectedColor] = useState<ColorOption>("sente");
-  // Issue #245 派生 (検証デバッグ): CPU エンジン選択。既定 learned (env に従う実効は route が決める、
-  // production では選んでも旧版固定 = 無害)。カード将棋のみ意味を持つ (standard は world 経路対象外)。
-  const [selectedEngine, setSelectedEngine] = useState<EngineId>("learned");
+  // Issue #245 派生 (検証デバッグ): CPU エンジン選択。★既定 undefined = 「自動」= engine 未指定の
+  // **通常対局** (訓練キャプチャ対象、実効エンジンは env に従う)。明示選択 (新版/旧版) した対局のみ
+  // 「検証対局」となり教材収集の対象外 (M2 B-1: 既定 learned だと全対局が検証扱いになり教材収集が
+  // 全停止する)。カード将棋のみ意味を持つ (standard は world 経路対象外ゆえ常に undefined 送信)。
+  const [selectedEngine, setSelectedEngine] = useState<EngineId | undefined>(undefined);
 
   // Safari互換: CSS 100dvh ではなく JS window.innerHeight を使用
   const [viewportHeight, setViewportHeight] = useState<number | undefined>(undefined);
@@ -93,8 +95,8 @@ export function MatchSetup({ mode }: MatchSetupProps) {
         color,
         selectedCharacter.id,
         mode,
-        // Issue #245 派生: エンジン選択 (Preview のみ実効)。
-        selectedEngine,
+        // Issue #245 派生: エンジン明示選択時のみ送信 (未選択=自動=通常対局)。standard は常に未指定。
+        mode === "card-shogi" ? selectedEngine : undefined,
       );
       router.push(`/game/${gameId}`);
     } catch (e) {
@@ -303,12 +305,13 @@ export function MatchSetup({ mode }: MatchSetupProps) {
           <div className="flex gap-1">
             {(
               [
+                { id: undefined, text: "自動 (通常対局)" },
                 { id: "learned", text: "新版 (NN 学習)" },
                 { id: "legacy", text: "旧版 (手作り評価)" },
-              ] as { id: EngineId; text: string }[]
+              ] as { id: EngineId | undefined; text: string }[]
             ).map((o) => (
               <button
-                key={o.id}
+                key={o.id ?? "auto"}
                 onClick={() => !isPending && setSelectedEngine(o.id)}
                 disabled={isPending}
                 className={cn(
@@ -322,7 +325,7 @@ export function MatchSetup({ mode }: MatchSetupProps) {
               </button>
             ))}
           </div>
-          <span className="text-[10px] text-muted-foreground/70 shrink-0">(Preview のみ有効)</span>
+          <span className="text-[10px] text-muted-foreground/70 shrink-0">(新/旧の明示選択は検証用=教材記録なし・Preview のみ有効)</span>
         </div>
       )}
 

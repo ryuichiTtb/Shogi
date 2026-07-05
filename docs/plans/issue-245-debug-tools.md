@@ -84,3 +84,15 @@
 | m-7/n-1〜3 | 相手ドローフライトは faceDown 固定据置 (目視項目) / reveal カードの hover / reveal は非永続・既定 OFF | 実装時に確認・明記 |
 
 **追加スコープ (dm 診断)**: route の `[learned-eval]` ログに **bestAction 種別 + doubleMove ペア有無**を追記 (実機で「エンジンが dm を選んだか・搬送されたか」を Vercel ログで確定できるように)。二手指し不使用調査 (2026-07-05 実測: ローカルは sente/gote 両視点で dm 正常選択・搬送、マナ<5 は候補外=仕様) の実機切り分けが目的。
+
+## 7. M2 レビュー反映 (2026-07-05、単一 general-purpose agent / #109、push 前)
+
+**判定: CHANGES_REQUIRED → 反映済で push 可**。production AI 挙動バイト不変は構造的成立を確認 (route 3 箇所 + resolveWantsLearned test pin)。機能 A/B/C・dm ログの全ホップ疎通も確認。反映:
+
+| # | 指摘 | 反映 |
+|---|---|---|
+| **B-1 (BLOCKER)** | match-setup の engine 既定 `"learned"` 無条件送信で**全新規カード将棋対局が「エンジン明示指定」= m-6 skip 対象になり、production の教材収集 (訓練キャプチャ) がサイレント全停止** (リマッチも連鎖)。standard の gameConfig にも junk 保存 | 既定を `undefined` = **「自動 (通常対局)」** に是正 + UI 3 択 (自動/新版/旧版) + standard は常に undefined 送信。「新/旧の明示選択は検証用=教材記録なし」を UI 注記。Preview は undefined=learned 実効ゆえ検証体験不変 |
+| M-1 | lint 警告 +1 (captureStep effect deps に gameConfig.engine 欠落) | deps へ追加 |
+| M-2 | 計画 §4 テスト 2 (観戦 engine/engineB 分岐) 未実装 — 前提の「既存 difficultyB テスト」自体が不存在 (新規ハーネス要) | **乖離として記録し申送り** (route 側の production 無回帰は engine-flags test で pin 済、分岐ロジックは difficultyB と同型 3 項式) |
+| N-1 | route コメントの旧関数名 | 修正 |
+| N-2/N-3 | reveal カードの hover 見た目 / getGame の無検証 cast | 許容 (デバッグ用途 / route 検証済) |

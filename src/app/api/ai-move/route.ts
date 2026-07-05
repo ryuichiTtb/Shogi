@@ -75,7 +75,7 @@ interface AiMoveRequestBody {
   // それぞれに正しい difficulty / spectatorMode を渡す前提で、route 側は spectatorMode
   // フラグを受け取り timeLimitMs を SPECTATOR_TIME_LIMIT_MS で短縮する。
   spectatorMode?: boolean;
-  // Issue #245 派生 (検証デバッグ): CPU エンジン選択。resolveEngineFlags が env と合成して実効を
+  // Issue #245 派生 (検証デバッグ): CPU エンジン選択。resolveWantsLearned が env と合成して実効を
   // 決める (env OFF=production では値に依らず bolt-on 固定)。不正値は undefined (silent ignore 流儀)。
   engine?: "legacy" | "learned";
 }

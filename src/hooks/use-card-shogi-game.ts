@@ -385,7 +385,7 @@ export function useCardShogiGame({
       eventLog: state.eventLog,
     });
     writeTrainingSnapshot(gameId, captureStorageSnapshot(cap));
-  }, [state.eventLog, state.gameState, state.cardState, state.doubleMove, state.spectatorMode, disableServerSync, gameId]);
+  }, [state.eventLog, state.gameState, state.cardState, state.doubleMove, state.spectatorMode, disableServerSync, gameId, gameConfig.engine]);
 
   // 終局 flush effect: 全終局経路 (checkmate / stalemate / repetition / impasse / resign) を
   // status 監視 1 本で拾う。中断 (active のまま離脱) は flush しない (winner 不明 = 学習除外)。
