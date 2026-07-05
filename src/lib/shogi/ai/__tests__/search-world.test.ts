@@ -711,3 +711,71 @@ describe("findBestMoveWithStats の useLearnedEval 配線 (P2-2a)", () => {
     expect(getInferenceCount()).toBe(0);
   });
 });
+
+describe("S4c-1d: double_move (二手指し) の root 探索統合", () => {
+  const dmCs = (over: Partial<CardGameState> = {}): CardGameState =>
+    cardState({
+      hand: { sente: [{ instanceId: "s-dm", defId: "double_move" } as CardInstance], gote: [] },
+      mana: { sente: 12, gote: 12 },
+      ...over,
+    });
+  // 飛(8,4)は無防備な金(5,3)へ1手で届かない(同row/col でない)。二手指しなら (8,4)→(8,3)→(5,3) で金得。
+  const placeTwoMoveGain = (b: Board) => {
+    b[8][8] = pc("king", "sente");
+    b[0][0] = pc("king", "gote");
+    b[8][4] = pc("rook", "sente");
+    b[5][3] = pc("gold", "gote");
+  };
+
+  it("2手で無防備な金を取れる局面: bestAction=double_move + 合法な move ペア (2手目が金取り・玉取りでない)", () => {
+    const gs = buildGameState(placeTwoMoveGain, "sente");
+    const r = findBestMove(gs, "sente", DET_OPTIONS, CARD_SHOGI_VARIANT, worldCtx(), dmCs());
+    expect(r).not.toBeNull();
+    expect(r!.bestAction).toBeDefined();
+    expect(r!.bestAction!.kind).toBe("playCard");
+    if (r!.bestAction!.kind === "playCard") expect(r!.bestAction!.defId).toBe("double_move");
+    // 実行用ペアが添付され、2手目で金を取る合法手。
+    expect(r!.doubleMoveMoves).toBeDefined();
+    expect(r!.doubleMoveMoves!.move2).not.toBeNull();
+    expect(r!.doubleMoveMoves!.move2!.captured).toBe("gold");
+    // B-3: 1手目・2手目とも玉取りでない (相手玉取りは常時禁止)。
+    expect(r!.doubleMoveMoves!.move1.captured).not.toBe("king");
+    expect(r!.doubleMoveMoves!.move2!.captured).not.toBe("king");
+    // dm 線が rootActionScores に含まれ、move 最善より高評価 (駒得ゆえ)。
+    const dmScore = r!.rootActionScores!.find(
+      (a) => a.action.kind === "playCard" && a.action.defId === "double_move",
+    )?.score;
+    const bestMoveScore = Math.max(...r!.rootMoveScores.map((m) => m.score));
+    expect(dmScore).toBeDefined();
+    expect(dmScore!).toBeGreaterThan(bestMoveScore);
+  });
+
+  it("手札に double_move が無ければ bestAction は move、doubleMoveMoves 未設定 (隔離・無回帰)", () => {
+    const gs = buildGameState(placeTwoMoveGain, "sente");
+    // 手札空 = dm 候補が append されない → 従来 move-only + card なし経路。
+    const r = findBestMove(gs, "sente", DET_OPTIONS, CARD_SHOGI_VARIANT, worldCtx(), cardState());
+    expect(r).not.toBeNull();
+    expect(r!.bestAction!.kind).toBe("move");
+    expect(r!.doubleMoveMoves).toBeUndefined();
+  });
+
+  it("double_move 採用時のみ doubleMoveMoves を設定する整合性 (静かな少数駒局面)", () => {
+    // 少数駒の静かな局面 (合法手が少なく dm ヘルパの m×n が小さい)。dm 採用/非採用いずれでも、
+    // doubleMoveMoves は「bestAction=dm」と厳密に一致することを確認 (整合性の不変条件)。
+    const place = (b: Board) => {
+      b[8][8] = pc("king", "sente");
+      b[0][0] = pc("king", "gote");
+      b[6][4] = pc("pawn", "sente");
+      b[2][4] = pc("pawn", "gote");
+    };
+    const gs = buildGameState(place, "sente");
+    const r = findBestMove(gs, "sente", DET_OPTIONS, CARD_SHOGI_VARIANT, worldCtx(), dmCs());
+    expect(r).not.toBeNull();
+    const isDm = r!.bestAction!.kind === "playCard" && r!.bestAction!.defId === "double_move";
+    expect(r!.doubleMoveMoves !== undefined).toBe(isDm);
+    if (isDm) {
+      expect(r!.doubleMoveMoves!.move1.captured).not.toBe("king");
+      if (r!.doubleMoveMoves!.move2) expect(r!.doubleMoveMoves!.move2.captured).not.toBe("king");
+    }
+  }, 15000);
+});

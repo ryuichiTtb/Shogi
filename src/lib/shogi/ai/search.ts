@@ -2,7 +2,15 @@ import type { GameState, Move, Player, RuleVariant } from "../types";
 import { STANDARD_VARIANT } from "../variants/standard";
 // Issue #193 / PR1b (Phase 3): 探索ホットパスの合法手生成は getSearchLegalMoves に切替。
 // getFullLegalMoves は本ファイル内で直接呼ばないので import から除外、isInCheck のみ moves から取込む。
-import { isInCheck, getFullLegalMoves } from "../moves";
+// Issue #245 S4c-1d: double_move root ヘルパで二手指しの合法手生成・詰み判定を UI と同一関数で行う。
+import {
+  isInCheck,
+  getFullLegalMoves,
+  getLegalMoves,
+  getKingSafePseudoLegalMoves,
+  isKingCapture,
+  hasOneMoveMate,
+} from "../moves";
 import { getSearchLegalMoves } from "./legal-moves";
 import { applyMoveForSearch } from "../board";
 import { evaluate, scoreMoveForOrdering } from "./evaluate";
@@ -550,6 +558,9 @@ export interface RootSearchResult {
   // (engagement 下駄適用 *前*)。engagement margin 校正の診断 (card vs best-move gap 計測) に使う。
   // move-only findBestMove は未設定。
   rootActionScores?: { action: TurnAction; score: number }[];
+  // Issue #245 S4c-1d: bestAction が double_move のとき、実行用の 1手目/2手目 (move2 は 1手目詰み時 null)。
+  // 1-response 方式で engine→route→bridge へ搬送し 4-dispatch 列で実行する。他アクション時は未設定。
+  doubleMoveMoves?: { move1: Move; move2: Move | null };
 }
 
 export function findBestMove(
@@ -1037,8 +1048,12 @@ function negamaxWorld(
     hi: (boardHash.hi ^ cardFold.hi) >>> 0,
   };
   let ttMove: Move | null = null;
+  // Issue #245 S4c-1d (論点4 防御): double_move 継続中は TT skip。W1 (playCard 直後) は遅延消費ゆえ board も
+  // cardFold も root と完全同一 → 同 key で「あと N 手指せる局面」と通常局面が誤 hit する。ヘルパ方式では
+  // 本 negamaxWorld に doubleMove!==null は到達しないため通常不発だが、将来の deep card 展開への防御。
+  const useTt = world.doubleMove === null;
   ctx.ttProbes++;
-  const ttEntry = ctx.tt.probe(ttKey.lo, ttKey.hi);
+  const ttEntry = useTt ? ctx.tt.probe(ttKey.lo, ttKey.hi) : null;
   if (ttEntry && ttEntry.depth >= depth) {
     ctx.ttHits++;
     ttMove = ttEntry.bestMove;
@@ -1078,7 +1093,10 @@ function negamaxWorld(
   // 伝播させていた (root 全 action が -Infinity 化 = カードも move も評価不能)。beta=+Infinity では
   // `nullScore >= beta` は原理的に成立し得ず null-move 自体が無意味ゆえ、skip が正しい
   // (既存 negamax は aspiration で beta 有限のため本問題は起きない。S4e で aspiration 導入時に再検討)。
-  if (isNullMoveAllowed && depth >= 3 && !inCheck && Number.isFinite(beta)) {
+  // Issue #245 S4c-1d (B-2 防御): double_move 継続中 (doubleMove!==null) は null-move 禁止。手番だけ flip した
+  // nullWorld が doubleMove を保持したまま子で相手 move を「1手目」として適用し状態破壊するため。ヘルパ方式では
+  // 本 negamaxWorld に doubleMove!==null は到達しないが、将来の deep card 展開に対する防御ガード。
+  if (isNullMoveAllowed && depth >= 3 && !inCheck && Number.isFinite(beta) && world.doubleMove === null) {
     const nullWorld: WorldState = {
       ...world,
       gameState: {
@@ -1188,7 +1206,8 @@ function negamaxWorld(
   }
 
   // S4c-2b/S4d-4: TT store (trap 局面も有効。停止後は score 不信頼ゆえ skip、move-only と同)。
-  if (!ctx.stopped) {
+  // S4c-1d 防御: double_move 継続中は store skip (useTt、誤 hit 汚染防止)。
+  if (!ctx.stopped && useTt) {
     const flag: "exact" | "lower" | "upper" =
       maxScore <= originalAlpha ? "upper" : maxScore >= beta ? "lower" : "exact";
     ctx.tt.store(ttKey.lo, ttKey.hi, depth, maxScore, flag, bestMove);
@@ -1202,6 +1221,72 @@ function negamaxWorld(
 // (bestMove) + rootMoveScores も保持し、engine の blunder guard が move 採用時に参照する。
 // noise/nearEqual は root アクション上で適用 (beginner/intermediate 弱さ演出、D-B)。
 // 特性化テストから検証するため export。
+// Issue #245 S4c-1d: double_move (二手指し) の root 専用探索ヘルパ。
+// カード使用 (W1) → 1手目 (W2) → 2手目 (W3=相手番) を自前展開し、root player 視点の best score と
+// 実行用 move ペア (1手目詰み時 move2=null) を返す。合法な二手指し線が無ければ null (棄却)。
+//
+// ★設計 (M1 M-4): 生の negamaxWorld は W3 (turnEnded=true, doubleMove=null) からのみ呼ぶ。ゆえに
+//   中間ノード規律 (TT skip / null-move 抑止 / 符号 / depth 会計 / hash) がすべて本ヘルパに局所化され、
+//   negamaxWorld 本体は無改変 = dm 手札なし局面で探索結果バイト等価 (無回帰の構造的成立)。
+// ★B-1 (hash 手番パリティ汚染) 解消: W3 進入時に computeHash 全量計算 (updateHash の無条件 flip を回避)。
+// ★B-3 (詰み規約) 解消: 2手目詰み禁止を **kernel 適用後の status** で判定 = trap (check_break 等) 込みで
+//   UI (reducer) と同一結果 (M-2)。mateInOneAvailable は UI と同一 hasOneMoveMate。
+// ★1手目候補は RELAXED (getKingSafePseudoLegalMoves、自玉王手容認で 2手目解消を許容、玉取り除外)、
+//   2手目候補は getLegalMoves (自玉安全ゆえ 1手目 self-check を解消する手のみ通過) + 玉取り除外。
+function searchDoubleMoveLineWorld(
+  rootWorld: WorldState,
+  dmAction: TurnAction,
+  depth: number,
+  rootAlpha: number,
+  variant: RuleVariant,
+  baseDigest: CardDigest | undefined,
+  ctx: SearchContext,
+): { score: number; move1: Move; move2: Move | null } | null {
+  const state = rootWorld.gameState;
+  const player = state.currentPlayer;
+  const cardState = rootWorld.cardState;
+  // カード使用 (W1: doubleMove set、盤面・手番・マナ消費は kernel が処理、turnEnded=false)。
+  const w1 = applyTurnAction(rootWorld, dmAction, { spectatorMode: true }).world;
+  const mateInOneAvailable = hasOneMoveMate(state, player, variant, cardState);
+  const firstMoves = getKingSafePseudoLegalMoves(state, player, variant).filter((m) => !isKingCapture(m));
+
+  let bestScore = NEG_INF;
+  let bestMove1: Move | null = null;
+  let bestMove2: Move | null = null;
+  let localAlpha = rootAlpha; // fail-soft の下限を上げて部分木を枝刈り (M1 N-3: fail-low pair は非採用)。
+
+  for (const move1 of firstMoves) {
+    if (ctx.stopped) break;
+    const w2applied = applyTurnAction(w1, { kind: "move", move: move1 }, { spectatorMode: true });
+    const w2 = w2applied.world;
+    if (w2applied.turnEnded) {
+      // 1手目で決着 (kernel finalize = 詰み)。move2 不要。W2 は相手番・doubleMove 消費済。
+      const d2 = baseDigest !== undefined ? updateCardDigest(baseDigest, cardState, w2.cardState) : undefined;
+      const h2 = computeHash(w2.gameState);
+      const s = -negamaxWorld(w2, depth - 1, NEG_INF, -localAlpha, variant, d2, 1, true, ctx, h2);
+      if (s > bestScore) { bestScore = s; bestMove1 = move1; bestMove2 = null; }
+      if (s > localAlpha) localAlpha = s;
+      continue;
+    }
+    // 2手目候補: 自玉安全 (1手目の self-check を解消) + 玉取り除外。
+    const secondMoves = getLegalMoves(w2.gameState, player, variant, cardState).filter((m) => !isKingCapture(m));
+    for (const move2 of secondMoves) {
+      if (ctx.stopped) break;
+      const w3applied = applyTurnAction(w2, { kind: "move", move: move2 }, { spectatorMode: true });
+      const w3 = w3applied.world;
+      // B-3: mateInOne が無ければ 2手目での詰みは禁止 (kernel status で判定 = trap-aware)。
+      if (!mateInOneAvailable && w3.gameState.status === "checkmate") continue;
+      const d3 = baseDigest !== undefined ? updateCardDigest(baseDigest, cardState, w3.cardState) : undefined;
+      const h3 = computeHash(w3.gameState); // B-1 解消: 全量計算で手番パリティ正しい。
+      const s = -negamaxWorld(w3, depth - 1, NEG_INF, -localAlpha, variant, d3, 1, true, ctx, h3);
+      if (s > bestScore) { bestScore = s; bestMove1 = move1; bestMove2 = move2; }
+      if (s > localAlpha) localAlpha = s;
+    }
+  }
+  if (bestMove1 === null) return null; // 合法な二手指し線なし → dm 線を棄却 (score 積まない)。
+  return { score: bestScore, move1: bestMove1, move2: bestMove2 };
+}
+
 export function findBestMoveWorld(
   state: GameState,
   cardState: CardGameState,
@@ -1217,6 +1302,16 @@ export function findBestMoveWorld(
     rootActions = selectBranchCandidates(
       rootActions, ctx.selectorM ?? Infinity, ctx.selectorK ?? Infinity, state, player, 0, ctx,
     );
+  }
+  // Issue #245 S4c-1d: double_move を root 候補に追加 (getWorldLegalActions は :801 で除外するため別途、
+  // かつ selector を bypass して常に候補化 = 強力カードを見落とさない)。getCardActions が use-condition
+  // (マナ/王手中可否) を自前枝刈り済ゆえ、手札に dm 無ければ空 = 従来完全不変。dm の探索は専用ヘルパで
+  // 行い negamaxWorld 本体は無改変 (中間ノードは move-only 維持)。
+  if (variant.id === "card-shogi") {
+    const dmAiState: AiTurnState = { gameState: state, cardState, doubleMove: null, isRoot: true };
+    for (const ca of getCardActions(dmAiState, player, variant)) {
+      if (ca.kind === "playCard" && ca.defId === "double_move") rootActions.push(ca);
+    }
   }
   const rootMoves = rootActions
     .filter((a): a is Extract<TurnAction, { kind: "move" }> => a.kind === "move")
@@ -1261,6 +1356,8 @@ export function findBestMoveWorld(
   let rootMoveScores: { move: Move; score: number }[] = [];
   let bestAction: TurnAction = { kind: "move", move: bestMove };
   let rootActionScores: { action: TurnAction; score: number }[] = [];
+  // Issue #245 S4c-1d: 完了した最終 depth の dm action → 実行用 move ペア (bestAction=dm 時に返す)。
+  let dmMovesMap = new Map<TurnAction, { move1: Move; move2: Move | null }>();
 
   for (let depth = 1; depth <= options.maxDepth; depth++) {
     if (shouldStop(ctx)) break;
@@ -1290,42 +1387,54 @@ export function findBestMoveWorld(
     let depthBestAction: TurnAction = bestAction;
     const depthMoveScores: { move: Move; score: number }[] = [];
     const depthActionScores: { action: TurnAction; score: number }[] = [];
+    const depthDmMoves = new Map<TurnAction, { move1: Move; move2: Move | null }>();
     let stopped = false;
     let i = 0;
     let cardSeen = 0; // Issue #245 Stage 1b: 処理済み card/draw 数 (late card の soft reduction 用)
 
     for (const action of sortedRoot) {
       if (shouldStop(ctx)) { stopped = true; break; }
-      // root の全 action は turnEnded=true (S4c-1 は double_move 除外) → 相手番へ反転。
-      const applied = applyTurnAction(rootWorld, action, { spectatorMode: true });
-      const childWorld = applied.world;
-      const childDigest =
-        baseDigest !== undefined
-          ? updateCardDigest(baseDigest, cardState, childWorld.cardState)
-          : undefined;
-      // S4c-2b: child board hash (root: 通常 move=incremental、card/draw=全量)。
-      const childBoardHash: ZobristHash =
-        action.kind === "move" && !applied.boardChangedBeyondMove
-          ? updateHash(rootBoardHash, state, action.move, childWorld.gameState)
-          : computeHash(childWorld.gameState);
 
       let score: number;
-      if (i === 0) {
-        score = -negamaxWorld(childWorld, depth - 1, NEG_INF, -alpha, variant, childDigest, 1, true, ctx, childBoardHash);
+      if (action.kind === "playCard" && action.defId === "double_move") {
+        // Issue #245 S4c-1d: double_move は専用ヘルパで探索 (scout/soft-reduction を bypass、同視点 exact)。
+        // 合法な二手指し線が無ければ棄却 (score 積まない、rootActionScores にも入れない)。
+        const dmRes = searchDoubleMoveLineWorld(rootWorld, action, depth, alpha, variant, baseDigest, ctx);
+        if (ctx.stopped) { stopped = true; break; }
+        if (dmRes === null) { cardSeen++; i++; continue; }
+        score = dmRes.score;
+        depthDmMoves.set(action, { move1: dmRes.move1, move2: dmRes.move2 });
       } else {
-        // Issue #245 Stage 1b: late card/draw を浅く読む soft reduction。card は cardOrderKey 降順
-        // ゆえ best card は先頭 (cardSeen=0) で非 reduce、低評価の late card (cardSeen>=1) のみ
-        // depth-1 縮約する。null 窓が alpha を超えたら full-depth 再探索で取りこぼしを防ぐ (安全)。
-        // move は従来どおり非 reduce (root の move 強度温存)。
-        // depth>=3 ガード: 縮約後 depth-1-1 = depth-2 >= 1 を担保し負深さ (quiescence 直行) を防ぐ。
-        const reduction = action.kind !== "move" && cardSeen >= 1 && depth >= 3 ? 1 : 0;
-        score = -negamaxWorld(childWorld, depth - 1 - reduction, -alpha - 1, -alpha, variant, childDigest, 1, true, ctx, childBoardHash);
-        if (score > alpha) {
-          score = -negamaxWorld(childWorld, depth - 1, NEG_INF, -alpha, variant, childDigest, 1, true, ctx, childBoardHash);
-        }
-      }
+        // root の move/card/draw は turnEnded=true → 相手番へ反転 (通常パス)。
+        const applied = applyTurnAction(rootWorld, action, { spectatorMode: true });
+        const childWorld = applied.world;
+        const childDigest =
+          baseDigest !== undefined
+            ? updateCardDigest(baseDigest, cardState, childWorld.cardState)
+            : undefined;
+        // S4c-2b: child board hash (root: 通常 move=incremental、card/draw=全量)。
+        const childBoardHash: ZobristHash =
+          action.kind === "move" && !applied.boardChangedBeyondMove
+            ? updateHash(rootBoardHash, state, action.move, childWorld.gameState)
+            : computeHash(childWorld.gameState);
 
-      if (ctx.stopped) { stopped = true; break; }
+        if (i === 0) {
+          score = -negamaxWorld(childWorld, depth - 1, NEG_INF, -alpha, variant, childDigest, 1, true, ctx, childBoardHash);
+        } else {
+          // Issue #245 Stage 1b: late card/draw を浅く読む soft reduction。card は cardOrderKey 降順
+          // ゆえ best card は先頭 (cardSeen=0) で非 reduce、低評価の late card (cardSeen>=1) のみ
+          // depth-1 縮約する。null 窓が alpha を超えたら full-depth 再探索で取りこぼしを防ぐ (安全)。
+          // move は従来どおり非 reduce (root の move 強度温存)。
+          // depth>=3 ガード: 縮約後 depth-1-1 = depth-2 >= 1 を担保し負深さ (quiescence 直行) を防ぐ。
+          const reduction = action.kind !== "move" && cardSeen >= 1 && depth >= 3 ? 1 : 0;
+          score = -negamaxWorld(childWorld, depth - 1 - reduction, -alpha - 1, -alpha, variant, childDigest, 1, true, ctx, childBoardHash);
+          if (score > alpha) {
+            score = -negamaxWorld(childWorld, depth - 1, NEG_INF, -alpha, variant, childDigest, 1, true, ctx, childBoardHash);
+          }
+        }
+
+        if (ctx.stopped) { stopped = true; break; }
+      }
 
       // 全 action を同列スコアリング (bestAction)。move のみ別途保持 (blunder guard 用 rootMoveScores)。
       depthActionScores.push({ action, score });
@@ -1344,6 +1453,7 @@ export function findBestMoveWorld(
     bestAction = depthBestAction;
     rootMoveScores = depthMoveScores;
     rootActionScores = depthActionScores;
+    dmMovesMap = depthDmMoves; // 完了 depth のみ commit (bestAction と整合、中断 depth の半端値は捨てる)。
     ctx.depthCompleted = depth;
   }
 
@@ -1379,7 +1489,14 @@ export function findBestMoveWorld(
   // (engine が usingCardAction=true で blunder guard を skip = move フィールドは UI 互換用途)。
   if (bestAction.kind === "move") bestMove = bestAction.move;
 
-  return { move: bestMove, rootMoveScores, bestAction, rootActionScores };
+  // Issue #245 S4c-1d: bestAction が double_move なら実行用 move ペアを添付 (nearEqual で dm が選ばれた
+  // 場合も記録済 pair を使用)。他アクションでは undefined = 従来不変。
+  const doubleMoveMoves =
+    bestAction.kind === "playCard" && bestAction.defId === "double_move"
+      ? dmMovesMap.get(bestAction)
+      : undefined;
+
+  return { move: bestMove, rootMoveScores, bestAction, rootActionScores, doubleMoveMoves };
 }
 
 // Issue #245 Stage 2 P2-0 (search-score bootstrapping): 局面の **move-only backed-up 評価値**を

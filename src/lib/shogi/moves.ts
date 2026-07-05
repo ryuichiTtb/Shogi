@@ -650,7 +650,7 @@ export function isSquareAttacked(
 // 「相手玉を取る手」かどうか。通常将棋では交互ターン不変条件で発生しないが、
 // 二手指しでは 1手目で王手 → 2手目で玉取り のシーケンスが理論上可能になるため
 // 明示的に除外する必要がある。
-function isKingCapture(move: Move): boolean {
+export function isKingCapture(move: Move): boolean {
   return move.captured === "king";
 }
 
