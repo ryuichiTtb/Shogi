@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { createInitialGameState, serializeGameState, deserializeGameState } from "@/lib/shogi/board";
 import { getVariantById } from "@/lib/shogi/variants/index";
-import type { Difficulty, GameConfig, GameState, Move, Player } from "@/lib/shogi/types";
+import type { Difficulty, EngineId, GameConfig, GameState, Move, Player } from "@/lib/shogi/types";
 import type { CardGameState } from "@/lib/shogi/cards/types";
 import {
   createInitialCardState,
@@ -77,7 +77,10 @@ export async function createGame(
   difficulty: Difficulty,
   playerColor: Player,
   characterId: string,
-  variantId: string = "standard"
+  variantId: string = "standard",
+  // Issue #245 派生 (検証デバッグ): CPU エンジン選択。undefined = env に従う (後方互換、
+  // production では route が無視するため常に旧版 bolt-on)。gameConfig JSON に保存。
+  engine?: EngineId,
 ): Promise<string> {
   const user = await getCurrentAppUser();
   const variant = getVariantById(variantId);
@@ -92,6 +95,8 @@ export async function createGame(
     // Issue #150: ユーザ環境設定 "サウンド ON/OFF"。デフォルト ON。
     soundEnabled: true,
     commentaryEnabled: true,
+    // Issue #245 派生: エンジン選択 (undefined は JSON 保存時に落ちる = 後方互換)。
+    engine,
   };
 
   // card-shogi variant の場合は cardState を初期化
@@ -140,6 +145,8 @@ export async function getGame(gameId: string) {
     characterId: string;
     soundEnabled: boolean;
     commentaryEnabled: boolean;
+    // Issue #245 派生: エンジン選択 (旧レコードは undefined = env に従う)。
+    engine?: EngineId;
   };
   const gameConfig: GameConfig = {
     variant: getVariantById(stored.variantId ?? game.variantId),
@@ -148,6 +155,7 @@ export async function getGame(gameId: string) {
     characterId: stored.characterId ?? game.characterId,
     soundEnabled: stored.soundEnabled ?? true,
     commentaryEnabled: stored.commentaryEnabled ?? true,
+    engine: stored.engine,
   };
 
   // card-shogi variant のとき cardState を復元

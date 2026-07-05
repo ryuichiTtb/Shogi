@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import { MaskedLink } from "@/components/navigation/masked-link";
 import { LOADING_STAGES } from "@/lib/loading-stages";
-import { ChevronUp, ChevronDown, Pause, Volume2, VolumeX } from "lucide-react";
+import { ChevronUp, ChevronDown, Eye, EyeOff, Pause, Volume2, VolumeX } from "lucide-react";
 
 import { useCardShogiGame } from "@/hooks/use-card-shogi-game";
 import { useSound, playSfxOnce } from "@/hooks/use-sound";
@@ -48,7 +48,7 @@ import { isInCheck, findKing } from "@/lib/shogi/moves";
 import { unpromotePieceType } from "@/lib/shogi/variants/standard";
 import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
 import { getVariantById } from "@/lib/shogi/variants/index";
-import type { Difficulty, GameConfig, GameState, Move, Player, Position } from "@/lib/shogi/types";
+import type { Difficulty, EngineId, GameConfig, GameState, Move, Player, Position } from "@/lib/shogi/types";
 import type { CommentaryEvent } from "@/app/actions/commentary";
 import type { CardGameState, CardInstance, GameEvent } from "@/lib/shogi/cards/types";
 import { CARD_DEFS, CARD_USE_CONDITIONS, DRAW_COST } from "@/lib/shogi/cards/definitions";
@@ -93,6 +93,9 @@ interface SerializableGameConfig {
   spectatorMode?: boolean;
   difficultyB?: Difficulty;
   characterIdB?: string;
+  // Issue #245 派生 (検証デバッグ): CPU エンジン選択 (Preview のみ実効、difficultyB と同型)。
+  engine?: EngineId;
+  engineB?: EngineId;
 }
 
 interface CardShogiGameProps {
@@ -175,6 +178,9 @@ export function CardShogiGame({
     key: number;
   } | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(() => Boolean(debugInitialUi?.drawerOpen));
+  // Issue #245 派生 (検証デバッグ): 相手 (CPU) 手札の公開トグル。既定 OFF・非永続 (remount でリセット)。
+  // 対 CPU 専用アプリゆえ実害は自己責任のみ (/dev を production 公開している既存文化と整合)。
+  const [revealOpponentHand, setRevealOpponentHand] = useState(false);
   // Step S4 (Issue #107): モバイル/タブレットの終了カードを最小化できるように
   // する。閉じると盤面・持ち駒が見え、再度展開して「もう一局」「ホームへ」を
   // 押せる。
@@ -367,6 +373,8 @@ export function CardShogiGame({
       playerColor: gameConfig.playerColor,
       characterId: gameConfig.characterId,
       variantId: "card-shogi",
+      // Issue #245 派生: エンジン選択をリマッチへ透過 (M1 M-2: 落とすと legacy 指定が learned に戻る)。
+      engine: gameConfig.engine,
     });
   }, [
     spectatorMode,
@@ -374,6 +382,7 @@ export function CardShogiGame({
     gameConfig.difficulty,
     gameConfig.playerColor,
     gameConfig.characterId,
+    gameConfig.engine,
     rematch,
     playSfx,
   ]);
@@ -1485,14 +1494,19 @@ export function CardShogiGame({
     />
   );
 
+  // Issue #245 派生 (検証デバッグ): reveal トグルで表向き表示。★data-hand-area ラッパーは reveal
+  // 状態に依らず常時付与 (M1 M-1: HandArea は faceDown/stack 分岐でのみ内部付与するため、reveal で
+  // 表向き分岐に落ちると getAiHandRect が rect を見失い相手ドローフライトが中央へフォールバックする)。
   const opponentHandFaceDown = (
-    <HandArea
-      hand={displayedOpponentHand}
-      currentMana={cardState.mana[aiColor]}
-      faceDown
-      size="sm"
-      emptyLabel=""
-    />
+    <div data-hand-area>
+      <HandArea
+        hand={displayedOpponentHand}
+        currentMana={cardState.mana[aiColor]}
+        faceDown={!revealOpponentHand}
+        size="sm"
+        emptyLabel=""
+      />
+    </div>
   );
 
   // 手札の操作可否 (Issue #82 で王手仕様変更):
@@ -1619,6 +1633,17 @@ export function CardShogiGame({
         >
           {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
         </Button>
+        {/* Issue #245 派生 (検証デバッグ): 相手手札の公開トグル */}
+        <Button
+          size="icon"
+          variant="ghost"
+          className="h-6 w-6"
+          onClick={() => setRevealOpponentHand((v) => !v)}
+          aria-label={revealOpponentHand ? "相手手札を隠す" : "相手手札を見る (デバッグ)"}
+          title={revealOpponentHand ? "相手手札を隠す" : "相手手札を見る (デバッグ)"}
+        >
+          {revealOpponentHand ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+        </Button>
         {/* Issue #132 派生: ステータスバッジは displayInCheck (= 二手指し 1 手目自玉王手の
             過渡状態を除いた inCheck) を見る。玉赤スタイルは ShogiBoard 側で inCheck 直参照のため維持。 */}
         {displayInCheck && (
@@ -1676,14 +1701,17 @@ export function CardShogiGame({
           <Badge variant="outline" className="shrink-0 text-[10px] px-1.5 py-0 self-center">△</Badge>
           <div className="shrink-0">{opponentManaGauge}</div>
         </div>
-        {/* 右ブロック: 手札・山札・トラップを右揃え (sm カードデザイン、手札 stack 高さに統一) */}
-        <div className="ml-auto flex items-end gap-1.5">
-          <div className="shrink-0 flex items-end">
+        {/* 右ブロック: 手札・山札・トラップを右揃え (sm カードデザイン、手札 stack 高さに統一)
+          * Issue #245 派生 (reveal): stack は重ね裏面で表向きでも中身が見えないため、reveal 時は
+          * horizontal + flex-1 min-w-0 に切替え HandArea 内蔵の横スクロールに委ねる (M1 M-4)。
+          * data-hand-area は常時付与 (M1 M-1、ドローフライト着地点)。 */}
+        <div className={revealOpponentHand ? "ml-auto flex items-end gap-1.5 flex-1 min-w-0" : "ml-auto flex items-end gap-1.5"}>
+          <div data-hand-area className={revealOpponentHand ? "flex-1 min-w-0 flex items-end" : "shrink-0 flex items-end"}>
             <HandArea
               hand={displayedOpponentHand}
-              currentMana={0}
-              faceDown
-              layout="stack"
+              currentMana={revealOpponentHand ? cardState.mana[aiColor] : 0}
+              faceDown={!revealOpponentHand}
+              layout={revealOpponentHand ? "horizontal" : "stack"}
               size="sm"
               emptyLabel=""
               stackMaxVisible={5}
@@ -2041,6 +2069,18 @@ export function CardShogiGame({
             >
               {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
             </Button>
+            {/* Issue #245 派生 (検証デバッグ): 相手手札の公開トグル (xl レイアウトは statusBarContent
+              * 非描画のため別配置、M1 M-3) */}
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7"
+              onClick={() => setRevealOpponentHand((v) => !v)}
+              aria-label={revealOpponentHand ? "相手手札を隠す" : "相手手札を見る (デバッグ)"}
+              title={revealOpponentHand ? "相手手札を隠す" : "相手手札を見る (デバッグ)"}
+            >
+              {revealOpponentHand ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+            </Button>
             {/* Issue #132 派生: 二手指し 1 手目自玉王手の過渡状態は Badge を抑制 (玉赤は維持) */}
             {displayInCheck && (
               <Badge variant="destructive" className="animate-pulse text-xs">
@@ -2226,11 +2266,13 @@ export function CardShogiGame({
             </div>
           </div>
           <div className="text-xs text-muted-foreground font-medium shrink-0 text-center">手札 {displayedOpponentHand.length}枚</div>
-          <div className="flex-1 min-h-0 overflow-y-auto">
+          {/* Issue #245 派生 (reveal): data-hand-area 常時付与 (M1 M-1) + reveal 時は実マナで
+            * 使用可否のグレーアウトも正しく表示 (M1 m-1: currentMana=0 だと全カード灰色で誤誘導)。 */}
+          <div data-hand-area className="flex-1 min-h-0 overflow-y-auto">
             <HandArea
               hand={displayedOpponentHand}
-              currentMana={0}
-              faceDown
+              currentMana={revealOpponentHand ? cardState.mana[aiColor] : 0}
+              faceDown={!revealOpponentHand}
               layout="vertical"
               size="md"
               fullWidth

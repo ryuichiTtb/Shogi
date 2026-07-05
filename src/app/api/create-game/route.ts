@@ -32,6 +32,8 @@ interface CreateGameRequestBody {
   playerColor: Player;
   characterId: string;
   variantId?: string;
+  // Issue #245 派生 (検証デバッグ): CPU エンジン選択 (リマッチ経路の透過、M1 M-2)。
+  engine?: "legacy" | "learned";
 }
 
 export async function POST(request: NextRequest) {
@@ -44,6 +46,9 @@ export async function POST(request: NextRequest) {
 
   const { difficulty, playerColor, characterId, variantId } = body;
   const resolvedVariantId = variantId ?? "standard";
+  // Issue #245 派生: engine は許容 2 値以外 undefined (ai-move route と同じ silent ignore 流儀)。
+  const engine =
+    body.engine === "legacy" || body.engine === "learned" ? body.engine : undefined;
   if (
     !VALID_DIFFICULTIES.has(difficulty) ||
     !VALID_PLAYERS.has(playerColor) ||
@@ -60,6 +65,7 @@ export async function POST(request: NextRequest) {
       playerColor,
       characterId,
       resolvedVariantId,
+      engine,
     );
     return NextResponse.json({ gameId });
   } catch (e) {

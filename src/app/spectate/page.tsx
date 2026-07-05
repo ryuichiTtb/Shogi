@@ -29,6 +29,7 @@ import { LOADING_STAGES } from "@/lib/loading-stages";
 import { cn } from "@/lib/utils";
 import type { CardGameState } from "@/lib/shogi/cards/types";
 import type { Difficulty, GameState } from "@/lib/shogi/types";
+import type { EngineId } from "@/lib/shogi/variants/types";
 
 const DIFFICULTY_INFO: Record<Difficulty, { label: string; description: string; color: string }> = {
   beginner: { label: "初級", description: "将棋を覚えたばかり", color: "bg-green-100 text-green-800 border-green-200" },
@@ -49,6 +50,11 @@ export default function SpectatePage() {
   // 既定値: 先手 = 龍王 (超上級)、後手 = さくら (初級)。観戦体験として強さ差がある方が手の違いが見えやすい。
   const [characterIdA, setCharacterIdA] = useState<string>("ryuou");
   const [characterIdB, setCharacterIdB] = useState<string>("sakura");
+  // Issue #245 派生 (検証デバッグ): 各 CPU の思考エンジン (旧=手作り評価 / 新=NN 学習)。
+  // 実効性は Preview (env ENABLE_LEARNED_EVAL=1) のみ。production では route が無視し常に旧版。
+  // page state に持つため「もう1局」(onSpectatorRematch → handleStart) でも自然に引き継がれる。
+  const [engineA, setEngineA] = useState<EngineId>("learned");
+  const [engineB, setEngineB] = useState<EngineId>("learned");
   const [game, setGame] = useState<SpectatorGame | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,6 +96,9 @@ export default function SpectatePage() {
           spectatorMode: true,
           difficultyB: characterB.difficulty,
           characterIdB: characterIdB,
+          // Issue #245 派生: エンジン選択 (先手=engine / 後手=engineB)。Preview のみ実効。
+          engine: engineA,
+          engineB: engineB,
         }}
         // Issue #226: 観戦の「もう1局」は同じ2キャラの CPU 対 CPU を揮発再生成する
         // (handleStart と同一処理。DB リマッチではなくページ内で新ゲームに差替え)。
@@ -136,6 +145,7 @@ export default function SpectatePage() {
             layoutGroup="a"
             disabled={pending}
           />
+          <EngineToggle label="先手 (A) エンジン" value={engineA} onChange={setEngineA} disabled={pending} />
 
           {/* 後手 (B) 選択 */}
           <CharacterPicker
@@ -145,6 +155,7 @@ export default function SpectatePage() {
             layoutGroup="b"
             disabled={pending}
           />
+          <EngineToggle label="後手 (B) エンジン" value={engineB} onChange={setEngineB} disabled={pending} />
 
           {error && (
             <div className="text-xs sm:text-sm text-destructive text-center">エラー: {error}</div>
@@ -186,6 +197,48 @@ export default function SpectatePage() {
         />
       </main>
     </PageMotion>
+  );
+}
+
+// Issue #245 派生 (検証デバッグ): CPU 思考エンジンの旧/新トグル。
+// 実効性は Preview (env ENABLE_LEARNED_EVAL=1) のみ — production では選んでも旧版固定 (route が無視)。
+function EngineToggle({
+  label,
+  value,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  value: EngineId;
+  onChange: (v: EngineId) => void;
+  disabled: boolean;
+}) {
+  const options: { id: EngineId; text: string }[] = [
+    { id: "learned", text: "新版 (NN 学習)" },
+    { id: "legacy", text: "旧版 (手作り評価)" },
+  ];
+  return (
+    <div className="flex items-center gap-2 px-1 text-xs sm:text-sm">
+      <span className="text-muted-foreground shrink-0">{label}:</span>
+      <div className="flex gap-1">
+        {options.map((o) => (
+          <button
+            key={o.id}
+            onClick={() => !disabled && onChange(o.id)}
+            disabled={disabled}
+            className={cn(
+              "px-2 py-0.5 rounded-md border text-xs transition-colors cursor-pointer disabled:cursor-not-allowed",
+              value === o.id
+                ? "border-primary bg-primary/10 font-semibold"
+                : "border-border text-muted-foreground hover:border-primary/40",
+            )}
+          >
+            {o.text}
+          </button>
+        ))}
+      </div>
+      <span className="text-[10px] text-muted-foreground/70 shrink-0">(Preview のみ有効)</span>
+    </div>
   );
 }
 

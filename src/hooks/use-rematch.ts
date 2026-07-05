@@ -11,7 +11,7 @@
 
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Difficulty, Player } from "@/lib/shogi/types";
+import type { Difficulty, EngineId, Player } from "@/lib/shogi/types";
 
 export interface RematchConfig {
   difficulty: Difficulty;
@@ -19,6 +19,9 @@ export interface RematchConfig {
   characterId: string;
   // 省略時は標準将棋 ("standard")。カード将棋は "card-shogi" を渡す。
   variantId?: string;
+  // Issue #245 派生 (検証デバッグ): CPU エンジン選択。省略時は env に従う。
+  // 明示指定対局のリマッチで設定が失われないよう透過する (M1 M-2)。
+  engine?: EngineId;
 }
 
 export interface UseRematchResult {
@@ -55,6 +58,7 @@ export function useRematch(): UseRematchResult {
             playerColor: config.playerColor,
             characterId: config.characterId,
             variantId: config.variantId ?? "standard",
+            engine: config.engine,
           }),
         });
         if (!res.ok) {

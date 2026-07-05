@@ -31,6 +31,8 @@ import { findBestMoveWithStats } from "@/lib/shogi/ai/engine";
 // 経路 (evalLeafWorld) が既に import 済ゆえ新規バンドル増なし。1.67MB 重み JSON は preview-model の
 // 動的 import 側にのみ含まれ、本 import には含まれない。
 import { getInferenceCount, resetInferenceCount } from "@/lib/shogi/ai/learned/infer";
+// Issue #245 派生 (エンジン選択): env × request engine の実効判定 (純関数、production 無回帰を test で pin)。
+import { resolveWantsLearned } from "./engine-flags";
 // Issue #193 / PR1c-2 Phase B: SPECTATOR_TIME_LIMIT_MS import 削除。
 // engine 内で createStrategy({ spectator }) 経由で Strategy 構築時に Math.min override 処理される。
 import { getVariantById } from "@/lib/shogi/variants";
@@ -73,6 +75,9 @@ interface AiMoveRequestBody {
   // それぞれに正しい difficulty / spectatorMode を渡す前提で、route 側は spectatorMode
   // フラグを受け取り timeLimitMs を SPECTATOR_TIME_LIMIT_MS で短縮する。
   spectatorMode?: boolean;
+  // Issue #245 派生 (検証デバッグ): CPU エンジン選択。resolveEngineFlags が env と合成して実効を
+  // 決める (env OFF=production では値に依らず bolt-on 固定)。不正値は undefined (silent ignore 流儀)。
+  engine?: "legacy" | "learned";
 }
 
 // 同 user × gameId の探索を 1 本に制限する。新 request 到着で既存を abort。
@@ -110,6 +115,10 @@ function validateBody(raw: unknown): AiMoveRequestBody | null {
   // PR1a (E-1): spectatorMode は boolean のみ許容、それ以外は false 扱い (silent ignore)。
   const spectatorMode = raw.spectatorMode === true;
 
+  // Issue #245 派生: engine は "legacy"/"learned" のみ許容、それ以外 undefined (silent ignore 流儀)。
+  const engine =
+    raw.engine === "legacy" || raw.engine === "learned" ? raw.engine : undefined;
+
   return {
     gameId: raw.gameId as string,
     requestId: raw.requestId as string,
@@ -120,6 +129,7 @@ function validateBody(raw: unknown): AiMoveRequestBody | null {
     clientMoveCount: raw.clientMoveCount as number,
     cardState,
     spectatorMode,
+    engine,
   };
 }
 
@@ -207,10 +217,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   try {
     const variant = getVariantById(body.variantId);
+    // Issue #245 派生 (エンジン選択): env が master switch、request の engine="legacy" で旧版へ。
+    // env OFF (production) では engine が何であれ false = bolt-on 固定 (バイト不変、engine-flags.ts)。
+    const wantsLearned = resolveWantsLearned(LEARNED_EVAL_ENABLED, body.engine);
     // Issue #245 Preview 配線: 学習脳を 1 回ロード (動的 import ゆえ production=本ブロック非実行=
     // preview-model + 1.67MB 重み JSON は本番 cold-start に一切載らず完全隔離)。ロード成否は
     // preview-model 内で console.info、この手の NN 呼出は下記 getInferenceCount で検知 (M1 M-1)。
-    if (LEARNED_EVAL_ENABLED) {
+    // legacy 選択時もロード自体不要 (useLearnedEval OFF で NN 分岐しない)。
+    if (wantsLearned) {
       const { ensureLearnedModelLoaded } = await import("@/lib/shogi/ai/learned/preview-model");
       ensureLearnedModelLoaded();
       resetInferenceCount();
@@ -251,25 +265,37 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         // 評価で merit ベースに使わせるのが本筋**。production は安定版 (bolt-on、eval バグ修正は D-5 で
         // 反映済) に戻す。engagement 撤去 + card 評価の本格改善後に再活性化を検討する (本行再追加)。
         //
-        // Issue #245 Preview 配線: env ON 時のみ world 単一木 + 学習 NN を有効化 (検証用トグル)。
-        // false の既定は `undefined` = 未伝播 = worldPathActive false = 上記 bolt-on 経路で不変。
+        // Issue #245 Preview 配線: wantsLearned (env ON + engine!=="legacy") 時のみ world 単一木 +
+        // 学習 NN を有効化 (検証用トグル)。false の既定は `undefined` = 未伝播 = worldPathActive
+        // false = 上記 bolt-on 経路で不変 (production / legacy 選択時)。
         // 効くのは card-shogi + cardState 供給時のみ (M1 M-2、standard は worldPathActive false)。
-        useTurnActionSearch: LEARNED_EVAL_ENABLED || undefined,
-        useLearnedEval: LEARNED_EVAL_ENABLED || undefined,
+        useTurnActionSearch: wantsLearned || undefined,
+        useLearnedEval: wantsLearned || undefined,
       },
     );
     // Issue #245 Preview 配線 (M1 M-1): この手で NN が実際に呼ばれたかをログ。0 なら学習脳が効かず
     // 人手 eval へ silent fallback = 「検証したつもり」の空振り (baseline と同挙動)。Vercel Function
-    // ログで確認できるようにする (env ON 時のみ、production は非実行)。
-    if (LEARNED_EVAL_ENABLED) {
+    // ログで確認できるようにする (wantsLearned 時のみ = production / legacy 選択では非実行)。
+    // 派生 (二手指し診断): bestAction 種別 + doubleMove ペア有無も出し、「エンジンが dm を選んだか・
+    // 実行ペアが搬送されたか」を実機 1 局のログで確定できるようにする。
+    if (wantsLearned) {
       const nnCalls = getInferenceCount();
+      const actionDesc =
+        result.action === null
+          ? "null"
+          : result.action.kind === "playCard"
+            ? `playCard:${result.action.defId}`
+            : result.action.kind;
       if (nnCalls === 0) {
         console.warn(
           "[learned-eval] ⚠️ NN 呼出 0 = 学習脳が効いていない (人手 eval へ silent fallback)。" +
             "モデルロード失敗 / standard variant / cardState 未供給 のいずれかを確認。",
         );
       } else {
-        console.info(`[learned-eval] NN 呼出 ${nnCalls} 回 (この手, difficulty=${body.difficulty})。`);
+        console.info(
+          `[learned-eval] NN 呼出 ${nnCalls} 回 (この手, difficulty=${body.difficulty}, ` +
+            `action=${actionDesc}, dmMoves=${result.doubleMove ? "有" : "無"}, depth=${result.stats.depthCompleted})。`,
+        );
       }
     }
     // client abort の場合は 499 相当だが、Next.js では client がもう listen して

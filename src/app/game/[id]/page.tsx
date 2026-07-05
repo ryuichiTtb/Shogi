@@ -24,6 +24,8 @@ export default async function GamePage({ params }: GamePageProps) {
     characterId: game.gameConfig.characterId,
     soundEnabled: game.gameConfig.soundEnabled,
     commentaryEnabled: game.gameConfig.commentaryEnabled,
+    // Issue #245 派生: エンジン選択 (旧レコードは undefined = env に従う)。
+    engine: game.gameConfig.engine,
   };
 
   return (

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CHARACTERS } from "@/data/characters";
 import { createGame } from "@/app/actions/game";
-import type { Difficulty, Player, GameMode } from "@/lib/shogi/types";
+import type { Difficulty, EngineId, Player, GameMode } from "@/lib/shogi/types";
 import { cn } from "@/lib/utils";
 import { Swords } from "lucide-react";
 import { LoadingOverlay } from "@/components/loading-overlay";
@@ -38,6 +38,9 @@ export function MatchSetup({ mode }: MatchSetupProps) {
   const isPending = pendingLabel !== null;
   const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty>("beginner");
   const [selectedColor, setSelectedColor] = useState<ColorOption>("sente");
+  // Issue #245 派生 (検証デバッグ): CPU エンジン選択。既定 learned (env に従う実効は route が決める、
+  // production では選んでも旧版固定 = 無害)。カード将棋のみ意味を持つ (standard は world 経路対象外)。
+  const [selectedEngine, setSelectedEngine] = useState<EngineId>("learned");
 
   // Safari互換: CSS 100dvh ではなく JS window.innerHeight を使用
   const [viewportHeight, setViewportHeight] = useState<number | undefined>(undefined);
@@ -90,6 +93,8 @@ export function MatchSetup({ mode }: MatchSetupProps) {
         color,
         selectedCharacter.id,
         mode,
+        // Issue #245 派生: エンジン選択 (Preview のみ実効)。
+        selectedEngine,
       );
       router.push(`/game/${gameId}`);
     } catch (e) {
@@ -290,6 +295,36 @@ export function MatchSetup({ mode }: MatchSetupProps) {
           </CardContent>
         </Card>
       </motion.div>
+
+      {/* Issue #245 派生 (検証デバッグ): CPU エンジン選択 (カード将棋のみ、Preview のみ実効) */}
+      {mode === "card-shogi" && (
+        <div className="flex items-center gap-2 px-1 text-xs sm:text-sm shrink-0">
+          <span className="text-muted-foreground shrink-0">CPU エンジン:</span>
+          <div className="flex gap-1">
+            {(
+              [
+                { id: "learned", text: "新版 (NN 学習)" },
+                { id: "legacy", text: "旧版 (手作り評価)" },
+              ] as { id: EngineId; text: string }[]
+            ).map((o) => (
+              <button
+                key={o.id}
+                onClick={() => !isPending && setSelectedEngine(o.id)}
+                disabled={isPending}
+                className={cn(
+                  "px-2 py-0.5 rounded-md border text-xs transition-colors cursor-pointer disabled:cursor-not-allowed",
+                  selectedEngine === o.id
+                    ? "border-primary bg-primary/10 font-semibold"
+                    : "border-border text-muted-foreground hover:border-primary/40",
+                )}
+              >
+                {o.text}
+              </button>
+            ))}
+          </div>
+          <span className="text-[10px] text-muted-foreground/70 shrink-0">(Preview のみ有効)</span>
+        </div>
+      )}
 
       {/* スペーサー（モバイルでボタンを下寄せ） */}
       <div className="flex-1 sm:hidden" />

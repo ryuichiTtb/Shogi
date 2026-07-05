@@ -48,6 +48,9 @@ export interface AiMoveRequestParams {
   // Issue #193 / PR1a: CPU vs CPU 観戦モードフラグ。route 側で timeLimitMs を
   // SPECTATOR_TIME_LIMIT_MS (1500ms) に短縮して観戦体験を向上させる。
   spectatorMode?: boolean;
+  // Issue #245 派生 (検証デバッグ): CPU エンジン選択。route の env ENABLE_LEARNED_EVAL が
+  // master switch (env OFF=production では無視され bolt-on 固定)。未指定は env に従う。
+  engine?: "legacy" | "learned";
 }
 
 export interface AiMoveResponse {

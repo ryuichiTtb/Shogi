@@ -141,6 +141,13 @@ export function useCardShogiGame({
         ? gameConfig.difficulty
         : gameConfig.difficultyB ?? gameConfig.difficulty
       : gameConfig.difficulty;
+    // Issue #245 派生 (検証デバッグ): エンジン選択 (difficultyB と同型)。観戦は 先手=engine /
+    // 後手=engineB (fallback engine)。未指定 undefined = route が env に従う (後方互換)。
+    const effectiveEngine = state.spectatorMode
+      ? gameState.currentPlayer === "sente"
+        ? gameConfig.engine
+        : gameConfig.engineB ?? gameConfig.engine
+      : gameConfig.engine;
 
     if (
       gameState.status !== "active" ||
@@ -174,6 +181,8 @@ export function useCardShogiGame({
         cardState: state.cardState,
         // PR1a (E-1): 観戦モード時は route 側で timeLimitMs を SPECTATOR_TIME_LIMIT_MS=1500ms に短縮する。
         spectatorMode: state.spectatorMode,
+        // Issue #245 派生: エンジン選択 (env OFF の production では route が無視 = 挙動不変)。
+        engine: effectiveEngine,
       });
       // Issue #235 派生 (504 UX 改善): リクエスト解決 = 自動リトライ局面の終了。
       // 成功 / stale (キャンセル・モーダル発火済) のどちらでも「長考中」表示を解除する。
@@ -350,8 +359,11 @@ export function useCardShogiGame({
   // 観戦 / テスト時は localStorage を使わず空状態で開始 (人間対局のみ永続化)。
   const captureRef = useRef<CaptureState | null>(null);
   if (captureRef.current === null) {
+    // Issue #245 派生 (M1 m-6): エンジンを明示指定した検証対局 (gameConfig.engine 有) は訓練
+    // キャプチャ対象外。engineVersion=SHA では旧/新エンジンの来歴が区別できず、学習エンジン
+    // 対局が無標識で教材へ混入すると教材純度を損なうため (通常対局 = engine 未指定は従来通り記録)。
     captureRef.current =
-      !disableServerSync && !(gameConfig.spectatorMode ?? false)
+      !disableServerSync && !(gameConfig.spectatorMode ?? false) && gameConfig.engine === undefined
         ? restoreCaptureState(readTrainingSnapshot(gameId))
         : createCaptureState();
   }
@@ -363,6 +375,7 @@ export function useCardShogiGame({
   useEffect(() => {
     if (disableServerSync) return; // テスト・モック時はキャプチャしない
     if (state.spectatorMode) return; // 観戦 (CPU vs CPU) は人間対局でないため対象外
+    if (gameConfig.engine !== undefined) return; // Issue #245 派生 (m-6): エンジン明示指定の検証対局は記録しない
     const cap = captureRef.current;
     if (!cap) return;
     captureStep(cap, {
@@ -379,6 +392,7 @@ export function useCardShogiGame({
   useEffect(() => {
     if (disableServerSync) return;
     if (state.spectatorMode) return;
+    if (gameConfig.engine !== undefined) return; // Issue #245 派生 (m-6): 検証対局は flush しない
     const status = state.gameState.status;
     if (status === "active") return;
     if (status === "spectator_max_moves") return; // 人間対局では発生しない (保険)

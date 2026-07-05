@@ -5,7 +5,7 @@ import { CardShogiGame } from "./card-shogi/card-shogi-game";
 import { AppBackground } from "@/components/layout/app-background";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import { useIsBoardLayoutReady } from "@/components/board-layout/board-layout-provider";
-import type { Difficulty, GameState, Player } from "@/lib/shogi/types";
+import type { Difficulty, EngineId, GameState, Player } from "@/lib/shogi/types";
 import type { CardGameState } from "@/lib/shogi/cards/types";
 
 interface SerializableGameConfig {
@@ -15,6 +15,9 @@ interface SerializableGameConfig {
   characterId: string;
   soundEnabled: boolean;
   commentaryEnabled: boolean;
+  // Issue #245 派生 (検証デバッグ): CPU エンジン選択 (Preview のみ実効)。
+  engine?: EngineId;
+  engineB?: EngineId;
 }
 
 interface GameLayoutProps {

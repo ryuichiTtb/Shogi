@@ -17,6 +17,7 @@ export type {
   RuleVariant,
   GameConfig,
   Difficulty,
+  EngineId,
   Move,
   GameStatus,
   GameState,

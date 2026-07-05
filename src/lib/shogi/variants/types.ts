@@ -104,6 +104,13 @@ export interface RuleVariant {
 // ゲーム設定
 export type Difficulty = "beginner" | "intermediate" | "advanced" | "expert";
 
+// Issue #245 派生 (検証デバッグ): CPU 思考エンジンの選択。
+// - "legacy": 旧版 = 手作り評価 bolt-on (現 production 挙動)
+// - "learned": 新版 = NN 学習評価 + world 単一木探索
+// 実効性はサーバ env ENABLE_LEARNED_EVAL=1 (Preview) が master switch。env OFF (production) では
+// route が本値を無視し常に bolt-on (= production バイト不変)。未指定は env に従う (後方互換)。
+export type EngineId = "legacy" | "learned";
+
 export interface GameConfig {
   variant: RuleVariant;
   difficulty: Difficulty;
@@ -128,6 +135,11 @@ export interface GameConfig {
   // gameState.currentPlayer === "gote" なら difficultyB (or fallback で difficulty) を使う。
   difficultyB?: Difficulty;
   characterIdB?: string;
+  // Issue #245 派生 (検証デバッグ): CPU エンジン選択 (difficultyB と同型の配線)。
+  // engine = 先手側 CPU (対 CPU 戦では唯一の CPU)、engineB = 観戦モードの後手側 CPU。
+  // 未指定はサーバ env に従う (Preview=learned / production=bolt-on、後方互換)。
+  engine?: EngineId;
+  engineB?: EngineId;
 }
 
 // 手の種類
