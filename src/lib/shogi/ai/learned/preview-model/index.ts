@@ -14,7 +14,9 @@ import { FEATURE_DIM } from "../encoder";
 import { hasLearnedModel, loadLearnedModel } from "../infer";
 import type { SerializedMlp } from "../mlp";
 
-import flatModel from "./bootstrap-small.json";
+// Preview が使う学習脳 (差し替え可能な単一ファイル)。現在: 348 局 bootstrap α0.5 hidden32 (val MSE 0.106)。
+// モデル更新時は本 JSON の中身のみ差し替える (import パス不変)。
+import flatModel from "./preview-eval.json";
 
 let attempted = false;
 
