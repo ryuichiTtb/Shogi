@@ -416,6 +416,118 @@ describe("mergeGuestSessionIntoAccount (early-return behaviors)", () => {
     });
   });
 
+  it("carries only boardLayout when the guest chose a board design but left theme/cardBackStyle at defaults (Issue #250)", async () => {
+    // Issue #250: boardLayout は nullable = 「明示選択済か」がフィールド単体で判定できるので、
+    // theme / cardBackStyle の pristine 判定 (行まるごとの all-or-nothing) から独立して引き継ぐ。
+    // ★同時に、ゲスト側の既定 theme / cardBackStyle がアカウントの保存値を上書きしないこと
+    // (= #160 の再発防止) も担保する。
+    const { DEFAULT_THEME, DEFAULT_CARD_BACK_STYLE } = await import(
+      "@/lib/user-preferences"
+    );
+
+    const token = createGuestSessionToken();
+    const guestUserId = "guest-user-board-only";
+
+    guestSessionMock.findUnique.mockResolvedValue({
+      id: "session-pref-250a",
+      userId: guestUserId,
+      user: { kind: "guest" },
+    });
+    userMock.findUnique.mockResolvedValue({ id: accountUserId, kind: "account" });
+    playerStatsMock.findUnique.mockResolvedValue(null);
+    userPreferenceMock.findUnique.mockImplementation(({ where }: { where: { userId: string } }) => {
+      if (where.userId === guestUserId) {
+        return Promise.resolve({
+          userId: guestUserId,
+          // 盤デザインだけ触った = theme / cardBackStyle は既定のまま
+          theme: DEFAULT_THEME,
+          cardBackStyle: DEFAULT_CARD_BACK_STYLE,
+          boardLayout: "dark-1",
+          updatedAt: new Date("2026-05-10T00:00:00.000Z"),
+        });
+      }
+      if (where.userId === accountUserId) {
+        return Promise.resolve({
+          userId: accountUserId,
+          theme: "light",
+          cardBackStyle: "kurenai",
+          boardLayout: null,
+          updatedAt: new Date("2026-05-01T00:00:00.000Z"),
+        });
+      }
+      return Promise.resolve(null);
+    });
+    userPreferenceMock.upsert.mockResolvedValue({});
+    userPreferenceMock.deleteMany.mockResolvedValue({ count: 1 });
+    playerCardCollectionMock.findMany.mockResolvedValue([]);
+    deckMock.findFirst.mockResolvedValue(null);
+    deckMock.findMany.mockResolvedValue([]);
+    gameMock.updateMany.mockResolvedValue({ count: 0 });
+    guestSessionMock.deleteMany.mockResolvedValue({ count: 1 });
+    userMock.deleteMany.mockResolvedValue({ count: 1 });
+
+    await mergeGuestSessionIntoAccount(token, accountUserId);
+
+    // boardLayout のみを運ぶ (theme / cardBackStyle はアカウント側を保護)
+    expect(userPreferenceMock.upsert).toHaveBeenCalledWith({
+      where: { userId: accountUserId },
+      create: { userId: accountUserId, boardLayout: "dark-1" },
+      update: { boardLayout: "dark-1" },
+    });
+  });
+
+  it("does not carry boardLayout when the guest never chose one (Issue #250)", async () => {
+    // ゲストが盤デザイン未選択 (NULL) なら、アカウント側の明示選択を NULL で潰してはいけない。
+    const token = createGuestSessionToken();
+    const guestUserId = "guest-user-board-unset";
+
+    guestSessionMock.findUnique.mockResolvedValue({
+      id: "session-pref-250b",
+      userId: guestUserId,
+      user: { kind: "guest" },
+    });
+    userMock.findUnique.mockResolvedValue({ id: accountUserId, kind: "account" });
+    playerStatsMock.findUnique.mockResolvedValue(null);
+    userPreferenceMock.findUnique.mockImplementation(({ where }: { where: { userId: string } }) => {
+      if (where.userId === guestUserId) {
+        return Promise.resolve({
+          userId: guestUserId,
+          theme: "dark", // non-pristine (theme は触った)
+          cardBackStyle: "kurenai",
+          boardLayout: null, // 盤デザインは未選択
+          updatedAt: new Date("2026-05-10T00:00:00.000Z"),
+        });
+      }
+      if (where.userId === accountUserId) {
+        return Promise.resolve({
+          userId: accountUserId,
+          theme: "light",
+          cardBackStyle: "seigaiha",
+          boardLayout: "light-1", // アカウント側は明示選択済
+          updatedAt: new Date("2026-05-01T00:00:00.000Z"),
+        });
+      }
+      return Promise.resolve(null);
+    });
+    userPreferenceMock.upsert.mockResolvedValue({});
+    userPreferenceMock.deleteMany.mockResolvedValue({ count: 1 });
+    playerCardCollectionMock.findMany.mockResolvedValue([]);
+    deckMock.findFirst.mockResolvedValue(null);
+    deckMock.findMany.mockResolvedValue([]);
+    gameMock.updateMany.mockResolvedValue({ count: 0 });
+    guestSessionMock.deleteMany.mockResolvedValue({ count: 1 });
+    userMock.deleteMany.mockResolvedValue({ count: 1 });
+
+    await mergeGuestSessionIntoAccount(token, accountUserId);
+
+    // boardLayout は payload に含まれない (アカウントの light-1 が残る)
+    expect(userPreferenceMock.upsert).toHaveBeenCalledWith({
+      where: { userId: accountUserId },
+      create: { userId: accountUserId, cardBackStyle: "kurenai", theme: "dark" },
+      update: { cardBackStyle: "kurenai", theme: "dark" },
+    });
+  });
+
   it("preserves a guest-edited deck (different name or different entries) by moving it to the account", async () => {
     // ゲストが触ったデッキ (= name 変更 / 編成変更) は削除せず移管。
     const token = createGuestSessionToken();

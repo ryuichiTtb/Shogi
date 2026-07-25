@@ -27,6 +27,13 @@ export function mergedStats(
 // アカウント側 (モバイルで保存した値) より新しいため、shouldUseGuestPreference が true を返し、
 // アカウント側の設定が pristine な ゲスト デフォルト値で上書きされていた。
 // pristine 判定が true ならゲスト preference を merge せず削除する。
+//
+// ★判定対象は theme / cardBackStyle のみ (Issue #250)。両者は非 null + 既定値付きで
+// 「既定のまま」と「既定と同じ値を自分で選んだ」を区別できないため、行まるごとの
+// all-or-nothing 判定に頼らざるを得ない。boardLayout は nullable (null = 未設定) ゆえ
+// フィールド単体で明示選択を判定でき、mergePreferences 側で独立に引き継ぐ。
+// ここに boardLayout を足すと「盤デザインだけ触ったゲスト」が non-pristine になり、
+// ゲストの既定 theme / cardBackStyle がアカウントの保存値を上書きする (#160 の再発)。
 export function isPristineGuestPreference(p: {
   theme: string;
   cardBackStyle: string;
