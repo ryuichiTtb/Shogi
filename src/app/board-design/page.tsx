@@ -1,7 +1,9 @@
 // Issue #177: 将棋盤デザイン (盤面マス背景) 設定ページ。
 // 2 カラム構成: 左に実際のゲーム画面と同じ ShogiBoard を初期盤面で描画して
 // プレビュー、右に選択肢リスト (縦スクロール)。右で選択するとすぐに左に反映。
-// 設定は localStorage に保存され、対局画面の ShogiBoard にも即時反映される。
+// 設定は DB (UserPreference.boardLayout) に保存され、対局画面の ShogiBoard にも即時反映される。
+// Issue #250: 未選択のユーザーは DB が未設定 (NULL) のままで、常にコード既定
+// (DEFAULT_BOARD_LAYOUT_ID) が適用される。ここで選ぶと初めて値が保存される。
 "use client";
 
 import { useCallback, useMemo } from "react";
@@ -126,7 +128,7 @@ export default function BoardDesignPage() {
         <div className="max-w-5xl mx-auto px-4 pb-3 sm:pb-4">
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight">将棋盤デザイン</h1>
           <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-            対局画面で使用する盤面の見た目を選択します。設定はブラウザに保存されます。
+            対局画面で使用する盤面の見た目を選択します。選んだ設定は保存され、次回以降も引き継がれます。
           </p>
         </div>
       </header>

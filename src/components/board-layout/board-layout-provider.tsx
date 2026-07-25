@@ -1,5 +1,13 @@
-// Issue #177: 将棋盤レイアウト (盤面マス背景) のユーザー設定を DB と userId scoped
-// localStorage に保存し、Context で全体に提供する。CardBackProvider と同パターン。
+// Issue #177: 将棋盤レイアウト (盤面マス背景) のユーザー設定を DB (UserPreference.boardLayout)
+// に保存し、Context で全体に提供する。CardBackProvider と同パターン。
+// Issue #250: DB 値が未設定 (NULL) のときはサーバ側で常にコード既定 (DEFAULT_BOARD_LAYOUT_ID)
+// へ正規化されて initialLayoutId に載る。
+// ★localStorage ミラーは撤去した (読み手が存在しないデッドストアだった)。将来 theme の
+// pre-mount script (app/layout.tsx の themeInitScript) 相当で初回描画のちらつきを潰す場合、
+// あのスクリプトは userId を知り得ないので userId 非依存のグローバルキーが必要になる =
+// 旧 `shogi-board-layout:${userId}` は流用できない。加えて「未設定ユーザーの派生値」を
+// 焼き付けると既定変更が届かない #250 と同型のバグを localStorage 側で作るため、
+// 保存するのは明示選択のみに限ること。
 //
 // 派生 (Issue #177): 木目テクスチャ画像を mount 時に一括先読みし、URL 単位で
 // 「ロード完了済」状態を追跡する。対局画面 / 盤デザイン画面はテクスチャが
@@ -113,8 +121,6 @@ export function BoardLayoutProvider({
     setLayoutIdState(initialLayoutId);
   }
 
-  const storageKey = `shogi-board-layout:${userId}`;
-
   const [readyUrls, setReadyUrls] = useState<Set<string>>(() => new Set());
 
   // 木目テクスチャを 4 種一括先読み。完了 URL を Set に蓄積する。
@@ -147,34 +153,16 @@ export function BoardLayoutProvider({
     };
   }, []);
 
-  const setLayoutId = useCallback(
-    (id: BoardLayoutId) => {
-      setLayoutIdState(id);
-      try {
-        localStorage.setItem(storageKey, id);
-      } catch {
-        // ignore (Safari Private Mode 等)
-      }
-      saveBoardLayoutPreference(id).catch((error) => {
-        console.error("Failed to save board layout preference", error);
-      });
-    },
-    [storageKey],
-  );
+  const setLayoutId = useCallback((id: BoardLayoutId) => {
+    setLayoutIdState(id);
+    saveBoardLayoutPreference(id).catch((error) => {
+      console.error("Failed to save board layout preference", error);
+    });
+  }, []);
 
   const handleClerkSync = useCallback((newLayoutId: BoardLayoutId) => {
     setLayoutIdState((prev) => (prev === newLayoutId ? prev : newLayoutId));
   }, []);
-
-  // CardBackProvider と同様、SSR 値を localStorage にも書き戻しておく
-  // (将来の pre-mount 初期化スクリプト等で参照できる様に)。
-  useEffect(() => {
-    try {
-      localStorage.setItem(storageKey, initialLayoutId);
-    } catch {
-      // ignore
-    }
-  }, [initialLayoutId, storageKey]);
 
   const isTextureReady = useCallback(
     (url: string) => readyUrls.has(url),
@@ -182,7 +170,9 @@ export function BoardLayoutProvider({
   );
   const allTexturesReady = readyUrls.size === BOARD_LAYOUTS.length;
 
-  const layout = BOARD_LAYOUTS.find((l) => l.id === layoutId) ?? BOARD_LAYOUTS[0];
+  // フォールバックは findBoardLayout に一元化する (BOARD_LAYOUTS[0] = light-1 を使うと
+  // コード既定と別の「第 3 の既定」ができ、#250 と同型の食い違いを生む)。
+  const layout = findBoardLayout(layoutId);
   return (
     <BoardLayoutContext.Provider
       value={{ layout, setLayoutId, isTextureReady, allTexturesReady }}

@@ -41,7 +41,14 @@ model UserPreference {
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   cardBackStyle String   @default("seigaiha")
   theme         String   @default("system")
-  boardLayout   String   @default("light-2")
+  // Issue #250: null = 未設定 = コード既定 (DEFAULT_BOARD_LAYOUT_ID) を適用する。
+  // ★@default を意図的に持たない: DB 側に既定値を置くと、コード側の既定を変えても
+  // 既存行・新規行とも DB の旧既定で埋まり続け、既定変更が誰にも届かなくなる
+  // (実際に light-2 が固着し #250 の原因になった)。値を書くのは
+  // saveBoardLayoutPreference (ユーザーの明示選択) のみ。
+  // ⚠️ 上の cardBackStyle / theme は同型の構造 (DB 既定 + create 句に実値) のままなので、
+  // それらの既定を変える際は同じ手当て (nullable 化 + 既存行リセット) が必要になる。
+  boardLayout   String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }

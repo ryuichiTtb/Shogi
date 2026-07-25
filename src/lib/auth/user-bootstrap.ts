@@ -69,6 +69,10 @@ export async function ensureInitialUserData(
     update: {},
   });
 
+  // ★Issue #250: boardLayout は意図的に書かない (未設定 = NULL = コード既定
+  // DEFAULT_BOARD_LAYOUT_ID を常に適用)。ここはユーザー行の一次生成点で
+  // getCurrentUserPreferences の upsert より先に走るため、ここに既定値を書くと
+  // 「明示選択」と区別できない値が全ユーザーに焼き付き、既定変更が届かなくなる。
   await db.userPreference.upsert({
     where: { userId },
     create: {

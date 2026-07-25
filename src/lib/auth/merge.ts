@@ -106,21 +106,30 @@ async function mergePreferences(
   // updatedAt が新しくても「ユーザーが選んだ値」ではないため、別端末で保存済の値を
   // 上書きしてはいけない。`moveDecks` の isPristineInitialDeck と同じ思想。
   const guestIsPristine = isPristineGuestPreference(guestPreference);
-  if (
-    !guestIsPristine &&
-    shouldUseGuestPreference(accountPreference, guestPreference)
-  ) {
+  const guestIsNewer = shouldUseGuestPreference(accountPreference, guestPreference);
+  // Issue #250: boardLayout は nullable (null = 未設定) なので「ユーザーが明示的に選んだか」を
+  // フィールド単体で判定できる。theme / cardBackStyle は非 null + 既定値ゆえ「既定のまま」と
+  // 「既定と同じ値を自分で選んだ」を区別できず、#160 の pristine 判定 (行まるごとの
+  // all-or-nothing) に頼るしかない。そこで boardLayout だけは pristine 判定から独立させて
+  // 引き継ぐ。★逆に pristine 判定へ boardLayout を含めると「盤デザインだけ触ったゲスト」が
+  // non-pristine になり、ゲスト側の既定 theme / cardBackStyle でアカウントの保存値を
+  // 上書きしてしまう (= #160 の再発) ため、含めてはいけない。
+  const carryThemeAndCardBack = !guestIsPristine && guestIsNewer;
+  const carryBoardLayout = guestPreference.boardLayout != null && guestIsNewer;
+  if (carryThemeAndCardBack || carryBoardLayout) {
+    const data = {
+      ...(carryThemeAndCardBack
+        ? {
+            cardBackStyle: guestPreference.cardBackStyle,
+            theme: guestPreference.theme,
+          }
+        : {}),
+      ...(carryBoardLayout ? { boardLayout: guestPreference.boardLayout } : {}),
+    };
     await db.userPreference.upsert({
       where: { userId: accountUserId },
-      create: {
-        userId: accountUserId,
-        cardBackStyle: guestPreference.cardBackStyle,
-        theme: guestPreference.theme,
-      },
-      update: {
-        cardBackStyle: guestPreference.cardBackStyle,
-        theme: guestPreference.theme,
-      },
+      create: { userId: accountUserId, ...data },
+      update: data,
     });
   }
 
