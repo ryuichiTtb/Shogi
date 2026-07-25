@@ -29,6 +29,14 @@
 //   LABEL_SHARD_COUNT / LABEL_SHARD_INDEX  並列分散 (8 コア活用)。COUNT 分割の INDEX 番目の試合のみ
 //     処理する (試合 i を i%COUNT===INDEX のシャードが担当)。既定 1/0 = 分散なし。各シャードは別 OUT
 //     を指定し、完了後に concat する (シェルの起動側が担う)。production 非依存のデータ準備スクリプト。
+//   LABEL_RESUME    "1" で再開モード (既定 "0" = 従来どおり OUT を作り直す)。
+//     ★D=5 は 1 局に数十分かかりうる長時間バッチのため、途中停止 (kill / マシン再起動) から
+//     「済んだ試合を採点し直さずに続ける」手段が必要。OUT を truncate せず追記し、既に OUT に
+//     入っている試合をスキップする。突合は **searchScore を除いた行の正規形 (内容キー)** で行うので、
+//     行番号や shard 設定に依存しない (= 入力順序が変わっても既済判定が壊れない)。
+//     同一内容の試合が入力に複数ある場合も多重集合で数を合わせるため取りこぼさない。
+//     途中 kill で最終行が途切れている場合はその行を破棄してから再開する (壊れた行の再利用防止)。
+//     OUT 全行を parse するので巨大 OUT (数百 MB) では起動が数秒〜数十秒重くなる。再開時のみ有効化する。
 //   ★winner=null (中断) の試合は採点せず除外する (encode 段でも除外され学習に使われないため、
 //     高コストな探索を無駄打ちしない)。
 
@@ -40,6 +48,7 @@ import { createSearchContext } from "@/lib/shogi/ai/search-context";
 import { deserializeGameState } from "@/lib/shogi/board";
 import { deserializeCardState } from "@/lib/shogi/cards/state";
 import { parseTrainingRecordLine, trainingRecordToJsonl } from "@/lib/shogi/training/jsonl";
+import type { TrainingGameRecord } from "@/lib/shogi/training/types";
 import type { GameState } from "@/lib/shogi/types";
 import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
 
@@ -53,6 +62,7 @@ const TIME_MS = Number(process.env.LABEL_TIME_MS ?? "600000");
 const MAX_GAMES = Number(process.env.LABEL_MAX_GAMES ?? String(Number.MAX_SAFE_INTEGER));
 const SHARD_COUNT = Math.max(1, Number(process.env.LABEL_SHARD_COUNT ?? "1"));
 const SHARD_INDEX = Math.max(0, Number(process.env.LABEL_SHARD_INDEX ?? "0"));
+const RESUME = (process.env.LABEL_RESUME ?? "0") === "1";
 
 // 学習用 boardState は moveHistory / positionHistory を除外している (serializeBoardForTraining)。
 // 探索は両者を参照しうる (千日手検出等) ため空配列で補って GameState を復元する。局面を独立採点
@@ -65,9 +75,54 @@ function reconstructState(boardState: unknown): GameState {
   });
 }
 
+// 出力行 ↔ 入力行の同一性キー (再開用)。searchScore は本スクリプトが後付けする唯一のフィールドゆえ、
+// それを除けば出力行は入力行と同一内容になる。入力側・出力側を同じ関数で正規化するので、
+// キー順や空白の差では不一致にならない。
+function labelIdentityKey(record: TrainingGameRecord): string {
+  return JSON.stringify({
+    game: record.game,
+    samples: record.samples.map(({ searchScore: _score, ...rest }) => rest),
+  });
+}
+
+// 既存 OUT を読み、既済試合の内容キー多重集合 (キー -> 残件数) を返す。
+// 途中 kill で最終行が JSON 途切れになっている場合はその行以降を破棄して OUT を書き戻す。
+function loadCompletedKeys(): Map<string, number> {
+  const done = new Map<string, number>();
+  let raw: string;
+  try {
+    raw = readFileSync(OUT, "utf8");
+  } catch {
+    return done; // OUT 未作成 = 既済ゼロ (初回相当)
+  }
+  const lines = raw.split("\n").filter((l) => l.trim().length > 0);
+  const kept: string[] = [];
+  for (const line of lines) {
+    let record: TrainingGameRecord;
+    try {
+      record = parseTrainingRecordLine(line);
+    } catch {
+      // 不完全行 (kill で書き込み途中)。以降の行も信用できないので打ち切り、ここまでを残す。
+      break;
+    }
+    const key = labelIdentityKey(record);
+    done.set(key, (done.get(key) ?? 0) + 1);
+    kept.push(line);
+  }
+  if (kept.length !== lines.length) {
+    writeFileSync(OUT, kept.length > 0 ? kept.join("\n") + "\n" : "");
+    console.warn(
+      `[label] 不完全な末尾 ${lines.length - kept.length} 行を破棄して再開します: ${OUT}`,
+    );
+  }
+  return done;
+}
+
 function main() {
   mkdirSync(dirname(OUT), { recursive: true });
-  writeFileSync(OUT, ""); // truncate (Pass 1 は α 非依存ゆえ毎回作り直しでよい)
+  // 再開モードでは OUT を残して追記する。通常モードは Pass 1 が α 非依存ゆえ毎回作り直してよい。
+  const completed = RESUME ? loadCompletedKeys() : new Map<string, number>();
+  if (!RESUME) writeFileSync(OUT, ""); // truncate
 
   // 全入力ファイルの行を結合 → MAX_GAMES で先頭から切出 (shard 適用前) → このシャード担当行のみ抽出。
   // 全シャードが同じ「先頭 MAX_GAMES 試合」の窓を見るよう、切出はシャード分割の前に行う。
@@ -88,6 +143,8 @@ function main() {
   let games = 0;
   let samples = 0;
   let skipped = 0; // winner=null (中断) で採点除外した試合
+  let resumed = 0; // 再開モードで既済としてスキップした試合
+  let nearTimeout = 0; // 時間上限に迫った局面 (= 深さ D まで読み切れず浅いラベルの疑い)
   const startedAll = performance.now();
 
   for (const line of myLines) {
@@ -97,6 +154,15 @@ function main() {
       skipped += 1;
       continue;
     }
+    if (RESUME) {
+      const key = labelIdentityKey(record);
+      const left = completed.get(key) ?? 0;
+      if (left > 0) {
+        completed.set(key, left - 1); // 同一内容の試合が複数あっても件数分だけスキップする
+        resumed += 1;
+        continue;
+      }
+    }
     const gStart = performance.now();
 
     for (const sample of record.samples) {
@@ -105,7 +171,11 @@ function main() {
       const ctx = createSearchContext({ timeLimitMs: TIME_MS, useLearnedEval: false });
       // move-only backed-up 評価値 (先手絶対視点 cp)。終局/合法手なしでも negamaxWorld が確定値を返す
       // (詰み ±MATE / ステールメイト 0) ため null にはならない。
+      const pStart = performance.now();
       const score = evaluatePositionWorldMoveOnly(state, cardState, DEPTH, CARD_SHOGI_VARIANT, ctx);
+      // 時間上限に達すると反復深化が D 未満で打ち切られ、ラベルが静かに浅くなる。
+      // 検知できるよう上限の 90% を超えた局面を数え、最後に警告する (計測コストは 1 回の now())。
+      if (performance.now() - pStart >= TIME_MS * 0.9) nearTimeout += 1;
       sample.searchScore = score;
       samples += 1;
     }
@@ -114,7 +184,7 @@ function main() {
     games += 1;
     const gMs = performance.now() - gStart;
     console.log(
-      `game ${games}: ${record.samples.length} samples, ${(gMs / 1000).toFixed(1)}s ` +
+      `game ${resumed + games}: ${record.samples.length} samples, ${(gMs / 1000).toFixed(1)}s ` +
         `(${(gMs / record.samples.length).toFixed(0)} ms/局面), source=${record.game.source}`,
     );
   }
@@ -122,6 +192,20 @@ function main() {
   const totalMs = performance.now() - startedAll;
   console.log(`\nDone (shard ${SHARD_INDEX}/${SHARD_COUNT}). ${games} 試合 / ${samples} サンプル (中断除外 ${skipped}) -> ${OUT}`);
   console.log(`  depth=${DEPTH}, 総時間 ${(totalMs / 1000).toFixed(1)}s, 平均 ${(totalMs / Math.max(1, samples)).toFixed(0)} ms/局面`);
+  if (RESUME) {
+    const orphans = [...completed.values()].reduce((a, b) => a + b, 0);
+    console.log(`  再開: 既済 ${resumed} 試合をスキップ (このシャード担当分の通算 ${resumed + games} 試合)`);
+    if (orphans > 0) {
+      console.warn(
+        `  ⚠ OUT に入力側と対応しない ${orphans} 行があります。LABEL_IN / LABEL_SHARD_* の取り違えを確認してください`,
+      );
+    }
+  }
+  if (nearTimeout > 0) {
+    console.warn(
+      `  ⚠ ${nearTimeout} 局面が時間上限 (${TIME_MS} ms) の 90% を超えました = 深さ ${DEPTH} 未達の疑い。LABEL_TIME_MS を上げて再採点を検討してください`,
+    );
+  }
 }
 
 main();
