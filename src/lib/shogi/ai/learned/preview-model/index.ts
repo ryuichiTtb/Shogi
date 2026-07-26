@@ -14,7 +14,13 @@ import { FEATURE_DIM } from "../encoder";
 import { hasLearnedModel, loadLearnedModel } from "../infer";
 import type { SerializedMlp } from "../mlp";
 
-// Preview が使う学習脳 (差し替え可能な単一ファイル)。現在: 348 局 bootstrap α0.5 hidden32 (val MSE 0.106)。
+// Preview が使う学習脳 (差し替え可能な単一ファイル)。
+// 現在: **349 局 (自己対戦 348 + 人間 1) / ラベル深さ5 / bootstrap α0.5 / hidden32**。
+// 由来 = local-data/training/model-bootstrap-349-D5.json の .model。
+// ★前モデル (348 局・深さ4) には人間対局が 1 局も入っていなかった (features meta の sources が
+//   self_play:348 のみ)。本モデルで人間棋譜を合流させた (ただし 53/35,950 = 0.15% ゆえ効果は限定的)。
+// ★val MSE は載せない: ラベル定義が違うモデル間で比較できず、過去 2 回「val MSE が良い = 強い」と
+//   誤読して失敗しているため。採否は対戦勝率・カード行動診断・実機で判断する。
 // モデル更新時は本 JSON の中身のみ差し替える (import パス不変)。
 import flatModel from "./preview-eval.json";
 
