@@ -626,15 +626,23 @@ describe("S4e: engagement 下駄 撤去後の merit ベース card 採用", () =
 describe("evaluatePositionWorldMoveOnly (先手絶対視点の符号規約)", () => {
   const card = createInitialCardState([{ defId: "pawn_return", count: 2 }]);
   // 初期盤面に持駒の飛車を一方へ追加 = 明確な材料差。手番だけ差し替えて評価する。
-  const evalWithAdvantage = (advantage: Player, currentPlayer: Player): number => {
+  const advantageState = (advantage: Player, currentPlayer: Player): GameState => {
     const base = createInitialGameState(CARD_SHOGI_VARIANT);
-    const state: GameState = {
+    return {
       ...base,
       hand: advantage === "sente" ? { sente: { rook: 1 }, gote: {} } : { sente: {}, gote: { rook: 1 } },
       currentPlayer,
     };
+  };
+  // 時間予算が潤沢なので採点は必ず成立する。null (採点不能) が返ったらそれ自体が異常なので
+  // ここで明示的に落とす (?? 0 のような握り潰しをすると符号バグと区別できなくなる)。
+  const evalWithAdvantage = (advantage: Player, currentPlayer: Player): number => {
     const ctx = createSearchContext({ timeLimitMs: 60000, useLearnedEval: false });
-    return evaluatePositionWorldMoveOnly(state, card, 2, CARD_SHOGI_VARIANT, ctx);
+    const score = evaluatePositionWorldMoveOnly(
+      advantageState(advantage, currentPlayer), card, 2, CARD_SHOGI_VARIANT, ctx,
+    );
+    expect(score).not.toBeNull();
+    return score as number;
   };
 
   it("先手が材料有利なら、手番に依らず先手絶対視点で正", () => {
@@ -646,6 +654,24 @@ describe("evaluatePositionWorldMoveOnly (先手絶対視点の符号規約)", ()
   it("後手が材料有利なら、手番に依らず先手絶対視点で負", () => {
     expect(evalWithAdvantage("gote", "sente")).toBeLessThan(0);
     expect(evalWithAdvantage("gote", "gote")).toBeLessThan(0);
+  });
+
+  // 教材多様化 段1: 深さ 1 すら完了しない場合に「互角 (0)」という嘘のラベルを返さず null。
+  it("停止済みの ctx (深さ1 も完了できない) では null を返す (嘘ラベル 0 を書かない)", () => {
+    const ctx = createSearchContext({ timeLimitMs: 60000, useLearnedEval: false });
+    ctx.stopped = true; // 探索開始前から停止済み = 1 反復も完了できない状態
+    const score = evaluatePositionWorldMoveOnly(
+      advantageState("sente", "sente"), card, 3, CARD_SHOGI_VARIANT, ctx,
+    );
+    expect(score).toBeNull();
+    expect(ctx.depthCompleted).toBe(0); // 達成深さも 0 のまま (嘘の深さを記録しない)
+  });
+
+  // 実際に到達した深さを ctx.depthCompleted へ記録する (呼び出し側が D 未達を実測で検知するため)。
+  it("完了した最大の深さを ctx.depthCompleted に記録する", () => {
+    const ctx = createSearchContext({ timeLimitMs: 60000, useLearnedEval: false });
+    evaluatePositionWorldMoveOnly(advantageState("sente", "sente"), card, 2, CARD_SHOGI_VARIANT, ctx);
+    expect(ctx.depthCompleted).toBe(2);
   });
 });
 

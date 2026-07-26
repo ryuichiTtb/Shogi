@@ -15,13 +15,15 @@
 //   ENCODE_IN   入力 JSONL (カンマ区切り、既定 local-data/training/human-245.jsonl)
 //   ENCODE_OUT  出力特徴 JSONL (既定 local-data/training/features-245.jsonl)
 
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { DEFAULT_BOOTSTRAP_PARAMS } from "@/lib/shogi/ai/learned/bootstrap-label";
 import { FEATURE_DIM } from "@/lib/shogi/ai/learned/encoder";
 import { gameToBootstrapRows, gameToSparseRows } from "@/lib/shogi/ai/learned/feature-export";
 import { parseTrainingRecordLine } from "@/lib/shogi/training/jsonl";
+
+import { recipeKey } from "./utils/label-identity";
 
 const IN = (process.env.ENCODE_IN ?? "local-data/training/human-245.jsonl")
   .split(",")
@@ -31,15 +33,25 @@ const OUT = process.env.ENCODE_OUT ?? "local-data/training/features-245.jsonl";
 // Issue #245 Stage 2: ENCODE_BOOTSTRAP=1 で search-score bootstrapping ラベル (§3.4 squash) を使う。
 // 既定 (=0) は outcome ラベル (フェーズ1 PoC 互換)。α は ENCODE_ALPHA (既定 §8 決定 = 0.5)。
 // ★bootstrap には label-search-score-245.ts (Pass 1) で searchScore を付与済の入力が必要。
+// ★教材多様化 段1: bootstrap では**全入力のラベル生成レシピが一致していること**を検査する。
+//   深さ4 と深さ5 のラベルが混ざると、モデルは「同じ局面に別々の正解がある」と教わることになり
+//   学習が静かに壊れる。ここが学習前の最後の関門 (train-245.ts は単一ファイルしか受けない)。
+//   outcome モードは searchScore を一切使わないので検査しない。
 const BOOTSTRAP = process.env.ENCODE_BOOTSTRAP === "1";
 const BOOTSTRAP_PARAMS = {
   ...DEFAULT_BOOTSTRAP_PARAMS,
   alpha: Number(process.env.ENCODE_ALPHA ?? String(DEFAULT_BOOTSTRAP_PARAMS.alpha)),
 };
 
+// ★検査に落ちたときに「中途半端な特徴ファイル」を残さないため、いったん一時ファイルへ書き、
+//   全ての検査を通ってから OUT へ差し替える (rename は同一ディレクトリならアトミック)。
+//   これをしないと、途中で停止しても前半だけ書かれた OUT と前回実行の古い .meta.json が残り、
+//   学習側 (train-245.ts は .meta.json を読まない) がそれを正常なデータとして食べてしまう。
+const TMP = `${OUT}.tmp`;
+
 function main() {
   mkdirSync(dirname(OUT), { recursive: true });
-  writeFileSync(OUT, ""); // truncate
+  writeFileSync(TMP, ""); // truncate
 
   let games = 0;
   let samples = 0;
@@ -51,6 +63,10 @@ function main() {
   let labelMin = Infinity;
   let labelMax = -Infinity;
   const sources: Record<string, number> = {};
+  // 段1: ラベルのレシピ (bootstrap の一致検査用) と採点率 (静かな劣化の検知用)。
+  let firstRecipe: { key: string; file: string } | null = null;
+  let scored = 0;
+  let unscored = 0;
 
   for (const file of IN) {
     let content: string;
@@ -64,6 +80,18 @@ function main() {
     let chunk = "";
     for (const line of lines) {
       const record = parseTrainingRecordLine(line);
+      if (BOOTSTRAP) {
+        // レシピ一致の検査。混在を見つけた時点で止める (これ以上エンコードしても捨てる出力なので)。
+        const key = recipeKey(record.game.labelMeta);
+        if (firstRecipe === null) {
+          firstRecipe = { key, file };
+        } else if (key !== firstRecipe.key) {
+          throw new Error(
+            `ラベル生成レシピが混在しています。学習前に 1 レシピへ揃えてください。\n` +
+              `  ${firstRecipe.file}: ${firstRecipe.key}\n  ${file}: ${key}`,
+          );
+        }
+      }
       // gameIndex は「行を生成した試合」へ一意採番 (試合単位 train/val 分割のキー)。
       // 中断などで空配列の試合には採番せず、出力試合に連番を振る。
       const rows = BOOTSTRAP
@@ -75,6 +103,15 @@ function main() {
         continue;
       }
       gameIndex += 1;
+      if (BOOTSTRAP) {
+        // 採点率は「実際に学習へ渡る行」だけで数える (除外された試合を混ぜると率が意味を失う)。
+        // searchScore が無い/null のサンプルは outcome のみのラベルへ静かに降格するため、
+        // どれだけ降格したかを .meta.json に残して後から追跡できるようにする。
+        for (const s of record.samples) {
+          if (s.searchScore === undefined || s.searchScore === null) unscored += 1;
+          else scored += 1;
+        }
+      }
       sources[record.game.source] = (sources[record.game.source] ?? 0) + 1;
       for (const r of rows) {
         chunk += JSON.stringify(r) + "\n";
@@ -88,24 +125,65 @@ function main() {
         }
       }
     }
-    if (chunk) appendFileSync(OUT, chunk);
+    if (chunk) appendFileSync(TMP, chunk);
     console.log(`  読込: ${file}`);
   }
 
+  const totalScored = scored + unscored;
+  const coverage = totalScored > 0 ? scored / totalScored : 0;
+
+  // 1 件も採点されていない = bootstrap のつもりが実質 outcome ラベルで学習していた、という
+  // 最悪の取り違え。ここで止めないと「深く読んだラベルで学習した」と誤認したまま先へ進む。
+  // ★成果物を差し替える**前**に検査する (差し替えた後だと使えてしまう)。
+  if (BOOTSTRAP && totalScored > 0 && scored === 0) {
+    throw new Error(
+      `ENCODE_BOOTSTRAP=1 ですが searchScore が 1 件もありません (全行が outcome ラベルに降格します)。\n` +
+        `  先に scripts/label-search-score-245.ts で採点した JSONL を ENCODE_IN に指定してください。`,
+    );
+  }
+
   const labelStats = BOOTSTRAP
-    ? { mode: "bootstrap", alpha: BOOTSTRAP_PARAMS.alpha, cpRef: BOOTSTRAP_PARAMS.cpRef, cpScale: BOOTSTRAP_PARAMS.cpScale, labelMin, labelMax, labelMean: samples ? labelSum / samples : 0 }
+    ? {
+        mode: "bootstrap",
+        alpha: BOOTSTRAP_PARAMS.alpha,
+        cpRef: BOOTSTRAP_PARAMS.cpRef,
+        cpScale: BOOTSTRAP_PARAMS.cpScale,
+        labelMin,
+        labelMax,
+        labelMean: samples ? labelSum / samples : 0,
+        // 来歴: どのレシピで採点されたラベルか / どれだけ採点済みか。
+        labelRecipe: firstRecipe?.key ?? null,
+        searchScoreCoverage: { scored, unscored, ratio: coverage },
+      }
     : { mode: "outcome", labelCounts };
   const meta = { featureDim: FEATURE_DIM, sampleCount: samples, games, skippedGames, sources, ...labelStats };
+  // 全検査を通ったのでここで初めて本番の成果物にする (特徴 → meta の順。meta が新しければ
+  // 特徴も新しい、という関係を保つ)。
+  renameSync(TMP, OUT);
   writeFileSync(`${OUT}.meta.json`, JSON.stringify(meta, null, 2));
 
   console.log(`\nDone. ${games} 試合 (除外 ${skippedGames}) / ${samples} サンプル -> ${OUT}`);
   console.log(`  featureDim: ${FEATURE_DIM}`);
   if (BOOTSTRAP) {
     console.log(`  bootstrap ラベル (α=${BOOTSTRAP_PARAMS.alpha}): min=${labelMin.toFixed(3)} max=${labelMax.toFixed(3)} mean=${(samples ? labelSum / samples : 0).toFixed(3)}`);
+    console.log(`  ラベルのレシピ: ${firstRecipe?.key ?? "(入力なし)"}`);
+    console.log(`  採点率: ${scored} / ${totalScored} (${(coverage * 100).toFixed(1)}%)`);
+    if (unscored > 0) {
+      console.warn(
+        `  ⚠ ${unscored} サンプルは searchScore が無く outcome のみのラベルになりました (深く読んだラベルではありません)`,
+      );
+    }
   } else {
     console.log(`  label 分布 (先手+1/引分0/後手-1): ${JSON.stringify(labelCounts)}`);
   }
   console.log(`  source 内訳: ${JSON.stringify(sources)}`);
 }
 
-main();
+try {
+  main();
+} catch (e) {
+  // 検査に落ちた = この実行の成果は使えない。書きかけの一時ファイルを残さない
+  // (既存の OUT / .meta.json は前回のまま無傷 = 中途半端な差し替えが起きない)。
+  rmSync(TMP, { force: true });
+  throw e;
+}

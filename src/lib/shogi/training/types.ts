@@ -32,12 +32,30 @@ export interface TrainingSampleData {
   action: TurnAction; // 採用した行動
   events: TrainingEvent[]; // 適用で生じたイベント (at 剥がし)
   // Issue #245 Stage 2 P2-0: search-score ラベル生成 (Pass 1) が付与する「この局面を World 探索で
-  // 深さ D まで読んだ move-only backed-up 値 (先手絶対視点 cp)」。生 (フェーズ0/1) のサンプルには無く
-  // (undefined)、scripts/label-search-score-245.ts が拡張 JSONL で付与する。DB スキーマには持たない
-  // (JSONL のみ)。現状の Pass 1 (evaluatePositionWorldMoveOnly) は終局/合法手なしでも確定値を返すため
-  // 常に number だが、将来の採点不能局面に備え null を許容し、encode 段 (gameToBootstrapRows) は
-  // null/undefined を outcome のみのラベルへフォールバックする防御を持つ。
+  // 深さ D まで読んだ move-only backed-up 値 (先手絶対視点 cp)」。DB スキーマには持たない (JSONL のみ)。
+  // 3 状態を区別する (教材多様化 段1):
+  //   - キー欠落 (undefined) = **未採点**。生 (フェーズ0/1) のサンプル。
+  //   - null                 = **採点不能**。深さ 1 すら完了しなかった局面
+  //                            (evaluatePositionWorldMoveOnly が null を返す)。嘘の 0 を書かないための明示。
+  //   - number               = 採点済み。
+  // encode 段 (gameToBootstrapRows) は undefined / null をどちらも outcome のみのラベルへ
+  // フォールバックする。静かに劣化しないよう、採点率は encode の .meta.json へ記録する。
   searchScore?: number | null;
+}
+
+// Issue #245 教材多様化 段1: ラベル (searchScore) の**意味**を決める生成レシピ。
+//
+// 探索深さや root でのカード展開が違えば searchScore は別物になるため、新旧のラベルが
+// 1 ファイルに混ざると学習が静かに壊れる。出力 JSONL の試合メタへ刻んで、
+// 再開・取り合い・encode の各段で「違うレシピの成果を既済扱いしない / 混ぜない」を機械的に保証する。
+//
+// ★フィールドを追加したら scripts/utils/label-identity.ts の recipeKey にも足し、version を上げること
+//   (recipeKey は列挙で正規化するため、足し忘れると別レシピが同一キーになる)。
+export interface LabelMeta {
+  version: number; // レシピ形式の版。意味論を変えたら上げる
+  depth: number; // 探索深さ D (= 要求値。実際に到達した深さではない)
+  expandCards: boolean; // ラベル探索の root で playCard を展開したか (段2 で true)
+  expandDraw: boolean; // 同 draw (山札順への依存を断つため既定 false)
 }
 
 // 学習用「1試合」のメタ + 勝敗ラベル。勝敗の単一情報源 (サンプルへ非正規化しない)。
@@ -58,6 +76,9 @@ export interface TrainingGameData {
   moveCount: number;
   engineVersion?: string | null; // データ来歴フィルタキー
   sourceGameId?: string | null; // human 時、元 Game.id への参照 (任意)
+  // ラベル生成レシピの刻印 (教材多様化 段1)。ラベル付けバッチ (scripts/label-search-score-245.ts) が
+  // 出力時に付ける。生データ・DB 由来のレコードには無い (undefined = "legacy" 扱い)。
+  labelMeta?: LabelMeta | null;
 }
 
 // 1 試合分のまとまり (メタ + per-decision サンプル列)。JSONL の 1 行 / sink の保存単位。

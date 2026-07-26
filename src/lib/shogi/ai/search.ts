@@ -1549,32 +1549,47 @@ export function findBestMoveWorld(
 // (同値)、draw を探索しないことで山札順序 (encoder 非符号化の隠れ状態) への依存を断つ (M1 MAJOR)。
 // カード価値はリーフ評価 (cardDigest) と encoder 特徴で label に残る。useLearnedEval は ctx に従う
 // (iteration-0 は OFF = 人手 evaluate)。production 探索経路は本関数を呼ばない (新規 export = 無影響)。
+//
+// 戻り値は「深さ 1 すら完了しなかった」ときのみ null (教材多様化 段1)。以前はこの場合に初期値 0 を
+// 返していたが、それは「互角」という**嘘のラベル**を教材へ書き込むことになる (学習は 0 を正解として
+// 覚えてしまう)。採点不能は採点不能として呼び出し側へ返し、encode 段で outcome のみのラベルへ
+// 落とすほうが安全なので null を返す。
+// 実際に到達した深さは ctx.depthCompleted に記録する (呼び出し側が「D 未達の浅いラベル」を
+// 実測で検知できるようにするため。labelMeta.depth は要求値であって達成値ではない)。
 export function evaluatePositionWorldMoveOnly(
   state: GameState,
   cardState: CardGameState,
   depth: number,
   variant: RuleVariant,
   ctx: SearchContext,
-): number {
+): number | null {
   const world: WorldState = { gameState: state, cardState, doubleMove: null };
   const digest =
     ctx.cardDigest ??
     (variant.id === "card-shogi" ? computeCardDigest(cardState) : undefined);
   const boardHash = computeHash(state);
   ctx.tt.newSearch();
+  // 到達深さは「この局面で何段まで読み切れたか」の実測値として呼び出し側が使う。ctx を局面間で
+  // 使い回された場合に前の局面の値が残らないよう、入口で 0 に戻す (newSearch と同じ意味合い)。
+  ctx.depthCompleted = 0;
   // 反復深化 (depth 1..depth)。浅い探索が TT / killer / history を埋めて深い探索の手順序を改善し
   // αβ 枝刈りを効かせる (= 単発の深さ depth 探索より桁違いに速い、標準テク)。各反復は full-window
   // (NEG_INF, POS_INF) の厳密 minimax 値で aspiration の取りこぼしが無い。root は beta=+Infinity ゆえ
   // null-move は自動 skip (Number.isFinite ガード) ＝安全。negamaxWorld は手番相対値 (leaf の先手絶対
   // cp を player 視点へ正規化済) を返す → 先手絶対視点へ戻す。
   // 呼び出し側 (label 生成) は depth が確実に完了する十分大きい時間予算を渡す前提
-  // (label-search-score-245.ts は既定 600000ms)。万一 depth 1 完了前に shouldStop が刺さると
-  // rel は初期値 0 のまま = 中立評価で返る (探索全体を壊すよりは安全側のフォールバック)。
-  let rel = 0;
+  // (label-search-score-245.ts は既定 600000ms)。
+  let rel: number | null = null;
   for (let d = 1; d <= depth; d++) {
     if (shouldStop(ctx)) break;
-    rel = negamaxWorld(world, d, NEG_INF, POS_INF, variant, digest, 0, true, ctx, boardHash);
+    const score = negamaxWorld(world, d, NEG_INF, POS_INF, variant, digest, 0, true, ctx, boardHash);
+    // 停止が反復の途中で刺さった場合、negamaxWorld は打ち切りの 0 を返すため score は信頼できない
+    // → 採用しない (search.ts:1281 / 1300 と同じイディオム)。ctx.stopped は一度立つと下りない。
+    if (ctx.stopped) break;
+    rel = score;
+    ctx.depthCompleted = d;
   }
+  if (rel === null) return null;
   return state.currentPlayer === "sente" ? rel : -rel;
 }
 

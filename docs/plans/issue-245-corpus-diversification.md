@@ -125,17 +125,54 @@ NN はカードの使いどころを学びようがない = 実機で残る「�
 
 各段は独立にレビュー・検証できる粒度。段ごとに commit し、full gate (lint→typecheck→test:ci→build) を通す。
 
-### 段 1: ラベル基盤の健全化 (0.5 日)
-**目的**: 新旧レシピのラベルが 1 ファイルに混ざる事故を構造的に防ぐ。
+### 段 1: ラベル基盤の健全化 (0.5 日) — 実装済み
+**目的**: 新旧レシピのラベルが 1 ファイルに混ざる事故を構造的に防ぐ + 嘘ラベルを排除する。
 
 - `TrainingGameData` に `labelMeta {version, depth, expandCards, expandDraw}` を optional 追加し、ラベル出力時に刻む
 - `labelKeyHash` に recipe ハッシュを混ぜる (recipe が違えば既済扱いにならない)
 - `evaluatePositionWorldMoveOnly` が depth 1 未完了時に 0 でなく **null** を返すようにし、
-  スクリプトは searchScore 未設定で書く (嘘ラベルの排除)
+  スクリプトは searchScore に **null を明示的に書く** (嘘ラベルの排除。
+  「キー欠落 = 未採点」と「null = 採点不能」を区別するため)
 - `encode-training-245.ts` で全入力の labelMeta 一致を assert
 
-**検証**: 旧 recipe で human 1 局を再実行し searchScore が既存出力とバイト一致 (recipe 追加が値を変えない pin) /
+**検証**: 旧 recipe で human 1 局を再実行し searchScore が既存出力と一致 (recipe 追加が値を変えない pin。
+行全体は labelMeta が増えるためバイト一致にはならず、searchScore 配列で突合する) /
 recipe を変えた 2 回目で再採点されること / null 返しの単体テスト。
+
+#### 段 1 実装仕様 (M1 レビュー反映後の確定版)
+
+| 対象 | 内容 |
+|---|---|
+| `src/lib/shogi/training/types.ts` | `LabelMeta` 型を新設。`TrainingGameData.labelMeta?: LabelMeta \| null` を末尾に追加。`searchScore` のコメントを「未採点 (キー欠落) / 採点不能 (null) / 採点済み (number)」の 3 状態へ更新 |
+| `scripts/utils/label-identity.ts` | `recipeKey` (キー順非依存の正規形、未刻印は `"legacy"`) / `sameRecipe` / `CURRENT_LABEL_RECIPE_VERSION` を追加。`labelIdentityKey` は **searchScore に加えて labelMeta も除く** (入力行 ↔ 出力行の突合が壊れないため)。`labelKeyHash(record, recipe)` は recipe を明示引数で受け「内容 × レシピ」でハッシュする |
+| `vitest.config.ts` | `include` に `scripts/**/*.test.ts` を追加 (同一性キーは高コスト事故に直結するのでテストを走らせる。`node:crypto` を client 同居ディレクトリへ持ち込まない選択) |
+| `src/lib/shogi/ai/search.ts` | `evaluatePositionWorldMoveOnly` の戻り型を `number \| null` へ。反復途中で停止が刺さった値は採用しない (`if (ctx.stopped) break`)。到達深さを `ctx.depthCompleted` へ記録 |
+| `scripts/label-search-score-245.ts` | `LABEL_DEPTH` / `LABEL_TIME_MS` を起動時に検証 (NaN は JSON 往復で null に化けレシピ識別が壊れる)。RECIPE を出力へ刻印。RESUME 時に OUT へ別レシピ行があれば**起動時に停止**。done-keys / claim のハッシュに RECIPE を混ぜる。採点不能 (`unscored`) と深さ未達 (`shallow`、`ctx.depthCompleted` の実測) を数え、>0 なら警告 + 非ゼロ終了 |
+| `scripts/label-done-keys-245.ts` | 各レコード**自身の** labelMeta でハッシュ。レシピ内訳と `searchScore=null` 件数を報告 |
+| `scripts/encode-training-245.ts` | bootstrap 時のみ全入力のレシピ一致を検査し、混在なら停止。`.meta.json` に `labelRecipe` と `searchScoreCoverage {scored, unscored, ratio}` を記録。採点済みが 1 件も無ければ停止 (bootstrap のつもりが実質 outcome、という取り違えの防止) |
+| `scripts/merge-labeled-245.ts` (新規) | ワーカー出力の結合。重複判定を `labelIdentityKey` の 1 実装へ寄せる (結合側で書き直すと labelMeta まで比較して同一局の新旧が両方残る)。レシピ混在で停止、期待件数と突合 |
+| `scripts/clean-training-245.ts` | 連結地点なのでレシピ内訳を表示し、混在時に警告 |
+
+**`labelMeta.depth` は要求値であって到達値ではない**。到達値は `ctx.depthCompleted` で実測し
+`shallow` カウンタとして監視する (ラベルの浅さは「値は返るのに質だけ落ちる」静かな劣化なので、
+完了時に必ず目立たせる)。
+
+**★既存の D5 資産は「legacy」扱いになる (承知のうえの仕様)**。段1 より前に生成した
+`local-data/training/labeled-348-D5.jsonl` (348 局・約 20 時間) とその done-keys / claims は
+`labelMeta` を持たないため `recipeKey` が `"legacy"` になり、これから走らせる `v1|d5|c0|w0` とは別レシピ扱いになる。結果として
+(i) 同じファイルへ `LABEL_RESUME=1` で追記しようとすると起動時に停止し、
+(ii) 既存 done-keys / claims はハッシュが合わず全局が再採点対象になる (中身は同じ move-only D=5 なのに)。
+ユーザー決定 (§3) で**旧教材は新レシピで付け直す**ことになっており、段2 で `expandCards:true` へ変わるため
+どのみち作り直すので許容する。既存 encode 成果 (`features-clean-D5.jsonl` 等) は単一 legacy なので再現性に影響なし。
+
+**段1 実施時の検証結果 (2026-07-27)**
+- full gate: lint 0 error / typecheck 緑 / test:ci 全緑 / build 成功
+- **pin**: human 1 局を D=5 で再採点し、変更前に生成した `labeled-human-D5.jsonl` と searchScore 全 53 件がバイト等価
+  (試合メタも labelMeta を除けば同一) = 段1 の変更はラベルの値を 1 ビットも変えていない
+- 同レシピの done-keys では全スキップ / 別レシピ (D=3) では再採点 / 別レシピの OUT へ RESUME すると
+  起動時に停止し OUT に書き込まない / `LABEL_DEPTH` の `""`・`abc`・`0`・`2.5` を起動時に拒否
+- encode: レシピ混在で停止 (成果物を差し替えない) / 未採点入力を bootstrap に渡すと停止 / outcome モードは従来どおり
+- merge: 同一レシピの重複を 1 件へ / 混在で停止し出力を書かない / 自己上書きを拒否
 
 ### 段 2: ラベル探索の root カード展開 (1 日) ★本丸
 - `getWorldLegalActions(world, variant, expandCards, expandDraw = expandCards)` に分離

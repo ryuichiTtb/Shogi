@@ -20,10 +20,10 @@
 //     LABEL_DEPTH=4 LABEL_MAX_GAMES=1 npx tsx scripts/label-search-score-245.ts
 //
 // env:
-//   LABEL_IN        入力対局 JSONL (既定 local-data/training/human-245.jsonl)
-//   LABEL_OUT       出力拡張 JSONL (既定 local-data/training/labeled-245.jsonl)
 //   LABEL_IN        入力対局 JSONL (カンマ区切りで複数可、既定 local-data/training/human-245.jsonl)
-//   LABEL_DEPTH     探索深さ D (既定 4)
+//   LABEL_OUT       出力拡張 JSONL (既定 local-data/training/labeled-245.jsonl)
+//   LABEL_DEPTH     探索深さ D (既定 4)。1 以上の整数のみ。★不正値は起動時に停止する
+//                   (NaN は JSON 往復で null に化けてレシピ識別が壊れ、0 は全局面が採点不能になるため)
 //   LABEL_TIME_MS   1 局面あたりの安全網時間上限 (既定 600000 = 探索が D で完了し切れる十分大)
 //   LABEL_MAX_GAMES 処理する試合数の上限 (全入力横断・shard 適用前に先頭から切出。既定 = 全件)
 //   LABEL_SHARD_COUNT / LABEL_SHARD_INDEX  並列分散 (8 コア活用)。COUNT 分割の INDEX 番目の試合のみ
@@ -51,6 +51,20 @@
 //     → 全ワーカー終了後に CLAIM_DIR を外した「取りこぼし検査パス」を 1 本流すこと (ランチャの責務)。
 //   ★winner=null (中断) の試合は採点せず除外する (encode 段でも除外され学習に使われないため、
 //     高コストな探索を無駄打ちしない)。
+//
+// ★ラベル生成レシピ (教材多様化 段1)
+//   探索深さや root のカード展開が違えば searchScore は**別物**なので、新旧が 1 ファイルに混ざると
+//   学習が静かに壊れる。本バッチは出力する試合メタへ labelMeta (= レシピ) を刻み、
+//   (a) 再開時に OUT が別レシピなら起動時に停止 / (b) 既済ハッシュ・claim にレシピを混ぜて
+//   旧レシピの成果を既済扱いしない、の二段で混在を防ぐ。encode 段が最後の関門になる。
+//   ワーカー出力の結合は scripts/merge-labeled-245.ts を使うこと (同一性キーの実装を一元化するため。
+//   結合側で独自に重複判定を書くと labelMeta を含めてしまい、同一局の新旧が両方残る)。
+//
+// ★終了コード
+//   0 = 正常。1 = **ラベル品質の警告**(深さ D 未達 / 採点不能が発生した) であって、クラッシュではない。
+//   採点結果は OUT に書き込み済みなので破棄しないこと。再実行するときは必ず LABEL_RESUME=1 を付ける
+//   (付けないと OUT を作り直すため、そのワーカーの成果が消える)。
+//   起動時の設定エラー (env 不正 / OUT のレシピ不一致) は例外で落ちるので、OUT には何も書かれない。
 
 import {
   appendFileSync,
@@ -67,11 +81,16 @@ import { createSearchContext } from "@/lib/shogi/ai/search-context";
 import { deserializeGameState } from "@/lib/shogi/board";
 import { deserializeCardState } from "@/lib/shogi/cards/state";
 import { parseTrainingRecordLine, trainingRecordToJsonl } from "@/lib/shogi/training/jsonl";
-import type { TrainingGameRecord } from "@/lib/shogi/training/types";
+import type { LabelMeta, TrainingGameRecord } from "@/lib/shogi/training/types";
 import type { GameState } from "@/lib/shogi/types";
 import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
 
-import { labelIdentityKey, labelKeyHash } from "./utils/label-identity";
+import {
+  CURRENT_LABEL_RECIPE_VERSION,
+  labelIdentityKey,
+  labelKeyHash,
+  recipeKey,
+} from "./utils/label-identity";
 
 const IN = (process.env.LABEL_IN ?? "local-data/training/human-245.jsonl")
   .split(",")
@@ -80,12 +99,33 @@ const IN = (process.env.LABEL_IN ?? "local-data/training/human-245.jsonl")
 const OUT = process.env.LABEL_OUT ?? "local-data/training/labeled-245.jsonl";
 const DEPTH = Number(process.env.LABEL_DEPTH ?? "4");
 const TIME_MS = Number(process.env.LABEL_TIME_MS ?? "600000");
+// env の取り違え (typo / 未定義変数の展開) を起動時に止める。放置すると
+// NaN → JSON 往復で null に化けてレシピ識別が往復不安定になり、自分が書いた OUT を
+// 「別レシピ」と誤認して停止する。0 や負なら全局面が採点不能 (null) になる。
+if (!Number.isInteger(DEPTH) || DEPTH < 1) {
+  throw new Error(`LABEL_DEPTH は 1 以上の整数で指定してください (受け取った値: ${process.env.LABEL_DEPTH})`);
+}
+if (!Number.isFinite(TIME_MS) || TIME_MS <= 0) {
+  throw new Error(`LABEL_TIME_MS は正の数で指定してください (受け取った値: ${process.env.LABEL_TIME_MS})`);
+}
 const MAX_GAMES = Number(process.env.LABEL_MAX_GAMES ?? String(Number.MAX_SAFE_INTEGER));
 const SHARD_COUNT = Math.max(1, Number(process.env.LABEL_SHARD_COUNT ?? "1"));
 const SHARD_INDEX = Math.max(0, Number(process.env.LABEL_SHARD_INDEX ?? "0"));
 const RESUME = (process.env.LABEL_RESUME ?? "0") === "1";
 const DONE_KEYS_FILE = process.env.LABEL_DONE_KEYS ?? "";
 const CLAIM_DIR = process.env.LABEL_CLAIM_DIR ?? "";
+
+// 今回の実行が生成するラベルのレシピ。出力へ刻み、既済判定のハッシュにも混ぜる。
+// ★depth は「要求値」であって「到達値」ではない。到達値は ctx.depthCompleted で実測し
+//   shallow カウンタとして別途監視する (深さ D 未達の浅いラベルを沈黙させないため)。
+const RECIPE: LabelMeta = {
+  version: CURRENT_LABEL_RECIPE_VERSION,
+  depth: DEPTH,
+  // 段2 で root カード展開を入れるまでは move-only 固定 (計画書 §4 段2)。
+  expandCards: false,
+  expandDraw: false,
+};
+const RECIPE_KEY = recipeKey(RECIPE);
 
 // 学習用 boardState は moveHistory / positionHistory を除外している (serializeBoardForTraining)。
 // 探索は両者を参照しうる (千日手検出等) ため空配列で補って GameState を復元する。局面を独立採点
@@ -100,6 +140,10 @@ function reconstructState(boardState: unknown): GameState {
 
 // 既存 OUT を読み、既済試合の内容キー多重集合 (キー -> 残件数) を返す。
 // 途中 kill で最終行が JSON 途切れになっている場合はその行以降を破棄して OUT を書き戻す。
+//
+// ★別レシピの行が 1 つでもあれば起動時に停止する (教材多様化 段1)。ここに追記すると
+// 「深さ4 のラベルと深さ5 のラベルが同じファイルに同居する」状態が生まれ、下流の学習が静かに壊れる。
+// 別レシピで採点し直したいときは LABEL_OUT に別ファイルを指定する (旧成果は残す)。
 function loadCompletedKeys(): Map<string, number> {
   const done = new Map<string, number>();
   let raw: string;
@@ -110,6 +154,7 @@ function loadCompletedKeys(): Map<string, number> {
   }
   const lines = raw.split("\n").filter((l) => l.trim().length > 0);
   const kept: string[] = [];
+  const foreignRecipes = new Map<string, number>(); // 別レシピキー -> 行数
   for (const line of lines) {
     let record: TrainingGameRecord;
     try {
@@ -118,9 +163,23 @@ function loadCompletedKeys(): Map<string, number> {
       // 不完全行 (kill で書き込み途中)。以降の行も信用できないので打ち切り、ここまでを残す。
       break;
     }
-    const key = labelIdentityKey(record);
-    done.set(key, (done.get(key) ?? 0) + 1);
+    const key = recipeKey(record.game.labelMeta);
+    if (key !== RECIPE_KEY) {
+      foreignRecipes.set(key, (foreignRecipes.get(key) ?? 0) + 1);
+      kept.push(line);
+      continue;
+    }
+    const contentKey = labelIdentityKey(record);
+    done.set(contentKey, (done.get(contentKey) ?? 0) + 1);
     kept.push(line);
+  }
+  if (foreignRecipes.size > 0) {
+    // 中断するので OUT には一切手を触れない (理解できないファイルを書き換えない)。
+    const detail = [...foreignRecipes].map(([k, n]) => `${k}: ${n} 行`).join(" / ");
+    throw new Error(
+      `${OUT} には今回のレシピ (${RECIPE_KEY}) と違うラベルが含まれています [${detail}]。\n` +
+        `  新旧のラベルが混ざると学習が静かに壊れます。LABEL_OUT に別ファイルを指定してください。`,
+    );
   }
   if (kept.length !== lines.length) {
     writeFileSync(OUT, kept.length > 0 ? kept.join("\n") + "\n" : "");
@@ -185,7 +244,9 @@ function main() {
   let skipped = 0; // winner=null (中断) で採点除外した試合
   let resumed = 0; // 既済としてスキップした試合 (自分の OUT / 既済ハッシュ一覧)
   let yielded = 0; // 取り合いで他ワーカーに譲った試合
-  let nearTimeout = 0; // 時間上限に迫った局面 (= 深さ D まで読み切れず浅いラベルの疑い)
+  let nearTimeout = 0; // 時間上限に迫った局面 (= 時間切れが近かった疑い)
+  let shallow = 0; // 深さ D に到達しなかった局面 (ctx.depthCompleted の実測)
+  let unscored = 0; // 深さ1 すら完了せず採点不能 (searchScore=null) だった局面
   const startedAll = performance.now();
 
   for (const line of myLines) {
@@ -205,7 +266,8 @@ function main() {
       }
     }
     // 他ワーカーが別 OUT に採点済み。自分の OUT には無いので RESUME では拾えない。
-    const hash = doneHashes.size > 0 || CLAIM_DIR ? labelKeyHash(record) : "";
+    // ★ハッシュにレシピを混ぜるので、別レシピ (深さ違い等) の成果は既済扱いにならず再採点される。
+    const hash = doneHashes.size > 0 || CLAIM_DIR ? labelKeyHash(record, RECIPE) : "";
     if (doneHashes.has(hash)) {
       resumed += 1;
       continue;
@@ -221,17 +283,23 @@ function main() {
       const state = reconstructState(sample.boardState);
       const cardState = deserializeCardState(sample.cardState);
       const ctx = createSearchContext({ timeLimitMs: TIME_MS, useLearnedEval: false });
-      // move-only backed-up 評価値 (先手絶対視点 cp)。終局/合法手なしでも negamaxWorld が確定値を返す
-      // (詰み ±MATE / ステールメイト 0) ため null にはならない。
+      // move-only backed-up 評価値 (先手絶対視点 cp)。終局/合法手なしでも negamaxWorld が確定値を
+      // 返す (詰み ±MATE / ステールメイト 0) ため、時間切れ以外で null にはならない。
       const pStart = performance.now();
       const score = evaluatePositionWorldMoveOnly(state, cardState, DEPTH, CARD_SHOGI_VARIANT, ctx);
       // 時間上限に達すると反復深化が D 未満で打ち切られ、ラベルが静かに浅くなる。
-      // 検知できるよう上限の 90% を超えた局面を数え、最後に警告する (計測コストは 1 回の now())。
+      // 到達深さは ctx.depthCompleted で**実測**できるのでそれを主指標にし、
+      // 経過時間の 90% 超過 (= 上限に迫った) は補助指標として残す (計測コストは 1 回の now())。
       if (performance.now() - pStart >= TIME_MS * 0.9) nearTimeout += 1;
+      if (ctx.depthCompleted < DEPTH) shallow += 1;
+      // 採点不能は null のまま刻む。0 (互角) を書くと「互角が正解」という嘘を学習させてしまう。
+      if (score === null) unscored += 1;
       sample.searchScore = score;
       samples += 1;
     }
 
+    // レシピを刻んでから書き出す (末尾に付くので labelIdentityKey の内容キーは入力行と一致し続ける)。
+    record.game = { ...record.game, labelMeta: RECIPE };
     appendFileSync(OUT, trainingRecordToJsonl(record) + "\n");
     games += 1;
     const gMs = performance.now() - gStart;
@@ -243,7 +311,7 @@ function main() {
 
   const totalMs = performance.now() - startedAll;
   console.log(`\nDone (shard ${SHARD_INDEX}/${SHARD_COUNT}). ${games} 試合 / ${samples} サンプル (中断除外 ${skipped}) -> ${OUT}`);
-  console.log(`  depth=${DEPTH}, 総時間 ${(totalMs / 1000).toFixed(1)}s, 平均 ${(totalMs / Math.max(1, samples)).toFixed(0)} ms/局面`);
+  console.log(`  recipe=${RECIPE_KEY}, 総時間 ${(totalMs / 1000).toFixed(1)}s, 平均 ${(totalMs / Math.max(1, samples)).toFixed(0)} ms/局面`);
   if (CLAIM_DIR) {
     console.log(`  取り合い: 既済 ${resumed} 試合 / 他ワーカーへ譲った ${yielded} 試合 / 自分が採点 ${games} 試合`);
   }
@@ -256,9 +324,28 @@ function main() {
       );
     }
   }
-  if (nearTimeout > 0) {
-    console.warn(
-      `  ⚠ ${nearTimeout} 局面が時間上限 (${TIME_MS} ms) の 90% を超えました = 深さ ${DEPTH} 未達の疑い。LABEL_TIME_MS を上げて再採点を検討してください`,
+  // ★ラベルの品質劣化は「静かに」起きる (深く読めなかっただけで値は返る) ため、
+  //   完了時に必ず目立たせ、終了コードも非ゼロにして 20 時間バッチの最後で沈黙させない。
+  if (shallow > 0 || unscored > 0) {
+    process.exitCode = 1;
+    if (unscored > 0) {
+      console.warn(
+        `  ⚠ ${unscored} 局面が採点不能 (深さ1 も完了せず searchScore=null)。LABEL_TIME_MS (${TIME_MS} ms) を上げて再採点してください`,
+      );
+    }
+    if (shallow > 0) {
+      console.warn(
+        `  ⚠ ${shallow} 局面が深さ ${DEPTH} に到達しませんでした (実測)。ラベルが浅い = 教材の質が落ちます。LABEL_TIME_MS を上げて再採点を検討してください`,
+      );
+    }
+    if (nearTimeout > 0) {
+      console.warn(`  (うち ${nearTimeout} 局面は時間上限の 90% を超過 = 時間切れが原因)`);
+    }
+  } else if (nearTimeout > 0) {
+    // 深さ D には届いたが予算をほぼ使い切った局面。今回のラベルは正常だが、
+    // 次に深さを上げると浅くなる先行指標なので軽く残す (終了コードは変えない)。
+    console.log(
+      `  参考: ${nearTimeout} 局面が時間上限 (${TIME_MS} ms) の 90% を超えました (深さ ${DEPTH} には到達)`,
     );
   }
 }

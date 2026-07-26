@@ -23,6 +23,7 @@
 //   CLEAN_DROP_STATUS 除外する finalStatus (カンマ区切り、既定 "repetition")。"" で無効
 //   CLEAN_DEDUP_GAMES     "1" (既定) で全行動列が既出の試合を落とす
 //   CLEAN_DEDUP_POSITIONS "1" (既定) でエンコーダ入力が既出のサンプルを落とす
+//   CLEAN_ALLOW_MIXED_RECIPE "1" でラベル生成レシピの混在を許して続行する (既定 "0" = 停止)
 //   ★入力は読み取り専用。出力は必ず別ファイル (生成に丸一日かかった教材を壊さないため)。
 
 import { createHash } from "node:crypto";
@@ -32,6 +33,8 @@ import { dirname } from "node:path";
 import { sampleToSparseRow } from "@/lib/shogi/ai/learned/feature-export";
 import { parseTrainingRecordLine, trainingRecordToJsonl } from "@/lib/shogi/training/jsonl";
 import type { TrainingGameRecord } from "@/lib/shogi/training/types";
+
+import { recipeKey } from "./utils/label-identity";
 
 const IN = (process.env.CLEAN_IN ?? "local-data/training/labeled-348-D5.jsonl")
   .split(",")
@@ -46,6 +49,7 @@ const DROP_STATUS = new Set(
 );
 const DEDUP_GAMES = (process.env.CLEAN_DEDUP_GAMES ?? "1") === "1";
 const DEDUP_POSITIONS = (process.env.CLEAN_DEDUP_POSITIONS ?? "1") === "1";
+const ALLOW_MIXED_RECIPE = (process.env.CLEAN_ALLOW_MIXED_RECIPE ?? "0") === "1";
 
 function sha(s: string): string {
   return createHash("sha1").update(s).digest("hex").slice(0, 20);
@@ -85,11 +89,16 @@ function main() {
   const seenGameHashes = new Set<string>();
   const seenInputHashes = new Set<string>();
   const out: string[] = [];
+  // 複数ファイルを連結する地点なので、ラベル生成レシピの混在をここでも見張る (段1)。
+  // 新フローでは clean をラベルの前に回すため通常はすべて未刻印 (legacy) になる。
+  const recipes = new Map<string, number>();
 
   for (const line of lines) {
     const record = parseTrainingRecordLine(line);
     inGames += 1;
     inSamples += record.samples.length;
+    const rk = recipeKey(record.game.labelMeta);
+    recipes.set(rk, (recipes.get(rk) ?? 0) + 1);
     const status = record.game.finalStatus ?? "(unknown)";
     statusBreakdown.set(status, (statusBreakdown.get(status) ?? 0) + 1);
 
@@ -132,6 +141,18 @@ function main() {
     out.push(trainingRecordToJsonl(record));
   }
 
+  // ★複数ファイルを連結する地点なので、レシピ混在は書き出す**前**に止める。
+  //   「警告は出したが混在ファイルは作った」状態にすると、後段でそれを掴んでしまう。
+  if (recipes.size > 1 && !ALLOW_MIXED_RECIPE) {
+    const detail = [...recipes].map(([k, v]) => `${k}: ${v} 試合`).join(" / ");
+    console.error(
+      `✗ ラベル生成レシピが混在しています [${detail}]。\n` +
+        `  混ざったまま学習へ渡すと、同じ局面に別々の正解を教えることになります。\n` +
+        `  レシピごとに分けて clean するか、意図的な場合のみ CLEAN_ALLOW_MIXED_RECIPE=1 を指定してください。`,
+    );
+    process.exit(1);
+  }
+
   mkdirSync(dirname(OUT), { recursive: true });
   writeFileSync(OUT, out.length > 0 ? out.join("\n") + "\n" : "");
 
@@ -141,6 +162,10 @@ function main() {
   console.log("=== 入力 ===");
   console.log(`  ${inGames} 試合 / ${inSamples} サンプル`);
   console.log("  finalStatus 内訳: " + [...statusBreakdown].map(([k, v]) => `${k}:${v}`).join(" / "));
+  console.log("  ラベルのレシピ内訳: " + [...recipes].map(([k, v]) => `${k}:${v}`).join(" / "));
+  if (recipes.size > 1) {
+    console.warn("  ⚠ レシピ混在を CLEAN_ALLOW_MIXED_RECIPE=1 で許可して出力しました (encode 段で停止します)");
+  }
   console.log("\n=== 除外 ===");
   console.log(
     `  ① 終局理由 [${[...DROP_STATUS].join(",") || "なし"}]: -${droppedStatusGames} 試合 / -${droppedStatusSamples} サンプル (${pct(droppedStatusSamples, inSamples)}%)`,

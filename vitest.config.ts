@@ -15,7 +15,10 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
-    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+    // Issue #245 教材多様化 段1: scripts/ 配下にも純粋ロジック (ラベルの同一性キー・レシピ正規化) が
+    // ある。そこが壊れると数十時間かけたラベル付けを取りこぼす / 別レシピの成果を混ぜるため、
+    // テストを収集対象に含める (scripts をそのまま実行するわけではなく *.test.ts のみ)。
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx", "scripts/**/*.test.ts"],
     globals: true,
   },
 });
