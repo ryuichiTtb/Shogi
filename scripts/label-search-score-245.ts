@@ -37,11 +37,30 @@
 //     同一内容の試合が入力に複数ある場合も多重集合で数を合わせるため取りこぼさない。
 //     途中 kill で最終行が途切れている場合はその行を破棄してから再開する (壊れた行の再利用防止)。
 //     OUT 全行を parse するので巨大 OUT (数百 MB) では起動が数秒〜数十秒重くなる。再開時のみ有効化する。
+//   LABEL_DONE_KEYS 既済試合の識別ハッシュ一覧ファイル (1 行 1 ハッシュ)。ここに載る試合は
+//     採点せずスキップする。★用途: 複数ワーカーが**別々の OUT** に書きながら「全体で何が済んだか」を
+//     共有するため。OUT 全行の parse (数百 MB) を避けられるので起動が軽い。
+//     生成は scripts/label-done-keys-245.ts。
+//   LABEL_CLAIM_DIR 先着で 1 試合ずつ確保する「取り合い方式」を有効化する (指定時のみ)。
+//     ★背景: shard 分割 (i%COUNT) は対局の重さ (27局面40秒 〜 232局面2時間超) を考慮しないため
+//     偏りが出て、遅いシャードが律速する一方で速いシャードのコアが遊ぶ。取り合い方式なら
+//     空いたワーカーが次の未着手試合を取るので自然に均される。
+//     実装: 試合を処理する前に <CLAIM_DIR>/<hash>.claim を O_EXCL で作成し、既存なら他ワーカーが
+//     担当中とみなして skip する (ファイル作成の排他性が唯一の同期点 = ロック機構不要)。
+//     ワーカーが途中で死ぬと claim が残り、その試合が誰にも処理されない穴になりうる。
+//     → 全ワーカー終了後に CLAIM_DIR を外した「取りこぼし検査パス」を 1 本流すこと (ランチャの責務)。
 //   ★winner=null (中断) の試合は採点せず除外する (encode 段でも除外され学習に使われないため、
 //     高コストな探索を無駄打ちしない)。
 
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import {
+  appendFileSync,
+  closeSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 
 import { evaluatePositionWorldMoveOnly } from "@/lib/shogi/ai/search";
 import { createSearchContext } from "@/lib/shogi/ai/search-context";
@@ -51,6 +70,8 @@ import { parseTrainingRecordLine, trainingRecordToJsonl } from "@/lib/shogi/trai
 import type { TrainingGameRecord } from "@/lib/shogi/training/types";
 import type { GameState } from "@/lib/shogi/types";
 import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
+
+import { labelIdentityKey, labelKeyHash } from "./utils/label-identity";
 
 const IN = (process.env.LABEL_IN ?? "local-data/training/human-245.jsonl")
   .split(",")
@@ -63,6 +84,8 @@ const MAX_GAMES = Number(process.env.LABEL_MAX_GAMES ?? String(Number.MAX_SAFE_I
 const SHARD_COUNT = Math.max(1, Number(process.env.LABEL_SHARD_COUNT ?? "1"));
 const SHARD_INDEX = Math.max(0, Number(process.env.LABEL_SHARD_INDEX ?? "0"));
 const RESUME = (process.env.LABEL_RESUME ?? "0") === "1";
+const DONE_KEYS_FILE = process.env.LABEL_DONE_KEYS ?? "";
+const CLAIM_DIR = process.env.LABEL_CLAIM_DIR ?? "";
 
 // 学習用 boardState は moveHistory / positionHistory を除外している (serializeBoardForTraining)。
 // 探索は両者を参照しうる (千日手検出等) ため空配列で補って GameState を復元する。局面を独立採点
@@ -72,16 +95,6 @@ function reconstructState(boardState: unknown): GameState {
     ...(boardState as Record<string, unknown>),
     moveHistory: [],
     positionHistory: [],
-  });
-}
-
-// 出力行 ↔ 入力行の同一性キー (再開用)。searchScore は本スクリプトが後付けする唯一のフィールドゆえ、
-// それを除けば出力行は入力行と同一内容になる。入力側・出力側を同じ関数で正規化するので、
-// キー順や空白の差では不一致にならない。
-function labelIdentityKey(record: TrainingGameRecord): string {
-  return JSON.stringify({
-    game: record.game,
-    samples: record.samples.map(({ searchScore: _score, ...rest }) => rest),
   });
 }
 
@@ -118,10 +131,37 @@ function loadCompletedKeys(): Map<string, number> {
   return done;
 }
 
+// 他ワーカーの成果を含む「既済ハッシュ一覧」を読む (1 行 1 ハッシュ、# 始まりはコメント)。
+// OUT 全行 (数百 MB) を parse せずに済むので、多ワーカー起動時のメモリ・時間を節約できる。
+function loadDoneKeyHashes(): Set<string> {
+  if (!DONE_KEYS_FILE) return new Set();
+  const raw = readFileSync(DONE_KEYS_FILE, "utf8");
+  return new Set(
+    raw
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0 && !l.startsWith("#")),
+  );
+}
+
+// 取り合い方式の確保。O_EXCL でファイルを作れたワーカーだけがその試合を担当する。
+// 作成済み (= 他ワーカーが担当中 or 担当済み) なら false を返して譲る。
+function tryClaim(hash: string): boolean {
+  if (!CLAIM_DIR) return true; // 取り合い無効時は常に自分が担当
+  try {
+    closeSync(openSync(join(CLAIM_DIR, `${hash}.claim`), "wx"));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function main() {
   mkdirSync(dirname(OUT), { recursive: true });
+  if (CLAIM_DIR) mkdirSync(CLAIM_DIR, { recursive: true });
   // 再開モードでは OUT を残して追記する。通常モードは Pass 1 が α 非依存ゆえ毎回作り直してよい。
   const completed = RESUME ? loadCompletedKeys() : new Map<string, number>();
+  const doneHashes = loadDoneKeyHashes();
   if (!RESUME) writeFileSync(OUT, ""); // truncate
 
   // 全入力ファイルの行を結合 → MAX_GAMES で先頭から切出 (shard 適用前) → このシャード担当行のみ抽出。
@@ -143,7 +183,8 @@ function main() {
   let games = 0;
   let samples = 0;
   let skipped = 0; // winner=null (中断) で採点除外した試合
-  let resumed = 0; // 再開モードで既済としてスキップした試合
+  let resumed = 0; // 既済としてスキップした試合 (自分の OUT / 既済ハッシュ一覧)
+  let yielded = 0; // 取り合いで他ワーカーに譲った試合
   let nearTimeout = 0; // 時間上限に迫った局面 (= 深さ D まで読み切れず浅いラベルの疑い)
   const startedAll = performance.now();
 
@@ -162,6 +203,17 @@ function main() {
         resumed += 1;
         continue;
       }
+    }
+    // 他ワーカーが別 OUT に採点済み。自分の OUT には無いので RESUME では拾えない。
+    const hash = doneHashes.size > 0 || CLAIM_DIR ? labelKeyHash(record) : "";
+    if (doneHashes.has(hash)) {
+      resumed += 1;
+      continue;
+    }
+    // 取り合い: 先に確保できたワーカーだけが採点する。
+    if (!tryClaim(hash)) {
+      yielded += 1;
+      continue;
     }
     const gStart = performance.now();
 
@@ -192,6 +244,9 @@ function main() {
   const totalMs = performance.now() - startedAll;
   console.log(`\nDone (shard ${SHARD_INDEX}/${SHARD_COUNT}). ${games} 試合 / ${samples} サンプル (中断除外 ${skipped}) -> ${OUT}`);
   console.log(`  depth=${DEPTH}, 総時間 ${(totalMs / 1000).toFixed(1)}s, 平均 ${(totalMs / Math.max(1, samples)).toFixed(0)} ms/局面`);
+  if (CLAIM_DIR) {
+    console.log(`  取り合い: 既済 ${resumed} 試合 / 他ワーカーへ譲った ${yielded} 試合 / 自分が採点 ${games} 試合`);
+  }
   if (RESUME) {
     const orphans = [...completed.values()].reduce((a, b) => a + b, 0);
     console.log(`  再開: 既済 ${resumed} 試合をスキップ (このシャード担当分の通算 ${resumed + games} 試合)`);
