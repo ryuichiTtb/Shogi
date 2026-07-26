@@ -19,6 +19,7 @@
     "test:perf-bench": "RUN_PERF_BENCH=true vitest run src/lib/shogi/ai/__tests__/perf-bench.test.ts src/lib/shogi/ai/__tests__/perf-bench-spectator.test.ts",
     "test:perf-bench:human": "RUN_PERF_BENCH=true vitest run src/lib/shogi/ai/__tests__/perf-bench.test.ts",
     "test:perf-bench:spectator": "RUN_PERF_BENCH=true vitest run src/lib/shogi/ai/__tests__/perf-bench-spectator.test.ts",
+    "label:progress": "tsx scripts/label-progress-245.ts",
     "db:seed": "npx tsx prisma/seed.ts",
     "db:push": "prisma db push",
     "db:generate": "prisma generate"
