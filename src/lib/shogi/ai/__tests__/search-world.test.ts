@@ -6,7 +6,9 @@
 import { describe, it, expect, afterEach } from "vitest";
 import {
   evaluatePositionWorldMoveOnly,
+  evaluatePositionWorldWithCards,
   findBestMove,
+  getLabelCardActions,
   getWorldLegalActions,
   selectBranchCandidates,
   updateHash,
@@ -146,6 +148,42 @@ describe("S4c-1: getWorldLegalActions (expandCards gate + double_move 除外)", 
     const actions = getWorldLegalActions(world, CARD_SHOGI_VARIANT, false);
     expect(actions.length).toBeGreaterThan(0);
     expect(actions.every((a) => a.kind === "move")).toBe(true);
+  });
+
+  // Issue #245 教材多様化 段2: playCard と draw の展開を別フラグに分離した。
+  describe("段2: expandDraw の分離", () => {
+    const world = (): WorldState => {
+      const gs = createInitialGameState(CARD_SHOGI_VARIANT); // sente 番、初期盤 (王手なし)
+      const cs = cardState({
+        hand: { sente: [{ instanceId: "s-pr", defId: "pawn_return" }], gote: [] },
+        mana: { sente: 12, gote: 12 },
+        deck: { sente: [{ instanceId: "d1", defId: "mana_up" }], gote: [] },
+      });
+      return { gameState: gs, cardState: cs, doubleMove: null };
+    };
+
+    it("expandDraw の既定は expandCards と同じ (既存 3 引数呼出は挙動不変)", () => {
+      const w = world();
+      const implicitTrue = getWorldLegalActions(w, CARD_SHOGI_VARIANT, true);
+      const explicitTrue = getWorldLegalActions(w, CARD_SHOGI_VARIANT, true, true);
+      expect(implicitTrue).toEqual(explicitTrue);
+      const implicitFalse = getWorldLegalActions(w, CARD_SHOGI_VARIANT, false);
+      const explicitFalse = getWorldLegalActions(w, CARD_SHOGI_VARIANT, false, false);
+      expect(implicitFalse).toEqual(explicitFalse);
+    });
+
+    it("expandCards=true / expandDraw=false は playCard だけ展開し draw を出さない (ラベル用)", () => {
+      const actions = getWorldLegalActions(world(), CARD_SHOGI_VARIANT, true, false);
+      expect(actions.some((a) => a.kind === "playCard" && a.defId === "pawn_return")).toBe(true);
+      expect(actions.some((a) => a.kind === "draw")).toBe(false);
+      expect(actions.some((a) => a.kind === "move")).toBe(true);
+    });
+
+    it("expandCards=false / expandDraw=true は draw だけ展開し playCard を出さない", () => {
+      const actions = getWorldLegalActions(world(), CARD_SHOGI_VARIANT, false, true);
+      expect(actions.some((a) => a.kind === "draw")).toBe(true);
+      expect(actions.some((a) => a.kind === "playCard")).toBe(false);
+    });
   });
 });
 
@@ -673,6 +711,282 @@ describe("evaluatePositionWorldMoveOnly (先手絶対視点の符号規約)", ()
     evaluatePositionWorldMoveOnly(advantageState("sente", "sente"), card, 2, CARD_SHOGI_VARIANT, ctx);
     expect(ctx.depthCompleted).toBe(2);
   });
+});
+
+// Issue #245 教材多様化 段2 ★本丸: root で playCard を展開したラベル。
+describe("evaluatePositionWorldWithCards (root カード展開)", () => {
+  const DEPTH = 2;
+  const fresh = () => createSearchContext({ timeLimitMs: 60000, useLearnedEval: false });
+  const labelOf = (
+    fn: typeof evaluatePositionWorldMoveOnly,
+    state: GameState,
+    cs: CardGameState,
+  ): number => {
+    const score = fn(state, cs, DEPTH, CARD_SHOGI_VARIANT, fresh());
+    expect(score).not.toBeNull();
+    return score as number;
+  };
+
+  // カードを 1 枚も使えない局面 (マナ 0) では展開する枝が無いので move-only と完全一致する。
+  // これが段2 の「無回帰」の芯 (カードが無関係な局面のラベルを 1cp も動かさない)。
+  it("カードが使えない局面では move-only とバイト一致する", () => {
+    const state = createInitialGameState(CARD_SHOGI_VARIANT);
+    const cs: CardGameState = {
+      ...createInitialCardState([{ defId: "pawn_return", count: 2 }]),
+      mana: { sente: 0, gote: 0 }, // マナ 0 = どのカードも使用条件を満たさない
+    };
+    expect(labelOf(evaluatePositionWorldWithCards, state, cs)).toBe(
+      labelOf(evaluatePositionWorldMoveOnly, state, cs),
+    );
+  });
+
+  // 終局局面ではカードを展開しない (本ゲームの終局判定は盤面のみで、カードによる詰み解除を
+  // 見ていない。ラベルだけがカードで詰みを回避すると実ゲームと食い違う)。
+  // ガードは 2 条件あるので両方を個別に固定する。
+  it("合法手が 1 つも無い局面ではカードを展開しない", () => {
+    // 後手玉(0,0) を 先手飛(0,1)+先手金(1,1) が詰めた形。手番は後手 = 合法手なし。
+    const place = (b: Board) => {
+      b[0][0] = pc("king", "gote");
+      b[0][1] = pc("rook", "sente");
+      b[1][1] = pc("gold", "sente");
+      b[8][8] = pc("king", "sente");
+    };
+    const state = buildGameState(place, "gote");
+    const cs = cardState({
+      hand: { sente: [], gote: [{ instanceId: "g-pr", defId: "pawn_return" }] },
+      mana: { sente: 12, gote: 12 },
+    });
+    expect(getLabelCardActions({ gameState: state, cardState: cs, doubleMove: null }, CARD_SHOGI_VARIANT))
+      .toHaveLength(0);
+    expect(labelOf(evaluatePositionWorldWithCards, state, cs)).toBe(
+      labelOf(evaluatePositionWorldMoveOnly, state, cs),
+    );
+  });
+
+  it("status が active でない局面ではカードを展開しない", () => {
+    // 合法手は残っているが対局は終わっている (投了など) 状態。status ガード側の pin。
+    const state: GameState = {
+      ...createInitialGameState(CARD_SHOGI_VARIANT),
+      status: "resign",
+    };
+    const cs = cardState({
+      hand: { sente: [{ instanceId: "s-pr", defId: "pawn_return" }], gote: [] },
+      mana: { sente: 12, gote: 12 },
+    });
+    // 合法手はある = もう一方のガードでは弾かれない。status ガードだけが効いていることを示す。
+    expect(getWorldLegalActions({ gameState: state, cardState: cs, doubleMove: null }, CARD_SHOGI_VARIANT, true, false)
+      .some((a) => a.kind === "playCard")).toBe(true);
+    expect(getLabelCardActions({ gameState: state, cardState: cs, doubleMove: null }, CARD_SHOGI_VARIANT))
+      .toHaveLength(0);
+  });
+
+  // カード枝は root の追加選択肢なので、**手番側から見た値**は move-only 以上にしかならない。
+  // 先手絶対視点のラベルでは、先手番なら「以上」・後手番なら「以下」になる (符号規約こみの検証)。
+  // ※厳密には「反復を跨ぐと killer/history/TT の汚染で move 側の探索結果も動きうる」ので構造保証
+  //   ではないが、DEPTH=2 では LMR (depth>=3 が条件) が不発で決定的に成立する。実データでの
+  //   大規模確認は scripts/diag-label-cards-245.ts の ④ (符号違反件数) が担う。
+  it("カードが使える局面では手番側に有利な方向にしか動かない", () => {
+    const withHand = (owner: Player): CardGameState =>
+      cardState({
+        hand: {
+          sente: owner === "sente" ? [{ instanceId: "s-pr", defId: "pawn_return" }] : [],
+          gote: owner === "gote" ? [{ instanceId: "g-pr", defId: "pawn_return" }] : [],
+        },
+        mana: { sente: 12, gote: 12 },
+      });
+
+    const senteToMove = createInitialGameState(CARD_SHOGI_VARIANT); // 先手番
+    const csS = withHand("sente");
+    expect(labelOf(evaluatePositionWorldWithCards, senteToMove, csS)).toBeGreaterThanOrEqual(
+      labelOf(evaluatePositionWorldMoveOnly, senteToMove, csS),
+    );
+
+    const goteToMove: GameState = { ...createInitialGameState(CARD_SHOGI_VARIANT), currentPlayer: "gote" };
+    const csG = withHand("gote");
+    expect(labelOf(evaluatePositionWorldWithCards, goteToMove, csG)).toBeLessThanOrEqual(
+      labelOf(evaluatePositionWorldMoveOnly, goteToMove, csG),
+    );
+  });
+
+  // 段1 と同じ規約: 深さ 1 すら完了しないなら「互角 (0)」の嘘ラベルでなく null。
+  it("停止済みの ctx では null を返す", () => {
+    const ctx = fresh();
+    ctx.stopped = true;
+    const cs = cardState({
+      hand: { sente: [{ instanceId: "s-pr", defId: "pawn_return" }], gote: [] },
+      mana: { sente: 12, gote: 12 },
+    });
+    expect(
+      evaluatePositionWorldWithCards(
+        createInitialGameState(CARD_SHOGI_VARIANT), cs, 3, CARD_SHOGI_VARIANT, ctx,
+      ),
+    ).toBeNull();
+    expect(ctx.depthCompleted).toBe(0);
+  });
+
+  // ★段2 の芯: カード枝が**実際に探索されている**こと。
+  // 当初の実装はカード枝を null 窓 scout で読んでいたため、非厳密な枝刈り (quiescence の fail-hard /
+  // LMR の未検証 fail-high / 小数評価値と幅 1cp 窓による TT の exact 誤付与) が
+  // 「カードが 172.7cp 良いのに 1 件も採用されない」局面を作っていた (実データで再現)。
+  // ラベルの値だけを見ても「カードが同価値だったのか、捨てられたのか」を区別できないので、
+  // 探索ノード数という**必ず動く観測量**で固定する。
+  it("カード枝を実際に探索している (カードあり=ノード増 / カードなし=完全一致)", () => {
+    const state = createInitialGameState(CARD_SHOGI_VARIANT);
+    const usable = cardState({
+      hand: { sente: [{ instanceId: "s-pr", defId: "pawn_return" }], gote: [] },
+      mana: { sente: 12, gote: 12 },
+    });
+    const world = { gameState: state, cardState: usable, doubleMove: null };
+    expect(getLabelCardActions(world, CARD_SHOGI_VARIANT).length).toBeGreaterThan(0);
+
+    const ctxMove = fresh();
+    evaluatePositionWorldMoveOnly(state, usable, DEPTH, CARD_SHOGI_VARIANT, ctxMove);
+    const ctxCards = fresh();
+    evaluatePositionWorldWithCards(state, usable, DEPTH, CARD_SHOGI_VARIANT, ctxCards);
+    expect(ctxCards.nodes).toBeGreaterThan(ctxMove.nodes);
+
+    // カードが 1 枚も使えなければ探索は完全に同一 (= ① バイト一致の構造的な裏づけ)。
+    const unusable: CardGameState = { ...usable, mana: { sente: 0, gote: 0 } };
+    expect(getLabelCardActions({ ...world, cardState: unusable }, CARD_SHOGI_VARIANT)).toHaveLength(0);
+    const ctxMove2 = fresh();
+    evaluatePositionWorldMoveOnly(state, unusable, DEPTH, CARD_SHOGI_VARIANT, ctxMove2);
+    const ctxCards2 = fresh();
+    evaluatePositionWorldWithCards(state, unusable, DEPTH, CARD_SHOGI_VARIANT, ctxCards2);
+    expect(ctxCards2.nodes).toBe(ctxMove2.nodes);
+  });
+});
+
+// ★段2 の回帰防御 (M2 2 巡目 MAJOR-3): 実教材から取り出した「カードが決定的に良い」局面。
+//
+// 段2 の実装は当初カード枝を null 窓 scout で読んでおり、実データで「カードが 172.7cp 良いのに
+// 1 件も採用されず、ラベルが move-only とビット単位で一致する」局面が出た。この失敗は
+// 例外も警告も出さず**ラベルが静かに変わらないだけ**なので、初期盤面や人工局面では踏めない。
+// そこで教材 (snap-selfplay.jsonl) から効果が大きい実局面を 1 つ固定 fixture として持ち込む。
+// 深さ 3 = 当該バグが再現した深さ帯 (深さ 2 は LMR が不発、深さ 4 では消えた)。
+describe("evaluatePositionWorldWithCards: 実教材の局面でカード価値が伝播する", () => {
+  const DEPTH = 3;
+  // 22 手目・後手番。後手はマナ 1 で double_pawn が使え、それが最善になる。
+  const PIECES: [number, number, Piece["type"], Player][] = [
+    [0, 0, "lance", "gote"], [0, 1, "knight", "gote"], [0, 3, "gold", "gote"], [0, 5, "gold", "gote"],
+    [0, 6, "silver", "gote"], [0, 7, "knight", "gote"], [0, 8, "lance", "gote"],
+    [1, 3, "silver", "gote"], [1, 4, "pawn", "gote"], [1, 5, "king", "gote"], [1, 7, "bishop", "gote"],
+    [2, 1, "rook", "gote"], [2, 2, "pawn", "gote"], [2, 3, "pawn", "gote"], [2, 4, "pawn", "gote"],
+    [2, 5, "pawn", "gote"], [2, 6, "pawn", "gote"], [2, 7, "pawn", "gote"], [2, 8, "pawn", "gote"],
+    [5, 1, "pawn", "sente"], [5, 2, "pawn", "sente"],
+    [6, 0, "pawn", "sente"], [6, 1, "pawn", "sente"], [6, 2, "silver", "sente"], [6, 3, "pawn", "sente"],
+    [6, 4, "bishop", "sente"], [6, 5, "pawn", "sente"], [6, 6, "pawn", "sente"], [6, 7, "pawn", "sente"],
+    [6, 8, "pawn", "sente"],
+    [7, 2, "king", "sente"], [7, 4, "rook", "sente"], [7, 6, "silver", "sente"],
+    [8, 0, "lance", "sente"], [8, 1, "knight", "sente"], [8, 3, "gold", "sente"], [8, 5, "gold", "sente"],
+    [8, 7, "knight", "sente"], [8, 8, "lance", "sente"],
+  ];
+
+  const fixture = (): { state: GameState; cs: CardGameState } => {
+    const board = emptyBoard();
+    for (const [r, c, type, owner] of PIECES) board[r][c] = pc(type, owner);
+    const state: GameState = {
+      board,
+      hand: { sente: {}, gote: { pawn: 1 } },
+      currentPlayer: "gote",
+      moveHistory: [],
+      positionHistory: [],
+      status: "active",
+      moveCount: 22,
+    };
+    const cs = cardState({
+      mana: { sente: 3, gote: 1 },
+      hand: {
+        sente: [
+          { instanceId: "sente-double_pawn-11", defId: "double_pawn" },
+          { instanceId: "sente-no_promote-6", defId: "no_promote" },
+          { instanceId: "sente-pawn_return-2", defId: "pawn_return" },
+        ],
+        gote: [
+          { instanceId: "gote-no_promote-6", defId: "no_promote" },
+          { instanceId: "gote-double_pawn-9", defId: "double_pawn" },
+          { instanceId: "gote-double_pawn-12", defId: "double_pawn" },
+        ],
+      },
+      trap: {
+        sente: { instanceId: "sente-no_promote-7", defId: "no_promote", owner: "sente" },
+        gote: { instanceId: "gote-no_promote-8", defId: "no_promote", owner: "gote" },
+      },
+    });
+    return { state, cs };
+  };
+  const fresh = () => createSearchContext({ timeLimitMs: 60000, useLearnedEval: false });
+
+  it("カード枝がラベルを手番側に有利な方向へ大きく動かす (値が捨てられない)", () => {
+    const { state, cs } = fixture();
+    expect(getLabelCardActions({ gameState: state, cardState: cs, doubleMove: null }, CARD_SHOGI_VARIANT).length)
+      .toBeGreaterThan(0);
+    const moveOnly = evaluatePositionWorldMoveOnly(state, cs, DEPTH, CARD_SHOGI_VARIANT, fresh());
+    const withCards = evaluatePositionWorldWithCards(state, cs, DEPTH, CARD_SHOGI_VARIANT, fresh());
+    expect(moveOnly).not.toBeNull();
+    expect(withCards).not.toBeNull();
+    // 後手番なので、先手絶対視点では「下がる」= 後手にとって有利。実測 614cp 動く局面。
+    expect((withCards as number)).toBeLessThan((moveOnly as number) - 100);
+    // 実教材の中盤局面 + 深さ3 は 1 回 1 秒前後かかる (vitest 既定の 5s では足りない)。
+  }, 30_000);
+
+  // ★窓を絞る最適化に対する回帰テスト。
+  // 段2 では速度のためにカード枝の探索窓を絞る案を 2 度試し、2 度とも「カードの価値が
+  // 静かに消える」形で失敗した。この局面は **(-∞, -iter) に絞った瞬間 withCards が
+  // moveOnly とビット単位で一致する** (= カードが 1 件も採用されない) 実データで、
+  // full-window なら +120.3cp を拾う。窓を狭める変更を入れるとここが必ず落ちる。
+  it("窓を絞ると消えるカード価値を full-window が拾う (40 手目・先手番)", () => {
+    const board = emptyBoard();
+    const pieces: [number, number, Piece["type"], Player][] = [
+      [0, 4, "gold", "gote"], [0, 5, "gold", "gote"], [0, 7, "knight", "gote"],
+      [1, 0, "pawn", "sente"], [1, 1, "promoted_pawn", "sente"], [1, 3, "silver", "gote"],
+      [1, 4, "rook", "gote"], [1, 6, "king", "gote"], [1, 7, "bishop", "gote"], [1, 8, "lance", "gote"],
+      [2, 2, "pawn", "gote"], [2, 3, "pawn", "gote"], [2, 4, "pawn", "gote"], [2, 5, "pawn", "gote"],
+      [2, 6, "pawn", "gote"], [2, 7, "silver", "gote"], [2, 8, "pawn", "gote"],
+      [5, 1, "pawn", "sente"], [5, 7, "pawn", "gote"],
+      [6, 2, "pawn", "sente"], [6, 3, "pawn", "sente"], [6, 4, "pawn", "sente"], [6, 5, "pawn", "sente"],
+      [6, 8, "pawn", "sente"],
+      [7, 0, "lance", "sente"], [7, 1, "bishop", "sente"], [7, 3, "king", "sente"],
+      [7, 5, "silver", "sente"], [7, 6, "rook", "sente"],
+      [8, 1, "knight", "sente"], [8, 2, "silver", "sente"], [8, 3, "gold", "sente"],
+      [8, 4, "gold", "sente"], [8, 5, "pawn", "sente"], [8, 7, "knight", "sente"], [8, 8, "lance", "sente"],
+    ];
+    for (const [r, c, type, owner] of pieces) board[r][c] = pc(type, owner);
+    const state: GameState = {
+      board,
+      hand: { sente: { knight: 1, lance: 1, pawn: 2 }, gote: {} },
+      currentPlayer: "sente",
+      moveHistory: [],
+      positionHistory: [],
+      status: "active",
+      moveCount: 40,
+    };
+    const cs = cardState({
+      mana: { sente: 5, gote: 10 },
+      hand: {
+        sente: [
+          { instanceId: "sente-no_promote-8", defId: "no_promote" },
+          { instanceId: "sente-no_promote-6", defId: "no_promote" },
+        ],
+        gote: [
+          { instanceId: "gote-double_pawn-12", defId: "double_pawn" },
+          { instanceId: "gote-pawn_return-1", defId: "pawn_return" },
+        ],
+      },
+      trap: {
+        sente: null,
+        gote: { instanceId: "gote-no_promote-8", defId: "no_promote", owner: "gote" },
+      },
+      noPromoteMarks: { sente: [{ row: 1, col: 0 }], gote: [] },
+    });
+
+    const moveOnly = evaluatePositionWorldMoveOnly(state, cs, 4, CARD_SHOGI_VARIANT, fresh());
+    const withCards = evaluatePositionWorldWithCards(state, cs, 4, CARD_SHOGI_VARIANT, fresh());
+    expect(moveOnly).not.toBeNull();
+    expect(withCards).not.toBeNull();
+    // 先手番なので先手絶対視点で「上がる」。実測 +120.3cp。
+    expect((withCards as number)).toBeGreaterThan((moveOnly as number) + 100);
+    // 深さ4 の実局面 2 回で 10 秒前後かかる。
+  }, 60_000);
 });
 
 // Issue #245 Stage 2 P2-2a: engine (findBestMoveWithStats) の useLearnedEval 配線。

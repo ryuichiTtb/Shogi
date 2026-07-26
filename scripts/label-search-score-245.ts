@@ -25,6 +25,9 @@
 //   LABEL_DEPTH     探索深さ D (既定 4)。1 以上の整数のみ。★不正値は起動時に停止する
 //                   (NaN は JSON 往復で null に化けてレシピ識別が壊れ、0 は全局面が採点不能になるため)
 //   LABEL_TIME_MS   1 局面あたりの安全網時間上限 (既定 600000 = 探索が D で完了し切れる十分大)
+//   LABEL_EXPAND_CARDS  "1" (既定) = ラベル探索の root で playCard を展開する (教材多様化 段2 の本命)。
+//                   "0" = move-only の A/B 対照。それ以外の値は起動時に停止する。
+//                   ★draw は恒久的に展開しない (山札順への依存を断つ)
 //   LABEL_MAX_GAMES 処理する試合数の上限 (全入力横断・shard 適用前に先頭から切出。既定 = 全件)
 //   LABEL_SHARD_COUNT / LABEL_SHARD_INDEX  並列分散 (8 コア活用)。COUNT 分割の INDEX 番目の試合のみ
 //     処理する (試合 i を i%COUNT===INDEX のシャードが担当)。既定 1/0 = 分散なし。各シャードは別 OUT
@@ -76,7 +79,10 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { evaluatePositionWorldMoveOnly } from "@/lib/shogi/ai/search";
+import {
+  evaluatePositionWorldMoveOnly,
+  evaluatePositionWorldWithCards,
+} from "@/lib/shogi/ai/search";
 import { createSearchContext } from "@/lib/shogi/ai/search-context";
 import { deserializeGameState } from "@/lib/shogi/board";
 import { deserializeCardState } from "@/lib/shogi/cards/state";
@@ -108,6 +114,13 @@ if (!Number.isInteger(DEPTH) || DEPTH < 1) {
 if (!Number.isFinite(TIME_MS) || TIME_MS <= 0) {
   throw new Error(`LABEL_TIME_MS は正の数で指定してください (受け取った値: ${process.env.LABEL_TIME_MS})`);
 }
+// 教材多様化 段2: root で playCard を展開するか。既定 "1" (= 段2 の本命)。
+// "0" は move-only の A/B 対照。曖昧な値はレシピを取り違えたまま数時間走るので起動時に止める。
+const EXPAND_CARDS_RAW = process.env.LABEL_EXPAND_CARDS ?? "1";
+if (EXPAND_CARDS_RAW !== "0" && EXPAND_CARDS_RAW !== "1") {
+  throw new Error(`LABEL_EXPAND_CARDS は "0" か "1" で指定してください (受け取った値: ${EXPAND_CARDS_RAW})`);
+}
+const EXPAND_CARDS = EXPAND_CARDS_RAW === "1";
 const MAX_GAMES = Number(process.env.LABEL_MAX_GAMES ?? String(Number.MAX_SAFE_INTEGER));
 const SHARD_COUNT = Math.max(1, Number(process.env.LABEL_SHARD_COUNT ?? "1"));
 const SHARD_INDEX = Math.max(0, Number(process.env.LABEL_SHARD_INDEX ?? "0"));
@@ -121,8 +134,9 @@ const CLAIM_DIR = process.env.LABEL_CLAIM_DIR ?? "";
 const RECIPE: LabelMeta = {
   version: CURRENT_LABEL_RECIPE_VERSION,
   depth: DEPTH,
-  // 段2 で root カード展開を入れるまでは move-only 固定 (計画書 §4 段2)。
-  expandCards: false,
+  expandCards: EXPAND_CARDS,
+  // draw は恒久的に展開しない (deck 先頭を引くので、山札順 = encoder が符号化しない隠れ状態が
+  // ラベルへ漏れて純ノイズになる)。計画書 §2 B-2。
   expandDraw: false,
 };
 const RECIPE_KEY = recipeKey(RECIPE);
@@ -235,8 +249,10 @@ function main() {
   }
   if (Number.isFinite(MAX_GAMES)) allLines = allLines.slice(0, MAX_GAMES);
   const myLines = allLines.filter((_, i) => i % SHARD_COUNT === SHARD_INDEX);
+  // ★レシピは起動時に出す。完了時だけだと、取り違えたまま数時間走り切ってから気づくことになる。
   console.log(
-    `shard ${SHARD_INDEX}/${SHARD_COUNT}: 全 ${allLines.length} 試合中 ${myLines.length} 試合を担当`,
+    `shard ${SHARD_INDEX}/${SHARD_COUNT}: 全 ${allLines.length} 試合中 ${myLines.length} 試合を担当 ` +
+      `(recipe=${RECIPE_KEY} = 深さ${DEPTH}・カード展開${EXPAND_CARDS ? "あり" : "なし"})`,
   );
 
   let games = 0;
@@ -283,10 +299,12 @@ function main() {
       const state = reconstructState(sample.boardState);
       const cardState = deserializeCardState(sample.cardState);
       const ctx = createSearchContext({ timeLimitMs: TIME_MS, useLearnedEval: false });
-      // move-only backed-up 評価値 (先手絶対視点 cp)。終局/合法手なしでも negamaxWorld が確定値を
+      // backed-up 評価値 (先手絶対視点 cp)。終局/合法手なしでも negamaxWorld が確定値を
       // 返す (詰み ±MATE / ステールメイト 0) ため、時間切れ以外で null にはならない。
       const pStart = performance.now();
-      const score = evaluatePositionWorldMoveOnly(state, cardState, DEPTH, CARD_SHOGI_VARIANT, ctx);
+      const score = EXPAND_CARDS
+        ? evaluatePositionWorldWithCards(state, cardState, DEPTH, CARD_SHOGI_VARIANT, ctx)
+        : evaluatePositionWorldMoveOnly(state, cardState, DEPTH, CARD_SHOGI_VARIANT, ctx);
       // 時間上限に達すると反復深化が D 未満で打ち切られ、ラベルが静かに浅くなる。
       // 到達深さは ctx.depthCompleted で**実測**できるのでそれを主指標にし、
       // 経過時間の 90% 超過 (= 上限に迫った) は補助指標として残す (計測コストは 1 回の now())。

@@ -781,36 +781,45 @@ export function findBestMove(
 // S4b-2a の rootPlayer gate (相手ノードでカード展開される不整合) を expandCards へ是正。
 // double_move は S4c-1 では除外 (実行プラミング未配線 = S4c-1d。AI は候補化しない)。
 // 特性化テストから expandCards gate / double_move 除外を検証するため export。
+// Issue #245 教材多様化 段2: playCard と draw の展開を別フラグに分離した。ラベル生成は
+// 「カードは展開するが draw は展開しない」を必要とする (draw は deck 先頭を引くので、
+// 山札順 = encoder が符号化しない隠れ状態 がラベルへ漏れて純ノイズになる)。
+// expandDraw の既定は expandCards なので、既存の 3 引数呼び出しはすべて挙動不変。
 export function getWorldLegalActions(
   world: WorldState,
   variant: RuleVariant,
   expandCards: boolean,
+  expandDraw: boolean = expandCards,
 ): TurnAction[] {
   const player = world.gameState.currentPlayer;
   // 着手は cardState-aware (マーク駒の幻成りを生成しない、S4a)。
   const moves = getFullLegalMoves(world.gameState, player, variant, world.cardState);
   const actions: TurnAction[] = moves.map((move) => ({ kind: "move" as const, move }));
-  // card/draw は root の自分番ノードのみ (expandCards)。double_move 継続中 (doubleMove!==null)
+  // card/draw は root の自分番ノードのみ (expandCards/expandDraw)。double_move 継続中 (doubleMove!==null)
   // は move-only (S4c-1 では doubleMove は常に null だが、S4c-1d の中間ノード move-only を先取り防御)。
-  if (expandCards && variant.id === "card-shogi" && world.doubleMove === null) {
-    // 王手中は draw 禁止 (reducer.ts DRAW_CARD = 王手中ドロー不可 と整合。kernel の
-    // applyDrawAction は非王手を caller 保証の前提とするため、ここで弾かないと「王手放置パス」
-    // を探索木に注入し minimax を汚染する。M2 指摘)。card は getCardActions が王手中 use
-    // condition で自前に枝刈り済。
-    const playerInCheck = isInCheck(world.gameState, player, variant);
-    const aiState: AiTurnState = {
-      gameState: world.gameState,
-      cardState: world.cardState,
-      doubleMove: null,
-      isRoot: true,
-    };
-    if (!playerInCheck && canDraw(world.cardState, player)) {
-      actions.push({ kind: "draw" });
+  if ((expandCards || expandDraw) && variant.id === "card-shogi" && world.doubleMove === null) {
+    if (expandDraw) {
+      // 王手中は draw 禁止 (reducer.ts DRAW_CARD = 王手中ドロー不可 と整合。kernel の
+      // applyDrawAction は非王手を caller 保証の前提とするため、ここで弾かないと「王手放置パス」
+      // を探索木に注入し minimax を汚染する。M2 指摘)。card は getCardActions が王手中 use
+      // condition で自前に枝刈り済ゆえ、この判定は draw のためだけに要る。
+      const playerInCheck = isInCheck(world.gameState, player, variant);
+      if (!playerInCheck && canDraw(world.cardState, player)) {
+        actions.push({ kind: "draw" });
+      }
     }
-    for (const cardAction of getCardActions(aiState, player, variant)) {
-      // double_move は S4c-1 除外 (S4c-1d で統合)。
-      if (cardAction.kind === "playCard" && cardAction.defId === "double_move") continue;
-      actions.push(cardAction);
+    if (expandCards) {
+      const aiState: AiTurnState = {
+        gameState: world.gameState,
+        cardState: world.cardState,
+        doubleMove: null,
+        isRoot: true,
+      };
+      for (const cardAction of getCardActions(aiState, player, variant)) {
+        // double_move は S4c-1 除外 (S4c-1d で統合)。
+        if (cardAction.kind === "playCard" && cardAction.defId === "double_move") continue;
+        actions.push(cardAction);
+      }
     }
   }
   return actions;
@@ -1541,14 +1550,153 @@ export function findBestMoveWorld(
   return { move: bestMove, rootMoveScores, bestAction, rootActionScores, doubleMoveMoves };
 }
 
+// Issue #245 教材多様化 段2: ラベル用エントリの共通実装。
+//
+// 学習ラベル生成専用 (scripts/label-search-score-245.ts / scripts/diag-label-cards-245.ts)。
+// production 探索経路は本関数を呼ばない。findBestMoveWorld は流用しない (noise / nearEqual /
+// timeLimitMs*0.55 の打ち切り / blunder guard / double_move ヘルパ を抱えており、ラベルには
+// 不要かつ有害なため)。
+//
+// **move 部分**は既存 move-only と同じ `negamaxWorld` 1 呼び出し。**カード部分** (expandCards 時) は
+// root の追加枝として足す。カードを実際に使ってみた結果を探索に発見させることで、
+// ラベルが手札の中身を区別できるようになる (段2 の目的)。draw は展開しない = 山札順
+// (encoder が符号化しない隠れ状態) への依存を断つ。
+//
+// ★カード枝は **full-window (-∞, +∞) で読む**。窓を絞る最適化は 2 度試して 2 度とも
+//   「カードの価値が静かに消える」形で失敗したため、探索速度より**ラベルの正しさ**を取る。
+//
+//   試した窓と実測 (教材の実局面を試合横断で抽出、深さ 3/4):
+//     (a) null 窓 scout + 上振れ時のみ再探索 (PVS)
+//         → カードが 172.7cp 良いのに 1 件も採用されない局面が出た
+//     (b) (-∞, -iter) = alpha 側だけ開ける
+//         → 子ノード自身の fail-low は消えるが、**カードが効く局面の 4/7 しか拾えない**
+//           (full-window 7/22 に対し 4/22。取りこぼし幅 120.3cp)
+//     (c) full-window (採用) → 取りこぼしゼロ。コストは move-only 比 ×2.21 ((b) は ×1.27)
+//
+//   窓を絞ると壊れる理由: beta が有限になった瞬間、探索としては許容される非厳密な枝刈りが
+//   「カードを捨てる方向」にだけ効く —
+//     - quiescenceWorld が fail-hard (`return beta`) で窓端を返す
+//     - LMR の縮小 scout が fail-high しても再探索されずに採用される (これが (b) の主因。
+//       null-move を切っても消えなかったことを実測で確認済み)
+//     - 評価値が小数のため、幅 1cp の null 窓の内側に値が収まって TT に flag="exact" が付きうる
+//   full-window (beta=+Infinity) ならこれらは原理的に発火せず、null-move も
+//   Number.isFinite ガードで自動 skip される。
+//
+//   コストは ×2.21。深さ5 で全教材を採点しても 8 並列で 2 日弱に収まり、計画の予算内
+//   (計画書 §4 段2)。ラベルは 1 度作れば何度も学習に使う資産なので、ここは正しさを優先する。
+//
+// ★バイト等価の主張範囲: 「move 部分は既存と同じ 1 呼び出し」が成立するのは **1 反復の内部**まで。
+//   カード部分木は killer/history を更新するため、反復を跨ぐと move 側の LMR/futility の適用対象が
+//   変わりうる。**構造的にバイト等価なのはカードアクション 0 件の局面だけ** (expandCards=false でも同様に
+//   getWorldLegalActions を呼ばないので既存と完全に同じ呼び出し列になる)。
+
+// ラベル探索の root で展開するカードアクション。**終局局面では展開しない**: 本ゲームの終局判定は
+// 盤面のみ (getFullLegalMoves が空 → checkmate) でカードによる詰み解除を見ていないため、
+// ラベルだけがカードで詰みを回避すると実ゲームと食い違う。
+// 診断スクリプトが「この局面にカード枝があるか」を数えるのにも使う (母集団を本体と揃えるため export)。
+export function getLabelCardActions(world: WorldState, variant: RuleVariant): TurnAction[] {
+  if (world.gameState.status !== "active") return [];
+  const rootActions = getWorldLegalActions(world, variant, true, false);
+  if (!rootActions.some((a) => a.kind === "move")) return [];
+  return rootActions.filter((a) => a.kind !== "move");
+}
+
+function evaluatePositionWorldLabel(
+  state: GameState,
+  cardState: CardGameState,
+  depth: number,
+  variant: RuleVariant,
+  ctx: SearchContext,
+  expandCards: boolean,
+): number | null {
+  const world: WorldState = { gameState: state, cardState, doubleMove: null };
+  const digest =
+    ctx.cardDigest ??
+    (variant.id === "card-shogi" ? computeCardDigest(cardState) : undefined);
+  const boardHash = computeHash(state);
+  ctx.tt.newSearch();
+  // 到達深さは「この局面で何段まで読み切れたか」の実測値として呼び出し側が使う。ctx を局面間で
+  // 使い回された場合に前の局面の値が残らないよう、入口で 0 に戻す (newSearch と同じ意味合い)。
+  ctx.depthCompleted = 0;
+
+  // カード枝の子局面は反復深化の各反復で同じなので、ここで 1 度だけ作る
+  // (反復ごとに applyTurnAction + computeHash 全量 + updateCardDigest を回すのは純粋な無駄)。
+  // ★手番側から見て良さそうなカードを先に読む。窓は常に full-window なので**枝刈りは速くならない**が、
+  //   TT / killer / history が良い手から埋まるぶん後続のカード枝と次の反復が速くなる
+  //   (production の findBestMoveWorld も同じ発想で cardOrderKey を使う)。
+  //   順序キーは **カード適用後の digest** で評価する (親の digest だとマナ消費・手札減が反映されず、
+  //   盤面を変えないカード同士が全部同値になって並べ替え不能になる)。
+  //   evalLeafWorld は先手絶対視点なので手番側視点へ直してから降順に並べる。
+  const cardBranches = (expandCards ? getLabelCardActions(world, variant) : [])
+    .map((action) => applyTurnAction(world, action, { spectatorMode: true }))
+    // 手番が継続するアクション (double_move / kernel の no-op 経路) は符号反転が成立しないので
+    // 採らない。現行カード集合では到達不能だが、targeting:"none" かつ王手中使用可のカードが
+    // 1 枚増えると world-kernel.ts:401-405 の no-op へ落ち、符号反転した誤値が max に入る。
+    .filter((applied) => applied.turnEnded)
+    .map((applied) => {
+      const childDigest =
+        digest !== undefined
+          ? updateCardDigest(digest, cardState, applied.world.cardState)
+          : undefined;
+      const raw = evalLeafWorld(
+        applied.world.gameState, applied.world.cardState, variant, childDigest, ctx,
+      );
+      return {
+        world: applied.world,
+        digest: childDigest,
+        // カードは盤面を任意に書き換えうる (pawn_return 等) ので boardHash は常に全量再計算。
+        boardHash: computeHash(applied.world.gameState),
+        orderKey: state.currentPlayer === "sente" ? raw : -raw,
+      };
+    })
+    .sort((a, b) => b.orderKey - a.orderKey);
+
+  // 反復深化 (depth 1..depth)。浅い探索が TT / killer / history を埋めて深い探索の手順序を改善し
+  // αβ 枝刈りを効かせる (= 単発の深さ depth 探索より桁違いに速い、標準テク)。各反復は full-window
+  // (NEG_INF, POS_INF) の厳密 minimax 値で aspiration の取りこぼしが無い。root は beta=+Infinity ゆえ
+  // null-move は自動 skip (Number.isFinite ガード) ＝安全。negamaxWorld は手番相対値 (leaf の先手絶対
+  // cp を player 視点へ正規化済) を返す → 先手絶対視点へ戻す。
+  // 呼び出し側 (label 生成) は depth が確実に完了する十分大きい時間予算を渡す前提
+  // (label-search-score-245.ts は既定 600000ms)。
+  let rel: number | null = null;
+  for (let d = 1; d <= depth; d++) {
+    if (shouldStop(ctx)) break;
+    // ① move 部分 (move-only エントリとまったく同じ 1 呼び出し)。
+    let iter = negamaxWorld(world, d, NEG_INF, POS_INF, variant, digest, 0, true, ctx, boardHash);
+    // 停止が反復の途中で刺さった場合、negamaxWorld は打ち切りの 0 を返すため値は信頼できない
+    // → 採用しない (search.ts:1281 / 1300 と同じイディオム)。ctx.stopped は一度立つと下りない。
+    if (ctx.stopped) break;
+
+    // ② カード分岐を root の追加枝として足す。
+    // ※root が王手のときだけ move 側は negamaxWorld の check extension (search.ts:1078) で実質
+    //   1 段深く読まれ、カード枝は d-1 のまま = 1 段差が残る。実教材で該当は 0.06〜0.11%
+    //   (王手中に使えるのは double_pawn のみ。他は checkUsage:"forbidden"、double_move は探索から除外)。
+    //   深さを揃えるとカード枝が production の findBestMoveWorld より深くなる別の非対称を作るので
+    //   意図的に揃えていない (計画書 §4 段2)。checkUsage を緩めたカードを足すときは再検討すること。
+    for (const branch of cardBranches) {
+      // ★full-window。窓を絞るとカードの価値が静かに消える (上のコメントの実測を参照)。
+      //   isNullMoveAllowed=false は beta=+Infinity なら本来不要だが、将来窓を狭めたときの
+      //   防御として明示しておく。
+      const s = -negamaxWorld(
+        branch.world, d - 1, NEG_INF, POS_INF, variant, branch.digest, 1, false, ctx, branch.boardHash,
+      );
+      if (ctx.stopped) break;
+      if (s > iter) iter = s;
+    }
+    // カード掃引の途中で止まった反復は「一部のカードしか見ていない値」なので捨てる
+    // (move 部分と同じ「停止が刺さった反復は採用しない」規約)。
+    if (ctx.stopped) break;
+
+    rel = iter;
+    ctx.depthCompleted = d;
+  }
+  if (rel === null) return null;
+  return state.currentPlayer === "sente" ? rel : -rel;
+}
+
 // Issue #245 Stage 2 P2-0 (search-score bootstrapping): 局面の **move-only backed-up 評価値**を
-// 深さ depth で返す (先手絶対視点 cp)。学習ラベル生成専用のエントリ (scripts/label-search-score-245.ts)。
-// findBestMoveWorld は root でカードを全展開する (card×target 爆発) が、本 label は move-only の
-// backed-up 値 (= findBestMoveWorld の rootMoveScores の max と等価) しか使わないため、ここでは
-// move-only の negamaxWorld を 1 度だけ呼ぶ。カード手順の深読みを省くことで label 生成を大幅高速化し
-// (同値)、draw を探索しないことで山札順序 (encoder 非符号化の隠れ状態) への依存を断つ (M1 MAJOR)。
-// カード価値はリーフ評価 (cardDigest) と encoder 特徴で label に残る。useLearnedEval は ctx に従う
-// (iteration-0 は OFF = 人手 evaluate)。production 探索経路は本関数を呼ばない (新規 export = 無影響)。
+// 深さ depth で返す (先手絶対視点 cp)。段2 以降は A/B 対照 (LABEL_EXPAND_CARDS=0) として使う。
+// カード手順を読まないぶん高速だが、ラベルが手札の中身を区別できない (段2 の動機そのもの)。
 //
 // 戻り値は「深さ 1 すら完了しなかった」ときのみ null (教材多様化 段1)。以前はこの場合に初期値 0 を
 // 返していたが、それは「互角」という**嘘のラベル**を教材へ書き込むことになる (学習は 0 を正解として
@@ -1563,34 +1711,24 @@ export function evaluatePositionWorldMoveOnly(
   variant: RuleVariant,
   ctx: SearchContext,
 ): number | null {
-  const world: WorldState = { gameState: state, cardState, doubleMove: null };
-  const digest =
-    ctx.cardDigest ??
-    (variant.id === "card-shogi" ? computeCardDigest(cardState) : undefined);
-  const boardHash = computeHash(state);
-  ctx.tt.newSearch();
-  // 到達深さは「この局面で何段まで読み切れたか」の実測値として呼び出し側が使う。ctx を局面間で
-  // 使い回された場合に前の局面の値が残らないよう、入口で 0 に戻す (newSearch と同じ意味合い)。
-  ctx.depthCompleted = 0;
-  // 反復深化 (depth 1..depth)。浅い探索が TT / killer / history を埋めて深い探索の手順序を改善し
-  // αβ 枝刈りを効かせる (= 単発の深さ depth 探索より桁違いに速い、標準テク)。各反復は full-window
-  // (NEG_INF, POS_INF) の厳密 minimax 値で aspiration の取りこぼしが無い。root は beta=+Infinity ゆえ
-  // null-move は自動 skip (Number.isFinite ガード) ＝安全。negamaxWorld は手番相対値 (leaf の先手絶対
-  // cp を player 視点へ正規化済) を返す → 先手絶対視点へ戻す。
-  // 呼び出し側 (label 生成) は depth が確実に完了する十分大きい時間予算を渡す前提
-  // (label-search-score-245.ts は既定 600000ms)。
-  let rel: number | null = null;
-  for (let d = 1; d <= depth; d++) {
-    if (shouldStop(ctx)) break;
-    const score = negamaxWorld(world, d, NEG_INF, POS_INF, variant, digest, 0, true, ctx, boardHash);
-    // 停止が反復の途中で刺さった場合、negamaxWorld は打ち切りの 0 を返すため score は信頼できない
-    // → 採用しない (search.ts:1281 / 1300 と同じイディオム)。ctx.stopped は一度立つと下りない。
-    if (ctx.stopped) break;
-    rel = score;
-    ctx.depthCompleted = d;
-  }
-  if (rel === null) return null;
-  return state.currentPlayer === "sente" ? rel : -rel;
+  return evaluatePositionWorldLabel(state, cardState, depth, variant, ctx, false);
+}
+
+// Issue #245 教材多様化 段2 ★本丸: root で playCard を展開したラベル (先手絶対視点 cp)。
+//
+// なぜ要るか: 従来の move-only ラベルはカードを一度も使ってみないため、カードの価値が
+// リーフ評価の handValueDelta (= 手札の**枚数**しか見ない、cards/digest.ts) 経由でしか入らなかった。
+// 実測で「同一盤面・手札の中身が違う」グループの過半でラベルが完全一致し、一方 encoder は手札を
+// defId 別枚数で符号化している = **入力では区別するのに正解ラベルは区別しない**状態だった。
+// root でカードを実際に使ってみることで、その帰結を move と同じ深さで読み比べたラベルになる。
+export function evaluatePositionWorldWithCards(
+  state: GameState,
+  cardState: CardGameState,
+  depth: number,
+  variant: RuleVariant,
+  ctx: SearchContext,
+): number | null {
+  return evaluatePositionWorldLabel(state, cardState, depth, variant, ctx, true);
 }
 
 // Issue #193 / PR1d-2: TurnAction (move / draw / playCard) を player 視点のスカラー評価値に変換する純粋関数。
