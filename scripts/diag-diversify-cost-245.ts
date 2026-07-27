@@ -48,6 +48,8 @@ const SHARD = Math.max(0, Number(process.env.DIVCOST_SHARD ?? "0") || 0);
 // 固定深さ + 時間上限は十分大 (findBestMoveWorld の「予算の 55% で打ち切り」を避ける)。
 // addNoise / nearEqualThreshold を 0 にして、難易度由来の揺らぎを排除する。
 const OPTIONS = { maxDepth: DEPTH, timeLimitMs: 600_000, addNoise: 0, nearEqualThreshold: 0 };
+// この cp を超える損は中身を書き出す (測定の妥当性を人が確かめるため)。
+const WORST_CP = Math.max(0, Number(process.env.DIVCOST_WORST_CP ?? "100") || 100);
 
 function loadRecords(): TrainingGameRecord[] {
   const out: TrainingGameRecord[] = [];
@@ -98,6 +100,7 @@ function main() {
   );
 
   const costs: number[] = [];
+  const worst: { game: number; ply: number; kind: string; taken: number; best: number; cost: number; candidates: number }[] = [];
   const costsByKind: Record<string, number[]> = { move: [], playCard: [], draw: [] };
   let evaluated = 0;
   let skippedReplay = 0;
@@ -147,6 +150,13 @@ function main() {
             costs.push(cost);
             costsByKind[record.samples[ply].action.kind].push(cost);
             evaluated += 1;
+            // 大きく損した決定は中身を残す (測定自体が正しいかを人が確かめられるように)。
+            if (cost > WORST_CP) {
+              worst.push({
+                game: index, ply, kind: record.samples[ply].action.kind,
+                taken: taken.score, best, cost, candidates: scores.length,
+              });
+            }
           }
         }
       }
@@ -180,6 +190,15 @@ function main() {
       console.log(
         `    ${kind}: ${c.length} 件 / 中央値 ${quantile(c, 0.5).toFixed(1)}cp / ` +
           `平均 ${(c.reduce((a, b) => a + b, 0) / c.length).toFixed(1)}cp`,
+      );
+    }
+  }
+  if (worst.length > 0) {
+    console.log(`\n  --- ${WORST_CP}cp 超の損 (上位 10 件) ---`);
+    for (const w of worst.sort((a, b) => b.cost - a.cost).slice(0, 10)) {
+      console.log(
+        `    試合#${w.game} ply=${w.ply} ${w.kind}: 選んだ手 ${w.taken.toFixed(0)}cp / ` +
+          `最善 ${w.best.toFixed(0)}cp / 損 ${w.cost.toFixed(0)}cp (候補 ${w.candidates} 手)`,
       );
     }
   }
