@@ -121,9 +121,26 @@ if (EXPAND_CARDS_RAW !== "0" && EXPAND_CARDS_RAW !== "1") {
   throw new Error(`LABEL_EXPAND_CARDS は "0" か "1" で指定してください (受け取った値: ${EXPAND_CARDS_RAW})`);
 }
 const EXPAND_CARDS = EXPAND_CARDS_RAW === "1";
-const MAX_GAMES = Number(process.env.LABEL_MAX_GAMES ?? String(Number.MAX_SAFE_INTEGER));
-const SHARD_COUNT = Math.max(1, Number(process.env.LABEL_SHARD_COUNT ?? "1"));
-const SHARD_INDEX = Math.max(0, Number(process.env.LABEL_SHARD_INDEX ?? "0"));
+// ★これらも起動時に検証する。NaN のまま進むと「担当 0 試合」で**正常終了**してしまい、
+//   8 ワーカー全員が何もせず終わったのに成功に見える (丸一日の走行が空振りになる壊れ方)。
+function intEnv(name: string, fallback: number, min: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return fallback;
+  const v = Number(raw);
+  if (!Number.isInteger(v) || v < min) {
+    throw new Error(`${name} は ${min} 以上の整数で指定してください (受け取った値: ${raw})`);
+  }
+  return v;
+}
+const MAX_GAMES = intEnv("LABEL_MAX_GAMES", Number.MAX_SAFE_INTEGER, 1);
+const SHARD_COUNT = intEnv("LABEL_SHARD_COUNT", 1, 1);
+const SHARD_INDEX = intEnv("LABEL_SHARD_INDEX", 0, 0);
+if (SHARD_INDEX >= SHARD_COUNT) {
+  throw new Error(
+    `LABEL_SHARD_INDEX (${SHARD_INDEX}) は LABEL_SHARD_COUNT (${SHARD_COUNT}) 未満にしてください ` +
+      `(超えると担当 0 試合で何もせず正常終了します)`,
+  );
+}
 const RESUME = (process.env.LABEL_RESUME ?? "0") === "1";
 const DONE_KEYS_FILE = process.env.LABEL_DONE_KEYS ?? "";
 const CLAIM_DIR = process.env.LABEL_CLAIM_DIR ?? "";
@@ -224,8 +241,12 @@ function tryClaim(hash: string): boolean {
   try {
     closeSync(openSync(join(CLAIM_DIR, `${hash}.claim`), "wx"));
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    // ★「既に誰かが確保済み (EEXIST)」だけを譲る理由として扱う。ディスク満杯 (ENOSPC) や
+    //   権限 (EACCES) まで黙って譲ると、全ワーカーが全試合を譲り合って
+    //   「何も採点せず正常終了」になり、丸一日の走行が空振りする。
+    if ((err as NodeJS.ErrnoException)?.code === "EEXIST") return false;
+    throw err;
   }
 }
 
