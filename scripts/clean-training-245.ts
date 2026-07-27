@@ -24,6 +24,13 @@
 //   CLEAN_DEDUP_GAMES     "1" (既定) で全行動列が既出の試合を落とす
 //   CLEAN_DEDUP_POSITIONS "1" (既定) でエンコーダ入力が既出のサンプルを落とす
 //   CLEAN_ALLOW_MIXED_RECIPE "1" でラベル生成レシピの混在を許して続行する (既定 "0" = 停止)
+//   CLEAN_STRIDE     N で「各対局の N 局面に 1 つ」だけ残す (既定 1 = 全部残す)。
+//                    ラベル付け (深さ5) は 1 局面あたり数十秒かかるため、教材が数万局面になると
+//                    採点だけで数日を要する。隣り合う局面は 1 手違いでラベルもほぼ同じなので、
+//                    間引いても学べる内容はあまり減らない一方、費用は 1/N になる。
+//                    ★間引くのは**採点の前**でなければならない。採点後に間引くと、
+//                      捨てた局面の採点代を丸損する。また未採点のまま学習へ渡すと、
+//                      その局面だけ静かに「勝敗だけのラベル」に格下げされる。
 //   ★入力は読み取り専用。出力は必ず別ファイル (生成に丸一日かかった教材を壊さないため)。
 
 import { createHash } from "node:crypto";
@@ -51,6 +58,7 @@ const DROP_STATUS = new Set(
 const DEDUP_GAMES = (process.env.CLEAN_DEDUP_GAMES ?? "1") === "1";
 const DEDUP_POSITIONS = (process.env.CLEAN_DEDUP_POSITIONS ?? "1") === "1";
 const ALLOW_MIXED_RECIPE = (process.env.CLEAN_ALLOW_MIXED_RECIPE ?? "0") === "1";
+const STRIDE = Math.max(1, Math.floor(Number(process.env.CLEAN_STRIDE ?? "1")) || 1);
 
 function sha(s: string): string {
   return createHash("sha1").update(s).digest("hex").slice(0, 20);
@@ -85,6 +93,7 @@ function main() {
   let droppedDupGameSamples = 0;
   let droppedDupSamples = 0;
   let droppedEmptyGames = 0;
+  let droppedStrideSamples = 0;
   const statusBreakdown = new Map<string, number>();
 
   const seenGameHashes = new Set<string>();
@@ -140,6 +149,14 @@ function main() {
       record.samples = kept;
     }
 
+    // ④ 間引き (CLEAN_STRIDE)。★③ の後に行う。先に間引くと、残った局面が既出でも
+    //    それを知らずに残してしまい、重複除去の効きが落ちる。
+    if (STRIDE > 1) {
+      const before = record.samples.length;
+      record.samples = record.samples.filter((_, i) => i % STRIDE === 0);
+      droppedStrideSamples += before - record.samples.length;
+    }
+
     if (record.samples.length === 0) {
       droppedEmptyGames += 1;
       continue;
@@ -182,7 +199,12 @@ function main() {
   console.log(
     `  ③ 同一エンコーダ入力: -${droppedDupSamples} サンプル (${pct(droppedDupSamples, inSamples)}%)`,
   );
-  if (droppedEmptyGames > 0) console.log(`  ④ 残サンプル 0 になった試合: -${droppedEmptyGames} 試合`);
+  if (STRIDE > 1) {
+    console.log(
+      `  ④ 間引き (${STRIDE} 局面に 1 つ残す): -${droppedStrideSamples} サンプル (${pct(droppedStrideSamples, inSamples)}%)`,
+    );
+  }
+  if (droppedEmptyGames > 0) console.log(`  ⑤ 残サンプル 0 になった試合: -${droppedEmptyGames} 試合`);
   console.log("\n=== 出力 ===");
   console.log(`  ${out.length} 試合 / ${outSamples} サンプル -> ${OUT}`);
   console.log(
