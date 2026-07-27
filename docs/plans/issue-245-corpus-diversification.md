@@ -464,8 +464,53 @@ S4c-1 の方針で除外)。二手指しの局面自体は教材に入るが、�
 - 生成 (通常 + 分岐、ワーカー間で SeenIndex 共有)
 - **clean をラベルの前に**回す (3 フィルタとも searchScore 非依存 = 約 28% のラベル代を先に落とす)
 - 新レシピで一括ラベル (取り合い方式 + done-keys)。**旧 229 局も新レシピで付け直す** (ユーザー決定)
-- encode: familyId があれば同 family に同じ gameIndex を振り val リークを防ぐ
+- encode: 分岐は `sourceGameId` (`branch:<親ハッシュ>:<ply>`) で同じ親の枝を同一グループへ寄せ、
+  train/val 分割のリークを防ぐ
 - train → **勝率 (control 比) + カード行動診断 + 実機**で判定 (**val MSE では判断しない**)
+
+#### 段 7 の手順書 (実行順に。※印は数時間〜数日かかる)
+
+```bash
+# 0) 出現回数の索引を既存教材から 1 度だけ作る (数秒)
+SEEN_IN=local-data/training/snap-selfplay.jsonl \
+  SEEN_OUT=local-data/training/seen-index.txt npx tsx scripts/build-seen-index-245.ts
+
+# 1) ※本生成 (7 ワーカー × N 局)。ワーカーごとに別 seed、索引は共有
+bash local-data/run-generate-245.sh 50
+#    進捗: wc -l local-data/training/gen-245.part*.jsonl
+#    ログ: tail local-data/training/gen-245.part0.log
+
+# 2) ※分岐生成 (中終盤を厚く)。生成済み + 旧教材の両方を親にできる
+BRANCH_IN=local-data/training/snap-selfplay.jsonl,local-data/training/gen-245.part0.jsonl,... \
+  BRANCH_OUT=local-data/training/branch-245.jsonl BRANCH_COUNT=200 \
+  SELFPLAY_SEEN=local-data/training/seen-index.txt npx tsx scripts/branch-selfplay-245.ts
+#    ★分岐の出力を再び BRANCH_IN に入れることはできない (再生の突合が必ず外れる)
+
+# 3) clean を**ラベルの前に**回す (千日手除外 + 重複除去。ラベル代を約 28% 節約)
+CLEAN_IN=<生成物をカンマ区切りで列挙> CLEAN_OUT=local-data/training/corpus-clean.jsonl \
+  npx tsx scripts/clean-training-245.ts
+
+# 4) ※ラベル付け (深さ5・カード展開あり)。8 ワーカーの取り合い方式
+#    local-data/run-label-d5-claim.sh を LABEL_IN / OUT を新教材へ向けて流用する
+#    進捗: npm run label:progress  (LABEL_WATCH=60 でダッシュボード)
+
+# 5) ワーカー出力を結合 (重複排除・レシピ混在チェック)
+MERGE_IN=<part を列挙> MERGE_OUT=local-data/training/labeled-new.jsonl \
+  MERGE_EXPECT_IN=local-data/training/corpus-clean.jsonl npx tsx scripts/merge-labeled-245.ts
+
+# 6) 特徴へ変換 (レシピ一致を assert・採点率を .meta.json へ記録)
+ENCODE_IN=local-data/training/labeled-new.jsonl ENCODE_OUT=local-data/training/features-new.jsonl \
+  ENCODE_BOOTSTRAP=1 npx tsx scripts/encode-training-245.ts
+
+# 7) 学習 → 判定 (val MSE では判断しない)
+npx tsx scripts/train-245.ts
+npx tsx scripts/diag-cardgap-245.ts     # ①カード行動診断
+npx tsx scripts/bench-learned-245.ts    # ②速度
+#    ③実機 (Preview) → ④対戦勝率 scripts/winrate-245.ts の順で判定する
+```
+
+**多様性の達成指標** (生成物に対して測る): 初手の種類数 / 完全同一棋譜 0 件 /
+0-15 手帯の他局一致率 / posKey ユニーク率。段4 パイロットでは初手 2 → 7 通り、千日手 1 → 0 だった。
 
 ---
 
