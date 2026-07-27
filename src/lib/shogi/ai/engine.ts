@@ -184,6 +184,11 @@ export interface FindBestMoveOptions {
   // 未指定時 false (= bolt-on 経路 = flag OFF、S4d 削除まで rollback/test/bench 用に残置)。
   // route.ts が card-shogi で true を渡し、カードを move と同じ深さで読む production 経路にする。
   useTurnActionSearch?: boolean;
+  // Issue #245 教材多様化 段4: root の全アクションと深読みスコアを結果へ載せる (既定 false)。
+  // ★オプトインにするのは、route が engine の戻り値を `NextResponse.json(result)` で
+  //   そのまま返すため。既定で載せると Preview の API 応答に不要なデータが混ざる。
+  //   教材生成 (scripts/selfplay-245.ts / branch-selfplay-245.ts) だけが true を渡す。
+  collectRootActionScores?: boolean;
   // Issue #245 P2-2a: World 探索リーフ評価を学習 NN (evaluateLearned) へ切替えるフラグ。
   // 未指定時 false (= 人手 evaluate = production 完全不変)。useTurnActionSearch:true (world 経路) と
   // 併用したときのみ evalLeafWorld が NN 分岐する二重 flag (search-context.ts の useLearnedEval)。
@@ -204,6 +209,11 @@ export interface FindBestMoveResult {
   // Issue #245 S4c-1d: action が double_move のとき、実行用の 1手目/2手目 (1手目詰み時 move2=null)。
   // 1-response 方式で route→client bridge へ搬送し 4-dispatch 列で二手指しを実行する。他アクション時 undefined。
   doubleMove?: { move1: Move; move2: Move | null };
+  // Issue #245 教材多様化 段4: root の全アクションと深読みスコア (着手側視点)。
+  // 教材生成の多様化 (scripts/selfplay-245.ts) が「互角に近い候補」を知るために使う。
+  // **options.collectRootActionScores を明示した呼び出しにだけ**載る (既定 undefined)。
+  // route は渡さないので API 応答は 1 バイトも変わらない。
+  rootActionScores?: { action: TurnAction; score: number }[];
   stats: SearchStats;
 }
 
@@ -543,6 +553,9 @@ export function findBestMoveWithStats(
     move,
     action: selectedAction,
     doubleMove: doubleMoveMoves,
+    // 教材生成の多様化用に root スコアを素通しする (段4)。明示的に要求されたときだけ載せる
+    // (route は要求しないので API 応答は不変)。
+    rootActionScores: options.collectRootActionScores ? searchResult?.rootActionScores : undefined,
     stats: finalizeStats(ctx, { usedBook, usedFallback, usedCardAction: usingCardAction }),
   };
 }

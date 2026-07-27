@@ -75,7 +75,9 @@ export interface TrainingGameData {
   finalStatus: GameStatus;
   moveCount: number;
   engineVersion?: string | null; // データ来歴フィルタキー
-  sourceGameId?: string | null; // human 時、元 Game.id への参照 (任意)
+  // 由来の参照 (任意)。human 時は元 Game.id、分岐生成 (段5) では
+  // `branch:<親の内容ハッシュ>:<分岐 ply>` を入れて親をたどれるようにする。
+  sourceGameId?: string | null;
   // ラベル生成レシピの刻印 (教材多様化 段1)。ラベル付けバッチ (scripts/label-search-score-245.ts) が
   // 出力時に付ける。生データ・DB 由来のレコードには無い (undefined = "legacy" 扱い)。
   labelMeta?: LabelMeta | null;
