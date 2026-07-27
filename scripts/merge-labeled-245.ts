@@ -20,8 +20,8 @@
 //   MERGE_IN        結合元 JSONL (カンマ区切り)。1 つでも読めなければエラー終了する
 //                   (typo が「静かに一部欠落した結合結果」になるのを防ぐため)
 //   MERGE_OUT       出力 JSONL
-//   MERGE_EXPECT_IN 期待件数の照合元 (= ラベル付けの入力 JSONL)。指定時、採点対象 (winner≠null) の
-//                   試合数と結合結果を突き合わせ、食い違えば非ゼロ終了する
+//   MERGE_EXPECT_IN 照合元 (= ラベル付けの入力 JSONL)。指定時、採点対象 (winner≠null) の試合を
+//                   **1 対 1 で**突き合わせ (件数でなく識別子の集合)、欠け・余りがあれば非ゼロ終了する
 //
 // 終了コード: 0=正常 / 1=レシピ混在・入力不正・件数不一致 (いずれも成果物は使わないこと)
 // ★入力は読み取り専用。出力が入力と同じパスになる指定は拒否する。
@@ -31,6 +31,7 @@ import { dirname, resolve } from "node:path";
 
 import { parseTrainingRecordLine } from "@/lib/shogi/training/jsonl";
 
+import { labelIdentityKey } from "./utils/label-identity";
 import { mergeLabeledRecords } from "./utils/merge-labeled";
 
 const IN = (process.env.MERGE_IN ?? "")
@@ -45,24 +46,28 @@ function die(message: string): never {
   process.exit(1);
 }
 
-// 採点対象になる試合数 (winner=null の中断対局はラベル付けが除外するので期待値から外す)。
-function countScorableGames(file: string): number {
+// 採点対象になる試合の**識別子の集合** (winner=null の中断対局はラベル付けが除外するので外す)。
+//
+// ★件数ではなく集合で比べる。件数だけだと「A が欠けて B が二重に入った」が
+//   同数になって素通りし、欠けたまま学習まで進んでしまう。
+function scorableKeys(file: string): Set<string> {
   let raw: string;
   try {
     raw = readFileSync(file, "utf8");
   } catch {
     die(`MERGE_EXPECT_IN が読めません: ${file}`);
   }
-  let n = 0;
+  const keys = new Set<string>();
   for (const line of raw.split("\n")) {
     if (line.trim().length === 0) continue;
     try {
-      if (parseTrainingRecordLine(line).game.winner != null) n += 1;
+      const record = parseTrainingRecordLine(line);
+      if (record.game.winner != null) keys.add(labelIdentityKey(record));
     } catch {
       // 壊れた行は期待値に数えない
     }
   }
-  return n;
+  return keys;
 }
 
 function main() {
@@ -113,20 +118,35 @@ function main() {
   if (stats.broken > 0) console.warn(`  ⚠ JSON として読めない行: ${stats.broken}`);
 
   if (EXPECT_IN) {
-    const expected = countScorableGames(EXPECT_IN);
-    if (kept.length === expected) {
-      console.log(`  ✅ 全 ${expected} 試合そろいました`);
-    } else if (kept.length < expected) {
-      process.exitCode = 1;
-      console.warn(
-        `  ⚠ ${expected - kept.length} 試合ぶん不足しています (${kept.length} / ${expected})。ラベル付けをもう一度実行してください`,
-      );
+    const expected = scorableKeys(EXPECT_IN);
+    // 結合結果の側も同じ鍵で引く (labelIdentityKey は searchScore と labelMeta を除くので、
+    // 「採点前の入力行」と「採点後の出力行」が同じ鍵になる)。
+    const got = new Set<string>();
+    for (const line of kept) {
+      try {
+        got.add(labelIdentityKey(parseTrainingRecordLine(line)));
+      } catch {
+        // 壊れた行は既に stats.broken で報告済み
+      }
+    }
+    const missing = [...expected].filter((k) => !got.has(k));
+    const extra = [...got].filter((k) => !expected.has(k));
+    if (missing.length === 0 && extra.length === 0) {
+      console.log(`  ✅ 全 ${expected.size} 試合そろいました (入力と 1 対 1 で一致)`);
     } else {
       process.exitCode = 1;
-      console.warn(
-        `  ⚠ 期待より ${kept.length - expected} 試合多いです (${kept.length} / ${expected})。` +
-          `MERGE_IN に別の教材の成果が混ざっていないか確認してください`,
-      );
+      if (missing.length > 0) {
+        console.warn(
+          `  ⚠ ${missing.length} 試合が採点されていません (${got.size} / ${expected.size})。` +
+            `ラベル付けをもう一度実行してください (LABEL_RESUME=1 で未採点だけ拾えます)`,
+        );
+      }
+      if (extra.length > 0) {
+        console.warn(
+          `  ⚠ 入力に無い試合が ${extra.length} 件混ざっています。` +
+            `MERGE_IN に別の教材の成果 (別ラウンドの part 出力など) が入っていないか確認してください`,
+        );
+      }
     }
   }
 }
