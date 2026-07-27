@@ -10,6 +10,13 @@
 // ★過去の失敗: 「gap=0 だから棋力低下ゼロ」と浅い測定で判断し、実機で改悪が発覚した
 //   (計画書 §判定で気を付けること)。同じ轍を踏まないための測定。
 //
+// ★★測り方の注意 (ここを間違えると「損ゼロ」という嘘が出る):
+//   探索の root は 2 手目以降を**狭い窓**で読み、最善を超えなければ本気で読み直さない
+//   (search.ts の PVS)。そのため rootActionScores に載る「劣る手」のスコアは
+//   **真の値より良い側に丸められている**。これをそのまま引き算すると損が小さく出る。
+//   そこで「実際に選ばれた手」だけは、その手を指した後の局面を**別途フルの窓で読み直して**
+//   評価する。最善側 (= PV) のスコアは元から厳密なので、そのまま使ってよい。
+//
 // 使い方 (リポジトリルートで):
 //   DIVCOST_IN=local-data/training/gen-245.part0.jsonl DIVCOST_GAMES=10 \
 //     npx tsx scripts/diag-diversify-cost-245.ts
@@ -26,6 +33,7 @@
 import { readFileSync } from "node:fs";
 
 import { findBestMove } from "@/lib/shogi/ai/search";
+import { applyTurnAction as applyForProbe } from "@/lib/shogi/kernel/world-kernel";
 import { createSearchContext } from "@/lib/shogi/ai/search-context";
 import { actionKey } from "@/lib/shogi/training/diversify";
 import { parseTrainingRecordLine } from "@/lib/shogi/training/jsonl";
@@ -77,6 +85,38 @@ function quantile(sorted: number[], q: number): number {
   const hi = Math.ceil(pos);
   if (lo === hi) return sorted[lo];
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+}
+
+/**
+ * 「実際に選ばれた手」の厳密な評価値 (手番側視点)。
+ *
+ * 手を指した後の局面を**新しい探索**で読み直す。root の PV は厳密な値を返すので、
+ * 子局面の最善値を反転すれば、この手の真の値になる (窓の丸めが入らない)。
+ * 手番が続く手 (二手指しの 1 手目) は反転しない。
+ */
+function exactScoreOfTaken(world: WorldState, action: TrainingGameRecord["samples"][number]["action"]): number | null {
+  const applied = applyForProbe(world, action, { spectatorMode: true });
+  const child = applied.world;
+  const status = child.gameState.status;
+  if (status !== "active") {
+    // 指した瞬間に終局。詰ませたなら勝ち、それ以外 (千日手・持将棋等) は互角扱い。
+    return status === "checkmate" ? 89_998 : 0;
+  }
+  const ctx = createSearchContext({
+    timeLimitMs: OPTIONS.timeLimitMs,
+    useTurnActionSearch: true,
+    spectatorMode: true,
+    useLearnedEval: false,
+  });
+  const r = findBestMove(
+    child.gameState, child.gameState.currentPlayer, { ...OPTIONS, maxDepth: Math.max(1, DEPTH - 1) },
+    CARD_SHOGI_VARIANT, ctx, child.cardState, child.doubleMove,
+  );
+  const scores = r?.rootActionScores ?? [];
+  if (scores.length === 0) return null;
+  const bestChild = scores.reduce((m, s) => (s.score > m ? s.score : m), -Infinity);
+  // 手番が続く (二手指しの 1 手目) なら視点は同じ = 反転しない。
+  return applied.turnEnded ? -bestChild : bestChild;
 }
 
 function main() {
@@ -146,7 +186,13 @@ function main() {
             notFound += 1;
           } else {
             const best = scores.reduce((m, s) => (s.score > m ? s.score : m), -Infinity);
-            const cost = best - taken.score;
+            const takenScore = exactScoreOfTaken(world, record.samples[ply].action);
+            if (takenScore === null) {
+              skippedNoScores += 1;
+              world = applyTurnAction(world, record.samples[ply].action, { spectatorMode: true }).world;
+              continue;
+            }
+            const cost = best - takenScore;
             costs.push(cost);
             costsByKind[record.samples[ply].action.kind].push(cost);
             evaluated += 1;
@@ -154,7 +200,7 @@ function main() {
             if (cost > WORST_CP) {
               worst.push({
                 game: index, ply, kind: record.samples[ply].action.kind,
-                taken: taken.score, best, cost, candidates: scores.length,
+                taken: takenScore, best, cost, candidates: scores.length,
               });
             }
           }
