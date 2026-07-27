@@ -296,7 +296,7 @@ encoder には手番ビットと自他の手札 (defId 別枚数) が両方あ�
 - ★上表は「先頭 N 局面」で測っていた初期値 (×1.2〜1.45 / 更新幅 中央値 4.6cp) とは別物。
   先頭固定だと 1 試合の序盤しか見ておらず、**カードが効く中終盤を丸ごと外していた**。
 
-### 段 3: 多様化コア (純粋モジュール、1 日)
+### 段 3: 多様化コア (純粋モジュール、1 日) — 実装済み
 `src/lib/shogi/training/diversify.ts` を新設。
 
 - `actionKey(action)`: move=type/from/to/promote/dropPiece、playCard=defId+target (instanceId は除く)、draw='d'
@@ -307,6 +307,25 @@ encoder には手番ビットと自他の手札 (defId 別枚数) が両方あ�
 
 **検証**: 単体テストで「未出手があれば必ず未出が選ばれる / 全既出でも最小 count が選ばれる /
 同 seed で再現する / instanceId 違いが同一キー / 手札順違いが同一 posKey」を pin。
+
+#### 段 3 実装メモ (M2 反映後)
+
+- **ハッシュは node:crypto を使わず FNV-1a 32bit の 2 パス (前向き + 後ろ向き) を連結**して 64bit 相当にした。
+  `src/lib/shogi/training/` は client から import されるディレクトリなので Node 専用 API を避ける。
+  M2 が実測で検証: 200 万件で衝突 0、走査方向を変える工夫は同方向 2 パスより 3〜4 倍良く、
+  先頭差異・末尾差異のどちらでも崩れない (理想比 ~4.5 倍以内)。衝突しても
+  「別局面のカウントが混ざって多様化がわずかに偏る」だけで教材の正しさは壊れない。
+- `pickDiverseAction` は**記録しない純粋関数**。`recordSeen` は呼び出し側の責務。
+  `marginCp` / `topN` の NaN・負値は丸める (env 由来の異常値で長時間バッチを落とさない)。
+- `SeenIndex` の永続化は 2 形式: 追記用 `posKey actKey` (1 行 = 1 回、**並列 append 可**) と
+  圧縮用 `posKey actKey count`。パーサは両方受け、壊れた行は無視する。
+- `seenKeysFromSample(sample)` を用意した。「保存済みサンプル → キー」の変換は段4/段5/段7 で
+  何度も要るので 1 本化する (各所で `boardState as EncoderPosition` + `deserializeCardState` を
+  書き直すと定義がズレる)。
+- **★段6.5 への申し送り**: `playCard` の actKey は `defId + target` なので、target を持たない
+  `double_move` は**どの 2 手を指すかに関係なく 1 キーに潰れる**。段6.5 で double_move を教材へ
+  入れるなら「1 回使うとその局面では以後選ばれにくい」だけになり、多様な二手指しは生成されない。
+  必要なら actKey に move ペアを含める拡張が要る。
 
 ### 段 4: engine の候補スコア素通し + 自己対戦の多様化配線 + 10 局パイロット (2 日)
 - `FindBestMoveResult` に `rootActionScores?` を**加算のみ**で追加 (route の応答には載せない)
