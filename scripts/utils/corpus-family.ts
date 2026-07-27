@@ -9,6 +9,8 @@
 // ★鍵は**内容から導く** (TrainingGameData に ID が無いため)。入力ファイルの並び順や
 //   ファイル名に依存しないので、生成の順番が変わっても親子が結び付く。
 
+import { createHash } from "node:crypto";
+
 import type { TrainingGameRecord } from "@/lib/shogi/training/types";
 
 /** 分岐棋譜の sourceGameId 接頭辞 (`branch:<親の内容ハッシュ>:<分岐 ply>`)。 */
@@ -21,20 +23,18 @@ export const BRANCH_SOURCE_PREFIX = "branch:";
  *   変更する場合は分岐棋譜も作り直すこと。
  */
 export function contentFamilyKey(record: TrainingGameRecord): string {
+  // サンプルが空の棋譜は内容が無く互いに区別できない。全部同じ鍵になると
+  // 無関係な棋譜がひとつの family に集まるので、その旨が分かる鍵を返す
+  // (呼び出し側の clean / encode はいずれも空の棋譜を捨てるので実データには出ない)。
+  if (record.samples.length === 0) return "empty-record-0000";
   const seed = JSON.stringify([
-    record.samples[0]?.boardState,
-    record.samples[0]?.cardState,
+    record.samples[0].boardState,
+    record.samples[0].cardState,
     record.samples.map((s) => s.action),
   ]);
-  // 前向き + 後ろ向きの 2 本の FNV-1a を連結して 64bit 相当にする
-  // (32bit 1 本だと数万件規模で誕生日衝突が現実的に起きる)。
-  let h1 = 0x811c9dc5;
-  let h2 = 0x9e3779b9;
-  for (let i = 0; i < seed.length; i++) {
-    h1 = Math.imul(h1 ^ seed.charCodeAt(i), 0x01000193) >>> 0;
-    h2 = Math.imul(h2 ^ seed.charCodeAt(seed.length - 1 - i), 0x01000193) >>> 0;
-  }
-  return h1.toString(16).padStart(8, "0") + h2.toString(16).padStart(8, "0");
+  // 同じパイプラインの clean / label-identity と同じ sha1 に揃える (自前ハッシュを増やさない)。
+  // 先頭 16 桁 = 64bit。数万件規模でも衝突確率は無視できる。
+  return createHash("sha1").update(seed).digest("hex").slice(0, 16);
 }
 
 /**
@@ -44,7 +44,7 @@ export function contentFamilyKey(record: TrainingGameRecord): string {
  *
  * ★内容ハッシュは**行動列を全部**使うので、サンプルを間引いた後の棋譜から計算しても
  *   間引く前と同じ値にはならない。clean のように中身を削る工程は、削る**前**に
- *   `familyId` を刻んでから削ること (刻まれていればこの関数は呼ばれない)。
+ *   `familyId` を刻んでから削ること (刻印があれば再計算せずそれを返す)。
  */
 export function familyIdFor(record: TrainingGameRecord): string {
   const stamped = record.game.familyId;

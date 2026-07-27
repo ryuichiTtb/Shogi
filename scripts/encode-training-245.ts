@@ -61,7 +61,10 @@ function main() {
   // 分岐棋譜は親と分岐点まで同じ道を通るので、別々に採番すると片方が val に入り、
   // 「学習で見たのとほぼ同じ局面」で検証してしまう (val リーク)。
   const familyIndex = new Map<string, number>();
-  let branchRows = 0; // 分岐棋譜の行数 (family がどれだけ効いているかの目安)
+  const familyOrder: string[] = []; // 連番 → family 鍵 (診断が保留集合を鍵で復元できるようにする)
+  const rootedFamilies = new Set<string>(); // 分岐でない棋譜を含む family
+  const branchFamilies = new Set<string>(); // 分岐棋譜を含む family
+  let branchRows = 0; // 分岐棋譜の行数
   const labelCounts: Record<string, number> = { "1": 0, "0": 0, "-1": 0 }; // outcome 用
   // bootstrap (連続ラベル [-1,1]) 用の統計。labelCounts は bucket が無数になるため使わない。
   let labelSum = 0;
@@ -98,21 +101,28 @@ function main() {
         }
       }
       // family 鍵 (clean が刻んだもの。無ければ内容から導く) ごとに連番を振る。
+      // ★採番は「行を出した試合」だけに与える。中断などで 0 行の試合に番号を配ると
+      //   番号に穴が開き、この番号で保留集合を復元する診断がずれる。
       const family = familyIdFor(record);
-      let groupIndex = familyIndex.get(family);
-      if (groupIndex === undefined) {
-        groupIndex = familyIndex.size;
-        familyIndex.set(family, groupIndex);
-      }
+      const isBranch = record.game.sourceGameId?.startsWith(BRANCH_SOURCE_PREFIX) === true;
       const rows = BOOTSTRAP
-        ? gameToBootstrapRows(record, BOOTSTRAP_PARAMS, groupIndex)
-        : gameToSparseRows(record, groupIndex);
+        ? gameToBootstrapRows(record, BOOTSTRAP_PARAMS, familyIndex.get(family) ?? familyIndex.size)
+        : gameToSparseRows(record, familyIndex.get(family) ?? familyIndex.size);
       games += 1;
       if (rows.length === 0) {
         skippedGames += 1;
         continue;
       }
-      if (record.game.sourceGameId?.startsWith(BRANCH_SOURCE_PREFIX)) branchRows += rows.length;
+      if (!familyIndex.has(family)) {
+        familyIndex.set(family, familyIndex.size);
+        familyOrder.push(family);
+      }
+      if (isBranch) {
+        branchRows += rows.length;
+        branchFamilies.add(family);
+      } else {
+        rootedFamilies.add(family);
+      }
       if (BOOTSTRAP) {
         // 採点率は「実際に学習へ渡る行」だけで数える (除外された試合を混ぜると率が意味を失う)。
         // searchScore が無い/null のサンプルは outcome のみのラベルへ静かに降格するため、
@@ -137,6 +147,13 @@ function main() {
     }
     if (chunk) appendFileSync(TMP, chunk);
     console.log(`  読込: ${file}`);
+  }
+
+  // 分岐棋譜を含む family のうち、親 (分岐でない棋譜) も同じ組に居るものを数える。
+  const orphanBranchFamilies = { merged: 0, orphan: 0 };
+  for (const f of branchFamilies) {
+    if (rootedFamilies.has(f)) orphanBranchFamilies.merged += 1;
+    else orphanBranchFamilies.orphan += 1;
   }
 
   const totalScored = scored + unscored;
@@ -171,9 +188,16 @@ function main() {
     sampleCount: samples,
     games,
     skippedGames,
-    // train/val はこの単位で分ける。games より小さければ分岐棋譜が親とまとまっている。
+    // train/val はこの単位で分ける。
     families: familyIndex.size,
+    // 連番 → family 鍵。診断 (diag-learned-245.ts) が「どの棋譜が保留だったか」を
+    // 位置合わせでなく鍵で復元するために要る。
+    familyIds: familyOrder,
     branchRows,
+    // 分岐棋譜が**親と同じ組に入れたか**。親が入力に居なければ枝は単独 family になり、
+    // リーク対策が空振りする (それでも families / branchRows は正常値に見えてしまう)。
+    mergedFamilies: orphanBranchFamilies.merged,
+    orphanBranchFamilies: orphanBranchFamilies.orphan,
     sources,
     ...labelStats,
   };
@@ -183,10 +207,20 @@ function main() {
   writeFileSync(`${OUT}.meta.json`, JSON.stringify(meta, null, 2));
 
   console.log(`\nDone. ${games} 試合 (除外 ${skippedGames}) / ${samples} サンプル -> ${OUT}`);
-  console.log(
-    `  train/val の分割単位: ${familyIndex.size} family` +
-      (branchRows > 0 ? ` (うち分岐棋譜由来 ${branchRows} 行は親と同じ組に入る)` : ""),
-  );
+  console.log(`  train/val の分割単位: ${familyIndex.size} family`);
+  if (branchFamilies.size > 0) {
+    console.log(
+      `  分岐棋譜: ${branchRows} 行 / ${branchFamilies.size} family ` +
+        `(親と同じ組 ${orphanBranchFamilies.merged} / 親が入力に居ない ${orphanBranchFamilies.orphan})`,
+    );
+    if (orphanBranchFamilies.orphan > 0) {
+      console.warn(
+        `  ⚠ ${orphanBranchFamilies.orphan} family は分岐棋譜だけで親が居ません。` +
+          `親の棋譜を ENCODE_IN に含めないと、親が学習・枝が検証に散って検証が甘くなります` +
+          `(clean を通した棋譜を使う場合は、clean が familyId を刻んだ後のものであること)。`,
+      );
+    }
+  }
   console.log(`  featureDim: ${FEATURE_DIM}`);
   if (BOOTSTRAP) {
     console.log(`  bootstrap ラベル (α=${BOOTSTRAP_PARAMS.alpha}): min=${labelMin.toFixed(3)} max=${labelMax.toFixed(3)} mean=${(samples ? labelSum / samples : 0).toFixed(3)}`);

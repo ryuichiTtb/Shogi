@@ -39,6 +39,16 @@ function mse(rows: SparseFeatureRow[], model: ReturnType<typeof createModel>): n
   return s / rows.length;
 }
 
+/** encode が特徴と一緒に書く `${IN}.meta.json` から「連番 → family 鍵」を読む (無ければ空)。 */
+function readFamilyIds(): string[] {
+  try {
+    const meta = JSON.parse(readFileSync(`${IN}.meta.json`, "utf8")) as { familyIds?: unknown };
+    return Array.isArray(meta.familyIds) ? (meta.familyIds as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 function main() {
   const content = readFileSync(IN, "utf8");
   const rows: SparseFeatureRow[] = content
@@ -51,9 +61,10 @@ function main() {
     process.exit(1);
   }
 
-  // ★試合単位の train/val 分割 (データリーク防止)。1 試合の全サンプルは同一ラベルを共有するため、
+  // ★family 単位の train/val 分割 (データリーク防止)。1 試合の全サンプルは同一ラベルを共有するため、
   // サンプル単位で分けると「どの試合か」を覚えるだけで val を当てられ、val 損失が楽観的に過小評価
   // される。試合 (row.game) ごと丸ごと train か val に振り分け、未知の試合への汎化を正しく測る。
+  // row.game は encode が family (= 同じ出どころのまとまり。分岐棋譜は親と同じ番号) へ振った連番。
   const rng = mulberry32(SEED);
   const gameIds = Array.from(new Set(rows.map((r) => r.game)));
   for (let i = gameIds.length - 1; i > 0; i--) {
@@ -61,13 +72,16 @@ function main() {
     [gameIds[i], gameIds[j]] = [gameIds[j], gameIds[i]];
   }
   // 検証用の試合数 (最低 1、ただし全試合を val にしない)。
-  const nValGames = Math.min(
+  const nValFamilies = Math.min(
     Math.max(gameIds.length > 1 ? 1 : 0, Math.floor(gameIds.length * VAL_FRAC)),
     Math.max(0, gameIds.length - 1),
   );
-  const valGameSet = new Set(gameIds.slice(0, nValGames));
-  const valRows = rows.filter((r) => valGameSet.has(r.game));
-  const trainRows = rows.filter((r) => !valGameSet.has(r.game));
+  const valFamilySet = new Set(gameIds.slice(0, nValFamilies));
+  // encode が書いた「連番 → family 鍵」。あれば val の鍵を model へ帯同する。
+  // 無い場合 (古い特徴ファイル) は空配列 = diag は従来どおり index で復元する。
+  const valFamilyKeys = readFamilyIds().filter((_, i) => valFamilySet.has(i));
+  const valRows = rows.filter((r) => valFamilySet.has(r.game));
+  const trainRows = rows.filter((r) => !valFamilySet.has(r.game));
 
   const labelDist = rows.reduce<Record<string, number>>((a, r) => {
     a[String(r.label)] = (a[String(r.label)] ?? 0) + 1;
@@ -76,7 +90,7 @@ function main() {
 
   console.log(`=== 学習 (P1-2) ===`);
   console.log(
-    `入力: ${IN} | 試合 ${gameIds.length} (val ${nValGames}) | サンプル ${rows.length} (train ${trainRows.length} / val ${valRows.length})`,
+    `入力: ${IN} | family ${gameIds.length} (val ${nValFamilies}) | サンプル ${rows.length} (train ${trainRows.length} / val ${valRows.length})`,
   );
   console.log(`featureDim=${FEATURE_DIM} hidden=${HIDDEN} epochs=${EPOCHS} lr=${LR} batch=${BATCH} wd=${WD}`);
   console.log(`label 分布 (先手+1/引分0/後手-1): ${JSON.stringify(labelDist)}`);
@@ -115,11 +129,15 @@ function main() {
       weightDecay: WD,
       seed: SEED,
       samples: rows.length,
-      games: gameIds.length,
-      valGames: nValGames,
-      // ★M2 MINOR-1: 保留 (val) 試合 index を書き出し、diag が同一集合を読めるようにする
-      // (分割再現を「入力順序の暗黙一致」に頼らず train を単一情報源にする)。
-      valGameIds: [...valGameSet].sort((a, b) => a - b),
+      // ★分割単位は試合ではなく family (分岐棋譜は親と同じ組)。名前を games のままにすると
+      //   特徴側の meta.games (= 試合数) と同名別義になり、突合が静かに壊れる。
+      families: gameIds.length,
+      valFamilies: nValFamilies,
+      // 保留 (val) 集合を diag が読めるようにする。
+      // ★index だけでなく**鍵**も書く。index は encode の採番順に依存するので、入力の並びが
+      //   1 つ変わるだけで別の棋譜を指す。鍵なら棋譜そのものから引き直せる。
+      valFamilyIds: [...valFamilySet].sort((a, b) => a - b),
+      valFamilyKeys,
       trainSamples: trainRows.length,
       valSamples: valRows.length,
       finalTrainMse: finalTrain,

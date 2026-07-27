@@ -495,7 +495,13 @@ BRANCH_IN=local-data/training/snap-selfplay.jsonl,local-data/training/gen-245.pa
 #      間引かれた棋譜では ply0 からの再生が成立しない)
 
 # 3) clean を**ラベルの前に**回す (千日手除外 + 重複除去。ラベル代を約 28% 節約)
-CLEAN_IN=<生成物をカンマ区切りで列挙> CLEAN_OUT=local-data/training/corpus-clean.jsonl \
+#    ★CLEAN_IN には「新規生成 + 分岐 + 旧教材の**生ファイル**」を全部並べる。
+#      - 分岐の親が入っていないと、親が学習・枝が検証に散って検証が甘くなる
+#        (encode が `⚠ N family は分岐棋譜だけで親が居ません` と警告する)
+#      - **過去に clean 済みの出力 (labeled-clean-D5.jsonl 等) は再利用しない**。
+#        familyId を刻む前に間引かれているので、枝が持つ親の鍵と一致しない
+CLEAN_IN=local-data/training/snap-selfplay.jsonl,local-data/training/gen-245.part0.jsonl,...,local-data/training/branch-245.jsonl \
+  CLEAN_OUT=local-data/training/corpus-clean.jsonl \
   npx tsx scripts/clean-training-245.ts
 
 # 4) ※ラベル付け (深さ5・カード展開あり)。8 ワーカーの取り合い方式

@@ -84,6 +84,12 @@ describe("corpus-family", () => {
     expect(familyIdFor(thinned)).toBe(stamped);
   });
 
+  it("familyId が null でも内容ハッシュへ落ちる (通常の自己対戦はこの経路)", () => {
+    // playOneGame は分岐でない対局にも familyId: null を書き込む。
+    const plain = record([sample(7, 0)], { familyId: null, sourceGameId: null });
+    expect(familyIdFor(plain)).toBe(contentFamilyKey(plain));
+  });
+
   it("分岐ではない対局は自分の内容ハッシュを返す", () => {
     const plain = record([sample(7, 0)], { sourceGameId: "human-game-42" });
     expect(familyIdFor(plain)).toBe(contentFamilyKey(plain));

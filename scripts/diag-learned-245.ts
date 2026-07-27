@@ -25,6 +25,7 @@ import { winnerToLabel } from "@/lib/shogi/ai/learned/feature-export";
 import { evaluateLearned, loadLearnedModel } from "@/lib/shogi/ai/learned/infer";
 import { mulberry32 } from "@/lib/shogi/ai/learned/mlp";
 import { parseTrainingRecordLine } from "@/lib/shogi/training/jsonl";
+import { familyIdFor } from "./utils/corpus-family";
 import type { GameState } from "@/lib/shogi/types";
 import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
 
@@ -69,15 +70,40 @@ function main() {
     }
   }
 
-  // ★保留 (val) 集合の決定 (M2 MINOR-1): train が model.meta.valGameIds を書いていればそれを
-  // 単一情報源として使い、emit 順 index の一致は試合数で検証する (DIAG_IN が学習時と食い違えば警告)。
-  // 無い場合 (旧モデル) は train と同 seed/val_frac で分割を再現するフォールバック。
+  // ★保留 (val) 集合の決定。優先順位は 3 段:
+  //   ① model.meta.valFamilyKeys (family 鍵) = 棋譜そのものから引き直せるので入力の並びに依存しない。
+  //   ② model.meta.valGameIds (連番) = 旧モデル向け。encode の採番順と一致している前提。
+  //   ③ 同 seed / val_frac で分割を再現するフォールバック (どちらも無い最古のモデル)。
+  // ★①以外は「学習に使った試合を保留として測る」形で静かに間違いうるので、その旨を警告する。
+  const valKeys: string[] = Array.isArray(meta.valFamilyKeys) ? (meta.valFamilyKeys as string[]) : [];
   let valSet: Set<number>;
-  if (Array.isArray(meta.valGameIds)) {
-    if (typeof meta.games === "number" && meta.games !== games.length) {
+  if (valKeys.length > 0) {
+    const keySet = new Set(valKeys);
+    // ★1 つの family に複数の棋譜 (親 + 枝) が属しうるので、突合の検算は「見つかった鍵の種類数」で行う。
+    //   対局数で比べると、枝がある分だけ多くなって毎回警告が出てしまう。
+    const matchedKeys = new Set<string>();
+    valSet = new Set<number>();
+    games.forEach((rec, i) => {
+      const key = familyIdFor(rec);
+      if (!keySet.has(key)) return;
+      matchedKeys.add(key);
+      valSet.add(i);
+    });
+    if (matchedKeys.size !== keySet.size) {
       console.warn(
-        `⚠️ 試合数不一致 (model.meta.games=${meta.games} ≠ diag 読込=${games.length}): ` +
-          `DIAG_IN が学習時の入力 (ファイル・順序) と異なる可能性。保留集合がズレ結果は無効になりうる。`,
+        `⚠️ 保留 family の突合が不完全 (model=${keySet.size} 鍵 → 読込で見つかった ${matchedKeys.size} 鍵): ` +
+          `DIAG_IN が学習時の入力と違う可能性があります。`,
+      );
+    }
+  } else if (Array.isArray(meta.valGameIds)) {
+    console.warn(
+      `⚠️ このモデルは family 鍵を持たない旧形式です。連番での復元は encode の採番順に依存し、` +
+        `入力が 1 件違うだけで別の棋譜を保留として測ります (結果は参考値)。`,
+    );
+    const declared = typeof meta.families === "number" ? meta.families : meta.games;
+    if (typeof declared === "number" && declared !== games.length) {
+      console.warn(
+        `⚠️ 件数不一致 (model=${declared} ≠ diag 読込=${games.length}): 保留集合がズレ結果は無効になりうる。`,
       );
     }
     valSet = new Set(meta.valGameIds as number[]);

@@ -37,7 +37,10 @@ export interface SparseFeatureRow {
   // 共通)、bootstrap 経路 (gameToBootstrapRows) では §3.4 で squash した連続値 ∈ [-1,1] (サンプル個別)。
   label: number;
   sideToMove: Player; // 補助情報 (将来の手番視点正規化・分析用)
-  game: number; // 試合インデックス。★試合単位の train/val 分割でデータリークを防ぐためのキー。
+  // 分割グループの番号。★この単位で train/val を分けてデータリークを防ぐ。
+  // 既定は 1 試合 = 1 グループだが、encode は「同じ出どころのまとまり (family)」へ番号を振る
+  // (分岐生成した棋譜は親と分岐点まで同じ道を通るため、親と同じ番号にして一緒に振り分ける)。
+  game: number;
   idx: number[]; // 非ゼロ特徴の索引 (昇順)
   val: number[]; // idx に対応する値
 }

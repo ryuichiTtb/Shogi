@@ -51,7 +51,10 @@ export function recipeKey(meta: LabelMeta | null | undefined): string {
  *   game のキー順は入力行と一致し、JSON.stringify の結果も一致する。
  */
 export function labelIdentityKey(record: TrainingGameRecord): string {
-  const { labelMeta: _meta, ...game } = record.game;
+  // familyId も除く: これは train/val をまとめるための派生メタで、ラベルの中身に影響しない。
+  // 鍵に含めると、family の作り方を変えた瞬間に既済判定が全滅し、20 時間級のラベル付けが
+  // まるごと再実行になる。
+  const { labelMeta: _meta, familyId: _family, ...game } = record.game;
   return JSON.stringify({
     game,
     samples: record.samples.map(({ searchScore: _score, ...rest }) => rest),
