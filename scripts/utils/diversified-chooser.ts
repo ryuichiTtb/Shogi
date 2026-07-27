@@ -69,6 +69,9 @@ export function createDiversifiedChooser(
       world.gameState, player, opts.difficultyFor(player), CARD_SHOGI_VARIANT,
       {
         cardState: world.cardState,
+        // ★二手指し継続中はその状態も渡す。渡さないと engine が通常ターンと誤認して
+        //   playCard / draw を返し、適用時に二手指し状態が黙って消える (棋譜が壊れる)。
+        doubleMove: world.doubleMove,
         useKernelSearch: true,
         useTurnActionSearch: true,
         // 多様化の判断材料 (root の全候補スコア)。オプトインなので API 応答には影響しない。
@@ -95,11 +98,10 @@ export function createDiversifiedChooser(
     }
 
     const posKey = positionKey(world.gameState, world.cardState);
-    // double_move は engine が別途 move ペアを搬送する前提のアクションで、ここで直接指すと
-    // 二手指し状態が壊れる (段6.5 で対応するまで教材デッキにも入れない)。保険として除く。
-    const candidates = r.rootActionScores.filter(
-      (a) => !(a.action.kind === "playCard" && a.action.defId === "double_move"),
-    );
+    // ★double_move もそのまま指してよい (段6.5)。kernel が doubleMove フラグを立てて
+    //   turnEnded=false を返し、続く 2 回の決定でこの chooser が着手を選ぶ。
+    //   production の 1-response 方式 (engine が 2 手をまとめて返す) はヘッドレスでは不要。
+    const candidates = r.rootActionScores;
     const picked = pickDiverseAction(
       candidates, posKey, opts.seen, { marginCp: opts.marginCp, topN: opts.topN }, opts.rng,
     );

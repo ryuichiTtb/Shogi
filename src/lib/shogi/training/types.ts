@@ -31,6 +31,10 @@ export interface TrainingSampleData {
   cardState: unknown; // serializeCardState(行動前) の結果 (JSON)
   action: TurnAction; // 採用した行動
   events: TrainingEvent[]; // 適用で生じたイベント (at 剥がし)
+  // Issue #245 教材多様化 段6.5: 二手指し継続中なら「あと何手指せるか」。
+  // 通常のターンでは undefined。これが無いと「二手指しの 1 手目」が通常局面と区別できず、
+  // 学習も分岐生成も別物として扱えない (盤面だけ見ても継続中かは分からない)。
+  doubleMoveMovesLeft?: number;
   // Issue #245 Stage 2 P2-0: search-score ラベル生成 (Pass 1) が付与する「この局面を World 探索で
   // 深さ D まで読んだ move-only backed-up 値 (先手絶対視点 cp)」。DB スキーマには持たない (JSONL のみ)。
   // 3 状態を区別する (教材多様化 段1):

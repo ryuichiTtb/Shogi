@@ -28,7 +28,7 @@ import type { AiTurnState, TurnAction } from "./turn/types";
 import type { CardGameState } from "../cards/types";
 import { CARD_DEFS, DRAW_COST } from "../cards/definitions";
 // Issue #235 S1b: AI root カード/ドロー評価を useKernelSearch フラグ裏で L0 カーネル経由に切替える。
-import { applyTurnAction, type WorldState } from "../kernel/world-kernel";
+import { applyTurnAction, type KernelDoubleMove, type WorldState } from "../kernel/world-kernel";
 import {
   type CardDigest,
   computeCardDigest,
@@ -572,11 +572,14 @@ export function findBestMove(
   // Issue #235 S4b-2a: WorldState 探索 (useTurnActionSearch ON) 用の root cardState。
   // flag OFF / standard / 未供給では以降の move-only 探索をそのまま実行 (production 完全不変)。
   cardState?: CardGameState,
+  // Issue #245 教材多様化 段6.5: 二手指し継続中の状態。指定時は root world がそれを持つので
+  // 「あと何手指せるか」を踏まえた探索になる。未指定 (production) は従来どおり null。
+  doubleMove?: KernelDoubleMove | null,
 ): RootSearchResult | null {
   // Issue #235 S4b-2a: useTurnActionSearch ON かつ card-shogi かつ cardState 供給時は
   // WorldState (TurnAction) 探索へ分岐 (カードを木に入れる新 card-aware 探索)。
   if (ctx?.useTurnActionSearch && variant.id === "card-shogi" && cardState !== undefined) {
-    return findBestMoveWorld(state, cardState, player, options, variant, ctx);
+    return findBestMoveWorld(state, cardState, player, options, variant, ctx, doubleMove ?? null);
   }
   const moves = getSearchLegalMoves(state, player, variant);
   if (moves.length === 0) return null;
@@ -796,7 +799,7 @@ export function getWorldLegalActions(
   const moves = getFullLegalMoves(world.gameState, player, variant, world.cardState);
   const actions: TurnAction[] = moves.map((move) => ({ kind: "move" as const, move }));
   // card/draw は root の自分番ノードのみ (expandCards/expandDraw)。double_move 継続中 (doubleMove!==null)
-  // は move-only (S4c-1 では doubleMove は常に null だが、S4c-1d の中間ノード move-only を先取り防御)。
+  // は move-only (段6.5 で教材生成が root に doubleMove を渡すようになり、実際に到達する)。
   if ((expandCards || expandDraw) && variant.id === "card-shogi" && world.doubleMove === null) {
     if (expandDraw) {
       // 王手中は draw 禁止 (reducer.ts DRAW_CARD = 王手中ドロー不可 と整合。kernel の
@@ -1058,8 +1061,8 @@ function negamaxWorld(
   };
   let ttMove: Move | null = null;
   // Issue #245 S4c-1d (論点4 防御): double_move 継続中は TT skip。W1 (playCard 直後) は遅延消費ゆえ board も
-  // cardFold も root と完全同一 → 同 key で「あと N 手指せる局面」と通常局面が誤 hit する。ヘルパ方式では
-  // 本 negamaxWorld に doubleMove!==null は到達しないため通常不発だが、将来の deep card 展開への防御。
+  // cardFold も root と完全同一 → 同 key で「あと N 手指せる局面」と通常局面が誤 hit する。
+  // 段6.5 で教材生成が root に doubleMove を渡すようになり、この経路は**実際に到達する**。
   const useTt = world.doubleMove === null;
   ctx.ttProbes++;
   const ttEntry = useTt ? ctx.tt.probe(ttKey.lo, ttKey.hi) : null;
@@ -1103,8 +1106,8 @@ function negamaxWorld(
   // `nullScore >= beta` は原理的に成立し得ず null-move 自体が無意味ゆえ、skip が正しい
   // (既存 negamax は aspiration で beta 有限のため本問題は起きない。S4e で aspiration 導入時に再検討)。
   // Issue #245 S4c-1d (B-2 防御): double_move 継続中 (doubleMove!==null) は null-move 禁止。手番だけ flip した
-  // nullWorld が doubleMove を保持したまま子で相手 move を「1手目」として適用し状態破壊するため。ヘルパ方式では
-  // 本 negamaxWorld に doubleMove!==null は到達しないが、将来の deep card 展開に対する防御ガード。
+  // nullWorld が doubleMove を保持したまま子で相手 move を「1手目」として適用し状態破壊するため。
+  // 段6.5 で教材生成が root に doubleMove を渡すようになり、この経路は**実際に到達する**。
   if (isNullMoveAllowed && depth >= 3 && !inCheck && Number.isFinite(beta) && world.doubleMove === null) {
     const nullWorld: WorldState = {
       ...world,
@@ -1171,8 +1174,8 @@ function negamaxWorld(
 
     let score: number;
     if (!applied.turnEnded) {
-      // 手番継続 (S4c-1 は double_move 除外ゆえ未到達。S4c-1d で live 化。保険: 同 player
-      // 継続=符号反転なし)。
+      // 手番継続 (二手指しの 1 手目)。段6.5 で教材生成が root に doubleMove を渡すようになり
+      // **実際に到達する**。同じ player が続くので符号反転しない。
       score = negamaxWorld(
         childWorld, depth - 1, alpha, beta, variant, childDigest, ply + 1, true, ctx, childBoardHash,
       );
@@ -1322,8 +1325,13 @@ export function findBestMoveWorld(
   options: SearchOptions,
   variant: RuleVariant,
   ctx: SearchContext,
+  // Issue #245 教材多様化 段6.5: 二手指し継続中 (movesLeft 1 or 2) の状態。
+  // 非 null のとき root は move-only になり (getWorldLegalActions が card/draw を抑止)、
+  // 1 手目適用後は turnEnded=false で同じ手番が続く (negamaxWorld が符号反転せずに扱う)。
+  // production (route) は渡さないので従来どおり null = 完全不変。
+  doubleMove: KernelDoubleMove | null = null,
 ): RootSearchResult | null {
-  const rootWorld: WorldState = { gameState: state, cardState, doubleMove: null };
+  const rootWorld: WorldState = { gameState: state, cardState, doubleMove };
   let rootActions = getWorldLegalActions(rootWorld, variant, true); // expandCards=true (root)
   // S4b-2b: root にも selector を適用 (M/K 指定時のみ)。
   if (ctx.selectorM !== undefined || ctx.selectorK !== undefined) {
@@ -1335,7 +1343,7 @@ export function findBestMoveWorld(
   // かつ selector を bypass して常に候補化 = 強力カードを見落とさない)。getCardActions が use-condition
   // (マナ/王手中可否) を自前枝刈り済ゆえ、手札に dm 無ければ空 = 従来完全不変。dm の探索は専用ヘルパで
   // 行い negamaxWorld 本体は無改変 (中間ノードは move-only 維持)。
-  if (variant.id === "card-shogi") {
+  if (variant.id === "card-shogi" && doubleMove === null) {
     const dmAiState: AiTurnState = { gameState: state, cardState, doubleMove: null, isRoot: true };
     for (const ca of getCardActions(dmAiState, player, variant)) {
       if (ca.kind === "playCard" && ca.defId === "double_move") rootActions.push(ca);
@@ -1436,7 +1444,9 @@ export function findBestMoveWorld(
     for (const action of normalRoot) {
       if (shouldStop(ctx)) { stopped = true; break; }
 
-      // root の move/card/draw は turnEnded=true → 相手番へ反転 (通常パス)。
+      // root の move/card/draw は通常 turnEnded=true → 相手番へ反転。
+      // ★例外: 二手指しの 1 手目 (movesLeft=2) は turnEnded=false で**手番が自分のまま**続く。
+      //   ここで反転すると root の argmax が argmin になり、AI が最悪手を選ぶ (段6.5 M2 BLOCKER-1)。
       const applied = applyTurnAction(rootWorld, action, { spectatorMode: true });
       const childWorld = applied.world;
       const childDigest =
@@ -1444,13 +1454,19 @@ export function findBestMoveWorld(
           ? updateCardDigest(baseDigest, cardState, childWorld.cardState)
           : undefined;
       // S4c-2b: child board hash (root: 通常 move=incremental、card/draw=全量)。
+      // ★手番が続く子 (turnEnded=false) では updateHash の無条件な手番 flip が
+      //   パリティを汚すので全量計算する (searchDoubleMoveLineWorld の B-1 と同じ罠)。
       const childBoardHash: ZobristHash =
-        action.kind === "move" && !applied.boardChangedBeyondMove
+        action.kind === "move" && applied.turnEnded && !applied.boardChangedBeyondMove
           ? updateHash(rootBoardHash, state, action.move, childWorld.gameState)
           : computeHash(childWorld.gameState);
 
       let score: number;
-      if (i === 0) {
+      if (!applied.turnEnded) {
+        // 二手指し 1 手目: 同じ手番が続くので**符号も窓も反転しない**。
+        // beta=+Infinity ゆえ子の null-move は Number.isFinite ガードで自動 skip = 安全。
+        score = negamaxWorld(childWorld, depth - 1, alpha, POS_INF, variant, childDigest, 1, true, ctx, childBoardHash);
+      } else if (i === 0) {
         score = -negamaxWorld(childWorld, depth - 1, NEG_INF, -alpha, variant, childDigest, 1, true, ctx, childBoardHash);
       } else {
         // Issue #245 Stage 1b: late card/draw を浅く読む soft reduction。card は cardOrderKey 降順

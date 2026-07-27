@@ -25,7 +25,7 @@ import { CARD_SHOGI_VARIANT } from "../../variants/card-shogi";
 import { MANA_CAP } from "../../cards/definitions";
 import type { Board, GameState, Piece, Player } from "../../types";
 import type { CardGameState, CardInstance } from "../../cards/types";
-import type { WorldState } from "../../kernel/world-kernel";
+import type { KernelDoubleMove, WorldState } from "../../kernel/world-kernel";
 import type { TurnAction } from "../turn/types";
 
 function emptyBoard(): Board {
@@ -1118,4 +1118,67 @@ describe("S4c-1d: double_move (二手指し) の root 探索統合", () => {
       if (r!.doubleMoveMoves!.move2) expect(r!.doubleMoveMoves!.move2.captured).not.toBe("king");
     }
   }, 15000);
+});
+
+// Issue #245 教材多様化 段6.5: 二手指し継続中 (movesLeft=2) の root。
+//
+// ★このテストが無かったせいで「1 手目に最悪手を選ぶ」バグが流出した。
+// 二手指しの 1 手目は `applyTurnAction` が turnEnded=false で**手番を自分のまま**返すため、
+// root ループが通常どおり符号反転すると argmax が argmin になる。
+// 教材生成 (scripts/utils/diversified-chooser.ts) は root スコアをそのまま抽選に使うので、
+// ここが反転していると二手指しを含む棋譜が丸ごと壊れる。
+describe("二手指し継続中の root (段6.5)", () => {
+  // ほぼ空の盤に「タダで取れる後手の金」を置く。取るのが明確な最善。
+  const fixture = () => {
+    const place = (b: Board) => {
+      b[8][4] = pc("king", "sente");
+      b[8][0] = pc("rook", "sente");
+      b[0][4] = pc("king", "gote");
+      b[4][0] = pc("gold", "gote"); // 飛車で真っ直ぐ取れる (間は空)
+    };
+    return {
+      state: buildGameState(place, "sente"),
+      cs: cardState({ mana: { sente: 12, gote: 12 } }),
+    };
+  };
+  const isGoldCapture = (a: TurnAction | null) =>
+    a?.kind === "move" && a.move.to.row === 4 && a.move.to.col === 0;
+
+  // kernel が実際に作る形 (遅延消費のため使用カードとコストを保持する)。
+  const dmState = (movesLeft: 1 | 2): KernelDoubleMove => ({
+    active: "sente",
+    movesLeft,
+    cardInstance: { instanceId: "s-dm", defId: "double_move" },
+    cardCost: 5,
+  });
+
+  const bestActionWith = (doubleMove: KernelDoubleMove | null) => {
+    const { state, cs } = fixture();
+    return findBestMoveWithStats(state, "sente", "advanced", CARD_SHOGI_VARIANT, {
+      cardState: cs,
+      useKernelSearch: true,
+      useTurnActionSearch: true,
+      collectRootActionScores: true,
+      doubleMove,
+      maxDepth: 3,
+    });
+  };
+
+  it("継続中でなければタダ取りを選ぶ (基準)", () => {
+    expect(isGoldCapture(bestActionWith(null).action)).toBe(true);
+  });
+
+  it("★二手指しの 1 手目 (movesLeft=2) でもタダ取りを選ぶ (符号が反転しない)", () => {
+    const r = bestActionWith(dmState(2));
+    expect(isGoldCapture(r.action)).toBe(true);
+    // root スコアも手番側視点であること (取る手が最高スコア)。
+    const scores = r.rootActionScores ?? [];
+    expect(scores.length).toBeGreaterThan(1);
+    const top = scores.reduce((m, a) => (a.score > m.score ? a : m), scores[0]);
+    expect(isGoldCapture(top.action)).toBe(true);
+  });
+
+  it("二手指しの 2 手目 (movesLeft=1) は通常どおり (手番が相手へ渡る)", () => {
+    expect(isGoldCapture(bestActionWith(dmState(1)).action)).toBe(true);
+  });
 });

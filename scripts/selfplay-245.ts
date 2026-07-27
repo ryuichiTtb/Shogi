@@ -15,6 +15,7 @@
 //   npx tsx scripts/selfplay-245.ts [games]
 //   SELFPLAY_GAMES=20 SELFPLAY_SENTE=expert SELFPLAY_GOTE=expert \
 //   SELFPLAY_OUT=docs/training-data/selfplay.jsonl npx tsx scripts/selfplay-245.ts
+//   SELFPLAY_DECK=F ... デッキ構成を 1 種に固定して検証する (A〜F)
 
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -65,7 +66,7 @@ const SEEN_FILE = process.env.SELFPLAY_SEEN ?? "";
 // (計画書 §1.1)。encoder は手札を種類別に符号化するので、出てこないカードの次元は
 // 常に 0 = そのカードについて何も学べない。局ごとにデッキ構成を抽選して穴を埋める。
 //
-// double_move は探索が未対応 (段6.5) なので入れない。mana_up は deprecated。
+// mana_up は deprecated なので入れない。double_move は段6.5 で教材対応したので入れる。
 // 各構成 12 枚で揃える (初期手札 2 枚 + 山札 10 枚 = 従来と同条件)。
 const DECK_PRESETS = [
   // A: 従来の構成 (既存教材との連続性を保つため残す)
@@ -99,9 +100,26 @@ const DECK_PRESETS = [
     { defId: "check_break" as const, count: 4 },
     { defId: "no_promote" as const, count: 4 },
   ],
+  // F: 二手指し入り (段6.5)。1 ターンに 2 手指せるので局面の進み方が根本的に変わる。
+  [
+    { defId: "double_move" as const, count: 4 },
+    { defId: "pawn_return" as const, count: 4 },
+    { defId: "double_pawn" as const, count: 4 },
+  ],
 ];
-// SELFPLAY_DECK_POOL=0 で従来の単一デッキに固定 (A/B 対照・再現用)。
+// SELFPLAY_DECK_POOL=0 で従来の単一デッキ (A) に固定 (A/B 対照・再現用)。
 const USE_DECK_POOL = (process.env.SELFPLAY_DECK_POOL ?? "1") === "1";
+// 構成には A から順に記号を振る (ログ表示と SELFPLAY_DECK の指定に使う)。
+const DECK_LABEL_BASE = "A".charCodeAt(0);
+const deckLabel = (index: number) => String.fromCharCode(DECK_LABEL_BASE + index);
+// 特定の構成だけで回したいとき (検証用)。"A"〜 を指定するとその 1 種に固定する。
+const FORCED_DECK = (process.env.SELFPLAY_DECK ?? "").toUpperCase();
+const FORCED_DECK_INDEX = FORCED_DECK ? FORCED_DECK.charCodeAt(0) - DECK_LABEL_BASE : -1;
+if (FORCED_DECK && (FORCED_DECK_INDEX < 0 || FORCED_DECK_INDEX >= DECK_PRESETS.length)) {
+  throw new Error(
+    `SELFPLAY_DECK は ${deckLabel(0)}〜${deckLabel(DECK_PRESETS.length - 1)} で指定してください (受け取った値: ${FORCED_DECK})`,
+  );
+}
 
 function difficultyFor(player: Player): Difficulty {
   return player === "sente" ? SENTE : GOTE;
@@ -151,7 +169,12 @@ function main() {
   const deckUsage = new Map<number, number>();
   for (let i = 0; i < GAMES; i++) {
     // 局ごとにデッキを抽選 (seed 固定なので再生成できる)。
-    const deckIndex = USE_DECK_POOL ? Math.floor(deckRng() * DECK_PRESETS.length) : 0;
+    const deckIndex =
+      FORCED_DECK_INDEX >= 0
+        ? FORCED_DECK_INDEX
+        : USE_DECK_POOL
+          ? Math.floor(deckRng() * DECK_PRESETS.length)
+          : 0;
     deckUsage.set(deckIndex, (deckUsage.get(deckIndex) ?? 0) + 1);
     const rec = playOneGame({
       chooseAction: aiChooser,
@@ -172,11 +195,13 @@ function main() {
 
   console.log(`\nDone. ${GAMES} games, ${totalSamples} samples -> ${OUT}`);
   console.log(`winners: sente=${winners.sente} gote=${winners.gote} draw=${winners.draw}`);
-  if (USE_DECK_POOL) {
-    const used = [...deckUsage].sort((a, b) => a[0] - b[0]).map(([i, n]) => `${"ABCDE"[i]}:${n}`).join(" ");
+  if (FORCED_DECK_INDEX >= 0) {
+    console.log(`デッキ構成: ${deckLabel(FORCED_DECK_INDEX)} に固定 (SELFPLAY_DECK)`);
+  } else if (USE_DECK_POOL) {
+    const used = [...deckUsage].sort((a, b) => a[0] - b[0]).map(([i, n]) => `${deckLabel(i)}:${n}`).join(" ");
     console.log(`デッキ構成の内訳: ${used} (全 ${DECK_PRESETS.length} 種)`);
   } else {
-    console.log("デッキ構成: 従来の単一デッキに固定 (SELFPLAY_DECK_POOL=0)");
+    console.log(`デッキ構成: ${deckLabel(0)} に固定 (SELFPLAY_DECK_POOL=0)`);
   }
   for (const line of formatChooserStats(stats, DIVERSIFY)) console.log(line);
   if (DIVERSIFY) {

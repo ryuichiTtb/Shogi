@@ -1,5 +1,6 @@
 import type { Difficulty, GameState, Move, Player, RuleVariant } from "../types";
 import type { CardGameState } from "../cards/types";
+import type { KernelDoubleMove } from "../kernel/world-kernel";
 import { STANDARD_VARIANT } from "../variants/standard";
 import {
   findBestMove,
@@ -184,6 +185,12 @@ export interface FindBestMoveOptions {
   // 未指定時 false (= bolt-on 経路 = flag OFF、S4d 削除まで rollback/test/bench 用に残置)。
   // route.ts が card-shogi で true を渡し、カードを move と同じ深さで読む production 経路にする。
   useTurnActionSearch?: boolean;
+  // Issue #245 教材多様化 段6.5: 二手指し継続中の状態を探索へ伝える。
+  // ★これを渡さないと、engine は「通常のターン」と誤認して playCard / draw を返しうる。
+  //   その手を適用すると kernel が doubleMove:null を返すので**二手指し状態が黙って消える**
+  //   (教材にも「二手指しの途中」が通常局面として混ざる)。
+  //   production の route は 1-response 方式で engine 側が 2 手をまとめて返すため渡さない。
+  doubleMove?: KernelDoubleMove | null;
   // Issue #245 教材多様化 段4: root の全アクションと深読みスコアを結果へ載せる (既定 false)。
   // ★オプトインにするのは、route が engine の戻り値を `NextResponse.json(result)` で
   //   そのまま返すため。既定で載せると Preview の API 応答に不要なデータが混ざる。
@@ -336,6 +343,8 @@ export function findBestMoveWithStats(
     ctx,
     // Issue #235 S4c-1b: worldPathActive 時のみ cardState を渡し findBestMoveWorld へ分岐。
     worldPathActive ? options.cardState : undefined,
+    // Issue #245 段6.5: 二手指し継続中はその状態も渡す (未指定 = production は従来どおり null)。
+    worldPathActive ? options.doubleMove : undefined,
   );
 
   // depth 1 すら完了しなかった場合の server fallback (合法手の先頭を返す)。

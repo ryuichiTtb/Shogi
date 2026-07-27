@@ -47,8 +47,8 @@ export function buildTrainingSample(
   events: readonly GameEvent[],
   plyIndex: number,
 ): TrainingSampleData {
-  const { gameState, cardState } = worldBeforeAction;
-  return {
+  const { gameState, cardState, doubleMove } = worldBeforeAction;
+  const sample: TrainingSampleData = {
     plyIndex,
     moveCount: gameState.moveCount,
     sideToMove: gameState.currentPlayer,
@@ -57,4 +57,7 @@ export function buildTrainingSample(
     action,
     events: stripEventTimestamps(events),
   };
+  // 二手指し継続中だけ刻む (通常ターンでは付けない = 既存サンプルと同じ形のまま)。
+  if (doubleMove) sample.doubleMoveMovesLeft = doubleMove.movesLeft;
+  return sample;
 }

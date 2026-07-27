@@ -414,7 +414,7 @@ encoder には手番ビットと自他の手札 (defId 別枚数) が両方あ�
 自玉 8 近傍の利き計算を伴うのでコスト増の可能性) / 5 局試行で該当カードが実際に手札・盤上に現れ、
 encoder の該当次元が非ゼロになること。
 
-### 段 6.5: double_move の教材対応 (1〜2 日、ユーザー決定で追加)
+### 段 6.5: double_move の教材対応 (1〜2 日、ユーザー決定で追加) — 実装済み
 **現状の破壊**: selfplay の chooser は `world.doubleMove` を engine に渡していない
 (`FindBestMoveOptions` に口が無い)。二手指し継続中 (`turnEnded=false`, `movesLeft=2`) に再度
 呼ばれた engine が通常ターンと誤認して playCard/draw を返すと、`applyPlayCardAction` が
@@ -426,6 +426,39 @@ doubleMove を保存しないので、1 手目のサンプルが通常局面と�
 - encoder に二手指し継続フラグを足すかは別途判断 (featureDim 変更 = 既存モデルと非互換)
 
 **検証**: 二手指しを含むデッキで 10 局生成し、二手指しが黙って消える棋譜が 0 件であること。
+
+#### 段 6.5 実装メモ
+
+| 対象 | 内容 |
+|---|---|
+| `FindBestMoveOptions.doubleMove?` | 二手指し継続中の状態を探索へ伝える。`findBestMove` → `findBestMoveWorld` の root world へ渡す。**production の route は渡さない** (1-response 方式で engine が 2 手をまとめて返すため) = 従来どおり null で完全不変 |
+| `findBestMoveWorld` | root world が継続状態を持つと `getWorldLegalActions` が card/draw を抑止して move-only になる。継続中は root へ double_move 候補を足さない (二手指し中に更に二手指しはできない)。**root ループにも `!turnEnded` 分岐を入れた** (下記 ★) |
+| `TrainingSampleData.doubleMoveMovesLeft?` | 継続中だけ「あと何手指せるか」を刻む。**盤面だけでは二手指しの 1 手目か通常局面かを区別できない**ので、これが唯一の手がかり。通常ターンでは付けない (既存サンプルと同じ形) |
+| chooser | `world.doubleMove` を engine へ渡す。渡さないと engine が通常ターンと誤認して playCard/draw を返し、適用時に kernel が `doubleMove:null` を返して**二手指し状態が黙って消える** |
+| デッキ | プールに構成 F (double_move 4 + pawn_return 4 + double_pawn 4) を追加。`SELFPLAY_DECK=A〜F` で 1 種に固定できる (検証用) |
+
+**★M2 が見つけた BLOCKER (符号反転)**: `findBestMoveWorld` の root ループは
+`applied.turnEnded` を見ずに**常に `-negamaxWorld(...)`** していた。二手指しの 1 手目は
+`turnEnded=false` で**手番が自分のまま**続くため、ここで反転すると root の argmax が argmin になり、
+**AI が 1 手目に最悪手を選ぶ**。実測で「2 手目に詰む最強手」が最下位 (12/12、score −89996) に落ちていた。
+中間ノードには `!turnEnded` 分岐があったが root には無く、「状態が消えないこと」しか検証していなかった
+ため素通りしていた。root にも同じ分岐を入れて修正
+(あわせて子の boardHash も全量計算にした。`updateHash` は手番を無条件に flip するので、
+手番が続く子ではパリティが汚れる)。
+
+**検証結果**: 構成 F で 5 局・463 決定 → **二手指し発動 34 回 / 状態が消えた棋譜 0 件**、
+発動直後 2 手の残り手数は必ず `2 → 1`。単体テスト 6 件で固定 (教材側 3 件 = 継続の進み方 /
+通常ターンには刻まない / 盤面には情報が無い、**探索側 3 件** = 継続中でもタダ取りを選ぶ・
+root スコアが手番側視点である・2 手目は通常どおり)。
+探索側テストは**修正を外すと実際に落ちる**ことを確認済み (これが無かったのが流出原因)。
+
+**encoder への継続フラグ追加は見送り**。`featureDim` が変わると現在 Preview に載っているモデルと
+非互換になる。サンプルには記録済みなので、将来 encoder を変える判断をしたときに**教材を作り直さずに**
+使える (順序として安全なほう)。
+
+**★段2 のラベル探索は double_move を展開しない** (`getLabelCardActions` → `getWorldLegalActions` が
+S4c-1 の方針で除外)。二手指しの局面自体は教材に入るが、「二手指しを使うと得か」はラベルに現れない。
+必要になったらラベル側の別段で対応する。
 
 ### 段 7: 本生成 → clean → ラベル → encode → 学習 → 検証
 - 生成 (通常 + 分岐、ワーカー間で SeenIndex 共有)
