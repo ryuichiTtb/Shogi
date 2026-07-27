@@ -23,6 +23,7 @@ import { FEATURE_DIM } from "@/lib/shogi/ai/learned/encoder";
 import { gameToBootstrapRows, gameToSparseRows } from "@/lib/shogi/ai/learned/feature-export";
 import { parseTrainingRecordLine } from "@/lib/shogi/training/jsonl";
 
+import { BRANCH_SOURCE_PREFIX, familyIdFor } from "./utils/corpus-family";
 import { recipeKey } from "./utils/label-identity";
 
 const IN = (process.env.ENCODE_IN ?? "local-data/training/human-245.jsonl")
@@ -56,7 +57,11 @@ function main() {
   let games = 0;
   let samples = 0;
   let skippedGames = 0; // winner=null 等で行ゼロの試合
-  let gameIndex = 0; // 出力試合への連番 (試合単位 train/val 分割キー)、全入力ファイル横断で一意。
+  // train/val 分割のキー。**試合単位ではなく family (同じ出どころのまとまり) 単位**に振る。
+  // 分岐棋譜は親と分岐点まで同じ道を通るので、別々に採番すると片方が val に入り、
+  // 「学習で見たのとほぼ同じ局面」で検証してしまう (val リーク)。
+  const familyIndex = new Map<string, number>();
+  let branchRows = 0; // 分岐棋譜の行数 (family がどれだけ効いているかの目安)
   const labelCounts: Record<string, number> = { "1": 0, "0": 0, "-1": 0 }; // outcome 用
   // bootstrap (連続ラベル [-1,1]) 用の統計。labelCounts は bucket が無数になるため使わない。
   let labelSum = 0;
@@ -92,17 +97,22 @@ function main() {
           );
         }
       }
-      // gameIndex は「行を生成した試合」へ一意採番 (試合単位 train/val 分割のキー)。
-      // 中断などで空配列の試合には採番せず、出力試合に連番を振る。
+      // family 鍵 (clean が刻んだもの。無ければ内容から導く) ごとに連番を振る。
+      const family = familyIdFor(record);
+      let groupIndex = familyIndex.get(family);
+      if (groupIndex === undefined) {
+        groupIndex = familyIndex.size;
+        familyIndex.set(family, groupIndex);
+      }
       const rows = BOOTSTRAP
-        ? gameToBootstrapRows(record, BOOTSTRAP_PARAMS, gameIndex)
-        : gameToSparseRows(record, gameIndex);
+        ? gameToBootstrapRows(record, BOOTSTRAP_PARAMS, groupIndex)
+        : gameToSparseRows(record, groupIndex);
       games += 1;
       if (rows.length === 0) {
         skippedGames += 1;
         continue;
       }
-      gameIndex += 1;
+      if (record.game.sourceGameId?.startsWith(BRANCH_SOURCE_PREFIX)) branchRows += rows.length;
       if (BOOTSTRAP) {
         // 採点率は「実際に学習へ渡る行」だけで数える (除外された試合を混ぜると率が意味を失う)。
         // searchScore が無い/null のサンプルは outcome のみのラベルへ静かに降格するため、
@@ -156,13 +166,27 @@ function main() {
         searchScoreCoverage: { scored, unscored, ratio: coverage },
       }
     : { mode: "outcome", labelCounts };
-  const meta = { featureDim: FEATURE_DIM, sampleCount: samples, games, skippedGames, sources, ...labelStats };
+  const meta = {
+    featureDim: FEATURE_DIM,
+    sampleCount: samples,
+    games,
+    skippedGames,
+    // train/val はこの単位で分ける。games より小さければ分岐棋譜が親とまとまっている。
+    families: familyIndex.size,
+    branchRows,
+    sources,
+    ...labelStats,
+  };
   // 全検査を通ったのでここで初めて本番の成果物にする (特徴 → meta の順。meta が新しければ
   // 特徴も新しい、という関係を保つ)。
   renameSync(TMP, OUT);
   writeFileSync(`${OUT}.meta.json`, JSON.stringify(meta, null, 2));
 
   console.log(`\nDone. ${games} 試合 (除外 ${skippedGames}) / ${samples} サンプル -> ${OUT}`);
+  console.log(
+    `  train/val の分割単位: ${familyIndex.size} family` +
+      (branchRows > 0 ? ` (うち分岐棋譜由来 ${branchRows} 行は親と同じ組に入る)` : ""),
+  );
   console.log(`  featureDim: ${FEATURE_DIM}`);
   if (BOOTSTRAP) {
     console.log(`  bootstrap ラベル (α=${BOOTSTRAP_PARAMS.alpha}): min=${labelMin.toFixed(3)} max=${labelMax.toFixed(3)} mean=${(samples ? labelSum / samples : 0).toFixed(3)}`);

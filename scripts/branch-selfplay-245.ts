@@ -48,6 +48,7 @@ import { getWorldLegalActions } from "@/lib/shogi/ai/search";
 import { CARD_SHOGI_VARIANT } from "@/lib/shogi/variants/card-shogi";
 import type { Difficulty, Player } from "@/lib/shogi/types";
 
+import { BRANCH_SOURCE_PREFIX, contentFamilyKey } from "./utils/corpus-family";
 import {
   createChooserStats,
   createDiversifiedChooser,
@@ -177,26 +178,6 @@ function collectCandidates(records: TrainingGameRecord[]): Record<Phase, Candida
   return byPhase;
 }
 
-/**
- * 親対局の安定識別子。入力ファイルの並び順に依存しないよう、開始局面 + 行動列から作る。
- * (`TrainingGameData` に ID が無いので内容から導く。段7 の train/val 分割で
- *  同じ親から出た枝を同一グループへ寄せるために使う。)
- */
-function parentKey(record: TrainingGameRecord): string {
-  const seed = JSON.stringify([
-    record.samples[0]?.boardState,
-    record.samples[0]?.cardState,
-    record.samples.map((s) => s.action),
-  ]);
-  let h1 = 0x811c9dc5;
-  let h2 = 0x9e3779b9;
-  for (let i = 0; i < seed.length; i++) {
-    h1 = Math.imul(h1 ^ seed.charCodeAt(i), 0x01000193) >>> 0;
-    h2 = Math.imul(h2 ^ seed.charCodeAt(seed.length - 1 - i), 0x01000193) >>> 0;
-  }
-  return h1.toString(16).padStart(8, "0") + h2.toString(16).padStart(8, "0");
-}
-
 /** Fisher-Yates (seed 固定)。 */
 function shuffle<T>(items: T[]): T[] {
   const a = [...items];
@@ -306,6 +287,9 @@ function main() {
       actionKey(cand.record.samples[cand.ply].action),
     );
 
+    // 親の鍵は**間引かれていない元の棋譜**から作る (全行動列を使うため、
+    // clean などでサンプルを削った後の棋譜からでは同じ値にならない)。
+    const parent = contentFamilyKey(cand.record);
     const rec = playOneGame({
       chooseAction: aiChooser,
       deckSpec: deckSpecOf(cand.record) as never,
@@ -315,7 +299,9 @@ function main() {
       // 分岐元をたどれるようにする (段7 で同じ親から出た枝を同一グループへ寄せ、
       // train/val 分割のリークを防ぐため)。★入力ファイルの構成や順序が変わっても
       // 同じ親を指すよう、行番号ではなく**親の内容**から作る。
-      sourceGameId: `branch:${parentKey(cand.record)}:${cand.ply}`,
+      sourceGameId: `${BRANCH_SOURCE_PREFIX}${parent}:${cand.ply}`,
+      // ★枝は親と同じ family に属する (train/val をこの単位で分けて val リークを防ぐ)。
+      familyId: parent,
       initialWorld: world,
       maxAdditionalMoves: MAX_ADDITIONAL,
     });

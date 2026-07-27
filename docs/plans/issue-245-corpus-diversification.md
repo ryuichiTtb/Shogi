@@ -464,8 +464,14 @@ S4c-1 の方針で除外)。二手指しの局面自体は教材に入るが、�
 - 生成 (通常 + 分岐、ワーカー間で SeenIndex 共有)
 - **clean をラベルの前に**回す (3 フィルタとも searchScore 非依存 = 約 28% のラベル代を先に落とす)
 - 新レシピで一括ラベル (取り合い方式 + done-keys)。**旧 229 局も新レシピで付け直す** (ユーザー決定)
-- encode: 分岐は `sourceGameId` (`branch:<親ハッシュ>:<ply>`) で同じ親の枝を同一グループへ寄せ、
+- encode: 分岐は `familyId` (= 親の内容ハッシュ) で同じ親の枝を同一グループへ寄せ、
   train/val 分割のリークを防ぐ
+
+  **family の受け渡し** (親と枝が別の組に散ると、検証に「学習で見たのとほぼ同じ局面」が混ざる):
+  1. 分岐生成が枝へ `familyId = 親の内容ハッシュ` を刻む (`sourceGameId` にも同じ値を残す)
+  2. clean が**サンプルを間引く前に** `familyId` を刻む (鍵は全行動列から導くので、
+     間引いた後に計算すると枝が持つ親の鍵と一致しない)
+  3. encode が `familyId` 単位で連番を振り、train/val はその単位で分ける
 - train → **勝率 (control 比) + カード行動診断 + 実機**で判定 (**val MSE では判断しない**)
 
 #### 段 7 の手順書 (実行順に。※印は数時間〜数日かかる)
@@ -485,6 +491,8 @@ BRANCH_IN=local-data/training/snap-selfplay.jsonl,local-data/training/gen-245.pa
   BRANCH_OUT=local-data/training/branch-245.jsonl BRANCH_COUNT=200 \
   SELFPLAY_SEEN=local-data/training/seen-index.txt npx tsx scripts/branch-selfplay-245.ts
 #    ★分岐の出力を再び BRANCH_IN に入れることはできない (再生の突合が必ず外れる)
+#    ★分岐生成は clean の**前**の生棋譜に回す (clean はサンプルを間引くので、
+#      間引かれた棋譜では ply0 からの再生が成立しない)
 
 # 3) clean を**ラベルの前に**回す (千日手除外 + 重複除去。ラベル代を約 28% 節約)
 CLEAN_IN=<生成物をカンマ区切りで列挙> CLEAN_OUT=local-data/training/corpus-clean.jsonl \

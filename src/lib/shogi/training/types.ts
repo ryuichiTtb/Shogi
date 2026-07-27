@@ -82,6 +82,12 @@ export interface TrainingGameData {
   // 由来の参照 (任意)。human 時は元 Game.id、分岐生成 (段5) では
   // `branch:<親の内容ハッシュ>:<分岐 ply>` を入れて親をたどれるようにする。
   sourceGameId?: string | null;
+  // 同じ出どころの棋譜をまとめる鍵 (教材多様化 段7)。親と枝、同じ親から出た枝どうしは
+  // 分岐点まで同じ道を通るので、train/val へ散らすと検証に「学習で見たのとほぼ同じ局面」が
+  // 混ざる (val リーク)。この鍵ごと丸ごと振り分けて防ぐ。
+  // ★clean のようにサンプルを間引く工程は、間引く**前**にこれを刻むこと
+  //   (鍵は全行動列から導くため、間引いた後では親と同じ値にならない)。
+  familyId?: string | null;
   // ラベル生成レシピの刻印 (教材多様化 段1)。ラベル付けバッチ (scripts/label-search-score-245.ts) が
   // 出力時に付ける。生データ・DB 由来のレコードには無い (undefined = "legacy" 扱い)。
   labelMeta?: LabelMeta | null;

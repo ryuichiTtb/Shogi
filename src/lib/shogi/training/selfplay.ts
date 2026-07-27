@@ -42,6 +42,8 @@ export interface PlayOneGameOptions {
   // 由来の識別子。分岐生成では「どの対局のどの手から枝分かれしたか」を残し、
   // 段7 の train/val 分割で同じ親から出た枝を同一グループとして扱えるようにする。
   sourceGameId?: string | null;
+  // 同じ出どころの棋譜をまとめる鍵 (段7)。分岐生成が親の鍵をそのまま渡す。
+  familyId?: string | null;
 }
 
 // 1 局を最後まで自己対戦し、per-decision サンプル列 + 勝敗ラベルを返す。
@@ -97,6 +99,7 @@ export function playOneGame(opts: PlayOneGameOptions): TrainingGameRecord {
     moveCount: world.gameState.moveCount,
     engineVersion: opts.engineVersion ?? null,
     sourceGameId: opts.sourceGameId ?? null,
+    familyId: opts.familyId ?? null,
   };
 
   return { game, samples };

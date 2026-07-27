@@ -34,6 +34,7 @@ import { sampleToSparseRow } from "@/lib/shogi/ai/learned/feature-export";
 import { parseTrainingRecordLine, trainingRecordToJsonl } from "@/lib/shogi/training/jsonl";
 import type { TrainingGameRecord } from "@/lib/shogi/training/types";
 
+import { familyIdFor } from "./utils/corpus-family";
 import { recipeKey } from "./utils/label-identity";
 
 const IN = (process.env.CLEAN_IN ?? "local-data/training/labeled-348-D5.jsonl")
@@ -119,6 +120,11 @@ function main() {
       }
       seenGameHashes.add(h);
     }
+
+    // ★間引く**前**に family の鍵を刻む (段7)。鍵は全行動列から導くため、③ でサンプルを
+    //   削った後に計算すると、同じ対局から生えた分岐棋譜が持つ親の鍵と一致しなくなる。
+    //   一致しないと親と枝が train / val に散り、検証に「学習で見たのとほぼ同じ局面」が混ざる。
+    record.game.familyId = familyIdFor(record);
 
     // ③ エンコーダから見て同一入力のサンプルを 1 件に畳む。
     if (DEDUP_POSITIONS) {
