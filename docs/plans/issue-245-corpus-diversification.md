@@ -533,6 +533,13 @@ CLEAN_IN=local-data/training/snap-selfplay.jsonl,local-data/training/gen-245.par
 # 4) ※ラベル付け (深さ4・カード展開あり)。8 ワーカーの取り合い方式
 #    local-data/run-label-claim.sh (入力・出力名を差し替えられる版)
 #    進捗: npm run label:progress  (LABEL_WATCH=60 でダッシュボード)
+#    ★本番前に必ず小さな入力で通し検証する (3 試合 × 3 局面 / DEPTH=2 なら 1 分):
+#      LABEL_IN_FILE=... TAG=probe-claim WORKERS=2 DEPTH=2 bash local-data/run-label-claim.sh
+#      実際にこれで「初回実行 (既済成果ゼロ) では既済一覧が作られず全ワーカーが即死する」
+#      不具合を見つけた。ログは >> 追記・wait は正常に返るので、気付かないまま
+#      「1 日回したのに 0 件」になりうる。ランチャ側で
+#        (a) 既済ゼロなら空の一覧を置く (b) 採点 0 件なら止まる
+#      を入れて対処済み。
 
 # 5) ワーカー出力を結合 (重複排除・レシピ混在チェック)
 MERGE_IN=<part を列挙> MERGE_OUT=local-data/training/labeled-new.jsonl \
