@@ -1,0 +1,84 @@
+model = "gpt-5.6-sol"
+model_reasoning_effort = "max"
+personality = "pragmatic"
+approval_policy = "never"
+sandbox_mode = "workspace-write"
+service_tier = "priority"
+
+[windows]
+sandbox = "elevated"
+
+[projects.'C:\Users\73018297\workspace\fira_vercel']
+trust_level = "trusted"
+
+[sandbox_workspace_write]
+network_access = true
+
+[marketplaces.openai-bundled]
+last_updated = "2026-07-31T15:29:39Z"
+source_type = "local"
+source = '\\?\C:\Users\73018297\.codex\.tmp\bundled-marketplaces\openai-bundled'
+
+[apps.connector_76869538009648d5b282a4bb21c3d157.tools.github_update_issue]
+approval_mode = "approve"
+
+[apps.connector_76869538009648d5b282a4bb21c3d157.tools.github_update_ref]
+approval_mode = "approve"
+
+[apps.connector_76869538009648d5b282a4bb21c3d157.tools."github.create_issue"]
+approval_mode = "approve"
+
+[apps.connector_76869538009648d5b282a4bb21c3d157.tools."github.update_issue"]
+approval_mode = "approve"
+
+[apps.connector_76869538009648d5b282a4bb21c3d157.tools."github.update_issue_comment"]
+approval_mode = "approve"
+
+[desktop]
+appearanceLightCodeThemeId = "codex"
+codeFontSize = 14
+usePointerCursors = true
+reviewDelivery = "inline"
+localeOverride = "ja-JP"
+integratedTerminalShell = "gitBash"
+default-service-tier = "priority"
+sansFontSize = 16
+followUpQueueMode = "queue"
+selected-avatar-id = "null-signal"
+avatar-overlay-mascot-width-px = 82
+conversationDetailMode = "STEPS_COMMANDS"
+defaultTerminalLocation = "bottom"
+reduced-motion-preference = "system"
+enabled-reasoning-efforts = ["low", "medium", "high", "xhigh", "max", "ultra"]
+show-ultra-in-model-picker-slider = false
+
+[desktop.appearanceLightChromeTheme]
+accent = "#0169cc"
+contrast = 100
+ink = "#0d0d0d"
+opaqueWindows = false
+surface = "#ffffff"
+
+[desktop.appearanceLightChromeTheme.fonts]
+
+[desktop.appearanceLightChromeTheme.semanticColors]
+diffAdded = "#00a240"
+diffRemoved = "#e02e2a"
+skill = "#751ed9"
+
+[desktop.appearanceDarkChromeTheme]
+accent = "#000aff"
+contrast = 100
+ink = "#ffffff"
+opaqueWindows = false
+surface = "#000000"
+
+[desktop.appearanceDarkChromeTheme.fonts]
+
+[desktop.appearanceDarkChromeTheme.semanticColors]
+diffAdded = "#40c977"
+diffRemoved = "#fa423e"
+skill = "#ad7bf9"
+
+[plugins."github@openai-curated"]
+enabled = true

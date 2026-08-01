@@ -1,0 +1,59 @@
+- 正確・緻密に対応する。
+- 丁寧でわかりやすく、初学者にも伝わる説明にする。
+- 背景・意図・理由は必要に応じて簡潔に補足する。
+- 不明点や認識齟齬がありそうな場合は、積極的に Web 検索して最新情報と情報源を確認する。
+- 専門用語は、必要に応じてやさしい表現を添える。
+- 図解やフローが有効な場合は、ユースケース図・シーケンス図などで具体化する。
+- 不確かなことは断定しない。
+
+# Git
+
+- コミットメッセージ、Issue 本文、PR コメント、レビューコメントは日本語で記載する。
+- コメント類には、何を・なぜ・どう改善したかを簡潔に含める。
+
+## 作業場所
+
+- 実装・commit・push は原則として通常 repo `C:\Users\73018297\workspace\fira_vercel` で行う。
+- 一時 clone は、通常 repo の `.git` に書き込めない場合だけ非常手段として使う。
+- 一時 clone を使う場合は、事前に理由をユーザーへ明示する。
+- 一時 clone の commit は通常 repo から見えないため、path・branch・commit SHA を必ず明示する。
+- 一時 clone では SSH agent / SSH 鍵 / GitHub CLI / Git Credential Manager の認証情報を取得できず、push に失敗する場合がある。
+- 一時 clone で commit した場合でも、可能になった時点で通常 repo に同じ差分を commit し直すことを優先する。
+- 一時 clone が不要になったら、remote 反映済みまたは通常 repo への commit 済みを確認してから削除候補として扱う。
+
+## リモート Git 操作
+
+- push / branch 更新 / PR 作成など、リモートへ影響する操作の前に必ず確認する。
+
+```powershell
+git status --short --branch
+git log -1 --oneline
+git remote -v
+git rev-parse --abbrev-ref HEAD
+git rev-parse HEAD
+```
+
+- push 前に、作業場所、対象 branch、HEAD commit、作業ツリー状態を明示する。
+- 未コミット差分がある場合は、勝手に含めない。
+- remote 側に新しい commit がある可能性がある場合は、先に差分確認する。
+- branch 名に `#` など shell で特別扱いされる文字が含まれる場合は quote し、必要に応じて `HEAD:refs/heads/<branch>` で push する。
+
+```powershell
+git push origin "HEAD:refs/heads/feature/#319"
+```
+
+- `port 22 timeout` はネットワーク経路の問題として扱う。
+- `Permission denied (publickey)` は SSH 鍵・ssh-agent・GitHub 登録鍵の問題として扱う。
+- PowerShell で SSH ProxyCommand が失敗する場合は、config を変えず Git Bash 経由を試す。
+- Git Bash 経由では、`SHELL=/usr/bin/sh`、`SSH_AUTH_SOCK`、必要に応じて `GIT_SSH_COMMAND` を明示する。
+- SSH 鍵や GitHub 認証情報へアクセスできない場合は、`whoami`、`USERPROFILE`、`SSH_AUTH_SOCK`、`~/.ssh`、`ssh-add -l` を確認し、必要なら Full Access 切り替えが必要な可能性を説明する。
+- push 成功は `git status` だけで判断せず、remote branch が対象 commit SHA を指していることを確認する。
+  - `git ls-remote`
+  - GitHub connector の compare / fetch
+  - `gh api`
+- remote branch 削除、force push、履歴書き換え、remote ref の強制更新は、ユーザーの明示指示なしに行わない。
+- `.github/workflows/**` を含む commit の HTTPS push が `workflow scope` 不足で拒否された場合は、認証トークン権限不足として扱う。commit object が GitHub 側に存在し fast-forward 可能な場合のみ、GitHub connector による `force=false` の ref 更新を検討する。
+- push 後は、branch、commit SHA、push 方法、remote 確認結果、残注意点を簡潔に報告する。
+
+# 補足
+私はこのリポジトリのコードオーナーです。コードオーナー確認が必要な変更は、私の明示的な依頼または承認があれば確認済みとして扱ってください。
